@@ -57,40 +57,58 @@ initWebSocket(server);
 
 // Import db to ensure schema is created
 import db from './db.js';
-import { getIO as getSocketIO } from './ws.js';
+import { getIO as getSocketIO, hasActiveSocket } from './ws.js';
 
-// Staleness check: mark agents as idle if no activity for 2 minutes
-const STALE_THRESHOLD_MS = 2 * 60 * 1000;
+// Staleness check: working → idle after 2min, idle → offline after 5min
+const IDLE_THRESHOLD_MS = 2 * 60 * 1000;
+const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
+
+function emitAgentUpdate(row: Record<string, unknown>) {
+  const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
+  getSocketIO().emit('agent_updated', {
+    id: row.id as string,
+    name: row.name as string,
+    machine: row.machine as string,
+    repoPath: (row.repo_path as string) ?? '',
+    repoName: (row.repo_name as string) ?? '',
+    branch: (row.branch as string) ?? '',
+    currentTask: (row.current_task as string) ?? '',
+    status: (row.status as string ?? 'idle') as import('./types.js').Agent['status'],
+    trustMode: mode === 'trust',
+    mode,
+    lastSeen: (row.last_seen as string) ?? '',
+    sessionId: (row.session_id as string) ?? '',
+    lastMessage: (row.last_message as string) ?? '',
+  });
+}
+
 setInterval(() => {
-  const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
-  const stale = db.prepare(
-    "SELECT id FROM agents WHERE status = 'working' AND last_seen < ?"
-  ).all(cutoff) as { id: string }[];
+  const now = new Date().toISOString();
 
-  if (stale.length > 0) {
-    const now = new Date().toISOString();
-    for (const { id } of stale) {
-      db.prepare("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?").run(now, id);
-      const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
-      if (row) {
-        const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
-        getSocketIO().emit('agent_updated', {
-          id: row.id as string,
-          name: row.name as string,
-          machine: row.machine as string,
-          repoPath: (row.repo_path as string) ?? '',
-          repoName: (row.repo_name as string) ?? '',
-          branch: (row.branch as string) ?? '',
-          currentTask: (row.current_task as string) ?? '',
-          status: ((row.status as string) ?? 'idle') as import('./types.js').Agent['status'],
-          trustMode: mode === 'trust',
-          mode,
-          lastSeen: (row.last_seen as string) ?? '',
-          sessionId: (row.session_id as string) ?? '',
-          lastMessage: (row.last_message as string) ?? '',
-        });
-      }
-    }
+  // working → idle after 2 minutes
+  const idleCutoff = new Date(Date.now() - IDLE_THRESHOLD_MS).toISOString();
+  const staleWorking = db.prepare(
+    "SELECT id FROM agents WHERE status = 'working' AND last_seen < ?"
+  ).all(idleCutoff) as { id: string }[];
+
+  for (const { id } of staleWorking) {
+    db.prepare("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?").run(now, id);
+    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
+    if (row) emitAgentUpdate(row);
+  }
+
+  // idle/waiting → offline after 5 minutes (only if no active extension socket)
+  const offlineCutoff = new Date(Date.now() - OFFLINE_THRESHOLD_MS).toISOString();
+  const staleIdle = db.prepare(
+    "SELECT id FROM agents WHERE status IN ('idle', 'waiting') AND last_seen < ?"
+  ).all(offlineCutoff) as { id: string }[];
+
+  for (const { id } of staleIdle) {
+    if (hasActiveSocket(id)) continue; // extension still connected — skip
+    db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(id);
+    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
+    if (row) emitAgentUpdate(row);
+    console.log(`[stale] Agent ${id} marked offline (no activity for 5min, no active socket)`);
   }
 }, 30_000); // Check every 30 seconds
 

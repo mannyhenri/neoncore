@@ -109,7 +109,6 @@ function InlinePermission({ permission, onAllow, onDeny }: {
 
 export function AgentCard({ agent, permissions, onDecidePermission, onSetMode, onSendCommand, onDelete }: Props) {
   const status = STATUS_CONFIG[agent.status];
-  const showInput = agent.status !== 'offline';
 
   return (
     <div className={`bg-gray-900 border rounded-xl p-5 md:p-6 transition-colors min-h-[14rem] flex flex-col ${
@@ -172,18 +171,18 @@ export function AgentCard({ agent, permissions, onDecidePermission, onSetMode, o
         </div>
       )}
 
-      {/* Input area - visible unless offline */}
-      {showInput && (
-        <div className="mb-3 flex-1 flex flex-col">
-          <CommandInput
-            agentId={agent.id}
-            placeholder={agent.status === 'waiting'
-              ? 'Answer the question or give instructions...'
-              : 'Send prompt, instructions, or /command...'}
-            onSend={(text) => onSendCommand(agent.id, text)}
-          />
-        </div>
-      )}
+      {/* Input area - always visible; offline commands queue until agent reconnects */}
+      <div className="mb-3 flex-1 flex flex-col">
+        <CommandInput
+          agentId={agent.id}
+          placeholder={agent.status === 'waiting'
+            ? 'Answer the question or give instructions...'
+            : agent.status === 'offline'
+            ? 'Agent offline — command will queue until reconnect...'
+            : 'Send prompt, instructions, or /command...'}
+          onSend={(text) => onSendCommand(agent.id, text)}
+        />
+      </div>
 
       {/* Footer: mode selector */}
       <div className="flex items-center justify-between mt-auto pt-2">

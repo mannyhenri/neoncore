@@ -104,6 +104,13 @@ function connectToOrchestrator() {
   socket.on('connect', () => {
     log('Connected to orchestrator');
     updateStatusBar(true);
+
+    // Join room immediately using local identity (no HTTP dependency)
+    const { machine, repoPath } = getLocalIdentity();
+    socket!.emit('register_extension', { machine, repoPath });
+    log(`Registered socket with machine=${machine}, repoPath=${repoPath}`);
+
+    // Also do HTTP registration for agent metadata (async, non-blocking)
     registerWithOrchestrator();
     vscode.window.showInformationMessage(`NeonCore: Connected to orchestrator at ${url}`);
   });
@@ -113,17 +120,10 @@ function connectToOrchestrator() {
     updateStatusBar(false);
   });
 
-  // Listen for commands — match by machine + repoPath (no agent ID needed)
+  // Listen for commands — only received if we're in the correct agent room
   socket.on('command_send', (command: Command) => {
-    const { machine, repoPath } = getLocalIdentity();
-    const matchesMachine = command.machine === machine;
-    const matchesRepo = command.repoPath === repoPath;
-
-    log(`Command received: agent=${command.agentId}, machine match=${matchesMachine}, repo match=${matchesRepo}`);
-
-    if (matchesMachine && matchesRepo) {
-      handleCommand(command);
-    }
+    log(`Command received: agent=${command.agentId}, text="${command.text.slice(0, 80)}"`);
+    handleCommand(command);
   });
 
   socket.on('connect_error', (err) => {
@@ -184,6 +184,13 @@ function registerWithOrchestrator() {
     .then((res) => res.json())
     .then((agent: Agent) => {
       log(`Registered as agent: ${agent.id}`);
+      // Join the agent-specific room now that we know our agent ID (closes race condition)
+      if (socket?.connected) {
+        socket.emit('join_agent_room', { agentId: agent.id });
+        log(`Joined agent room agent:${agent.id}`);
+      }
+      // Drain any commands queued while we were offline
+      drainPendingCommands(url, agent.id);
     })
     .catch((err) => {
       log(`Registration failed: ${err}`);
@@ -231,6 +238,21 @@ function findClaudeTerminal(): vscode.Terminal | undefined {
     }
   }
   return undefined;
+}
+
+async function drainPendingCommands(url: string, agentId: string) {
+  try {
+    const res = await fetch(`${url}/api/commands/pending/${agentId}`);
+    const commands = await res.json() as Command[];
+    if (commands.length > 0) {
+      log(`Draining ${commands.length} pending command(s) queued while offline`);
+      for (const cmd of commands) {
+        await handleCommand(cmd);
+      }
+    }
+  } catch (err) {
+    log(`drainPendingCommands failed: ${err}`);
+  }
 }
 
 function markDelivered(url: string, commandId: string) {

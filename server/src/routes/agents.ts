@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { getIO } from '../ws.js';
+import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
 import type { Agent, Activity } from '../types.js';
 
 const router = Router();
@@ -43,6 +43,14 @@ router.post('/register', (req, res) => {
 
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(existing.id) as Record<string, unknown>;
     const normalized = normalizeAgent(agent);
+
+    // Upgrade any extension sockets in the path room to the agent room (closes race condition)
+    const agentMachine = (agent.machine as string) || '';
+    const agentRepoPath = (agent.repo_path as string) || '';
+    if (agentMachine && agentRepoPath) {
+      upgradeSocketsToAgentRoom(agentMachine, agentRepoPath, existing.id as string);
+    }
+
     getIO().emit('agent_updated', normalized);
     return res.json(normalized);
   }
@@ -67,6 +75,12 @@ router.post('/register', (req, res) => {
 
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
   const normalized = normalizeAgent(agent);
+
+  // Upgrade any extension sockets in the path room to the agent room (closes race condition)
+  if (machine && repoPath) {
+    upgradeSocketsToAgentRoom(machine, repoPath, id);
+  }
+
   getIO().emit('agent_registered', normalized);
   res.status(201).json(normalized);
 });

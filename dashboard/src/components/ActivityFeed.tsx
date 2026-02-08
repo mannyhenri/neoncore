@@ -407,6 +407,49 @@ function MessageActivity({ activity, agentName }: { activity: Activity; agentNam
   );
 }
 
+function NotificationActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
+  return (
+    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-gray-600 font-mono w-16 shrink-0">
+          {formatTime(activity.timestamp)}
+        </span>
+        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+          {agentName}
+        </span>
+        <span className="text-sky-400 font-medium shrink-0">
+          Notice
+        </span>
+        <span className="text-gray-400 truncate min-w-0 flex-1">
+          {activity.toolInput}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SubagentActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
+  const summary = summarizeToolInput('Task', activity.toolInput);
+  return (
+    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-gray-600 font-mono w-16 shrink-0">
+          {formatTime(activity.timestamp)}
+        </span>
+        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+          {agentName}
+        </span>
+        <span className="text-yellow-400 font-mono font-medium shrink-0">
+          Subagent
+        </span>
+        <span className="text-gray-500 truncate font-mono min-w-0 flex-1">
+          {summary || 'completed'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function UserCommandActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   return (
     <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
@@ -491,6 +534,14 @@ export function ActivityFeed({ activities, agents }: Props) {
 
               if (activity.toolName === 'TodoWrite') {
                 return <TodoActivity key={activity.id} activity={activity} agentName={agentName} />;
+              }
+
+              if (activity.eventType === 'notification') {
+                return <NotificationActivity key={activity.id} activity={activity} agentName={agentName} />;
+              }
+
+              if (activity.eventType === 'SubagentStop') {
+                return <SubagentActivity key={activity.id} activity={activity} agentName={agentName} />;
               }
 
               return <ToolActivity key={activity.id} activity={activity} agentName={agentName} />;

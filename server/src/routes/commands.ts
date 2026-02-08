@@ -53,18 +53,28 @@ router.post('/send', (req, res) => {
   };
   getIO().emit('activity_logged', activity);
 
-  // Look up agent details so extensions can match by machine+repoPath
-  const agentRow = db.prepare('SELECT machine, repo_path FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+  // Try agent-specific room first, fall back to path-based room
+  const agentRoom = `agent:${agentId}`;
+  const agentRoomSize = getIO().sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
 
-  // Emit to VS Code extension via WebSocket (include machine+repoPath for matching)
-  const payload = {
-    ...command,
-    machine: (agentRow?.machine as string) ?? '',
-    repoPath: (agentRow?.repo_path as string) ?? '',
-  };
-  const clientCount = getIO().engine.clientsCount;
-  console.log(`[cmd] Emitting command_send to ${clientCount} client(s): machine=${payload.machine}, repoPath=${payload.repoPath}`);
-  getIO().emit('command_send', payload);
+  if (agentRoomSize > 0) {
+    console.log(`[cmd] Emitting command_send to agent room ${agentRoom} (${agentRoomSize} socket(s))`);
+    getIO().to(agentRoom).emit('command_send', command);
+  } else {
+    // Fallback: resolve agent's machine+repoPath and try the path-based room
+    const agentRow = db.prepare('SELECT machine, repo_path FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+    const machine = (agentRow?.machine as string) ?? '';
+    const repoPath = (agentRow?.repo_path as string) ?? '';
+    const pathRoom = `ext:${machine}:${repoPath}`;
+    const pathRoomSize = getIO().sockets.adapter.rooms.get(pathRoom)?.size ?? 0;
+
+    console.log(`[cmd] Agent room empty, trying path room ${pathRoom} (${pathRoomSize} socket(s))`);
+    if (pathRoomSize > 0) {
+      getIO().to(pathRoom).emit('command_send', command);
+    } else {
+      console.log(`[cmd] No sockets in any room for agent ${agentId} — command queued as pending`);
+    }
+  }
   res.status(201).json(command);
 });
 

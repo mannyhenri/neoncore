@@ -25,6 +25,7 @@ echo ""
 chmod +x "$HOOKS_DIR/reporter.sh"
 chmod +x "$HOOKS_DIR/permission-proxy.sh"
 chmod +x "$HOOKS_DIR/message-reader.sh"
+chmod +x "$HOOKS_DIR/notification.sh"
 
 # Ensure .claude directory exists
 mkdir -p "$HOME/.claude"
@@ -47,36 +48,62 @@ with open(settings_file, 'r') as f:
 reporter_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/reporter.sh"
 permission_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/permission-proxy.sh"
 message_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/message-reader.sh"
+notification_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/notification.sh"
+
+# Helper to clean and add a neoncore hook entry
+def is_neoncore(h):
+    s = str(h).lower()
+    return 'neoncore' in s or 'reporter.sh' in s or 'permission-proxy.sh' in s or 'message-reader.sh' in s or 'notification.sh' in s
 
 hooks = settings.get('hooks', {})
 
-# Add PostToolUse hook (reporter)
-post_hooks = hooks.get('PostToolUse', [])
-# Remove existing neoncore hooks
-post_hooks = [h for h in post_hooks if 'neoncore' not in str(h).lower() and 'reporter.sh' not in str(h)]
+# PostToolUse → reporter (tool activity + intermediate assistant messages)
+post_hooks = [h for h in hooks.get('PostToolUse', []) if not is_neoncore(h)]
 post_hooks.append({
     "matcher": "",
     "hooks": [{"type": "command", "command": reporter_cmd}]
 })
 hooks['PostToolUse'] = post_hooks
 
-# Add PreToolUse hook (permission proxy)
-pre_hooks = hooks.get('PreToolUse', [])
-pre_hooks = [h for h in pre_hooks if 'neoncore' not in str(h).lower() and 'permission-proxy.sh' not in str(h)]
+# PreToolUse → permission proxy (permissions, AskUser, PlanMode)
+pre_hooks = [h for h in hooks.get('PreToolUse', []) if not is_neoncore(h)]
 pre_hooks.append({
     "matcher": "",
     "hooks": [{"type": "command", "command": permission_cmd}]
 })
 hooks['PreToolUse'] = pre_hooks
 
-# Add Stop hook (message reader - captures Claude's responses)
-stop_hooks = hooks.get('Stop', [])
-stop_hooks = [h for h in stop_hooks if 'neoncore' not in str(h).lower() and 'message-reader.sh' not in str(h)]
+# Stop → message reader (final assistant message)
+stop_hooks = [h for h in hooks.get('Stop', []) if not is_neoncore(h)]
 stop_hooks.append({
     "matcher": "",
     "hooks": [{"type": "command", "command": message_cmd}]
 })
 hooks['Stop'] = stop_hooks
+
+# Notification → notification handler
+notif_hooks = [h for h in hooks.get('Notification', []) if not is_neoncore(h)]
+notif_hooks.append({
+    "matcher": "",
+    "hooks": [{"type": "command", "command": notification_cmd}]
+})
+hooks['Notification'] = notif_hooks
+
+# SubagentStop → reporter (reuse same script — logs generically by hook_event_name)
+subagent_hooks = [h for h in hooks.get('SubagentStop', []) if not is_neoncore(h)]
+subagent_hooks.append({
+    "matcher": "",
+    "hooks": [{"type": "command", "command": reporter_cmd}]
+})
+hooks['SubagentStop'] = subagent_hooks
+
+# UserPromptSubmit → reporter (captures user prompt immediately)
+prompt_hooks = [h for h in hooks.get('UserPromptSubmit', []) if not is_neoncore(h)]
+prompt_hooks.append({
+    "matcher": "",
+    "hooks": [{"type": "command", "command": reporter_cmd}]
+})
+hooks['UserPromptSubmit'] = prompt_hooks
 
 settings['hooks'] = hooks
 
@@ -124,6 +151,39 @@ else
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/notification.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/reporter.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/reporter.sh"
+          }
+        ]
+      }
     ]
   }
 }
@@ -134,6 +194,14 @@ fi
 
 echo ""
 echo "Installation complete!"
+echo ""
+echo "Hooks installed:"
+echo "  - PreToolUse      → permission-proxy.sh (permissions, AskUser, PlanMode)"
+echo "  - PostToolUse     → reporter.sh (tool activity + intermediate messages)"
+echo "  - Stop            → message-reader.sh (final assistant message)"
+echo "  - Notification    → notification.sh (Claude notifications)"
+echo "  - SubagentStop    → reporter.sh (subagent completion)"
+echo "  - UserPromptSubmit → reporter.sh (user prompts)"
 echo ""
 echo "To verify, check: $SETTINGS_FILE"
 echo "To uninstall, remove the hook entries from $SETTINGS_FILE"
