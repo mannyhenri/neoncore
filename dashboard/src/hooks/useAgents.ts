@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useSocket } from './useSocket';
 
 const MAX_ACTIVITIES = 100;
+const POLL_INTERVAL_MS = 10_000; // Poll every 10s as fallback for mobile
 
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -33,8 +34,17 @@ export function useAgents() {
     refreshData();
   }, [refreshData]);
 
+  // Periodic polling fallback — ensures mobile stays in sync
+  // even if WebSocket silently dies
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshData();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [refreshData]);
+
   // WebSocket event handlers
-  useSocket({
+  const { connected } = useSocket({
     onReconnect: refreshData,
     onAgentRegistered: (agent) => {
       setAgents((prev) => {
@@ -88,6 +98,7 @@ export function useAgents() {
     activities,
     pendingPermissions,
     loading,
+    connected,
     decidePermission,
     setMode,
     sendCommand,

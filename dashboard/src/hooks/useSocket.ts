@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { Agent, Activity, PermissionRequest, Command } from '../types';
 
@@ -17,19 +17,23 @@ export function useSocket(handlers: SocketHandlers) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
   const hasConnectedOnce = useRef(false);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     const socket = io(window.location.origin, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
+      timeout: 10000,
     });
 
     socketRef.current = socket;
 
     socket.on('connect', () => {
       console.log('[ws] Connected to orchestrator');
+      setConnected(true);
       if (hasConnectedOnce.current) {
         console.log('[ws] Reconnected — refreshing data');
         handlersRef.current.onReconnect?.();
@@ -39,6 +43,7 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('disconnect', () => {
       console.log('[ws] Disconnected from orchestrator');
+      setConnected(false);
     });
 
     socket.on('agent_registered', (agent: Agent) => {
@@ -81,10 +86,6 @@ export function useSocket(handlers: SocketHandlers) {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       socket.disconnect();
     };
-  }, []);
-
-  const connected = useCallback(() => {
-    return socketRef.current?.connected ?? false;
   }, []);
 
   return { connected };

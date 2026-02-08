@@ -8,6 +8,7 @@ export default function App() {
     activities,
     pendingPermissions,
     loading,
+    connected,
     decidePermission,
     setMode,
     sendCommand,
@@ -46,6 +47,10 @@ export default function App() {
                 {pendingPermissions.length} pending
               </span>
             )}
+            <span className={`flex items-center gap-1.5 text-xs ${connected ? 'text-green-500' : 'text-red-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-400 animate-pulse'}`} />
+              {connected ? 'Live' : 'Polling'}
+            </span>
           </div>
         </div>
       </header>

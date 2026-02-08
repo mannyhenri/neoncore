@@ -10,6 +10,9 @@ export function initWebSocket(server: HTTPServer) {
       origin: '*',
       methods: ['GET', 'POST'],
     },
+    pingInterval: 10000,  // Ping every 10s (detect dead connections faster)
+    pingTimeout: 5000,    // Wait 5s for pong before considering disconnected
+    transports: ['websocket', 'polling'],
   });
 
   io.on('connection', (socket) => {

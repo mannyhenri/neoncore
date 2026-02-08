@@ -72,6 +72,84 @@ function plainTextPreview(text: string): string {
     .trim();
 }
 
+interface Todo {
+  content: string;
+  activeForm?: string;
+  status: 'completed' | 'in_progress' | 'pending';
+}
+
+function TodoActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = summarizeToolInput('TodoWrite', activity.toolInput);
+
+  let todos: Todo[] = [];
+  try {
+    const input = JSON.parse(activity.toolInput);
+    todos = input.todos || [];
+  } catch { /* empty */ }
+
+  return (
+    <div className="hover:bg-gray-800/50 transition-colors">
+      <div
+        className="px-4 py-2 flex items-center gap-2 text-xs cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="text-gray-600 font-mono w-16 shrink-0">
+          {formatTime(activity.timestamp)}
+        </span>
+        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+          {agentName}
+        </span>
+        <span className="font-mono font-medium shrink-0 text-pink-400">
+          TodoWrite
+        </span>
+        <span className="text-gray-500 truncate font-mono min-w-0 flex-1">
+          {summary}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
+        >
+          <svg
+            className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+
+      {expanded && todos.length > 0 && (
+        <div className="px-4 pb-3 ml-[4.5rem]">
+          <div className="space-y-1">
+            {todos.map((todo, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                {todo.status === 'completed' ? (
+                  <span className="text-green-400 shrink-0 mt-px">&#10003;</span>
+                ) : todo.status === 'in_progress' ? (
+                  <span className="text-pink-400 shrink-0 mt-px animate-pulse">&#9654;</span>
+                ) : (
+                  <span className="text-gray-600 shrink-0 mt-px">&#9675;</span>
+                )}
+                <span className={
+                  todo.status === 'completed' ? 'text-gray-500 line-through' :
+                  todo.status === 'in_progress' ? 'text-pink-300' :
+                  'text-gray-400'
+                }>
+                  {todo.content}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   const toolColor = TOOL_COLORS[activity.toolName] || 'text-gray-400';
   const summary = summarizeToolInput(activity.toolName, activity.toolInput);
@@ -233,6 +311,10 @@ export function ActivityFeed({ activities, agents }: Props) {
 
               if (activity.eventType === 'user_command' || activity.eventType === 'user_prompt') {
                 return <UserCommandActivity key={activity.id} activity={activity} agentName={agentName} />;
+              }
+
+              if (activity.toolName === 'TodoWrite') {
+                return <TodoActivity key={activity.id} activity={activity} agentName={agentName} />;
               }
 
               return <ToolActivity key={activity.id} activity={activity} agentName={agentName} />;
