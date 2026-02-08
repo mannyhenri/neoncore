@@ -1,0 +1,132 @@
+import { Router } from 'express';
+import { v4 as uuid } from 'uuid';
+import db from '../db.js';
+import { getIO } from '../ws.js';
+import type { Agent, AgentMode, Command } from '../types.js';
+
+const router = Router();
+
+// Set agent mode (plan / manual / trust)
+router.put('/:agentId/mode', (req, res) => {
+  const { agentId } = req.params;
+  const { mode } = req.body as { mode: AgentMode };
+
+  if (!mode || !['manual', 'trust', 'plan'].includes(mode)) {
+    return res.status(400).json({ error: 'mode must be manual, trust, or plan' });
+  }
+
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const now = new Date().toISOString();
+  const trustMode = mode === 'trust' ? 1 : 0;
+
+  db.prepare('UPDATE agents SET agent_mode = ?, trust_mode = ?, last_seen = ? WHERE id = ?')
+    .run(mode, trustMode, now, agentId);
+
+  // If switching to trust, auto-approve all pending permissions
+  if (mode === 'trust') {
+    const pending = db
+      .prepare('SELECT id FROM permissions WHERE agent_id = ? AND status = ?')
+      .all(agentId, 'pending') as { id: string }[];
+
+    for (const perm of pending) {
+      db.prepare('UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?')
+        .run('allowed', now, perm.id);
+    }
+  }
+
+  // If switching to plan, send /plan command to the agent
+  if (mode === 'plan') {
+    const cmdId = uuid();
+    const planText = '/plan';
+    db.prepare(`
+      INSERT INTO commands (id, agent_id, text, source, status, created_at)
+      VALUES (?, ?, ?, 'dashboard', 'pending', ?)
+    `).run(cmdId, agentId, planText, now);
+
+    const command: Command = {
+      id: cmdId,
+      agentId,
+      text: planText,
+      source: 'dashboard',
+      status: 'pending',
+      createdAt: now,
+      deliveredAt: null,
+    };
+
+    // Include machine+repoPath so the extension can match
+    const agentRow = db.prepare('SELECT machine, repo_path FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+    getIO().emit('command_send', Object.assign({}, command, {
+      machine: (agentRow?.machine as string) ?? '',
+      repoPath: (agentRow?.repo_path as string) ?? '',
+    }));
+  }
+
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
+  const normalized = normalizeAgent(updated);
+  getIO().emit('agent_updated', normalized);
+  res.json(normalized);
+});
+
+// Toggle trust mode for an agent (backward compat for hooks)
+router.put('/:agentId', (req, res) => {
+  const { agentId } = req.params;
+  const { trustMode } = req.body;
+
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const newTrustMode = trustMode !== undefined ? (trustMode ? 1 : 0) : (agent.trust_mode ? 0 : 1);
+  const newMode = newTrustMode ? 'trust' : 'manual';
+  const now = new Date().toISOString();
+
+  db.prepare('UPDATE agents SET trust_mode = ?, agent_mode = ?, last_seen = ? WHERE id = ?')
+    .run(newTrustMode, newMode, now, agentId);
+
+  // If turning on trust mode, auto-approve all pending permissions for this agent
+  if (newTrustMode) {
+    const pending = db
+      .prepare('SELECT id FROM permissions WHERE agent_id = ? AND status = ?')
+      .all(agentId, 'pending') as { id: string }[];
+
+    for (const perm of pending) {
+      db.prepare('UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?')
+        .run('allowed', now, perm.id);
+    }
+  }
+
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
+  const normalized = normalizeAgent(updated);
+  getIO().emit('agent_updated', normalized);
+  res.json(normalized);
+});
+
+// Get trust mode for an agent
+router.get('/:agentId', (req, res) => {
+  const agent = db.prepare('SELECT id, trust_mode, agent_mode FROM agents WHERE id = ?')
+    .get(req.params.agentId) as { id: string; trust_mode: number; agent_mode: string } | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  res.json({ agentId: agent.id, trustMode: Boolean(agent.trust_mode), mode: agent.agent_mode });
+});
+
+function normalizeAgent(row: Record<string, unknown>): Agent {
+  const mode = (row.agent_mode ?? 'manual') as Agent['mode'];
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    machine: row.machine as string,
+    repoPath: (row.repo_path ?? row.repoPath ?? '') as string,
+    repoName: (row.repo_name ?? row.repoName ?? '') as string,
+    branch: (row.branch ?? '') as string,
+    currentTask: (row.current_task ?? row.currentTask ?? '') as string,
+    status: (row.status ?? 'idle') as Agent['status'],
+    trustMode: mode === 'trust',
+    mode,
+    lastSeen: (row.last_seen ?? row.lastSeen ?? '') as string,
+    sessionId: (row.session_id ?? row.sessionId ?? '') as string,
+    lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
+  };
+}
+
+export default router;
