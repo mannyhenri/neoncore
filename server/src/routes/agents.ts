@@ -133,8 +133,8 @@ router.post('/message', (req, res) => {
   // Also log as activity so it appears in the feed
   const activityId = uuid();
   db.prepare(`
-    INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, tool_result, timestamp)
+    VALUES (?, ?, ?, ?, ?, '{}', ?)
   `).run(activityId, agent.id as string, 'assistant_message', '', fullMessage, now);
 
   const activity: Activity = {
@@ -143,6 +143,7 @@ router.post('/message', (req, res) => {
     eventType: 'assistant_message',
     toolName: '',
     toolInput: fullMessage,
+    toolResult: '{}',
     timestamp: now,
   };
   getIO().emit('activity_logged', activity);

@@ -43,7 +43,7 @@ import os
 repo_name = os.path.basename(cwd) if cwd else ''
 machine = os.uname().nodename
 
-# Output as JSON lines: register_body, permission_body, session_id
+# Output as JSON lines: register_body, permission_body, session_id, activity_body
 register_body = json.dumps({
     'sessionId': session_id,
     'machine': machine,
@@ -57,10 +57,25 @@ permission_body = json.dumps({
     'description': desc
 })
 
-# Print three lines: register JSON, permission JSON, session_id
+# Activity body for tools that need immediate dashboard visibility
+# (AskUserQuestion, EnterPlanMode) — logged before trust-mode early return
+activity_body = ''
+if tool_name in ('AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'):
+    event_type = 'ask_user' if tool_name == 'AskUserQuestion' else 'plan_mode'
+    activity_body = json.dumps({
+        'sessionId': session_id,
+        'machine': machine,
+        'repoPath': cwd,
+        'eventType': event_type,
+        'toolName': tool_name,
+        'toolInput': tool_input
+    })
+
+# Print four lines: register JSON, permission JSON, session_id, activity_body
 print(register_body)
 print(permission_body)
 print(session_id)
+print(activity_body)
 " 2>/dev/null)
 
 if [ -z "$PARSED" ]; then
@@ -70,11 +85,20 @@ fi
 REGISTER_BODY=$(echo "$PARSED" | sed -n '1p')
 PERMISSION_BODY=$(echo "$PARSED" | sed -n '2p')
 SESSION_ID=$(echo "$PARSED" | sed -n '3p')
+ACTIVITY_BODY=$(echo "$PARSED" | sed -n '4p')
 
 # Register agent (fire-and-forget)
 curl -sf -X POST "$ORCHESTRATOR_URL/api/agents/register" \
   -H "Content-Type: application/json" \
   -d "$REGISTER_BODY" >/dev/null 2>&1
+
+# Log AskUserQuestion / EnterPlanMode / ExitPlanMode as activity immediately
+# (before trust-mode early return, so dashboard always sees these events)
+if [ -n "$ACTIVITY_BODY" ]; then
+  curl -sf -X POST "$ORCHESTRATOR_URL/api/activity" \
+    -H "Content-Type: application/json" \
+    -d "$ACTIVITY_BODY" >/dev/null 2>&1 &
+fi
 
 # Request permission from orchestrator
 RESPONSE=$(curl -sf -X POST "$ORCHESTRATOR_URL/api/permissions/request" \

@@ -22,6 +22,7 @@ export interface Activity {
   eventType: string;
   toolName: string;
   toolInput: string; // JSON string
+  toolResult: string; // JSON string
   timestamp: string;
 }
 

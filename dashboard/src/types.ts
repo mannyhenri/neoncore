@@ -22,6 +22,7 @@ export interface Activity {
   eventType: string;
   toolName: string;
   toolInput: string;
+  toolResult: string;
   timestamp: string;
 }
 

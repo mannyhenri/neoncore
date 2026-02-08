@@ -38,8 +38,8 @@ router.post('/send', (req, res) => {
   // Log as activity so user commands appear in the activity feed
   const activityId = uuid();
   db.prepare(`
-    INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, tool_result, timestamp)
+    VALUES (?, ?, ?, ?, ?, '{}', ?)
   `).run(activityId, agentId, 'user_command', '', text, now);
 
   const activity: Activity = {
@@ -48,6 +48,7 @@ router.post('/send', (req, res) => {
     eventType: 'user_command',
     toolName: '',
     toolInput: text,
+    toolResult: '{}',
     timestamp: now,
   };
   getIO().emit('activity_logged', activity);

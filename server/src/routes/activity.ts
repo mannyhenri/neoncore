@@ -8,7 +8,7 @@ const router = Router();
 
 // Log an activity event (called by hooks)
 router.post('/', (req, res) => {
-  const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput } = req.body;
+  const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult } = req.body;
 
   // Resolve agent by ID, machine+repoPath, or sessionId
   let resolvedAgentId = agentId;
@@ -28,11 +28,12 @@ router.post('/', (req, res) => {
   const id = uuid();
   const now = new Date().toISOString();
   const toolInputStr = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput || {});
+  const toolResultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult || {});
 
   db.prepare(`
-    INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, resolvedAgentId, eventType || 'tool_use', toolName || '', toolInputStr, now);
+    INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, tool_result, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, resolvedAgentId, eventType || 'tool_use', toolName || '', toolInputStr, toolResultStr, now);
 
   // Update agent's last_seen and status
   db.prepare(`UPDATE agents SET last_seen = ?, status = 'working' WHERE id = ?`).run(now, resolvedAgentId);
@@ -43,6 +44,7 @@ router.post('/', (req, res) => {
     eventType: eventType || 'tool_use',
     toolName: toolName || '',
     toolInput: toolInputStr,
+    toolResult: toolResultStr,
     timestamp: now,
   };
 
@@ -77,6 +79,7 @@ function normalizeActivity(row: Record<string, unknown>): Activity {
     eventType: (row.event_type ?? row.eventType) as string,
     toolName: (row.tool_name ?? row.toolName) as string,
     toolInput: (row.tool_input ?? row.toolInput) as string,
+    toolResult: (row.tool_result ?? row.toolResult ?? '{}') as string,
     timestamp: row.timestamp as string,
   };
 }

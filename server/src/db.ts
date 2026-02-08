@@ -77,4 +77,11 @@ try {
   `);
 }
 
+// Migration: add tool_result column to activity
+try {
+  db.prepare('SELECT tool_result FROM activity LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE activity ADD COLUMN tool_result TEXT NOT NULL DEFAULT '{}'`);
+}
+
 export default db;
