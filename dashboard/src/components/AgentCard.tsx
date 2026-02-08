@@ -37,6 +37,50 @@ function InlinePermission({ permission, onAllow, onDeny }: {
   onAllow: () => void;
   onDeny: () => void;
 }) {
+  // Plan approval card for ExitPlanMode
+  if (permission.toolName === 'ExitPlanMode') {
+    let allowedPrompts: { tool: string; prompt: string }[] = [];
+    try {
+      const input = typeof permission.toolInput === 'string' ? JSON.parse(permission.toolInput) : permission.toolInput;
+      allowedPrompts = input?.allowedPrompts || [];
+    } catch {
+      // ignore parse errors
+    }
+
+    return (
+      <div className="bg-violet-950/40 border border-violet-700 rounded-lg px-3 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+          <span className="text-violet-300 text-xs font-semibold">Plan Ready for Review</span>
+        </div>
+        {allowedPrompts.length > 0 && (
+          <div className="mb-2 space-y-1">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
+            {allowedPrompts.map((p, i) => (
+              <div key={i} className="text-xs text-gray-400 font-mono pl-2 border-l border-violet-800">
+                {p.tool}: {p.prompt}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onAllow}
+            className="px-2.5 py-1 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-xs rounded-md transition-colors font-medium"
+          >
+            Approve Plan
+          </button>
+          <button
+            onClick={onDeny}
+            className="px-2.5 py-1 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-xs rounded-md transition-colors font-medium"
+          >
+            Reject Plan
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 gap-2">
       <div className="flex-1 min-w-0">
@@ -132,6 +176,7 @@ export function AgentCard({ agent, permissions, onDecidePermission, onSetMode, o
       {showInput && (
         <div className="mb-3 flex-1 flex flex-col">
           <CommandInput
+            agentId={agent.id}
             placeholder={agent.status === 'waiting'
               ? 'Answer the question or give instructions...'
               : 'Send prompt, instructions, or /command...'}

@@ -1,6 +1,7 @@
 import { useAgents } from './hooks/useAgents';
 import { AgentGrid } from './components/AgentGrid';
 import { ActivityFeed } from './components/ActivityFeed';
+import { QuickCommands } from './components/QuickCommands';
 
 export default function App() {
   const {
@@ -54,6 +55,9 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Quick Commands Bar */}
+      <QuickCommands agents={agents} onSendCommand={sendCommand} />
 
       {/* Main content */}
       <main className="p-6 space-y-6">

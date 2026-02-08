@@ -111,8 +111,16 @@ if [ $? -ne 0 ]; then
 fi
 
 # Check if trust mode gave immediate approval
+# ExitPlanMode always goes through the permission flow — plans should be human-reviewed
 TRUST_MODE=$(echo "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))" 2>/dev/null)
-if [ "$TRUST_MODE" = "True" ]; then
+TOOL_NAME=$(echo "$PARSED" | /usr/bin/env python3 -c "
+import sys, json
+line = sys.stdin.readline()  # skip line 1 (register body)
+line = sys.stdin.readline()  # line 2 (permission body)
+d = json.loads(line)
+print(d.get('toolName', ''))
+" 2>/dev/null)
+if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "ExitPlanMode" ]; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Auto-approved by NeonCore trust mode"}}'
   exit 0
 fi
