@@ -2,7 +2,10 @@ import * as vscode from 'vscode';
 import { io, Socket } from 'socket.io-client';
 import * as os from 'os';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execSync, exec as execCb } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(execCb);
 
 interface Command {
   id: string;
@@ -204,22 +207,78 @@ async function handleCommand(command: Command) {
   log(`Handling command: "${command.text.slice(0, 120)}"`);
 
   try {
-    // Find a Claude Code terminal (silent — no focus stealing)
-    const claudeTerminal = findClaudeTerminal();
+    // Step 1: Copy prompt to clipboard
+    await vscode.env.clipboard.writeText(command.text);
+    markDelivered(url, command.id);
 
-    if (claudeTerminal) {
-      // Send text directly to the terminal's stdin — works even when VS Code is not focused
-      claudeTerminal.sendText(command.text);
-      log(`Sent command to terminal "${claudeTerminal.name}" via sendText (silent)`);
-      markDelivered(url, command.id);
-    } else {
-      // Fallback: copy to clipboard and notify user
-      await vscode.env.clipboard.writeText(command.text);
-      markDelivered(url, command.id);
+    // Step 2: Focus the Claude Code panel (within THIS window's extension host)
+    const focusCmds = claudeCommands.filter((c) => {
+      const lower = c.toLowerCase();
+      return lower.includes('focus') && !lower.includes('new') && !lower.includes('open');
+    });
+
+    let focused = false;
+    for (const cmd of focusCmds) {
+      try {
+        log(`Focusing: ${cmd}`);
+        await vscode.commands.executeCommand(cmd);
+        focused = true;
+        break;
+      } catch {
+        // try next
+      }
+    }
+
+    if (!focused) {
+      log('No focus command found, opening sidebar');
+      try {
+        await vscode.commands.executeCommand('claude-vscode.sidebar.open');
+      } catch {
+        // ignore
+      }
+    }
+
+    // Step 3: Raise the CORRECT VS Code window by workspace folder name,
+    // then paste and submit via AppleScript
+    const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
+    try {
+      // Raise the specific window matching this workspace, then paste + Enter
+      await execAsync(
+        `osascript` +
+        ` -e 'tell application "System Events"'` +
+        ` -e '  tell process "Code"'` +
+        ` -e '    repeat with w in (every window)'` +
+        ` -e '      if title of w contains "${workspaceName}" then'` +
+        ` -e '        perform action "AXRaise" of w'` +
+        ` -e '        exit repeat'` +
+        ` -e '      end if'` +
+        ` -e '    end repeat'` +
+        ` -e '    set frontmost to true'` +
+        ` -e '  end tell'` +
+        ` -e 'end tell'`
+      );
+      log(`Raised window matching "${workspaceName}"`);
+      await sleep(500);
+
+      // Re-focus Claude Code input after window raise
+      if (!focused) {
+        await vscode.commands.executeCommand('workbench.action.focusSideBar');
+      }
+      await sleep(500);
+
+      // Simulate Cmd+V (paste from clipboard)
+      await execAsync(`osascript -e 'tell application "System Events" to keystroke "v" using command down'`);
+      log('Simulated Cmd+V paste');
+
+      // Wait for paste, then simulate Enter to submit
+      await sleep(300);
+      await execAsync(`osascript -e 'tell application "System Events" to key code 36'`);
+      log('Simulated Enter — command submitted');
+    } catch (err) {
+      log(`Keystroke simulation failed: ${err}`);
       const preview = command.text.length > 80 ? command.text.slice(0, 80) + '...' : command.text;
-      log('No Claude terminal found — copied to clipboard');
       vscode.window.showInformationMessage(
-        `NeonCore: No Claude terminal found. Prompt copied — paste with Cmd+V: "${preview}"`
+        `NeonCore: Prompt copied — paste with Cmd+V: "${preview}"`
       );
     }
   } catch (err) {
@@ -228,16 +287,8 @@ async function handleCommand(command: Command) {
   }
 }
 
-function findClaudeTerminal(): vscode.Terminal | undefined {
-  const terminals = vscode.window.terminals;
-  // Look for a terminal whose name contains "Claude" or "claude"
-  for (const t of terminals) {
-    const name = t.name.toLowerCase();
-    if (name.includes('claude')) {
-      return t;
-    }
-  }
-  return undefined;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function drainPendingCommands(url: string, agentId: string) {
