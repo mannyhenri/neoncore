@@ -11,6 +11,9 @@ import activityRouter from './routes/activity.js';
 import permissionsRouter from './routes/permissions.js';
 import trustRouter from './routes/trust.js';
 import commandsRouter from './routes/commands.js';
+import memoryRouter from './routes/memory.js';
+import { startStuckDetector } from './stuck-detector.js';
+import { startMemoryAnalyzer } from './memory-analyzer.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -34,6 +37,7 @@ app.use('/api/activity', activityRouter);
 app.use('/api/permissions', permissionsRouter);
 app.use('/api/trust', trustRouter);
 app.use('/api/commands', commandsRouter);
+app.use('/api/agents', memoryRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -111,6 +115,10 @@ setInterval(() => {
     console.log(`[stale] Agent ${id} marked offline (no activity for 5min, no active socket)`);
   }
 }, 30_000); // Check every 30 seconds
+
+// Start stuck detector and memory analyzer
+startStuckDetector();
+startMemoryAnalyzer();
 
 // Get local IP for display
 import os from 'os';

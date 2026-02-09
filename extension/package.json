@@ -2,7 +2,7 @@
   "name": "neoncore-extension",
   "displayName": "NeonCore Orchestrator",
   "description": "VS Code companion extension for the NeonCore orchestrator - enables remote command relay to Claude Code",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "publisher": "gridlight",
   "engines": {
     "vscode": "^1.94.0"

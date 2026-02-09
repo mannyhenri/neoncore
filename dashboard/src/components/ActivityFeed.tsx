@@ -540,8 +540,9 @@ export function ActivityFeed({ activities, agents }: Props) {
                 return <NotificationActivity key={activity.id} activity={activity} agentName={agentName} />;
               }
 
+              // Skip SubagentStop — internal subagent tasks clutter the feed
               if (activity.eventType === 'SubagentStop') {
-                return <SubagentActivity key={activity.id} activity={activity} agentName={agentName} />;
+                return null;
               }
 
               return <ToolActivity key={activity.id} activity={activity} agentName={agentName} />;

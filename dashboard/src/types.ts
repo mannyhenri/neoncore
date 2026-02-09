@@ -46,3 +46,22 @@ export interface Command {
   createdAt: string;
   deliveredAt: string | null;
 }
+
+export interface StuckAlert {
+  agentId: string;
+  pattern: string;
+  severity: 'high' | 'medium';
+  suggestion: string;
+  detectedAt: string;
+}
+
+export interface AgentMemory {
+  id: string;
+  agentId: string;
+  project: string;
+  category: string;
+  content: string;
+  source: 'auto' | 'manual';
+  active: boolean;
+  createdAt: string;
+}

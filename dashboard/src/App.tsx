@@ -1,7 +1,7 @@
 import { useAgents } from './hooks/useAgents';
 import { AgentGrid } from './components/AgentGrid';
 import { ActivityFeed } from './components/ActivityFeed';
-import { QuickCommands } from './components/QuickCommands';
+import { CommandBar } from './components/CommandBar';
 
 export default function App() {
   const {
@@ -10,10 +10,12 @@ export default function App() {
     pendingPermissions,
     loading,
     connected,
+    stuckAlerts,
     decidePermission,
     setMode,
     sendCommand,
     deleteAgent,
+    dismissStuckAlert,
   } = useAgents();
 
   if (loading) {
@@ -56,8 +58,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* Quick Commands Bar */}
-      <QuickCommands agents={agents} onSendCommand={sendCommand} />
+      {/* Command Bar */}
+      <CommandBar agents={agents} onSendCommand={sendCommand} />
 
       {/* Main content */}
       <main className="p-6 space-y-6">
@@ -69,10 +71,12 @@ export default function App() {
           <AgentGrid
             agents={agents}
             pendingPermissions={pendingPermissions}
+            stuckAlerts={stuckAlerts}
             onDecidePermission={decidePermission}
             onSetMode={setMode}
             onSendCommand={sendCommand}
             onDelete={deleteAgent}
+            onDismissStuck={dismissStuckAlert}
           />
         </section>
 

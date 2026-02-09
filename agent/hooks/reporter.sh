@@ -56,12 +56,8 @@ activity = {
 
 # For UserPromptSubmit, override eventType so dashboard shows it as user prompt
 if hook_event == 'UserPromptSubmit':
-    # tool_input contains the user's prompt text
-    user_text = ''
-    if isinstance(tool_input, dict):
-        user_text = tool_input.get('prompt', tool_input.get('text', str(tool_input)))
-    elif isinstance(tool_input, str):
-        user_text = tool_input
+    # UserPromptSubmit puts the user's text in a top-level 'prompt' field (not tool_input)
+    user_text = d.get('prompt', '')
     activity['eventType'] = 'user_prompt'
     activity['toolName'] = ''
     activity['toolInput'] = user_text[:4000] if user_text else ''

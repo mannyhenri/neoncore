@@ -129,6 +129,12 @@ function connectToOrchestrator() {
     handleCommand(command);
   });
 
+  // Listen for focus requests — bring this VS Code window to front
+  socket.on('focus_window' as any, () => {
+    log('Focus window request received');
+    bringWindowToFront();
+  });
+
   socket.on('connect_error', (err) => {
     log(`Connection error: ${err.message}`);
     updateStatusBar(false);
@@ -200,6 +206,32 @@ function registerWithOrchestrator() {
     });
 }
 
+async function bringWindowToFront() {
+  const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
+  try {
+    await execAsync(`open -a "Visual Studio Code"`);
+    await sleep(400);
+
+    await execAsync(
+      `osascript` +
+      ` -e 'tell application "System Events"'` +
+      ` -e '  tell process "Code"'` +
+      ` -e '    repeat with w in (every window)'` +
+      ` -e '      if title of w contains "${workspaceName}" then'` +
+      ` -e '        perform action "AXRaise" of w'` +
+      ` -e '        exit repeat'` +
+      ` -e '      end if'` +
+      ` -e '    end repeat'` +
+      ` -e '    set frontmost to true'` +
+      ` -e '  end tell'` +
+      ` -e 'end tell'`
+    );
+    log(`Brought window "${workspaceName}" to front`);
+  } catch (err) {
+    log(`bringWindowToFront failed: ${err}`);
+  }
+}
+
 async function handleCommand(command: Command) {
   const config = vscode.workspace.getConfiguration('neoncore');
   const url = config.get('orchestratorUrl', 'http://localhost:4040');
@@ -242,7 +274,11 @@ async function handleCommand(command: Command) {
     // then paste and submit via AppleScript
     const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
     try {
-      // Raise the specific window matching this workspace, then paste + Enter
+      // Activate VS Code to restore minimized windows, then raise the matching one
+      await execAsync(`open -a "Visual Studio Code"`);
+      await sleep(500);
+
+      // Raise the specific window matching this workspace
       await execAsync(
         `osascript` +
         ` -e 'tell application "System Events"'` +
@@ -260,20 +296,25 @@ async function handleCommand(command: Command) {
       log(`Raised window matching "${workspaceName}"`);
       await sleep(500);
 
-      // Re-focus Claude Code input after window raise
-      if (!focused) {
+      // Always re-focus Claude Code input after window raise (focus shifts during raise)
+      try {
+        await vscode.commands.executeCommand('claude-vscode.focus');
+      } catch {
         await vscode.commands.executeCommand('workbench.action.focusSideBar');
       }
       await sleep(500);
 
-      // Simulate Cmd+V (paste from clipboard)
-      await execAsync(`osascript -e 'tell application "System Events" to keystroke "v" using command down'`);
-      log('Simulated Cmd+V paste');
-
-      // Wait for paste, then simulate Enter to submit
-      await sleep(300);
-      await execAsync(`osascript -e 'tell application "System Events" to key code 36'`);
-      log('Simulated Enter — command submitted');
+      // Paste and Enter in a single AppleScript (delay is more reliable than JS setTimeout)
+      const delaySec = Math.min(0.5 + command.text.length / 500, 3).toFixed(1);
+      await execAsync(
+        `osascript` +
+        ` -e 'tell application "System Events"'` +
+        ` -e '  keystroke "v" using command down'` +
+        ` -e '  delay ${delaySec}'` +
+        ` -e '  key code 36'` +
+        ` -e 'end tell'`
+      );
+      log(`Simulated paste + Enter (delay=${delaySec}s) — command submitted`);
     } catch (err) {
       log(`Keystroke simulation failed: ${err}`);
       const preview = command.text.length > 80 ? command.text.slice(0, 80) + '...' : command.text;

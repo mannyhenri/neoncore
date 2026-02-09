@@ -61,10 +61,23 @@ db.exec(`
     FOREIGN KEY (agent_id) REFERENCES agents(id)
   );
 
+  CREATE TABLE IF NOT EXISTS agent_memory (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    project TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_activity_agent ON activity(agent_id);
   CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity(timestamp);
   CREATE INDEX IF NOT EXISTS idx_permissions_status ON permissions(status);
   CREATE INDEX IF NOT EXISTS idx_permissions_agent ON permissions(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_memory_agent ON agent_memory(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_memory_project ON agent_memory(project);
 `);
 
 // Migration: add agent_mode column
@@ -75,6 +88,13 @@ try {
     ALTER TABLE agents ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'manual';
     UPDATE agents SET agent_mode = CASE WHEN trust_mode = 1 THEN 'trust' ELSE 'manual' END;
   `);
+}
+
+// Migration: add active column to agent_memory
+try {
+  db.prepare('SELECT active FROM agent_memory LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agent_memory ADD COLUMN active INTEGER NOT NULL DEFAULT 1`);
 }
 
 // Migration: add tool_result column to activity

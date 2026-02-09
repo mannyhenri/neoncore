@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert } from '../types';
 
 interface SocketHandlers {
   onAgentRegistered?: (agent: Agent) => void;
@@ -9,6 +9,9 @@ interface SocketHandlers {
   onPermissionRequested?: (request: PermissionRequest) => void;
   onPermissionDecided?: (request: PermissionRequest) => void;
   onCommandSend?: (command: Command) => void;
+  onAgentStuck?: (alert: StuckAlert) => void;
+  onAgentUnstuck?: (data: { agentId: string }) => void;
+  onMemoryUpdated?: (data: { agentId: string }) => void;
   onReconnect?: () => void;
 }
 
@@ -68,6 +71,18 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('command_send', (command: Command) => {
       handlersRef.current.onCommandSend?.(command);
+    });
+
+    socket.on('agent_stuck' as any, (alert: StuckAlert) => {
+      handlersRef.current.onAgentStuck?.(alert);
+    });
+
+    socket.on('agent_unstuck' as any, (data: { agentId: string }) => {
+      handlersRef.current.onAgentUnstuck?.(data);
+    });
+
+    socket.on('memory_updated' as any, (data: { agentId: string }) => {
+      handlersRef.current.onMemoryUpdated?.(data);
     });
 
     // Mobile: refresh data when tab becomes visible again

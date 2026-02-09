@@ -17,6 +17,7 @@ export const api = {
   // Agents
   getAgents: () => request<import('../types').Agent[]>('/agents'),
   deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
+  focusAgent: (id: string) => request<{ ok: boolean }>(`/agents/${id}/focus`, { method: 'POST' }),
 
   // Activity
   getActivity: (limit = 50) => request<import('../types').Activity[]>(`/activity?limit=${limit}`),
@@ -37,9 +38,22 @@ export const api = {
     }),
 
   // Commands
-  sendCommand: (agentId: string, text: string) =>
+  sendCommand: (agentId: string, text: string, includeMemory = true) =>
     request<import('../types').Command>('/commands/send', {
       method: 'POST',
-      body: JSON.stringify({ agentId, text }),
+      body: JSON.stringify({ agentId, text, includeMemory }),
     }),
+
+  // Memory
+  getMemory: (agentId: string) =>
+    request<import('../types').AgentMemory[]>(`/agents/${agentId}/memory`),
+  addMemory: (agentId: string, data: { category: string; content: string }) =>
+    request<import('../types').AgentMemory>(`/agents/${agentId}/memory`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  toggleMemory: (agentId: string, memoryId: string) =>
+    request<import('../types').AgentMemory>(`/agents/${agentId}/memory/${memoryId}/toggle`, { method: 'PATCH' }),
+  deleteMemory: (agentId: string, memoryId: string) =>
+    request<void>(`/agents/${agentId}/memory/${memoryId}`, { method: 'DELETE' }),
 };

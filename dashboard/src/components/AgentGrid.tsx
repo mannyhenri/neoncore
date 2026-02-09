@@ -1,17 +1,23 @@
-import type { Agent, AgentMode, PermissionRequest } from '../types';
+import type { Agent, AgentMode, PermissionRequest, StuckAlert } from '../types';
 import { AgentCard } from './AgentCard';
 
 interface Props {
   agents: Agent[];
   pendingPermissions: PermissionRequest[];
+  stuckAlerts: Map<string, StuckAlert>;
   onDecidePermission: (id: string, decision: 'allowed' | 'denied') => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
-  onSendCommand: (agentId: string, text: string) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
   onDelete: (agentId: string) => void;
+  onDismissStuck: (agentId: string) => void;
 }
 
-export function AgentGrid({ agents, pendingPermissions, onDecidePermission, onSetMode, onSendCommand, onDelete }: Props) {
-  if (agents.length === 0) {
+export function AgentGrid({ agents, pendingPermissions, stuckAlerts, onDecidePermission, onSetMode, onSendCommand, onDelete, onDismissStuck }: Props) {
+  const visibleAgents = agents
+    .filter((a) => a.status !== 'offline')
+    .sort((a, b) => (a.repoName || a.name).localeCompare(b.repoName || b.name));
+
+  if (visibleAgents.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-500">
         <div className="text-5xl mb-4">~</div>
@@ -27,15 +33,17 @@ export function AgentGrid({ agents, pendingPermissions, onDecidePermission, onSe
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-      {agents.map((agent) => (
+      {visibleAgents.map((agent) => (
         <AgentCard
           key={agent.id}
           agent={agent}
           permissions={pendingPermissions.filter((p) => p.agentId === agent.id)}
+          stuckAlert={stuckAlerts.get(agent.id)}
           onDecidePermission={onDecidePermission}
           onSetMode={onSetMode}
           onSendCommand={onSendCommand}
           onDelete={onDelete}
+          onDismissStuck={onDismissStuck}
         />
       ))}
     </div>

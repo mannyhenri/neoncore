@@ -47,6 +47,25 @@ export interface Command {
   deliveredAt: string | null;
 }
 
+export interface AgentMemory {
+  id: string;
+  agentId: string;
+  project: string;
+  category: string;
+  content: string;
+  source: 'auto' | 'manual';
+  active: boolean;
+  createdAt: string;
+}
+
+export interface StuckAlert {
+  agentId: string;
+  pattern: string;
+  severity: 'high' | 'medium';
+  suggestion: string;
+  detectedAt: string;
+}
+
 // Hook payload from Claude Code
 export interface HookPayload {
   session_id: string;
@@ -65,6 +84,9 @@ export type ServerToClientEvents = {
   permission_requested: (request: PermissionRequest) => void;
   permission_decided: (request: PermissionRequest) => void;
   command_send: (command: Command) => void;
+  agent_stuck: (alert: StuckAlert) => void;
+  agent_unstuck: (data: { agentId: string }) => void;
+  memory_updated: (data: { agentId: string }) => void;
 };
 
 export type ClientToServerEvents = {

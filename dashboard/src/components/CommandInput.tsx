@@ -6,6 +6,9 @@ interface Props {
   onSend: (text: string) => void;
   placeholder?: string;
   agentId?: string;
+  mode?: 'plan' | 'manual' | 'trust';
+  memoryEnabled?: boolean;
+  onToggleMemory?: () => void;
 }
 
 function loadHistory(agentId: string): string[] {
@@ -25,7 +28,7 @@ function saveHistory(agentId: string, history: string[]) {
   }
 }
 
-export function CommandInput({ onSend, placeholder, agentId }: Props) {
+export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled, onToggleMemory }: Props) {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,6 +51,20 @@ export function CommandInput({ onSend, placeholder, agentId }: Props) {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Auto-resize textarea to fit content
+  const autoResize = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const maxHeight = 200; // ~10 lines
+    el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    autoResize();
+  }, [text, autoResize]);
 
   const handleSubmit = useCallback(() => {
     const trimmed = text.trim();
@@ -128,17 +145,33 @@ export function CommandInput({ onSend, placeholder, agentId }: Props) {
         }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder || "Type an instruction for this agent..."}
-        rows={2}
-        className="w-full bg-gray-800 text-gray-200 text-sm rounded-lg px-3 py-2 border border-gray-700 focus:border-neon-500 focus:outline-none resize-none placeholder-gray-600"
+        rows={1}
+        className="w-full bg-gray-800 text-gray-200 text-sm rounded-lg px-3 py-2 border border-gray-700 focus:border-neon-500 focus:outline-none resize-none placeholder-gray-600 overflow-hidden"
       />
       <div className="flex justify-between items-center">
-        <span className="text-xs text-gray-600">Cmd+Enter to send</span>
+        <span className="text-xs text-gray-600 flex items-center gap-2">
+          {mode === 'plan' && <span className="text-indigo-400">Plan mode</span>}
+          {onToggleMemory && (
+            <button
+              onClick={onToggleMemory}
+              className={`transition-colors ${memoryEnabled ? 'text-cyan-400' : 'text-gray-600 hover:text-gray-400'}`}
+              title={memoryEnabled ? 'Memory: ON — click to disable' : 'Memory: OFF — click to enable'}
+            >
+              {memoryEnabled ? 'Memory' : 'No memory'}
+            </button>
+          )}
+          <span>Cmd+Enter to send</span>
+        </span>
         <button
           onClick={handleSubmit}
           disabled={!text.trim()}
-          className="text-xs px-3 py-1 bg-neon-600 text-white rounded-md hover:bg-neon-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className={`text-xs px-3 py-1 text-white rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
+            mode === 'plan'
+              ? 'bg-indigo-600 hover:bg-indigo-500'
+              : 'bg-neon-600 hover:bg-neon-500'
+          }`}
         >
-          Send
+          {mode === 'plan' ? 'Send (Plan)' : 'Send'}
         </button>
       </div>
     </div>

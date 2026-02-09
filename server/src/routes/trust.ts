@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import type { Agent, AgentMode, Command } from '../types.js';
+import type { Agent, AgentMode } from '../types.js';
 
 const router = Router();
 
@@ -34,33 +33,6 @@ router.put('/:agentId/mode', (req, res) => {
       db.prepare('UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?')
         .run('allowed', now, perm.id);
     }
-  }
-
-  // If switching to plan, send /plan command to the agent
-  if (mode === 'plan') {
-    const cmdId = uuid();
-    const planText = '/plan';
-    db.prepare(`
-      INSERT INTO commands (id, agent_id, text, source, status, created_at)
-      VALUES (?, ?, ?, 'dashboard', 'pending', ?)
-    `).run(cmdId, agentId, planText, now);
-
-    const command: Command = {
-      id: cmdId,
-      agentId,
-      text: planText,
-      source: 'dashboard',
-      status: 'pending',
-      createdAt: now,
-      deliveredAt: null,
-    };
-
-    // Include machine+repoPath so the extension can match
-    const agentRow = db.prepare('SELECT machine, repo_path FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
-    getIO().emit('command_send', Object.assign({}, command, {
-      machine: (agentRow?.machine as string) ?? '',
-      repoPath: (agentRow?.repo_path as string) ?? '',
-    }));
   }
 
   const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;

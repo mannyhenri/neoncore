@@ -1,16 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
 import { api } from '../lib/api';
 import { useSocket } from './useSocket';
 
 const MAX_ACTIVITIES = 100;
 const POLL_INTERVAL_MS = 10_000; // Poll every 10s as fallback for mobile
 
+function sortAgents(list: Agent[]): Agent[] {
+  return [...list].sort((a, b) =>
+    (a.repoName || a.name).localeCompare(b.repoName || b.name) || a.id.localeCompare(b.id)
+  );
+}
+
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stuckAlerts, setStuckAlerts] = useState<Map<string, StuckAlert>>(new Map());
 
   // Fetch all data from server (used on mount and reconnect)
   const refreshData = useCallback(() => {
@@ -19,7 +26,7 @@ export function useAgents() {
       api.getActivity(),
       api.getPendingPermissions(),
     ]).then(([agentData, activityData, permData]) => {
-      setAgents(agentData);
+      setAgents(sortAgents(agentData));
       setActivities(activityData);
       setPendingPermissions(permData);
       setLoading(false);
@@ -49,12 +56,12 @@ export function useAgents() {
     onAgentRegistered: (agent) => {
       setAgents((prev) => {
         const exists = prev.find((a) => a.id === agent.id);
-        if (exists) return prev.map((a) => (a.id === agent.id ? agent : a));
-        return [agent, ...prev];
+        if (exists) return sortAgents(prev.map((a) => (a.id === agent.id ? agent : a)));
+        return sortAgents([...prev, agent]);
       });
     },
     onAgentUpdated: (agent) => {
-      setAgents((prev) => prev.map((a) => (a.id === agent.id ? agent : a)));
+      setAgents((prev) => sortAgents(prev.map((a) => (a.id === agent.id ? agent : a))));
     },
     onActivityLogged: (activity) => {
       setActivities((prev) => [activity, ...prev].slice(0, MAX_ACTIVITIES));
@@ -65,6 +72,16 @@ export function useAgents() {
     onPermissionDecided: (request) => {
       setPendingPermissions((prev) => prev.filter((p) => p.id !== request.id));
     },
+    onAgentStuck: (alert) => {
+      setStuckAlerts((prev) => new Map(prev).set(alert.agentId, alert));
+    },
+    onAgentUnstuck: ({ agentId }) => {
+      setStuckAlerts((prev) => {
+        const next = new Map(prev);
+        next.delete(agentId);
+        return next;
+      });
+    },
   });
 
   const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied') => {
@@ -74,13 +91,13 @@ export function useAgents() {
 
   const setMode = useCallback(async (agentId: string, mode: AgentMode) => {
     const updated = await api.setAgentMode(agentId, mode);
-    setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    setAgents((prev) => sortAgents(prev.map((a) => (a.id === updated.id ? updated : a))));
   }, []);
 
-  const sendCommand = useCallback(async (agentId: string, text: string) => {
+  const sendCommand = useCallback(async (agentId: string, text: string, includeMemory = true) => {
     try {
-      console.log('[NeonCore] Sending command:', { agentId, text });
-      await api.sendCommand(agentId, text);
+      console.log('[NeonCore] Sending command:', { agentId, text, includeMemory });
+      await api.sendCommand(agentId, text, includeMemory);
       console.log('[NeonCore] Command sent successfully');
     } catch (err) {
       console.error('[NeonCore] Failed to send command:', err);
@@ -93,15 +110,25 @@ export function useAgents() {
     setAgents((prev) => prev.filter((a) => a.id !== agentId));
   }, []);
 
+  const dismissStuckAlert = useCallback((agentId: string) => {
+    setStuckAlerts((prev) => {
+      const next = new Map(prev);
+      next.delete(agentId);
+      return next;
+    });
+  }, []);
+
   return {
     agents,
     activities,
     pendingPermissions,
+    stuckAlerts,
     loading,
     connected,
     decidePermission,
     setMode,
     sendCommand,
     deleteAgent,
+    dismissStuckAlert,
   };
 }

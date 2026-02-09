@@ -168,6 +168,15 @@ router.post('/message', (req, res) => {
   res.json(normalized);
 });
 
+// Focus an agent's VS Code window
+router.post('/:id/focus', (req, res) => {
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  getIO().to(`agent:${req.params.id}`).emit('focus_window' as any);
+  res.json({ ok: true });
+});
+
 // Delete an agent (cascade related records)
 router.delete('/:id', (req, res) => {
   const id = req.params.id;
