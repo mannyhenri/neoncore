@@ -1,4 +1,5 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
+export type AgentType = 'claude' | 'gridlight';
 
 export interface Agent {
   id: string;
@@ -11,6 +12,7 @@ export interface Agent {
   status: 'working' | 'idle' | 'waiting' | 'offline';
   trustMode: boolean;
   mode: AgentMode;
+  agentType: AgentType;
   lastSeen: string;
   sessionId: string;
   lastMessage: string;
@@ -53,6 +55,14 @@ export interface StuckAlert {
   severity: 'high' | 'medium';
   suggestion: string;
   detectedAt: string;
+}
+
+export interface Note {
+  id: string;
+  agentId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AgentMemory {

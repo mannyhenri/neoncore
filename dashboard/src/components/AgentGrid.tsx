@@ -21,11 +21,11 @@ export function AgentGrid({ agents, pendingPermissions, stuckAlerts, onDecidePer
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-500">
         <div className="text-5xl mb-4">~</div>
-        <h3 className="text-lg font-medium text-gray-400 mb-2">No agents connected</h3>
-        <p className="text-sm text-center max-w-md">
+        <h3 className="text-xl font-medium text-gray-400 mb-2">No agents connected</h3>
+        <p className="text-base text-center max-w-md">
           Install the NeonCore hooks on your machines to connect Claude Code agents.
           <br />
-          Run <code className="text-neon-400 bg-gray-800 px-1.5 py-0.5 rounded">./agent/install.sh</code> to get started.
+          Run <code className="text-gl-purple bg-white/[0.06] px-1.5 py-0.5 rounded">./agent/install.sh</code> to get started.
         </p>
       </div>
     );

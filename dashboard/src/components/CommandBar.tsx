@@ -43,8 +43,8 @@ const CATEGORIES: CommandCategory[] = [
   },
 ];
 
-const selectClass = 'text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2 py-1.5 focus:outline-none focus:border-neon-500';
-const btnClass = 'text-xs px-3 py-1.5 rounded-md font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
+const selectClass = 'text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 focus:outline-none focus:border-gl-purple';
+const btnClass = 'text-sm px-3.5 py-2 rounded-md font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
 
 export function CommandBar({ agents, onSendCommand }: Props) {
   const [selectedCommand, setSelectedCommand] = useState('');
@@ -82,7 +82,7 @@ export function CommandBar({ agents, onSendCommand }: Props) {
   }
 
   return (
-    <div className="border-b border-gray-800 px-6 py-3">
+    <div className="border-b border-white/[0.06] px-6 py-3">
       <div className="flex items-center justify-between gap-6 flex-wrap">
         {/* Command Launcher */}
         <div className="flex items-center gap-2">
@@ -117,7 +117,7 @@ export function CommandBar({ agents, onSendCommand }: Props) {
           <button
             onClick={handleSendCommand}
             disabled={!selectedCommand}
-            className={btnClass + ' bg-neon-600 text-white hover:bg-neon-500'}
+            className={btnClass + ' gl-gradient text-white hover:opacity-90'}
           >
             Send
           </button>
@@ -125,7 +125,7 @@ export function CommandBar({ agents, onSendCommand }: Props) {
 
         {/* Jira Task Launcher */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold">
+          <span className="text-xs uppercase tracking-wider text-gray-600 font-semibold">
             Jira
           </span>
           <input
@@ -134,7 +134,7 @@ export function CommandBar({ agents, onSendCommand }: Props) {
             onChange={(e) => setTaskId(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleTaskAction(); }}
             placeholder={taskAction === 'epic' ? 'Epic title...' : 'GRD-427'}
-            className={`text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2 py-1.5 font-mono placeholder-gray-600 focus:outline-none focus:border-indigo-500 ${taskAction === 'epic' ? 'w-40' : 'w-24'}`}
+            className={`text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple ${taskAction === 'epic' ? 'w-44' : 'w-28'}`}
           />
 
           <select

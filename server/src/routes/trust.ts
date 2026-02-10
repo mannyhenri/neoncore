@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import type { Agent, AgentMode } from '../types.js';
+import type { Agent, AgentMode, AgentType } from '../types.js';
 
 const router = Router();
 
@@ -95,6 +95,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     status: (row.status ?? 'idle') as Agent['status'],
     trustMode: mode === 'trust',
     mode,
+    agentType: ((row.agent_type ?? row.agentType ?? 'claude') as AgentType),
     lastSeen: (row.last_seen ?? row.lastSeen ?? '') as string,
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,

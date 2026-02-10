@@ -76,8 +76,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity(timestamp);
   CREATE INDEX IF NOT EXISTS idx_permissions_status ON permissions(status);
   CREATE INDEX IF NOT EXISTS idx_permissions_agent ON permissions(agent_id);
+  CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_memory_agent ON agent_memory(agent_id);
   CREATE INDEX IF NOT EXISTS idx_memory_project ON agent_memory(project);
+  CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(agent_id);
 `);
 
 // Migration: add agent_mode column
@@ -88,6 +98,13 @@ try {
     ALTER TABLE agents ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'manual';
     UPDATE agents SET agent_mode = CASE WHEN trust_mode = 1 THEN 'trust' ELSE 'manual' END;
   `);
+}
+
+// Migration: add agent_type column
+try {
+  db.prepare('SELECT agent_type FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'claude'`);
 }
 
 // Migration: add active column to agent_memory

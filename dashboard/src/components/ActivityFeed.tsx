@@ -103,13 +103,13 @@ function TodoActivity({ activity, agentName }: { activity: Activity; agentName: 
   return (
     <div className="hover:bg-gray-800/50 transition-colors">
       <div
-        className="px-4 py-2 flex items-center gap-2 text-xs cursor-pointer"
+        className="px-4 py-2.5 flex items-center gap-2 text-sm cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="font-mono font-medium shrink-0 text-pink-400">
@@ -138,7 +138,7 @@ function TodoActivity({ activity, agentName }: { activity: Activity; agentName: 
         <div className="px-4 pb-3 ml-[4.5rem]">
           <div className="space-y-1">
             {todos.map((todo, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs">
+              <div key={i} className="flex items-start gap-2 text-sm">
                 {todo.status === 'completed' ? (
                   <span className="text-green-400 shrink-0 mt-px">&#10003;</span>
                 ) : todo.status === 'in_progress' ? (
@@ -202,13 +202,13 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
   return (
     <div className="hover:bg-gray-800/50 transition-colors">
       <div
-        className="px-4 py-2 flex items-center gap-2 text-xs cursor-pointer"
+        className="px-4 py-2.5 flex items-center gap-2 text-sm cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="font-mono font-medium shrink-0 text-amber-400 flex items-center">
@@ -221,7 +221,7 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
           {summary}
         </span>
         {hasAnswer && (
-          <span className="text-green-400 text-xs shrink-0 font-mono">
+          <span className="text-green-400 text-sm shrink-0 font-mono">
             answered
           </span>
         )}
@@ -249,7 +249,7 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
 
             return (
               <div key={qi}>
-                <p className="text-gray-300 text-xs mb-1.5">
+                <p className="text-gray-300 text-sm mb-1.5">
                   {q.header && <span className="text-amber-400 mr-1.5">[{q.header}]</span>}
                   {q.question}
                 </p>
@@ -258,7 +258,7 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
                     {q.options.map((opt, oi) => {
                       const isChosen = answer === opt.label;
                       return (
-                        <div key={oi} className={`flex items-start gap-2 text-xs ${isChosen ? 'text-green-400' : 'text-gray-500'}`}>
+                        <div key={oi} className={`flex items-start gap-2 text-sm ${isChosen ? 'text-green-400' : 'text-gray-500'}`}>
                           <span className="shrink-0 w-4 text-right">{oi + 1}.</span>
                           <div>
                             <span className={isChosen ? 'font-medium' : ''}>{opt.label}</span>
@@ -274,15 +274,15 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
                 )}
                 {answer && (
                   <div className="border-t border-gray-800 pt-1.5 mt-1.5">
-                    <span className="text-gray-500 text-xs">Answer: </span>
-                    <span className="text-green-400 text-xs">{answer}</span>
+                    <span className="text-gray-500 text-sm">Answer: </span>
+                    <span className="text-green-400 text-sm">{answer}</span>
                   </div>
                 )}
               </div>
             );
           })}
           {isPending && (
-            <div className="text-amber-400 text-xs animate-pulse">
+            <div className="text-amber-400 text-sm animate-pulse">
               Waiting for user response...
             </div>
           )}
@@ -296,12 +296,12 @@ function PlanModeActivity({ activity, agentName }: { activity: Activity; agentNa
   const isEnter = activity.toolName === 'EnterPlanMode';
 
   return (
-    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="text-violet-400 font-medium shrink-0 flex items-center">
@@ -323,12 +323,12 @@ function ToolActivity({ activity, agentName }: { activity: Activity; agentName: 
   const summary = summarizeToolInput(activity.toolName, activity.toolInput);
 
   return (
-    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className={`font-mono font-medium shrink-0 ${toolColor}`}>
@@ -354,13 +354,13 @@ function MessageActivity({ activity, agentName }: { activity: Activity; agentNam
     <div className="hover:bg-gray-800/50 transition-colors">
       {/* Single-line collapsed row */}
       <div
-        className={`px-4 py-2 flex items-center gap-2 text-xs ${isLong ? 'cursor-pointer' : ''}`}
+        className={`px-4 py-2.5 flex items-center gap-2 text-sm ${isLong ? 'cursor-pointer' : ''}`}
         onClick={() => isLong && setExpanded(!expanded)}
       >
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="text-indigo-400 font-medium shrink-0">
@@ -393,11 +393,11 @@ function MessageActivity({ activity, agentName }: { activity: Activity; agentNam
           <div className="prose prose-invert prose-sm max-w-none
             prose-p:my-1 prose-p:text-gray-300 prose-p:leading-relaxed
             prose-headings:text-gray-200 prose-headings:mt-2 prose-headings:mb-1
-            prose-code:text-neon-300 prose-code:bg-gray-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+            prose-code:text-gl-pink prose-code:bg-gray-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
             prose-pre:bg-gray-800 prose-pre:border prose-pre:border-gray-700 prose-pre:rounded-lg prose-pre:text-xs
             prose-li:text-gray-300 prose-li:my-0.5
             prose-strong:text-gray-200
-            prose-a:text-neon-400"
+            prose-a:text-gl-purple"
           >
             <Markdown>{message}</Markdown>
           </div>
@@ -409,12 +409,12 @@ function MessageActivity({ activity, agentName }: { activity: Activity; agentNam
 
 function NotificationActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   return (
-    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="text-sky-400 font-medium shrink-0">
@@ -431,12 +431,12 @@ function NotificationActivity({ activity, agentName }: { activity: Activity; age
 function SubagentActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   const summary = summarizeToolInput('Task', activity.toolInput);
   return (
-    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="text-yellow-400 font-mono font-medium shrink-0">
@@ -452,12 +452,12 @@ function SubagentActivity({ activity, agentName }: { activity: Activity; agentNa
 
 function UserCommandActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   return (
-    <div className="px-4 py-2 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-gray-600 font-mono w-16 shrink-0">
+    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-600 font-mono w-20 shrink-0">
           {formatTime(activity.timestamp)}
         </span>
-        <span className="text-neon-400 font-mono truncate w-24 shrink-0">
+        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
           {agentName}
         </span>
         <span className="text-emerald-400 font-medium shrink-0">
@@ -485,14 +485,14 @@ export function ActivityFeed({ activities, agents }: Props) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-        <h2 className="text-gray-300 font-semibold text-sm uppercase tracking-wide">
+        <h2 className="text-gray-300 font-semibold text-base uppercase tracking-wide">
           Activity Feed
         </h2>
         {filterableAgents.length > 1 && (
           <select
             value={filterAgentId}
             onChange={(e) => setFilterAgentId(e.target.value)}
-            className="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2 py-1 focus:outline-none focus:border-neon-500"
+            className="text-sm bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-gl-purple"
           >
             <option value="all">All agents</option>
             {filterableAgents.map((agent) => (

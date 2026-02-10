@@ -55,13 +55,13 @@ function InlinePermission({ permission, onAllow, onDeny }: {
       <div className="bg-violet-950/40 border border-violet-700 rounded-lg px-3 py-3">
         <div className="flex items-center gap-2 mb-2">
           <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-          <span className="text-violet-300 text-xs font-semibold">Plan Ready for Review</span>
+          <span className="text-violet-300 text-sm font-semibold">Plan Ready for Review</span>
         </div>
         {allowedPrompts.length > 0 && (
           <div className="mb-2 space-y-1">
             <span className="text-[10px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
             {allowedPrompts.map((p, i) => (
-              <div key={i} className="text-xs text-gray-400 font-mono pl-2 border-l border-violet-800">
+              <div key={i} className="text-sm text-gray-400 font-mono pl-2 border-l border-violet-800">
                 {p.tool}: {p.prompt}
               </div>
             ))}
@@ -70,13 +70,13 @@ function InlinePermission({ permission, onAllow, onDeny }: {
         <div className="flex items-center gap-1.5">
           <button
             onClick={onAllow}
-            className="px-2.5 py-1 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-xs rounded-md transition-colors font-medium"
+            className="px-3 py-1.5 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-sm rounded-md transition-colors font-medium"
           >
             Approve Plan
           </button>
           <button
             onClick={onDeny}
-            className="px-2.5 py-1 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-xs rounded-md transition-colors font-medium"
+            className="px-3 py-1.5 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-sm rounded-md transition-colors font-medium"
           >
             Reject Plan
           </button>
@@ -88,21 +88,21 @@ function InlinePermission({ permission, onAllow, onDeny }: {
   return (
     <div className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 gap-2">
       <div className="flex-1 min-w-0">
-        <span className="text-yellow-400 text-xs font-mono">{permission.toolName}</span>
-        <p className="text-gray-400 text-xs font-mono truncate" title={permission.description}>
+        <span className="text-yellow-400 text-sm font-mono">{permission.toolName}</span>
+        <p className="text-gray-400 text-sm font-mono truncate" title={permission.description}>
           {permission.description}
         </p>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           onClick={onAllow}
-          className="px-2.5 py-1 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-xs rounded-md transition-colors font-medium"
+          className="px-3 py-1.5 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-sm rounded-md transition-colors font-medium"
         >
           Allow
         </button>
         <button
           onClick={onDeny}
-          className="px-2.5 py-1 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-xs rounded-md transition-colors font-medium"
+          className="px-3 py-1.5 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-sm rounded-md transition-colors font-medium"
         >
           Deny
         </button>
@@ -176,13 +176,13 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
       .catch(() => {});
   };
 
-  const borderColor = stuckAlert
+  const borderExtra = stuckAlert
     ? 'border-amber-700'
-    : agent.status === 'waiting' ? 'border-yellow-800'
-    : 'border-gray-800 hover:border-gray-700';
+    : agent.status === 'waiting' ? 'border-yellow-800/60'
+    : '';
 
   return (
-    <div className={`bg-gray-900 border rounded-xl p-5 md:p-6 transition-colors min-h-[14rem] flex flex-col ${borderColor}`}>
+    <div className={`glass rounded-2xl p-5 md:p-6 transition-colors min-h-[14rem] flex flex-col ${borderExtra}`}>
       {/* Header: repo name is the title */}
       <div className="flex items-start justify-between mb-1">
         <div className="flex items-center gap-2">
@@ -192,10 +192,17 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
               <div className={`absolute inset-0 w-3 h-3 rounded-full ${status.color} animate-ping opacity-75`} />
             )}
           </div>
-          <h3 className="text-neon-400 font-bold text-lg font-mono">{agent.repoName || 'unknown'}</h3>
+          <h3 className="text-gl-purple font-bold text-xl font-mono">{agent.repoName || 'unknown'}</h3>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide ${
+            agent.agentType === 'gridlight'
+              ? 'bg-pink-900/50 text-pink-400'
+              : 'bg-blue-900/50 text-blue-400'
+          }`}>
+            {agent.agentType === 'gridlight' ? 'GL' : 'CC'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
+          <span className={`text-sm px-2.5 py-0.5 rounded-full ${
             agent.status === 'working' ? 'bg-green-900/50 text-green-400' :
             agent.status === 'waiting' ? 'bg-yellow-900/50 text-yellow-400' :
             agent.status === 'idle' ? 'bg-gray-800 text-gray-400' :
@@ -205,7 +212,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
           </span>
           <button
             onClick={() => api.focusAgent(agent.id).catch(() => {})}
-            className="text-gray-600 hover:text-neon-400 transition-colors text-xs"
+            className="text-gray-600 hover:text-gl-purple transition-colors text-xs"
             title="Bring VS Code window to front"
           >
             ^
@@ -221,7 +228,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
       </div>
 
       {/* Machine + branch subtitle */}
-      <div className="text-xs text-gray-500 mb-3 ml-5">
+      <div className="text-sm text-gray-500 mb-3 ml-5">
         {shortMachine(agent.machine)}
         {agent.branch && <span className="text-gray-600"> / {agent.branch}</span>}
         <span className="text-gray-700 ml-2">{timeAgo(agent.lastSeen)}</span>
@@ -233,7 +240,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
           <div className="flex items-start justify-between gap-2 mb-1.5">
             <div className="flex items-center gap-1.5">
               <span className="text-amber-400 text-xs">!</span>
-              <span className="text-amber-300 text-xs font-semibold">
+              <span className="text-amber-300 text-sm font-semibold">
                 {stuckAlert.severity === 'high' ? 'Stuck' : 'Possibly stuck'}
               </span>
             </div>
@@ -244,7 +251,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
               dismiss
             </button>
           </div>
-          <p className="text-xs text-gray-400 mb-2">{stuckAlert.pattern}</p>
+          <p className="text-sm text-gray-400 mb-2">{stuckAlert.pattern}</p>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => onSendCommand(agent.id, stuckAlert.suggestion)}
@@ -259,7 +266,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
       {/* Inline permission requests */}
       {permissions.length > 0 && (
         <div className="space-y-2 mb-3">
-          <div className="flex items-center gap-1.5 text-xs text-yellow-400">
+          <div className="flex items-center gap-1.5 text-sm text-yellow-400">
             <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
             Pending ({permissions.length})
           </div>
@@ -315,7 +322,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
                   onClick={() => handleToggleMemory(m.id)}
                   className={`shrink-0 w-3.5 h-3.5 mt-0.5 rounded border transition-colors ${
                     m.active
-                      ? 'bg-neon-600 border-neon-500'
+                      ? 'bg-gl-purple border-gl-purple'
                       : 'bg-gray-800 border-gray-600 hover:border-gray-500'
                   }`}
                   title={m.active ? 'Active — click to disable' : 'Inactive — click to enable'}
@@ -353,7 +360,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
                   <button
                     onClick={handleAddMemory}
                     disabled={!newContent.trim()}
-                    className="text-xs px-2 py-1 bg-neon-700 hover:bg-neon-600 text-white rounded disabled:opacity-30"
+                    className="text-xs px-2 py-1 gl-gradient hover:opacity-90 text-white rounded disabled:opacity-30"
                   >
                     Save
                   </button>
@@ -368,7 +375,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             ) : (
               <button
                 onClick={() => setAddingMemory(true)}
-                className="text-[10px] text-gray-600 hover:text-neon-400 transition-colors"
+                className="text-[10px] text-gray-600 hover:text-gl-purple transition-colors"
               >
                 + Add memory
               </button>

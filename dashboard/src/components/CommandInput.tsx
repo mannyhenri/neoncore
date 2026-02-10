@@ -146,10 +146,10 @@ export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled
         onKeyDown={handleKeyDown}
         placeholder={placeholder || "Type an instruction for this agent..."}
         rows={1}
-        className="w-full bg-gray-800 text-gray-200 text-sm rounded-lg px-3 py-2 border border-gray-700 focus:border-neon-500 focus:outline-none resize-none placeholder-gray-600 overflow-hidden"
+        className="w-full glass-input text-gray-200 text-base rounded-lg px-3 py-2.5 focus:outline-none resize-none placeholder-gray-600 overflow-hidden"
       />
       <div className="flex justify-between items-center">
-        <span className="text-xs text-gray-600 flex items-center gap-2">
+        <span className="text-sm text-gray-600 flex items-center gap-2">
           {mode === 'plan' && <span className="text-indigo-400">Plan mode</span>}
           {onToggleMemory && (
             <button
@@ -165,10 +165,10 @@ export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled
         <button
           onClick={handleSubmit}
           disabled={!text.trim()}
-          className={`text-xs px-3 py-1 text-white rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
+          className={`text-sm px-3.5 py-1.5 text-white rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
             mode === 'plan'
               ? 'bg-indigo-600 hover:bg-indigo-500'
-              : 'bg-neon-600 hover:bg-neon-500'
+              : 'gl-gradient hover:opacity-90'
           }`}
         >
           {mode === 'plan' ? 'Send (Plan)' : 'Send'}

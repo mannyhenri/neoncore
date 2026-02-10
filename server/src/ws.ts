@@ -82,6 +82,7 @@ function markAgentOffline(agentId: string) {
       status: 'offline',
       trustMode: mode === 'trust',
       mode,
+      agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,
       lastSeen: now,
       sessionId: (row.session_id as string) ?? '',
       lastMessage: (row.last_message as string) ?? '',

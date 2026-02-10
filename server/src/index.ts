@@ -12,6 +12,7 @@ import permissionsRouter from './routes/permissions.js';
 import trustRouter from './routes/trust.js';
 import commandsRouter from './routes/commands.js';
 import memoryRouter from './routes/memory.js';
+import notesRouter from './routes/notes.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 
@@ -38,6 +39,7 @@ app.use('/api/permissions', permissionsRouter);
 app.use('/api/trust', trustRouter);
 app.use('/api/commands', commandsRouter);
 app.use('/api/agents', memoryRouter);
+app.use('/api/agents', notesRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -80,6 +82,7 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     status: (row.status as string ?? 'idle') as import('./types.js').Agent['status'],
     trustMode: mode === 'trust',
     mode,
+    agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,
     lastSeen: (row.last_seen as string) ?? '',
     sessionId: (row.session_id as string) ?? '',
     lastMessage: (row.last_message as string) ?? '',

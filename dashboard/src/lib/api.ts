@@ -56,4 +56,20 @@ export const api = {
     request<import('../types').AgentMemory>(`/agents/${agentId}/memory/${memoryId}/toggle`, { method: 'PATCH' }),
   deleteMemory: (agentId: string, memoryId: string) =>
     request<void>(`/agents/${agentId}/memory/${memoryId}`, { method: 'DELETE' }),
+
+  // Notes
+  getNotes: (agentId: string) =>
+    request<import('../types').Note[]>(`/agents/${agentId}/notes`),
+  createNote: (agentId: string, content: string) =>
+    request<import('../types').Note>(`/agents/${agentId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+  updateNote: (agentId: string, noteId: string, content: string) =>
+    request<import('../types').Note>(`/agents/${agentId}/notes/${noteId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  deleteNote: (agentId: string, noteId: string) =>
+    request<void>(`/agents/${agentId}/notes/${noteId}`, { method: 'DELETE' }),
 };

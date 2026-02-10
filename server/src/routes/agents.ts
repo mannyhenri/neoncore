@@ -2,14 +2,14 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
-import type { Agent, Activity } from '../types.js';
+import type { Agent, AgentType, Activity } from '../types.js';
 
 const router = Router();
 
 // Register or update an agent
 // Deduplicates on machine + repoPath so each repo on each machine = 1 agent
 router.post('/register', (req, res) => {
-  const { name, machine, repoPath, repoName, branch, currentTask, sessionId } = req.body;
+  const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType } = req.body;
 
   const now = new Date().toISOString();
 
@@ -31,13 +31,15 @@ router.post('/register', (req, res) => {
   if (existing) {
     db.prepare(`
       UPDATE agents SET name = ?, machine = ?, repo_path = ?, repo_name = ?,
-        branch = ?, current_task = ?, status = 'working', last_seen = ?, session_id = ?
+        branch = ?, current_task = ?, status = 'working', last_seen = ?, session_id = ?,
+        agent_type = ?
       WHERE id = ?
     `).run(
       name || existing.name, machine || existing.machine,
       repoPath || existing.repo_path, repoName || existing.repo_name,
       branch || existing.branch, currentTask || existing.current_task,
       now, sessionId || existing.session_id,
+      agentType || existing.agent_type || 'claude',
       existing.id
     );
 
@@ -59,8 +61,8 @@ router.post('/register', (req, res) => {
   const agentName = name || (repoName ? `${machine || 'unknown'}/${repoName}` : `Agent ${id.slice(0, 6)}`);
 
   db.prepare(`
-    INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, trust_mode, last_seen, session_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'working', 0, ?, ?)
+    INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, trust_mode, last_seen, session_id, agent_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'working', 0, ?, ?, ?)
   `).run(
     id,
     agentName,
@@ -70,7 +72,8 @@ router.post('/register', (req, res) => {
     branch || '',
     currentTask || '',
     now,
-    sessionId || ''
+    sessionId || '',
+    agentType || 'claude'
   );
 
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
@@ -200,6 +203,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     status: (row.status ?? 'idle') as Agent['status'],
     trustMode: mode === 'trust',
     mode,
+    agentType: ((row.agent_type ?? row.agentType ?? 'claude') as AgentType),
     lastSeen: (row.last_seen ?? row.lastSeen ?? '') as string,
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
