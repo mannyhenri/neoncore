@@ -208,6 +208,13 @@ function registerWithOrchestrator() {
 
 async function bringWindowToFront() {
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
+
+  // Only use AppleScript on macOS
+  if (process.platform !== 'darwin') {
+    log(`Skipping window raise (not macOS)`);
+    return;
+  }
+
   try {
     await execAsync(`open -a "Visual Studio Code"`);
     await sleep(400);
@@ -270,51 +277,79 @@ async function handleCommand(command: Command) {
       }
     }
 
-    // Step 3: Raise the CORRECT VS Code window by workspace folder name,
-    // then paste and submit via AppleScript
+    // Step 3: Raise window and paste + submit (platform-specific)
     const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
     try {
-      // Activate VS Code to restore minimized windows, then raise the matching one
-      await execAsync(`open -a "Visual Studio Code"`);
-      await sleep(500);
+      if (process.platform === 'darwin') {
+        // macOS: Use AppleScript for window raising and keystroke simulation
+        await execAsync(`open -a "Visual Studio Code"`);
+        await sleep(500);
 
-      // Raise the specific window matching this workspace
-      await execAsync(
-        `osascript` +
-        ` -e 'tell application "System Events"'` +
-        ` -e '  tell process "Code"'` +
-        ` -e '    repeat with w in (every window)'` +
-        ` -e '      if title of w contains "${workspaceName}" then'` +
-        ` -e '        perform action "AXRaise" of w'` +
-        ` -e '        exit repeat'` +
-        ` -e '      end if'` +
-        ` -e '    end repeat'` +
-        ` -e '    set frontmost to true'` +
-        ` -e '  end tell'` +
-        ` -e 'end tell'`
-      );
-      log(`Raised window matching "${workspaceName}"`);
-      await sleep(500);
+        // Raise the specific window matching this workspace
+        await execAsync(
+          `osascript` +
+          ` -e 'tell application "System Events"'` +
+          ` -e '  tell process "Code"'` +
+          ` -e '    repeat with w in (every window)'` +
+          ` -e '      if title of w contains "${workspaceName}" then'` +
+          ` -e '        perform action "AXRaise" of w'` +
+          ` -e '        exit repeat'` +
+          ` -e '      end if'` +
+          ` -e '    end repeat'` +
+          ` -e '    set frontmost to true'` +
+          ` -e '  end tell'` +
+          ` -e 'end tell'`
+        );
+        log(`Raised window matching "${workspaceName}"`);
+        await sleep(500);
 
-      // Always re-focus Claude Code input after window raise (focus shifts during raise)
-      try {
-        await vscode.commands.executeCommand('claude-vscode.focus');
-      } catch {
-        await vscode.commands.executeCommand('workbench.action.focusSideBar');
+        // Re-focus Claude Code input after window raise
+        try {
+          await vscode.commands.executeCommand('claude-vscode.focus');
+        } catch {
+          await vscode.commands.executeCommand('workbench.action.focusSideBar');
+        }
+        await sleep(500);
+
+        // Paste and Enter via AppleScript
+        const delaySec = Math.min(0.5 + command.text.length / 500, 3).toFixed(1);
+        await execAsync(
+          `osascript` +
+          ` -e 'tell application "System Events"'` +
+          ` -e '  keystroke "v" using command down'` +
+          ` -e '  delay ${delaySec}'` +
+          ` -e '  key code 36'` +
+          ` -e 'end tell'`
+        );
+        log(`Simulated paste + Enter (delay=${delaySec}s) — command submitted`);
+      } else {
+        // Windows/Linux: Use VSCode commands (clipboard already has the text)
+        await sleep(300);
+
+        // Re-focus Claude Code input
+        try {
+          await vscode.commands.executeCommand('claude-vscode.focus');
+        } catch {
+          await vscode.commands.executeCommand('workbench.action.focusSideBar');
+        }
+        await sleep(500);
+
+        // Trigger paste via VSCode command
+        await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+        const delaySec = Math.min(500 + command.text.length / 100, 3000);
+        await sleep(delaySec);
+
+        // Submit using PowerShell SendKeys on Windows
+        if (process.platform === 'win32') {
+          const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`;
+          await execAsync(`powershell -Command "${psScript}"`);
+          log(`Submitted via PowerShell SendKeys (Windows)`);
+        } else {
+          // Linux fallback
+          await vscode.commands.executeCommand('default:type', { text: '\n' });
+          log(`Submitted via type command (Linux)`);
+        }
       }
-      await sleep(500);
-
-      // Paste and Enter in a single AppleScript (delay is more reliable than JS setTimeout)
-      const delaySec = Math.min(0.5 + command.text.length / 500, 3).toFixed(1);
-      await execAsync(
-        `osascript` +
-        ` -e 'tell application "System Events"'` +
-        ` -e '  keystroke "v" using command down'` +
-        ` -e '  delay ${delaySec}'` +
-        ` -e '  key code 36'` +
-        ` -e 'end tell'`
-      );
-      log(`Simulated paste + Enter (delay=${delaySec}s) — command submitted`);
     } catch (err) {
       log(`Keystroke simulation failed: ${err}`);
       const preview = command.text.length > 80 ? command.text.slice(0, 80) + '...' : command.text;

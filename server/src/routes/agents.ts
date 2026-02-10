@@ -7,18 +7,19 @@ import type { Agent, AgentType, Activity } from '../types.js';
 const router = Router();
 
 // Register or update an agent
-// Deduplicates on machine + repoPath so each repo on each machine = 1 agent
+// Deduplicates on machine + repoPath + agentType so each extension per repo per machine = 1 agent
 router.post('/register', (req, res) => {
   const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType } = req.body;
+  const resolvedType = agentType || 'claude';
 
   const now = new Date().toISOString();
 
-  // First try: find by machine + repoPath (canonical dedup key)
+  // First try: find by machine + repoPath + agentType (canonical dedup key)
   let existing: Record<string, unknown> | undefined;
   if (machine && repoPath) {
     existing = db
-      .prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ?')
-      .get(machine, repoPath) as Record<string, unknown> | undefined;
+      .prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
+      .get(machine, repoPath, resolvedType) as Record<string, unknown> | undefined;
   }
 
   // Fallback: find by sessionId (for backward compat)
@@ -39,7 +40,7 @@ router.post('/register', (req, res) => {
       repoPath || existing.repo_path, repoName || existing.repo_name,
       branch || existing.branch, currentTask || existing.current_task,
       now, sessionId || existing.session_id,
-      agentType || existing.agent_type || 'claude',
+      resolvedType,
       existing.id
     );
 
@@ -73,7 +74,7 @@ router.post('/register', (req, res) => {
     currentTask || '',
     now,
     sessionId || '',
-    agentType || 'claude'
+    resolvedType
   );
 
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
@@ -125,14 +126,21 @@ router.patch('/:id', (req, res) => {
   res.json(normalized);
 });
 
-// Post a message (Claude's response) for an agent
+// Post a message (agent's response) for an agent
 router.post('/message', (req, res) => {
-  const { sessionId, machine, repoPath, message } = req.body;
+  const { sessionId, machine, repoPath, message, agentType } = req.body;
 
   let agent: Record<string, unknown> | undefined;
   if (machine && repoPath) {
-    agent = db.prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ?')
-      .get(machine, repoPath) as Record<string, unknown> | undefined;
+    // If agentType provided, find the exact agent; otherwise fall back to any match
+    if (agentType) {
+      agent = db.prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
+        .get(machine, repoPath, agentType) as Record<string, unknown> | undefined;
+    }
+    if (!agent) {
+      agent = db.prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ?')
+        .get(machine, repoPath) as Record<string, unknown> | undefined;
+    }
   }
   if (!agent && sessionId) {
     agent = db.prepare('SELECT * FROM agents WHERE session_id = ?')

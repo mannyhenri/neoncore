@@ -107,6 +107,9 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'claude'`);
 }
 
+// Migration: add composite index for dedup by machine + repo + type
+db.exec(`CREATE INDEX IF NOT EXISTS idx_agents_machine_repo_type ON agents(machine, repo_path, agent_type)`);
+
 // Migration: add active column to agent_memory
 try {
   db.prepare('SELECT active FROM agent_memory LIMIT 1').get();

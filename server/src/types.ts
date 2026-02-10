@@ -101,6 +101,6 @@ export type ServerToClientEvents = {
 
 export type ClientToServerEvents = {
   subscribe: () => void;
-  register_extension: (data: { machine: string; repoPath: string }) => void;
+  register_extension: (data: { machine: string; repoPath: string; agentType?: AgentType }) => void;
   join_agent_room: (data: { agentId: string }) => void;
 };

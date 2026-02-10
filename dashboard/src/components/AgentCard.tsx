@@ -193,12 +193,12 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             )}
           </div>
           <h3 className="text-gl-purple font-bold text-xl font-mono">{agent.repoName || 'unknown'}</h3>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide ${
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
             agent.agentType === 'gridlight'
               ? 'bg-pink-900/50 text-pink-400'
               : 'bg-blue-900/50 text-blue-400'
           }`}>
-            {agent.agentType === 'gridlight' ? 'GL' : 'CC'}
+            {agent.agentType === 'gridlight' ? 'Gridlight' : 'Claude'}
           </span>
         </div>
         <div className="flex items-center gap-2">

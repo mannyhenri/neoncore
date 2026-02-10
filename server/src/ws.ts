@@ -22,16 +22,23 @@ export function initWebSocket(server: HTTPServer) {
   io.on('connection', (socket) => {
     console.log(`[ws] Client connected: ${socket.id}`);
 
-    // VS Code extensions register with machine+repoPath (known immediately, no HTTP needed)
-    socket.on('register_extension', ({ machine, repoPath }) => {
+    // VS Code extensions register with machine+repoPath+agentType (known immediately, no HTTP needed)
+    socket.on('register_extension', ({ machine, repoPath, agentType }) => {
       // Always join the path-based room (works even if agent not yet in DB)
       const pathRoom = `ext:${machine}:${repoPath}`;
       socket.join(pathRoom);
-      console.log(`[ws] Socket ${socket.id} joined path room ${pathRoom}`);
+      console.log(`[ws] Socket ${socket.id} joined path room ${pathRoom} (${agentType || 'claude'})`);
 
       // Try to resolve to agent ID for targeted delivery and offline tracking
-      const agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ?')
-        .get(machine, repoPath) as { id: string } | undefined;
+      let agent: { id: string } | undefined;
+      if (agentType) {
+        agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
+          .get(machine, repoPath, agentType) as { id: string } | undefined;
+      }
+      if (!agent) {
+        agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ?')
+          .get(machine, repoPath) as { id: string } | undefined;
+      }
 
       if (agent) {
         const agentRoom = `agent:${agent.id}`;

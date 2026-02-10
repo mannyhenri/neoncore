@@ -3,7 +3,7 @@ import type { Agent } from '../types';
 
 interface Props {
   agents: Agent[];
-  onSendCommand: (agentId: string, text: string) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
 }
 
 interface CommandCategory {
@@ -46,12 +46,15 @@ const CATEGORIES: CommandCategory[] = [
 const selectClass = 'text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 focus:outline-none focus:border-gl-purple';
 const btnClass = 'text-sm px-3.5 py-2 rounded-md font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
 
+type QuickAction = 'full-review' | 'full-test' | 'research';
+
 export function CommandBar({ agents, onSendCommand }: Props) {
   const [selectedCommand, setSelectedCommand] = useState('');
   const [commandAgent, setCommandAgent] = useState('all');
   const [taskId, setTaskId] = useState('');
   const [taskAgent, setTaskAgent] = useState('');
   const [taskAction, setTaskAction] = useState<'start' | 'scope' | 'epic'>('scope');
+  const [quickAction, setQuickAction] = useState<QuickAction>('full-review');
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
 
@@ -60,10 +63,10 @@ export function CommandBar({ agents, onSendCommand }: Props) {
     const text = `/${selectedCommand}`;
     if (commandAgent === 'all') {
       for (const agent of onlineAgents) {
-        onSendCommand(agent.id, text);
+        onSendCommand(agent.id, text, false);
       }
     } else {
-      onSendCommand(commandAgent, text);
+      onSendCommand(commandAgent, text, false);
     }
     setSelectedCommand('');
   }
@@ -72,14 +75,43 @@ export function CommandBar({ agents, onSendCommand }: Props) {
     if (!taskId.trim() || !taskAgent) return;
     const id = taskId.trim();
     if (taskAction === 'scope') {
-      onSendCommand(taskAgent, `/scoping\n\nScope type: Task\nTask ID: ${id}`);
+      onSendCommand(taskAgent, `/scoping\n\nScope type: Task\nTask ID: ${id}`, false);
     } else if (taskAction === 'epic') {
-      onSendCommand(taskAgent, `/scoping\n\nScope type: Epic\nEpic Title: ${id}`);
+      onSendCommand(taskAgent, `/scoping\n\nScope type: Epic\nEpic Title: ${id}`, false);
     } else {
-      onSendCommand(taskAgent, `/start-working ${id}`);
+      onSendCommand(taskAgent, `/start-working ${id}`, false);
     }
     setTaskId('');
   }
+
+  function handleQuickAction() {
+    if (!taskAgent) return;
+    if (quickAction === 'full-review') {
+      onSendCommand(taskAgent, '/full-review', false);
+    } else if (quickAction === 'full-test') {
+      onSendCommand(taskAgent, '/full-test', false);
+    } else if (quickAction === 'research') {
+      if (!taskId.trim()) return;
+      onSendCommand(taskAgent, [
+        `Research task ${taskId.trim()} and provide a recommended implementation plan.`,
+        '',
+        'Steps:',
+        `1. Look up task ${taskId.trim()} in Jira using /start-working to get the full task details and acceptance criteria`,
+        '2. Based on the task requirements, research current best practices, patterns, and approaches using web search',
+        '3. Analyze the existing codebase to understand current architecture and conventions',
+        '4. Produce a detailed implementation plan that includes:',
+        '   - Recommended approach with rationale',
+        '   - Key files that will need changes',
+        '   - Libraries or patterns to use (with links to docs)',
+        '   - Potential risks or edge cases to watch for',
+        '   - Estimated complexity and suggested breakdown into subtasks',
+        '',
+        'Present the plan in a clear, actionable format. Do NOT start implementing — research and plan only.',
+      ].join('\n'), false);
+    }
+  }
+
+  const quickActionDisabled = !taskAgent || (quickAction === 'research' && !taskId.trim());
 
   return (
     <div className="border-b border-white/[0.06] px-6 py-3">
@@ -169,7 +201,32 @@ export function CommandBar({ agents, onSendCommand }: Props) {
               ? ' bg-violet-600 text-white hover:bg-violet-500'
               : ' bg-indigo-600 text-white hover:bg-indigo-500')}
           >
-            {taskAction === 'epic' ? 'Scope Epic' : taskAction === 'scope' ? 'Scope' : 'Start'}
+            Run
+          </button>
+
+          <span className="w-px h-6 bg-white/10 mx-1" />
+
+          {/* Quick Actions */}
+          <select
+            value={quickAction}
+            onChange={(e) => setQuickAction(e.target.value as QuickAction)}
+            className={selectClass}
+          >
+            <option value="full-review">Full Review</option>
+            <option value="full-test">Full Test</option>
+            <option value="research">Research</option>
+          </select>
+
+          <button
+            onClick={handleQuickAction}
+            disabled={quickActionDisabled}
+            className={btnClass + (quickAction === 'research'
+              ? ' bg-amber-600 text-white hover:bg-amber-500'
+              : quickAction === 'full-test'
+              ? ' bg-teal-600 text-white hover:bg-teal-500'
+              : ' bg-rose-600 text-white hover:bg-rose-500')}
+          >
+            {quickAction === 'research' ? 'Research' : 'Run'}
           </button>
         </div>
       </div>
