@@ -32,7 +32,7 @@ export function AgentGrid({ agents, pendingPermissions, stuckAlerts, onDecidePer
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-5">
       {visibleAgents.map((agent) => (
         <AgentCard
           key={agent.id}

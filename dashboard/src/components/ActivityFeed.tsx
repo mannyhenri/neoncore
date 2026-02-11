@@ -72,7 +72,6 @@ function summarizeToolInput(toolName: string, toolInput: string): string {
 }
 
 function plainTextPreview(text: string): string {
-  // Strip markdown formatting for single-line preview
   return text
     .replace(/#{1,6}\s/g, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
@@ -83,6 +82,14 @@ function plainTextPreview(text: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+// Responsive row layout: stacked on mobile, inline on desktop
+const rowOuter = 'px-3 py-2 md:px-4 md:py-2.5 hover:bg-gray-800/50 transition-colors';
+const rowInner = 'flex flex-col gap-0.5 md:flex-row md:items-center md:gap-2 text-sm';
+const rowMeta = 'flex items-center gap-2';
+const timeClass = 'text-gray-600 font-mono shrink-0';
+const agentClass = 'text-gl-purple font-mono truncate md:w-56 md:shrink-0';
+const contentRow = 'flex items-center gap-2 min-w-0';
 
 interface Todo {
   content: string;
@@ -103,39 +110,31 @@ function TodoActivity({ activity, agentName }: { activity: Activity; agentName: 
   return (
     <div className="hover:bg-gray-800/50 transition-colors">
       <div
-        className="px-4 py-2.5 flex items-center gap-2 text-sm cursor-pointer"
+        className="px-3 py-2 md:px-4 md:py-2.5 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="font-mono font-medium shrink-0 text-pink-400">
-          TodoWrite
-        </span>
-        <span className="text-gray-500 truncate font-mono min-w-0 flex-1">
-          {summary}
-        </span>
-        <button
-          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
-        >
-          <svg
-            className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
+        <div className={rowInner}>
+          <div className={rowMeta}>
+            <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+            <span className={agentClass}>{agentName}</span>
+          </div>
+          <div className={contentRow}>
+            <span className="font-mono font-medium shrink-0 text-pink-400">TodoWrite</span>
+            <span className="text-gray-500 truncate font-mono min-w-0 flex-1">{summary}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+              className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
+            >
+              <svg className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
 
       {expanded && todos.length > 0 && (
-        <div className="px-4 pb-3 ml-[4.5rem]">
+        <div className="px-3 pb-3 md:px-4 md:ml-[4.5rem]">
           <div className="space-y-1">
             {todos.map((todo, i) => (
               <div key={i} className="flex items-start gap-2 text-sm">
@@ -184,12 +183,10 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
     questions = input.questions || [];
   } catch { /* empty */ }
 
-  // Parse answer from toolResult if available
   let answers: Record<string, string> = {};
   try {
     const result = JSON.parse(activity.toolResult || '{}');
     if (result.result) {
-      // Single answer string
       answers = { '0': result.result };
     } else if (typeof result === 'object') {
       answers = result;
@@ -202,47 +199,39 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
   return (
     <div className="hover:bg-gray-800/50 transition-colors">
       <div
-        className="px-4 py-2.5 flex items-center gap-2 text-sm cursor-pointer"
+        className="px-3 py-2 md:px-4 md:py-2.5 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="font-mono font-medium shrink-0 text-amber-400 flex items-center">
-          {isPending && (
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse mr-1.5" />
-          )}
-          AskUser
-        </span>
-        <span className="text-gray-500 truncate font-mono min-w-0 flex-1">
-          {summary}
-        </span>
-        {hasAnswer && (
-          <span className="text-green-400 text-sm shrink-0 font-mono">
-            answered
-          </span>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
-        >
-          <svg
-            className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
+        <div className={rowInner}>
+          <div className={rowMeta}>
+            <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+            <span className={agentClass}>{agentName}</span>
+          </div>
+          <div className={contentRow}>
+            <span className="font-mono font-medium shrink-0 text-amber-400 flex items-center">
+              {isPending && (
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse mr-1.5" />
+              )}
+              AskUser
+            </span>
+            <span className="text-gray-500 truncate font-mono min-w-0 flex-1">{summary}</span>
+            {hasAnswer && (
+              <span className="text-green-400 text-sm shrink-0 font-mono">answered</span>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+              className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
+            >
+              <svg className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
 
       {expanded && questions.length > 0 && (
-        <div className="px-4 pb-3 ml-[4.5rem] space-y-3">
+        <div className="px-3 pb-3 md:px-4 md:ml-[4.5rem] space-y-3">
           {questions.map((q, qi) => {
             const answerKey = q.question || String(qi);
             const answer = answers[answerKey] || answers[String(qi)] || (qi === 0 ? answers['0'] : '');
@@ -296,23 +285,23 @@ function PlanModeActivity({ activity, agentName }: { activity: Activity; agentNa
   const isEnter = activity.toolName === 'EnterPlanMode';
 
   return (
-    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="text-violet-400 font-medium shrink-0 flex items-center">
-          {isEnter && (
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse mr-1.5" />
-          )}
-          {isEnter ? 'Plan Mode' : 'Plan Ready'}
-        </span>
-        <span className="text-gray-500 truncate min-w-0 flex-1">
-          {isEnter ? 'Entering plan mode — exploring and designing approach' : 'Plan complete — ready for approval'}
-        </span>
+    <div className={rowOuter}>
+      <div className={rowInner}>
+        <div className={rowMeta}>
+          <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+          <span className={agentClass}>{agentName}</span>
+        </div>
+        <div className={contentRow}>
+          <span className="text-violet-400 font-medium shrink-0 flex items-center">
+            {isEnter && (
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse mr-1.5" />
+            )}
+            {isEnter ? 'Plan Mode' : 'Plan Ready'}
+          </span>
+          <span className="text-gray-500 truncate min-w-0 flex-1">
+            {isEnter ? 'Entering plan mode — exploring and designing approach' : 'Plan complete — ready for approval'}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -323,22 +312,16 @@ function ToolActivity({ activity, agentName }: { activity: Activity; agentName: 
   const summary = summarizeToolInput(activity.toolName, activity.toolInput);
 
   return (
-    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className={`font-mono font-medium shrink-0 ${toolColor}`}>
-          {activity.toolName}
-        </span>
-        {summary && (
-          <span className="text-gray-500 truncate font-mono">
-            {summary}
-          </span>
-        )}
+    <div className={rowOuter}>
+      <div className={rowInner}>
+        <div className={rowMeta}>
+          <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+          <span className={agentClass}>{agentName}</span>
+        </div>
+        <div className={contentRow}>
+          <span className={`font-mono font-medium shrink-0 ${toolColor}`}>{activity.toolName}</span>
+          {summary && <span className="text-gray-500 truncate font-mono">{summary}</span>}
+        </div>
       </div>
     </div>
   );
@@ -352,44 +335,34 @@ function MessageActivity({ activity, agentName }: { activity: Activity; agentNam
 
   return (
     <div className="hover:bg-gray-800/50 transition-colors">
-      {/* Single-line collapsed row */}
       <div
-        className={`px-4 py-2.5 flex items-center gap-2 text-sm ${isLong ? 'cursor-pointer' : ''}`}
+        className={`px-3 py-2 md:px-4 md:py-2.5 ${isLong ? 'cursor-pointer' : ''}`}
         onClick={() => isLong && setExpanded(!expanded)}
       >
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="text-indigo-400 font-medium shrink-0">
-          Claude
-        </span>
-        <span className="text-gray-400 truncate min-w-0 flex-1">
-          {preview}
-        </span>
-        {isLong && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-            className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
-          >
-            <svg
-              className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </button>
-        )}
+        <div className={rowInner}>
+          <div className={rowMeta}>
+            <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+            <span className={agentClass}>{agentName}</span>
+          </div>
+          <div className={contentRow}>
+            <span className="text-indigo-400 font-medium shrink-0">Claude</span>
+            <span className="text-gray-400 truncate min-w-0 flex-1">{preview}</span>
+            {isLong && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
+              >
+                <svg className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Expanded markdown content */}
       {expanded && (
-        <div className="px-4 pb-3 ml-[4.5rem]">
+        <div className="px-3 pb-3 md:px-4 md:ml-[4.5rem]">
           <div className="prose prose-invert prose-sm max-w-none
             prose-p:my-1 prose-p:text-gray-300 prose-p:leading-relaxed
             prose-headings:text-gray-200 prose-headings:mt-2 prose-headings:mb-1
@@ -409,20 +382,16 @@ function MessageActivity({ activity, agentName }: { activity: Activity; agentNam
 
 function NotificationActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   return (
-    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="text-sky-400 font-medium shrink-0">
-          Notice
-        </span>
-        <span className="text-gray-400 truncate min-w-0 flex-1">
-          {activity.toolInput}
-        </span>
+    <div className={rowOuter}>
+      <div className={rowInner}>
+        <div className={rowMeta}>
+          <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+          <span className={agentClass}>{agentName}</span>
+        </div>
+        <div className={contentRow}>
+          <span className="text-sky-400 font-medium shrink-0">Notice</span>
+          <span className="text-gray-400 truncate min-w-0 flex-1">{activity.toolInput}</span>
+        </div>
       </div>
     </div>
   );
@@ -431,20 +400,16 @@ function NotificationActivity({ activity, agentName }: { activity: Activity; age
 function SubagentActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   const summary = summarizeToolInput('Task', activity.toolInput);
   return (
-    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="text-yellow-400 font-mono font-medium shrink-0">
-          Subagent
-        </span>
-        <span className="text-gray-500 truncate font-mono min-w-0 flex-1">
-          {summary || 'completed'}
-        </span>
+    <div className={rowOuter}>
+      <div className={rowInner}>
+        <div className={rowMeta}>
+          <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+          <span className={agentClass}>{agentName}</span>
+        </div>
+        <div className={contentRow}>
+          <span className="text-yellow-400 font-mono font-medium shrink-0">Subagent</span>
+          <span className="text-gray-500 truncate font-mono min-w-0 flex-1">{summary || 'completed'}</span>
+        </div>
       </div>
     </div>
   );
@@ -452,20 +417,16 @@ function SubagentActivity({ activity, agentName }: { activity: Activity; agentNa
 
 function UserCommandActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   return (
-    <div className="px-4 py-2.5 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-600 font-mono w-20 shrink-0">
-          {formatTime(activity.timestamp)}
-        </span>
-        <span className="text-gl-purple font-mono truncate w-28 shrink-0">
-          {agentName}
-        </span>
-        <span className="text-emerald-400 font-medium shrink-0">
-          You
-        </span>
-        <span className="text-gray-400 truncate min-w-0 flex-1">
-          {activity.toolInput}
-        </span>
+    <div className={rowOuter}>
+      <div className={rowInner}>
+        <div className={rowMeta}>
+          <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+          <span className={agentClass}>{agentName}</span>
+        </div>
+        <div className={contentRow}>
+          <span className="text-emerald-400 font-medium shrink-0">You</span>
+          <span className="text-gray-400 truncate min-w-0 flex-1">{activity.toolInput}</span>
+        </div>
       </div>
     </div>
   );
@@ -478,32 +439,35 @@ export function ActivityFeed({ activities, agents }: Props) {
     ? activities
     : activities.filter((a) => a.agentId === filterAgentId);
 
-  // Only show agents that have activity
   const activeAgentIds = new Set(activities.map((a) => a.agentId));
   const filterableAgents = agents.filter((a) => activeAgentIds.has(a.id));
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-        <h2 className="text-gray-300 font-semibold text-base uppercase tracking-wide">
+      <div className="px-3 py-2 md:px-4 md:py-3 border-b border-gray-800 flex items-center justify-between">
+        <h2 className="text-gray-300 font-semibold text-sm md:text-base uppercase tracking-wide">
           Activity Feed
         </h2>
         {filterableAgents.length > 1 && (
           <select
             value={filterAgentId}
             onChange={(e) => setFilterAgentId(e.target.value)}
-            className="text-sm bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-gl-purple"
+            className="text-xs md:text-sm bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2 py-1 md:px-2.5 md:py-1.5 focus:outline-none focus:border-gl-purple"
           >
             <option value="all">All agents</option>
-            {filterableAgents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.repoName || agent.name}
-              </option>
-            ))}
+            {filterableAgents.map((agent) => {
+              const name = agent.repoName || agent.name;
+              const label = agent.machine ? `${name} (${agent.machine})` : name;
+              return (
+                <option key={agent.id} value={agent.id}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
         )}
       </div>
-      <div className="max-h-[32rem] overflow-y-auto">
+      <div className="max-h-[24rem] md:max-h-[32rem] overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="px-4 py-8 text-center text-gray-600 text-sm">
             {filterAgentId === 'all'
@@ -514,7 +478,8 @@ export function ActivityFeed({ activities, agents }: Props) {
           <div className="divide-y divide-gray-800/50">
             {filtered.map((activity) => {
               const agent = agents.find((a) => a.id === activity.agentId);
-              const agentName = agent?.repoName || 'Unknown';
+              const name = agent?.repoName || 'Unknown';
+              const agentName = agent?.machine ? `${name} (${agent.machine})` : name;
 
               if (activity.eventType === 'assistant_message') {
                 return <MessageActivity key={activity.id} activity={activity} agentName={agentName} />;
@@ -540,7 +505,6 @@ export function ActivityFeed({ activities, agents }: Props) {
                 return <NotificationActivity key={activity.id} activity={activity} agentName={agentName} />;
               }
 
-              // Skip SubagentStop — internal subagent tasks clutter the feed
               if (activity.eventType === 'SubagentStop') {
                 return null;
               }

@@ -182,7 +182,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
     : '';
 
   return (
-    <div className={`glass rounded-2xl p-5 md:p-6 transition-colors min-h-[14rem] flex flex-col ${borderExtra}`}>
+    <div className={`glass rounded-xl md:rounded-2xl p-4 md:p-5 lg:p-6 transition-colors flex flex-col ${borderExtra}`}>
       {/* Header: repo name is the title */}
       <div className="flex items-start justify-between mb-1">
         <div className="flex items-center gap-2">
@@ -192,7 +192,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
               <div className={`absolute inset-0 w-3 h-3 rounded-full ${status.color} animate-ping opacity-75`} />
             )}
           </div>
-          <h3 className="text-gl-purple font-bold text-xl font-mono">{agent.repoName || 'unknown'}</h3>
+          <h3 className="text-gl-purple font-bold text-lg md:text-xl font-mono">{agent.repoName || 'unknown'}</h3>
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
             agent.agentType === 'gridlight'
               ? 'bg-pink-900/50 text-pink-400'
@@ -228,7 +228,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
       </div>
 
       {/* Machine + branch subtitle */}
-      <div className="text-sm text-gray-500 mb-3 ml-5">
+      <div className="text-xs md:text-sm text-gray-500 mb-2 md:mb-3 ml-5">
         {shortMachine(agent.machine)}
         {agent.branch && <span className="text-gray-600"> / {agent.branch}</span>}
         <span className="text-gray-700 ml-2">{timeAgo(agent.lastSeen)}</span>

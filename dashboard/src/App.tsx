@@ -52,19 +52,19 @@ export default function App() {
   return (
     <div className="min-h-full text-white">
       {/* Header */}
-      <header className="glass-light px-6 py-4 border-b border-white/[0.06] relative z-20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Gridlight" className="w-8 h-8" />
-            <h1 className="text-xl font-bold tracking-tight">
+      <header className="glass-light px-3 py-3 md:px-6 md:py-4 border-b border-white/[0.06] relative z-20">
+        <div className="flex items-center justify-between flex-wrap gap-2 md:gap-0">
+          <div className="flex items-center gap-2 md:gap-3">
+            <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8" />
+            <h1 className="text-lg md:text-xl font-bold tracking-tight">
               <span className="text-gl-blue">Neon</span>
               <span className="text-gl-pink">Core</span>
             </h1>
-            <span className="text-[10px] text-gray-500 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
+            <span className="hidden sm:inline text-[10px] text-gray-500 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
               Orchestrator
             </span>
           </div>
-          <div className="flex items-center gap-4 text-base">
+          <div className="flex items-center gap-2 md:gap-4 text-base">
             {/* Notes button */}
             <div className="relative" ref={notesPickerRef}>
               <button
@@ -89,7 +89,7 @@ export default function App() {
                           className="w-full text-left text-xs text-gray-300 hover:bg-white/5 hover:text-white px-3 py-1.5 transition-colors flex items-center gap-2"
                         >
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                          {agent.repoName || agent.name}
+                          {agent.repoName || agent.name}{agent.machine ? ` (${agent.machine})` : ''}
                         </button>
                       ))}
                       {offlineAgents.length > 0 && onlineAgents.length > 0 && (
@@ -105,7 +105,7 @@ export default function App() {
                           className="w-full text-left text-xs text-gray-500 hover:bg-white/5 hover:text-gray-300 px-3 py-1.5 transition-colors flex items-center gap-2"
                         >
                           <span className="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0" />
-                          {agent.repoName || agent.name}
+                          {agent.repoName || agent.name}{agent.machine ? ` (${agent.machine})` : ''}
                         </button>
                       ))}
                     </>
@@ -133,11 +133,11 @@ export default function App() {
       <CommandBar agents={agents} onSendCommand={sendCommand} />
 
       {/* Main content */}
-      <main className="p-6 space-y-6">
+      <main className="p-3 md:p-6 space-y-4 md:space-y-6">
         {/* Agent Grid */}
         <section>
-          <div className="flex items-center gap-4 mb-4">
-            <h2 className="text-gray-400 text-base font-semibold uppercase tracking-wide">
+          <div className="flex items-center gap-3 md:gap-4 mb-3 md:mb-4">
+            <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide">
               Agents
             </h2>
             <div className="flex rounded-lg overflow-hidden border border-white/10">
