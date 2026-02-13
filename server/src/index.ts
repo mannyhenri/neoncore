@@ -58,12 +58,20 @@ app.get('/api/health', (_req, res) => {
 // Serve built dashboard (production mode)
 // After `npm run build --workspace=dashboard`, static files land in server/public/
 const publicDir = path.join(__dirname, '..', 'public');
-app.use(express.static(publicDir));
+// Hashed assets get long cache; index.html must always be fresh
+app.use(express.static(publicDir, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  },
+}));
 app.get('*', (_req, res, next) => {
   // Only serve index.html for non-API routes (SPA fallback)
   if (_req.path.startsWith('/api') || _req.path.startsWith('/socket.io')) {
     return next();
   }
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 

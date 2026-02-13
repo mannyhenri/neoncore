@@ -75,11 +75,16 @@
   }
 }
 
-/* Transparent dropdowns — outside @layer so it overrides browser defaults */
+/* Global select reset — force remove native rendering on all platforms */
+select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background-color: transparent;
+}
+
+/* Transparent dropdowns — custom arrow + glass styling */
 select.glass-input {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
   background-color: rgba(255, 255, 255, 0.08);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
