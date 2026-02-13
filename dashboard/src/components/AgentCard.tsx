@@ -112,6 +112,60 @@ function InlinePermission({ permission, onAllow, onDeny }: {
   );
 }
 
+function PendingQuestion({ questionData, onAnswer }: {
+  questionData: string;
+  onAnswer: (answer: string) => void;
+}) {
+  let questions: { question: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean }[] = [];
+  try {
+    const parsed = JSON.parse(questionData);
+    questions = parsed?.questions || [];
+  } catch {
+    // Not parseable — show raw text
+    return (
+      <div className="bg-yellow-950/40 border border-yellow-800 rounded-lg px-3 py-3 mb-3">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+          <span className="text-yellow-300 text-sm font-semibold">Question from Claude</span>
+        </div>
+        <p className="text-sm text-gray-300 whitespace-pre-wrap">{questionData}</p>
+      </div>
+    );
+  }
+
+  if (questions.length === 0) return null;
+
+  return (
+    <div className="space-y-2 mb-3">
+      {questions.map((q, qi) => (
+        <div key={qi} className="bg-yellow-950/40 border border-yellow-800 rounded-lg px-3 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+            <span className="text-yellow-300 text-sm font-semibold">
+              {q.header || 'Question'}
+            </span>
+          </div>
+          <p className="text-sm text-gray-300 mb-2">{q.question}</p>
+          {q.options && q.options.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {q.options.map((opt, oi) => (
+                <button
+                  key={oi}
+                  onClick={() => onAnswer(opt.label)}
+                  className="px-3 py-1.5 bg-yellow-900/60 hover:bg-yellow-800/80 text-yellow-200 text-sm rounded-md transition-colors border border-yellow-700/50"
+                  title={opt.description || ''}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const CATEGORY_COLORS: Record<string, string> = {
   common_error: 'bg-red-900/50 text-red-400',
   failed_approach: 'bg-orange-900/50 text-orange-400',
@@ -290,6 +344,14 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             />
           ))}
         </div>
+      )}
+
+      {/* Pending question from Claude (AskUserQuestion) */}
+      {agent.status === 'waiting' && agent.pendingQuestion && (
+        <PendingQuestion
+          questionData={agent.pendingQuestion}
+          onAnswer={(answer) => onSendCommand(agent.id, answer, false)}
+        />
       )}
 
       {/* Input area - always visible; offline commands queue until agent reconnects */}

@@ -130,6 +130,13 @@ try {
   db.exec(`ALTER TABLE activity ADD COLUMN tool_result TEXT NOT NULL DEFAULT '{}'`);
 }
 
+// Migration: add pending_question column to agents
+try {
+  db.prepare('SELECT pending_question FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN pending_question TEXT NOT NULL DEFAULT ''`);
+}
+
 // Workflow tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflow_templates (
@@ -156,6 +163,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
   CREATE INDEX IF NOT EXISTS idx_workflow_runs_template ON workflow_runs(template_id);
 `);
+
+// Migration: add auto-run fields to workflow_templates
+try {
+  db.prepare('SELECT auto_run FROM workflow_templates LIMIT 1').get();
+} catch {
+  db.exec(`
+    ALTER TABLE workflow_templates ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE workflow_templates ADD COLUMN interval_minutes INTEGER NOT NULL DEFAULT 60;
+    ALTER TABLE workflow_templates ADD COLUMN trigger_when TEXT NOT NULL DEFAULT 'idle';
+    ALTER TABLE workflow_templates ADD COLUMN last_auto_run_at TEXT;
+  `);
+}
 
 // Cleanup: expire stale pending permissions from past sessions
 const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();

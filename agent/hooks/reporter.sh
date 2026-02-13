@@ -25,7 +25,7 @@ post_with_retry() {
 
 # Parse all fields in a single python3 call to avoid repeated JSON parsing
 PARSED=$(echo "$INPUT" | /usr/bin/env python3 -c "
-import sys, json, os, hashlib
+import sys, json, os, hashlib, subprocess
 
 d = json.load(sys.stdin)
 session_id = d.get('session_id', '')
@@ -36,20 +36,30 @@ tool_result = d.get('tool_result', {})
 hook_event = d.get('hook_event_name', '')
 transcript_path = d.get('transcript_path', '')
 machine = os.uname().nodename
-repo_name = os.path.basename(cwd) if cwd else ''
+
+# Resolve cwd to git repo root so agent name stays consistent
+try:
+    git_root = subprocess.check_output(
+        ['git', 'rev-parse', '--show-toplevel'],
+        cwd=cwd, stderr=subprocess.DEVNULL
+    ).decode().strip()
+    cwd = git_root
+    repo_name = os.path.basename(git_root)
+except Exception:
+    repo_name = os.path.basename(cwd) if cwd else ''
 
 # Truncate tool_result for large outputs
 result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
 if len(result_str) > 8000:
     tool_result = {'result': result_str[:8000] + '...truncated'}
 
-# Skip tools already logged by permission-proxy PreToolUse hook with richer data
-# (e.g., ExitPlanMode includes plan content, AskUserQuestion includes question details)
-if tool_name in ('AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'):
-    print(json.dumps(register))
-    print('')
-    print('')
-    sys.exit(0)
+# Build register body
+register = {
+    'sessionId': session_id,
+    'machine': machine,
+    'repoPath': cwd,
+    'repoName': repo_name
+}
 
 # Build activity body
 activity = {
@@ -70,13 +80,10 @@ if hook_event == 'UserPromptSubmit':
     activity['toolName'] = ''
     activity['toolInput'] = user_text[:4000] if user_text else ''
 
-# Build register body
-register = {
-    'sessionId': session_id,
-    'machine': machine,
-    'repoPath': cwd,
-    'repoName': repo_name
-}
+# Skip activity logging for tools already logged by permission-proxy PreToolUse hook
+# (e.g., ExitPlanMode includes plan content, AskUserQuestion includes question details)
+# But still extract assistant messages below so the dashboard shows Claude's text
+skip_activity = tool_name in ('AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode')
 
 # Try to extract last assistant text from transcript for intermediate messages.
 # Deduplicates using a hash file so same message isn't sent twice.
@@ -130,9 +137,9 @@ if hook_event == 'PostToolUse' and transcript_path and os.path.exists(transcript
     except Exception:
         pass
 
-# Output: line 1 = register JSON, line 2 = activity JSON, line 3 = assistant message JSON (or empty)
+# Output: line 1 = register JSON, line 2 = activity JSON (or empty if skipped), line 3 = assistant message JSON (or empty)
 print(json.dumps(register))
-print(json.dumps(activity))
+print(json.dumps(activity) if not skip_activity else '')
 print(json.dumps(assistant_msg) if assistant_msg else '')
 ")
 

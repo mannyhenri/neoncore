@@ -99,6 +99,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     lastSeen: (row.last_seen ?? row.lastSeen ?? '') as string,
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
+    pendingQuestion: (row.pending_question ?? '') as string,
   };
 }
 

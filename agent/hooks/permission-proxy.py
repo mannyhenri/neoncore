@@ -15,6 +15,7 @@ import sys
 import json
 import os
 import platform
+import subprocess
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
@@ -85,7 +86,17 @@ def main():
     tool_input = d.get("tool_input", {})
     cwd = d.get("cwd", "")
     machine = get_machine_name()
-    repo_name = os.path.basename(cwd) if cwd else ""
+
+    # Resolve cwd to git repo root so agent name stays consistent
+    try:
+        git_root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd, stderr=subprocess.DEVNULL
+        ).decode().strip()
+        cwd = git_root
+        repo_name = os.path.basename(git_root)
+    except Exception:
+        repo_name = os.path.basename(cwd) if cwd else ""
 
     # Build description
     if tool_name == "Bash":
@@ -100,13 +111,17 @@ def main():
     else:
         desc = tool_name
 
-    # Register agent
-    register_body = json.dumps({
+    # Register agent (include waiting status + question data for AskUserQuestion)
+    register_data: dict = {
         "sessionId": session_id,
         "machine": machine,
         "repoPath": cwd,
         "repoName": repo_name,
-    })
+    }
+    if tool_name == "AskUserQuestion":
+        register_data["status"] = "waiting"
+        register_data["pendingQuestion"] = json.dumps(tool_input)[:4000]
+    register_body = json.dumps(register_data)
     post_json(f"{ORCHESTRATOR_URL}/api/agents/register", register_body)
 
     # Log AskUserQuestion / EnterPlanMode / ExitPlanMode as activity immediately
