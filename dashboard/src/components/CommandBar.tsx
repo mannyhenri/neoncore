@@ -43,11 +43,96 @@ const CATEGORIES: CommandCategory[] = [
   },
 ];
 
-const selectClass = 'text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 focus:outline-none focus:border-gl-purple';
+const dropdownBtnClass = 'text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 focus:outline-none text-left cursor-pointer flex items-center justify-between gap-2';
 const btnClass = 'text-sm px-3.5 py-2 rounded-md font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
 
 type QuickAction = 'full-review' | 'full-test' | 'research';
 
+// ─── Custom dropdown (no native <select>) ──────────────
+interface GlassSelectOption {
+  value: string;
+  label: string;
+  group?: string;
+}
+
+function GlassSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  options: GlassSelectOption[];
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const selected = options.find((o) => o.value === value);
+  const label = selected?.label ?? placeholder ?? 'Select...';
+
+  // Group options by group key (if present)
+  const groups: { group: string; items: GlassSelectOption[] }[] = [];
+  for (const opt of options) {
+    const g = opt.group || '';
+    const existing = groups.find((gr) => gr.group === g);
+    if (existing) existing.items.push(opt);
+    else groups.push({ group: g, items: [opt] });
+  }
+
+  return (
+    <div ref={ref} className={`relative ${className ?? ''}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={dropdownBtnClass}
+      >
+        <span className="truncate">{label}</span>
+        <span className="text-gray-500 text-xs shrink-0">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 min-w-full w-max glass-dark border border-white/10 rounded-lg shadow-xl z-50 py-1 max-h-[300px] overflow-y-auto">
+          {groups.map((g) => (
+            <div key={g.group}>
+              {g.group && (
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                  {g.group}
+                </div>
+              )}
+              {g.items.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => { onChange(opt.value); setOpen(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
+                    opt.value === value
+                      ? 'text-purple-400 bg-white/[0.06]'
+                      : 'text-gray-300 hover:bg-white/5'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Agent multi-select picker ─────────────────────────
 function AgentPicker({
   agents,
   selected,
@@ -97,7 +182,7 @@ function AgentPicker({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={selectClass + ' w-full sm:w-auto sm:min-w-[140px] text-left cursor-pointer flex items-center justify-between gap-2'}
+        className={dropdownBtnClass + ' w-full sm:w-auto sm:min-w-[140px]'}
       >
         <span className="truncate">{label}</span>
         <span className="text-gray-500 text-xs">{open ? '▲' : '▼'}</span>
@@ -130,6 +215,24 @@ function AgentPicker({
   );
 }
 
+// ─── Build command options with groups ──────────────────
+const COMMAND_OPTIONS: GlassSelectOption[] = CATEGORIES.flatMap((cat) =>
+  cat.commands.map((cmd) => ({ value: cmd, label: `/${cmd}`, group: cat.label })),
+);
+
+const TASK_ACTION_OPTIONS: GlassSelectOption[] = [
+  { value: 'scope', label: 'Scope Task' },
+  { value: 'start', label: 'Start Working' },
+  { value: 'epic', label: 'Scope Epic' },
+];
+
+const QUICK_ACTION_OPTIONS: GlassSelectOption[] = [
+  { value: 'full-review', label: 'Full Review' },
+  { value: 'full-test', label: 'Full Test' },
+  { value: 'research', label: 'Research' },
+];
+
+// ─── CommandBar ────────────────────────────────────────
 export function CommandBar({ agents, onSendCommand }: Props) {
   const [selectedCommand, setSelectedCommand] = useState('');
   const [commandAgents, setCommandAgents] = useState<string[]>([]);
@@ -214,20 +317,13 @@ export function CommandBar({ agents, onSendCommand }: Props) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
         {/* Command Launcher */}
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          <GlassSelect
             value={selectedCommand}
-            onChange={(e) => setSelectedCommand(e.target.value)}
-            className={selectClass + ' w-full sm:w-auto sm:min-w-[180px]'}
-          >
-            <option value="">Select command...</option>
-            {CATEGORIES.map((cat) => (
-              <optgroup key={cat.label} label={cat.label}>
-                {cat.commands.map((cmd) => (
-                  <option key={cmd} value={cmd}>/{cmd}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+            onChange={setSelectedCommand}
+            options={COMMAND_OPTIONS}
+            placeholder="Select command..."
+            className="w-full sm:w-auto sm:min-w-[180px]"
+          />
 
           <AgentPicker
             agents={onlineAgents}
@@ -264,15 +360,11 @@ export function CommandBar({ agents, onSendCommand }: Props) {
             onChange={setTaskAgents}
           />
 
-          <select
+          <GlassSelect
             value={taskAction}
-            onChange={(e) => setTaskAction(e.target.value as 'start' | 'scope' | 'epic')}
-            className={selectClass}
-          >
-            <option value="scope">Scope Task</option>
-            <option value="start">Start Working</option>
-            <option value="epic">Scope Epic</option>
-          </select>
+            onChange={(v) => setTaskAction(v as 'start' | 'scope' | 'epic')}
+            options={TASK_ACTION_OPTIONS}
+          />
 
           <button
             onClick={handleTaskAction}
@@ -289,15 +381,11 @@ export function CommandBar({ agents, onSendCommand }: Props) {
           <span className="hidden sm:block w-px h-6 bg-white/10 mx-1" />
 
           {/* Quick Actions */}
-          <select
+          <GlassSelect
             value={quickAction}
-            onChange={(e) => setQuickAction(e.target.value as QuickAction)}
-            className={selectClass}
-          >
-            <option value="full-review">Full Review</option>
-            <option value="full-test">Full Test</option>
-            <option value="research">Research</option>
-          </select>
+            onChange={(v) => setQuickAction(v as QuickAction)}
+            options={QUICK_ACTION_OPTIONS}
+          />
 
           <button
             onClick={handleQuickAction}
