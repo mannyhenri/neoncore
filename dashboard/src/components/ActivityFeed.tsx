@@ -282,27 +282,68 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
 }
 
 function PlanModeActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
+  const [expanded, setExpanded] = useState(false);
   const isEnter = activity.toolName === 'EnterPlanMode';
 
+  // Parse plan content from toolResult
+  let planContent = '';
+  try {
+    const result = JSON.parse(activity.toolResult || '{}');
+    planContent = result.planContent || '';
+  } catch { /* empty */ }
+
+  const hasPlan = !isEnter && planContent.length > 0;
+
   return (
-    <div className={rowOuter}>
-      <div className={rowInner}>
-        <div className={rowMeta}>
-          <span className={timeClass}>{formatTime(activity.timestamp)}</span>
-          <span className={agentClass}>{agentName}</span>
-        </div>
-        <div className={contentRow}>
-          <span className="text-violet-400 font-medium shrink-0 flex items-center">
-            {isEnter && (
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse mr-1.5" />
+    <div className="hover:bg-gray-800/50 transition-colors">
+      <div
+        className={`px-3 py-2 md:px-4 md:py-2.5 ${hasPlan ? 'cursor-pointer' : ''}`}
+        onClick={() => hasPlan && setExpanded(!expanded)}
+      >
+        <div className={rowInner}>
+          <div className={rowMeta}>
+            <span className={timeClass}>{formatTime(activity.timestamp)}</span>
+            <span className={agentClass}>{agentName}</span>
+          </div>
+          <div className={contentRow}>
+            <span className="text-violet-400 font-medium shrink-0 flex items-center">
+              {isEnter && (
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse mr-1.5" />
+              )}
+              {isEnter ? 'Plan Mode' : 'Plan Ready'}
+            </span>
+            <span className="text-gray-500 truncate min-w-0 flex-1">
+              {isEnter ? 'Entering plan mode — exploring and designing approach' : 'Plan complete — ready for approval'}
+            </span>
+            {hasPlan && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 p-1"
+              >
+                <svg className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
             )}
-            {isEnter ? 'Plan Mode' : 'Plan Ready'}
-          </span>
-          <span className="text-gray-500 truncate min-w-0 flex-1">
-            {isEnter ? 'Entering plan mode — exploring and designing approach' : 'Plan complete — ready for approval'}
-          </span>
+          </div>
         </div>
       </div>
+
+      {expanded && planContent && (
+        <div className="px-3 pb-3 md:px-4 md:ml-[4.5rem]">
+          <div className="prose prose-invert prose-sm max-w-none
+            prose-p:my-1 prose-p:text-gray-300 prose-p:leading-relaxed
+            prose-headings:text-gray-200 prose-headings:mt-2 prose-headings:mb-1
+            prose-code:text-gl-pink prose-code:bg-gray-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+            prose-pre:bg-gray-800 prose-pre:border prose-pre:border-gray-700 prose-pre:rounded-lg prose-pre:text-xs
+            prose-li:text-gray-300 prose-li:my-0.5
+            prose-strong:text-gray-200
+            prose-a:text-gl-purple"
+          >
+            <Markdown>{planContent}</Markdown>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

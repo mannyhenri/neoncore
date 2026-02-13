@@ -13,8 +13,13 @@ import trustRouter from './routes/trust.js';
 import commandsRouter from './routes/commands.js';
 import memoryRouter from './routes/memory.js';
 import notesRouter from './routes/notes.js';
+import settingsRouter from './routes/settings.js';
+import reposRouter from './routes/repos.js';
+import gitRouter from './routes/git.js';
+import workflowsRouter from './routes/workflows.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
+import { startWorkflowExecutor } from './routes/workflows.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -40,6 +45,10 @@ app.use('/api/trust', trustRouter);
 app.use('/api/commands', commandsRouter);
 app.use('/api/agents', memoryRouter);
 app.use('/api/agents', notesRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/repos', reposRouter);
+app.use('/api/git', gitRouter);
+app.use('/api/workflows', workflowsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -119,9 +128,22 @@ setInterval(() => {
   }
 }, 30_000); // Check every 30 seconds
 
-// Start stuck detector and memory analyzer
+// Periodically expire stale pending permissions (older than 2 minutes)
+setInterval(() => {
+  const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const expired = db.prepare(
+    `UPDATE permissions SET status = 'expired', decided_at = ? WHERE status = 'pending' AND created_at < ?`
+  ).run(new Date().toISOString(), twoMinAgo);
+  if (expired.changes > 0) {
+    console.log(`[cleanup] Expired ${expired.changes} stale pending permission(s)`);
+    getSocketIO().emit('permissions_expired', { count: expired.changes });
+  }
+}, 120_000);
+
+// Start stuck detector, memory analyzer, and workflow executor
 startStuckDetector();
 startMemoryAnalyzer();
+startWorkflowExecutor();
 
 // Get local IP for display
 import os from 'os';
