@@ -86,6 +86,11 @@ def main():
     # Register agent
     post_json(f"{ORCHESTRATOR_URL}/api/agents/register", json.dumps(register))
 
+    # Skip tools already logged by permission-proxy PreToolUse hook with richer data
+    # (e.g., ExitPlanMode includes plan content, AskUserQuestion includes question details)
+    if tool_name in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
+        return
+
     # Log activity
     post_json(f"{ORCHESTRATOR_URL}/api/activity", json.dumps(activity))
 

@@ -82,6 +82,9 @@ export function useAgents() {
         return next;
       });
     },
+    onPermissionsExpired: () => {
+      api.getPendingPermissions().then(setPendingPermissions).catch(() => {});
+    },
   });
 
   const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied') => {

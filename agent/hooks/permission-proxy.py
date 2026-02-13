@@ -46,6 +46,34 @@ def get_machine_name() -> str:
     return platform.node()
 
 
+def read_latest_plan(max_chars: int = 8000) -> str:
+    """Read the most recently modified .md file from ~/.claude/plans/."""
+    plans_dir = os.path.expanduser("~/.claude/plans")
+    if not os.path.isdir(plans_dir):
+        return ""
+
+    md_files = []
+    for f in os.listdir(plans_dir):
+        if f.endswith(".md"):
+            full_path = os.path.join(plans_dir, f)
+            md_files.append((os.path.getmtime(full_path), full_path))
+
+    if not md_files:
+        return ""
+
+    md_files.sort(reverse=True)
+    latest_path = md_files[0][1]
+
+    try:
+        with open(latest_path, "r", encoding="utf-8") as fh:
+            content = fh.read(max_chars)
+            if len(content) == max_chars:
+                content += "\n\n... (truncated)"
+            return content
+    except Exception:
+        return ""
+
+
 def main():
     try:
         d = json.load(sys.stdin)
@@ -84,6 +112,14 @@ def main():
     # Log AskUserQuestion / EnterPlanMode / ExitPlanMode as activity immediately
     if tool_name in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
         event_type = "ask_user" if tool_name == "AskUserQuestion" else "plan_mode"
+
+        # For ExitPlanMode, read the plan content from disk
+        tool_result = {}
+        if tool_name == "ExitPlanMode":
+            plan_content = read_latest_plan()
+            if plan_content:
+                tool_result = {"planContent": plan_content}
+
         activity_body = json.dumps({
             "sessionId": session_id,
             "machine": machine,
@@ -91,6 +127,7 @@ def main():
             "eventType": event_type,
             "toolName": tool_name,
             "toolInput": tool_input,
+            "toolResult": tool_result,
         })
         post_json(f"{ORCHESTRATOR_URL}/api/activity", activity_body)
 

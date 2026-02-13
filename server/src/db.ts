@@ -85,6 +85,12 @@ db.exec(`
     FOREIGN KEY (agent_id) REFERENCES agents(id)
   );
 
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_memory_agent ON agent_memory(agent_id);
   CREATE INDEX IF NOT EXISTS idx_memory_project ON agent_memory(project);
   CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(agent_id);
@@ -122,6 +128,42 @@ try {
   db.prepare('SELECT tool_result FROM activity LIMIT 1').get();
 } catch {
   db.exec(`ALTER TABLE activity ADD COLUMN tool_result TEXT NOT NULL DEFAULT '{}'`);
+}
+
+// Workflow tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflow_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    current_step INTEGER NOT NULL DEFAULT 0,
+    steps_state TEXT NOT NULL DEFAULT '[]',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (template_id) REFERENCES workflow_templates(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+  CREATE INDEX IF NOT EXISTS idx_workflow_runs_template ON workflow_runs(template_id);
+`);
+
+// Cleanup: expire stale pending permissions from past sessions
+const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+const expired = db.prepare(
+  `UPDATE permissions SET status = 'expired', decided_at = ? WHERE status = 'pending' AND created_at < ?`
+).run(new Date().toISOString(), fiveMinAgo);
+if (expired.changes > 0) {
+  console.log(`[db] Expired ${expired.changes} stale pending permission(s) from past sessions`);
 }
 
 export default db;

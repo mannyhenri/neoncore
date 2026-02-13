@@ -43,6 +43,14 @@ result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(t
 if len(result_str) > 8000:
     tool_result = {'result': result_str[:8000] + '...truncated'}
 
+# Skip tools already logged by permission-proxy PreToolUse hook with richer data
+# (e.g., ExitPlanMode includes plan content, AskUserQuestion includes question details)
+if tool_name in ('AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'):
+    print(json.dumps(register))
+    print('')
+    print('')
+    sys.exit(0)
+
 # Build activity body
 activity = {
     'sessionId': session_id,

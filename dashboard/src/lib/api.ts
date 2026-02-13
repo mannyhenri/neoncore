@@ -72,4 +72,76 @@ export const api = {
     }),
   deleteNote: (agentId: string, noteId: string) =>
     request<void>(`/agents/${agentId}/notes/${noteId}`, { method: 'DELETE' }),
+
+  // Settings
+  getSettings: () => request<Record<string, string>>('/settings'),
+  updateSettings: (settings: Record<string, string>) =>
+    request<Record<string, string>>('/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+
+  // Repos
+  browseDir: (dirPath?: string) =>
+    request<{ current: string; parent: string | null; dirs: string[] }>(
+      `/repos/browse${dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''}`
+    ),
+  getRepos: () => request<{ repos: { name: string; path: string }[]; projectsDir: string }>('/repos'),
+  openRepo: (repoPath: string) =>
+    request<{ ok: boolean }>('/repos/open', {
+      method: 'POST',
+      body: JSON.stringify({ path: repoPath }),
+    }),
+
+  // Git
+  getWorktrees: (agentId: string) =>
+    request<import('../types').Worktree[]>(`/git/${agentId}/worktrees`),
+  createWorktree: (agentId: string, branch: string, worktreePath?: string) =>
+    request<{ ok: boolean; path: string; branch: string }>(`/git/${agentId}/worktrees`, {
+      method: 'POST',
+      body: JSON.stringify({ branch, path: worktreePath }),
+    }),
+  removeWorktree: (agentId: string, worktreePath: string) =>
+    request<{ ok: boolean }>(`/git/${agentId}/worktrees`, {
+      method: 'DELETE',
+      body: JSON.stringify({ path: worktreePath }),
+    }),
+  openWorktree: (agentId: string, worktreePath: string) =>
+    request<{ ok: boolean }>(`/git/${agentId}/worktrees/open`, {
+      method: 'POST',
+      body: JSON.stringify({ path: worktreePath }),
+    }),
+  getBranches: (agentId: string) =>
+    request<string[]>(`/git/${agentId}/branches`),
+  getGitStatus: (agentId: string) =>
+    request<{ status: string }>(`/git/${agentId}/status`),
+  getGitDiff: (agentId: string, staged = false) =>
+    request<{ diff: string }>(`/git/${agentId}/diff${staged ? '?staged=true' : ''}`),
+
+  // Workflows
+  getWorkflowTemplates: () =>
+    request<import('../types').WorkflowTemplate[]>('/workflows/templates'),
+  createWorkflowTemplate: (data: { name: string; description?: string; steps: import('../types').WorkflowStep[] }) =>
+    request<import('../types').WorkflowTemplate>('/workflows/templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateWorkflowTemplate: (id: string, data: { name: string; description?: string; steps: import('../types').WorkflowStep[] }) =>
+    request<import('../types').WorkflowTemplate>(`/workflows/templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteWorkflowTemplate: (id: string) =>
+    request<void>(`/workflows/templates/${id}`, { method: 'DELETE' }),
+  startWorkflow: (templateId: string) =>
+    request<import('../types').WorkflowRun>('/workflows/run', {
+      method: 'POST',
+      body: JSON.stringify({ templateId }),
+    }),
+  getWorkflowRuns: () =>
+    request<import('../types').WorkflowRun[]>('/workflows/runs'),
+  advanceWorkflow: (runId: string) =>
+    request<import('../types').WorkflowRun>(`/workflows/runs/${runId}/advance`, { method: 'POST' }),
+  cancelWorkflow: (runId: string) =>
+    request<import('../types').WorkflowRun>(`/workflows/runs/${runId}/cancel`, { method: 'POST' }),
 };

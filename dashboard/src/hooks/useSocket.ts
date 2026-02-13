@@ -12,6 +12,7 @@ interface SocketHandlers {
   onAgentStuck?: (alert: StuckAlert) => void;
   onAgentUnstuck?: (data: { agentId: string }) => void;
   onMemoryUpdated?: (data: { agentId: string }) => void;
+  onPermissionsExpired?: (data: { count: number }) => void;
   onReconnect?: () => void;
 }
 
@@ -83,6 +84,10 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('memory_updated' as any, (data: { agentId: string }) => {
       handlersRef.current.onMemoryUpdated?.(data);
+    });
+
+    socket.on('permissions_expired' as any, (data: { count: number }) => {
+      handlersRef.current.onPermissionsExpired?.(data);
     });
 
     // Mobile: refresh data when tab becomes visible again
