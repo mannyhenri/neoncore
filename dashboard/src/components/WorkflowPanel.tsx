@@ -81,12 +81,15 @@ function TemplateEditor({
 }: {
   agents: Agent[];
   initial?: WorkflowTemplate;
-  onSave: (data: { name: string; description: string; steps: WorkflowStep[] }) => void;
+  onSave: (data: { name: string; description: string; steps: WorkflowStep[]; autoRun: boolean; intervalMinutes: number; triggerWhen: string }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.name || '');
   const [description, setDescription] = useState(initial?.description || '');
   const [steps, setSteps] = useState<WorkflowStep[]>(initial?.steps || [{ command: '', target: 'any_idle' }]);
+  const [autoRun, setAutoRun] = useState(initial?.autoRun || false);
+  const [intervalMinutes, setIntervalMinutes] = useState(initial?.intervalMinutes || 60);
+  const [triggerWhen, setTriggerWhen] = useState<'idle' | 'any'>(initial?.triggerWhen || 'idle');
 
   const addStep = () => setSteps([...steps, { command: '', target: 'any_idle' }]);
 
@@ -163,6 +166,7 @@ function TemplateEditor({
                 className="text-xs glass-input text-gray-300 rounded-md px-2 py-1.5 w-full focus:outline-none"
               >
                 <option value="any_idle">Any idle agent</option>
+                <option value="all_idle">All idle agents (broadcast)</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.repoName || a.name} ({a.machine})
@@ -203,9 +207,45 @@ function TemplateEditor({
         </button>
       </div>
 
+      {/* Auto-run settings */}
+      <div className="space-y-2 pt-1">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAutoRun(!autoRun)}
+            className={`relative w-8 h-4 rounded-full transition-colors ${autoRun ? 'bg-gl-purple' : 'bg-gray-700'}`}
+          >
+            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoRun ? 'left-4' : 'left-0.5'}`} />
+          </button>
+          <span className="text-xs text-gray-400">Auto-run on schedule</span>
+        </div>
+        {autoRun && (
+          <div className="flex items-center gap-3 pl-10">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500">Every</span>
+              <input
+                type="number"
+                value={intervalMinutes}
+                onChange={(e) => setIntervalMinutes(Math.max(1, parseInt(e.target.value) || 60))}
+                className="w-16 glass-input text-xs text-gray-200 rounded px-2 py-1 focus:outline-none text-center"
+                min={1}
+              />
+              <span className="text-xs text-gray-500">min</span>
+            </div>
+            <select
+              value={triggerWhen}
+              onChange={(e) => setTriggerWhen(e.target.value as 'idle' | 'any')}
+              className="text-xs glass-input text-gray-300 rounded px-2 py-1 focus:outline-none"
+            >
+              <option value="idle">When agents are idle</option>
+              <option value="any">Always (regardless of status)</option>
+            </select>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave({ name: name.trim(), description: description.trim(), steps })}
+          onClick={() => onSave({ name: name.trim(), description: description.trim(), steps, autoRun, intervalMinutes, triggerWhen })}
           disabled={!valid}
           className="text-sm px-3 py-1.5 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-opacity"
         >
@@ -345,7 +385,7 @@ export function WorkflowPanel({ agents }: Props) {
     return () => clearInterval(interval);
   }, [expanded, loadRuns]);
 
-  const handleSaveTemplate = async (data: { name: string; description: string; steps: WorkflowStep[] }) => {
+  const handleSaveTemplate = async (data: { name: string; description: string; steps: WorkflowStep[]; autoRun?: boolean; intervalMinutes?: number; triggerWhen?: string }) => {
     try {
       if (editing) {
         await api.updateWorkflowTemplate(editing.id, data);
@@ -354,6 +394,15 @@ export function WorkflowPanel({ agents }: Props) {
       }
       setEditing(null);
       setCreating(false);
+      loadTemplates();
+    } catch {
+      // error handled silently
+    }
+  };
+
+  const handleToggleAutoRun = async (t: WorkflowTemplate) => {
+    try {
+      await api.toggleAutoRun(t.id, { autoRun: !t.autoRun });
       loadTemplates();
     } catch {
       // error handled silently
@@ -398,6 +447,7 @@ export function WorkflowPanel({ agents }: Props) {
   };
 
   const runningCount = runs.filter((r) => r.status === 'running').length;
+  const autoRunCount = templates.filter((t) => t.autoRun).length;
 
   const tabClass = (t: 'templates' | 'runs') =>
     `px-3 py-1 text-xs font-medium rounded-md transition-colors ${
@@ -424,6 +474,11 @@ export function WorkflowPanel({ agents }: Props) {
           {runningCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/50 text-blue-400 animate-pulse">
               {runningCount} running
+            </span>
+          )}
+          {autoRunCount > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-900/50 text-cyan-400">
+              {autoRunCount} scheduled
             </span>
           )}
         </div>
@@ -459,36 +514,55 @@ export function WorkflowPanel({ agents }: Props) {
                     onCancel={() => setEditing(null)}
                   />
                 ) : (
-                  <div key={t.id} className="glass-light rounded-lg p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-200 font-medium">{t.name}</span>
-                        <span className="text-[10px] text-gray-600">{t.steps.length} step{t.steps.length !== 1 ? 's' : ''}</span>
+                  <div key={t.id} className="glass-light rounded-lg p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-200 font-medium">{t.name}</span>
+                          <span className="text-[10px] text-gray-600">{t.steps.length} step{t.steps.length !== 1 ? 's' : ''}</span>
+                          {t.autoRun && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/50 text-cyan-400">
+                              auto {t.intervalMinutes}m
+                            </span>
+                          )}
+                        </div>
+                        {t.description && (
+                          <p className="text-xs text-gray-500 mt-0.5 truncate">{t.description}</p>
+                        )}
                       </div>
-                      {t.description && (
-                        <p className="text-xs text-gray-500 mt-0.5 truncate">{t.description}</p>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleToggleAutoRun(t)}
+                          className={`relative w-7 h-3.5 rounded-full transition-colors shrink-0 ${t.autoRun ? 'bg-cyan-600' : 'bg-gray-700'}`}
+                          title={t.autoRun ? `Auto-run every ${t.intervalMinutes}m — click to disable` : 'Enable auto-run'}
+                        >
+                          <div className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${t.autoRun ? 'left-3.5' : 'left-0.5'}`} />
+                        </button>
+                        <button
+                          onClick={() => handleStartRun(t.id)}
+                          className="text-xs px-2.5 py-1 gl-gradient hover:opacity-90 text-white rounded transition-opacity"
+                        >
+                          Run
+                        </button>
+                        <button
+                          onClick={() => { setEditing(t); setCreating(false); }}
+                          className="text-xs px-2 py-1 text-gray-500 hover:text-blue-400 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTemplate(t.id)}
+                          className="text-xs px-2 py-1 text-gray-600 hover:text-red-400 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => handleStartRun(t.id)}
-                        className="text-xs px-2.5 py-1 gl-gradient hover:opacity-90 text-white rounded transition-opacity"
-                      >
-                        Run
-                      </button>
-                      <button
-                        onClick={() => { setEditing(t); setCreating(false); }}
-                        className="text-xs px-2 py-1 text-gray-500 hover:text-blue-400 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTemplate(t.id)}
-                        className="text-xs px-2 py-1 text-gray-600 hover:text-red-400 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    {t.autoRun && t.lastAutoRunAt && (
+                      <div className="text-[10px] text-gray-600 pl-0.5">
+                        Last auto-run: {new Date(t.lastAutoRunAt).toLocaleString()}
+                      </div>
+                    )}
                   </div>
                 )
               )}

@@ -12,6 +12,7 @@ import json
 import os
 import hashlib
 import platform
+import subprocess
 import tempfile
 from urllib.request import Request, urlopen
 from urllib.error import URLError
@@ -50,7 +51,17 @@ def main():
     hook_event = d.get("hook_event_name", "")
     transcript_path = d.get("transcript_path", "")
     machine = get_machine_name()
-    repo_name = os.path.basename(cwd) if cwd else ""
+
+    # Resolve cwd to git repo root so agent name stays consistent
+    try:
+        git_root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd, stderr=subprocess.DEVNULL
+        ).decode().strip()
+        cwd = git_root
+        repo_name = os.path.basename(git_root)
+    except Exception:
+        repo_name = os.path.basename(cwd) if cwd else ""
 
     # Truncate tool_result for large outputs
     result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
@@ -86,13 +97,11 @@ def main():
     # Register agent
     post_json(f"{ORCHESTRATOR_URL}/api/agents/register", json.dumps(register))
 
-    # Skip tools already logged by permission-proxy PreToolUse hook with richer data
+    # Skip activity logging for tools already logged by permission-proxy PreToolUse hook
     # (e.g., ExitPlanMode includes plan content, AskUserQuestion includes question details)
-    if tool_name in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
-        return
-
-    # Log activity
-    post_json(f"{ORCHESTRATOR_URL}/api/activity", json.dumps(activity))
+    # But still extract assistant messages below so the dashboard shows Claude's text
+    if tool_name not in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
+        post_json(f"{ORCHESTRATOR_URL}/api/activity", json.dumps(activity))
 
     # Try to extract last assistant text from transcript (deduped)
     if hook_event == "PostToolUse" and transcript_path and os.path.exists(transcript_path):

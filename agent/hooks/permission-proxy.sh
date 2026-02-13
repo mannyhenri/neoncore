@@ -18,7 +18,7 @@ INPUT=$(cat)
 # Use python3 to parse all fields AND build the JSON payloads safely
 # This avoids shell quoting issues with embedded quotes in tool inputs
 PARSED=$(echo "$INPUT" | /usr/bin/env python3 -c "
-import sys, json
+import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
 session_id = d.get('session_id', '')
@@ -39,17 +39,30 @@ elif tool_name == 'Task':
 else:
     desc = tool_name
 
-import os
-repo_name = os.path.basename(cwd) if cwd else ''
 machine = os.uname().nodename
 
+# Resolve cwd to git repo root so agent name stays consistent
+try:
+    git_root = subprocess.check_output(
+        ['git', 'rev-parse', '--show-toplevel'],
+        cwd=cwd, stderr=subprocess.DEVNULL
+    ).decode().strip()
+    cwd = git_root
+    repo_name = os.path.basename(git_root)
+except Exception:
+    repo_name = os.path.basename(cwd) if cwd else ''
+
 # Output as JSON lines: register_body, permission_body, session_id, activity_body
-register_body = json.dumps({
+register_data = {
     'sessionId': session_id,
     'machine': machine,
     'repoPath': cwd,
     'repoName': repo_name
-})
+}
+if tool_name == 'AskUserQuestion':
+    register_data['status'] = 'waiting'
+    register_data['pendingQuestion'] = json.dumps(tool_input)[:4000]
+register_body = json.dumps(register_data)
 permission_body = json.dumps({
     'sessionId': session_id,
     'toolName': tool_name,

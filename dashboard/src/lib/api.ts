@@ -1,9 +1,13 @@
 const BASE_URL = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (options?.body) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string>) },
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: res.statusText }));
@@ -121,18 +125,23 @@ export const api = {
   // Workflows
   getWorkflowTemplates: () =>
     request<import('../types').WorkflowTemplate[]>('/workflows/templates'),
-  createWorkflowTemplate: (data: { name: string; description?: string; steps: import('../types').WorkflowStep[] }) =>
+  createWorkflowTemplate: (data: { name: string; description?: string; steps: import('../types').WorkflowStep[]; autoRun?: boolean; intervalMinutes?: number; triggerWhen?: string }) =>
     request<import('../types').WorkflowTemplate>('/workflows/templates', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  updateWorkflowTemplate: (id: string, data: { name: string; description?: string; steps: import('../types').WorkflowStep[] }) =>
+  updateWorkflowTemplate: (id: string, data: { name: string; description?: string; steps: import('../types').WorkflowStep[]; autoRun?: boolean; intervalMinutes?: number; triggerWhen?: string }) =>
     request<import('../types').WorkflowTemplate>(`/workflows/templates/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  toggleAutoRun: (id: string, data: { autoRun: boolean; intervalMinutes?: number; triggerWhen?: string }) =>
+    request<import('../types').WorkflowTemplate>(`/workflows/templates/${id}/auto-run`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
   deleteWorkflowTemplate: (id: string) =>
-    request<void>(`/workflows/templates/${id}`, { method: 'DELETE' }),
+    request<{ ok: boolean }>(`/workflows/templates/${id}`, { method: 'DELETE' }),
   startWorkflow: (templateId: string) =>
     request<import('../types').WorkflowRun>('/workflows/run', {
       method: 'POST',

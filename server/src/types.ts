@@ -16,6 +16,7 @@ export interface Agent {
   lastSeen: string;
   sessionId: string;
   lastMessage: string;
+  pendingQuestion: string;
 }
 
 export interface Activity {
@@ -97,6 +98,10 @@ export interface WorkflowTemplate {
   name: string;
   description: string;
   steps: WorkflowStep[];
+  autoRun: boolean;
+  intervalMinutes: number;
+  triggerWhen: 'idle' | 'any';
+  lastAutoRunAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
