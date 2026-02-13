@@ -493,7 +493,7 @@ export function ActivityFeed({ activities, agents }: Props) {
           <select
             value={filterAgentId}
             onChange={(e) => setFilterAgentId(e.target.value)}
-            className="text-xs md:text-sm bg-gray-800 text-gray-300 border border-gray-700 rounded-md px-2 py-1 md:px-2.5 md:py-1.5 focus:outline-none focus:border-gl-purple"
+            className="text-xs md:text-sm glass-input text-gray-300 rounded-md px-2 py-1 md:px-2.5 md:py-1.5 focus:outline-none"
           >
             <option value="all">All agents</option>
             {filterableAgents.map((agent) => {

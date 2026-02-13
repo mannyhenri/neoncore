@@ -40,13 +40,20 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
+  .glass-dark {
+    background: rgba(15, 15, 35, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
   .glass-input {
-    background: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .glass-input:focus {
-    background: rgba(255, 255, 255, 0.12);
+    background-color: rgba(255, 255, 255, 0.12);
     border-color: #a855f7;
     box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
   }
@@ -66,6 +73,31 @@
   .gl-glow-purple {
     box-shadow: 0 0 12px rgba(168, 85, 247, 0.4);
   }
+}
+
+/* Transparent dropdowns — outside @layer so it overrides browser defaults */
+select.glass-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: rgba(255, 255, 255, 0.08);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+select.glass-input:focus {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: #a855f7;
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+}
+
+select.glass-input option,
+select.glass-input optgroup {
+  background: #1a1a2e;
+  color: #d1d5db;
 }
 
 /* CRT scanlines — subtle retro overlay */

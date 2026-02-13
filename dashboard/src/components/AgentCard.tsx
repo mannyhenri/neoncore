@@ -417,7 +417,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
                 <select
                   value={newCategory}
                   onChange={(e) => setNewCategory(e.target.value)}
-                  className="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded px-1.5 py-1 w-full"
+                  className="text-xs glass-input text-gray-300 rounded px-1.5 py-1 w-full focus:outline-none"
                 >
                   {CATEGORY_OPTIONS.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -427,7 +427,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
                   placeholder="What did you learn?"
-                  className="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded px-2 py-1.5 w-full resize-none h-14"
+                  className="text-xs glass-input text-gray-300 rounded px-2 py-1.5 w-full resize-none h-14 focus:outline-none"
                 />
                 <div className="flex gap-1.5">
                   <button
