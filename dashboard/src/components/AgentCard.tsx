@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Agent, AgentMode, AgentMemory, PermissionRequest, StuckAlert } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
+import { GitPanel } from './GitPanel';
 import { api } from '../lib/api';
 
 interface Props {
@@ -134,6 +135,7 @@ function categoryBadge(category: string) {
 
 export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, onSetMode, onSendCommand, onDelete, onDismissStuck }: Props) {
   const status = STATUS_CONFIG[agent.status];
+  const [gitOpen, setGitOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [addingMemory, setAddingMemory] = useState(false);
@@ -210,6 +212,15 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
           }`}>
             {status.label}
           </span>
+          <button
+            onClick={() => setGitOpen(true)}
+            className="text-gray-600 hover:text-gl-purple transition-colors"
+            title="Git worktrees & status"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+            </svg>
+          </button>
           <button
             onClick={() => api.focusAgent(agent.id).catch(() => {})}
             className="text-gray-600 hover:text-gl-purple transition-colors text-xs"
@@ -388,6 +399,9 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
       <div className="flex items-center justify-between mt-auto pt-2">
         <AgentModeSelector mode={agent.mode} onSetMode={(mode) => onSetMode(agent.id, mode)} />
       </div>
+
+      {/* Git Panel Modal */}
+      {gitOpen && <GitPanel agent={agent} onClose={() => setGitOpen(false)} />}
     </div>
   );
 }

@@ -75,3 +75,46 @@ export interface AgentMemory {
   active: boolean;
   createdAt: string;
 }
+
+// Workflow types
+export interface WorkflowStep {
+  command: string;
+  target: string; // agentId or 'any_idle'
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowStepState {
+  command: string;
+  target: string;
+  agentId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  templateId: string;
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  currentStep: number;
+  steps: WorkflowStepState[];
+  startedAt: string;
+  completedAt: string | null;
+}
+
+// Git types
+export interface Worktree {
+  path: string;
+  head: string;
+  branch: string;
+  bare: boolean;
+}

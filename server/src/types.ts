@@ -86,6 +86,41 @@ export interface HookPayload {
   tool_input?: Record<string, unknown>;
 }
 
+// Workflow types
+export interface WorkflowStep {
+  command: string;
+  target: string; // agentId or 'any_idle'
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowStepState {
+  command: string;
+  target: string;
+  agentId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  templateId: string;
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  currentStep: number;
+  steps: WorkflowStepState[];
+  startedAt: string;
+  completedAt: string | null;
+}
+
 // WebSocket events
 export type ServerToClientEvents = {
   agent_registered: (agent: Agent) => void;
@@ -97,6 +132,8 @@ export type ServerToClientEvents = {
   agent_stuck: (alert: StuckAlert) => void;
   agent_unstuck: (data: { agentId: string }) => void;
   memory_updated: (data: { agentId: string }) => void;
+  permissions_expired: (data: { count: number }) => void;
+  workflow_updated: (run: WorkflowRun) => void;
 };
 
 export type ClientToServerEvents = {

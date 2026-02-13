@@ -62,13 +62,36 @@ permission_body = json.dumps({
 activity_body = ''
 if tool_name in ('AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'):
     event_type = 'ask_user' if tool_name == 'AskUserQuestion' else 'plan_mode'
+
+    # For ExitPlanMode, read the plan content from disk
+    tool_result = {}
+    if tool_name == 'ExitPlanMode':
+        plans_dir = os.path.expanduser('~/.claude/plans')
+        if os.path.isdir(plans_dir):
+            md_files = []
+            for f in os.listdir(plans_dir):
+                if f.endswith('.md'):
+                    full_path = os.path.join(plans_dir, f)
+                    md_files.append((os.path.getmtime(full_path), full_path))
+            if md_files:
+                md_files.sort(reverse=True)
+                try:
+                    with open(md_files[0][1], 'r', encoding='utf-8') as fh:
+                        content = fh.read(8000)
+                        if len(content) == 8000:
+                            content += '\n\n... (truncated)'
+                        tool_result = {'planContent': content}
+                except Exception:
+                    pass
+
     activity_body = json.dumps({
         'sessionId': session_id,
         'machine': machine,
         'repoPath': cwd,
         'eventType': event_type,
         'toolName': tool_name,
-        'toolInput': tool_input
+        'toolInput': tool_input,
+        'toolResult': tool_result
     })
 
 # Print four lines: register JSON, permission JSON, session_id, activity_body
