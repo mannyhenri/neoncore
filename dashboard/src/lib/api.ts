@@ -28,10 +28,10 @@ export const api = {
 
   // Permissions
   getPendingPermissions: () => request<import('../types').PermissionRequest[]>('/permissions/pending'),
-  decidePermission: (id: string, decision: 'allowed' | 'denied') =>
+  decidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) =>
     request<import('../types').PermissionRequest>('/permissions/decide', {
       method: 'POST',
-      body: JSON.stringify({ id, decision }),
+      body: JSON.stringify({ id, decision, response }),
     }),
 
   // Agent mode

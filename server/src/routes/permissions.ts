@@ -8,7 +8,7 @@ const router = Router();
 
 // Pending permission decisions waiting for long-poll responses
 const pendingPolls = new Map<string, {
-  resolve: (decision: 'allowed' | 'denied') => void;
+  resolve: (decision: 'allowed' | 'denied', response?: string) => void;
   timer: ReturnType<typeof setTimeout>;
 }>();
 
@@ -34,9 +34,9 @@ router.post('/request', (req, res) => {
     return res.status(400).json({ error: 'agentId or valid sessionId required' });
   }
 
-  // If trust mode is ON, immediately allow — EXCEPT ExitPlanMode,
-  // which must always go through human review on the dashboard.
-  if (trustMode && toolName !== 'ExitPlanMode') {
+  // If trust mode is ON, immediately allow — EXCEPT ExitPlanMode and
+  // AskUserQuestion, which must go through the dashboard for human review/answers.
+  if (trustMode && toolName !== 'ExitPlanMode' && toolName !== 'AskUserQuestion') {
     return res.json({ decision: 'allowed', trustMode: true });
   }
 
@@ -61,6 +61,7 @@ router.post('/request', (req, res) => {
     status: 'pending',
     createdAt: now,
     decidedAt: null,
+    response: '',
   };
 
   getIO().emit('permission_requested', request);
@@ -78,7 +79,7 @@ router.get('/poll/:id', (req, res) => {
     return res.status(404).json({ error: 'Permission request not found' });
   }
   if (existing.status !== 'pending') {
-    return res.json({ decision: existing.status });
+    return res.json({ decision: existing.status, response: (existing.response as string) || '' });
   }
 
   // Long-poll: wait for decision
@@ -88,10 +89,10 @@ router.get('/poll/:id', (req, res) => {
   }, timeoutMs);
 
   pendingPolls.set(id, {
-    resolve: (decision) => {
+    resolve: (decision, response) => {
       clearTimeout(timer);
       pendingPolls.delete(id);
-      res.json({ decision });
+      res.json({ decision, response: response || '' });
     },
     timer,
   });
@@ -105,14 +106,15 @@ router.get('/poll/:id', (req, res) => {
 
 // Decide on a permission (called from dashboard)
 router.post('/decide', (req, res) => {
-  const { id, decision } = req.body;
+  const { id, decision, response: responseData } = req.body;
 
   if (!id || !['allowed', 'denied'].includes(decision)) {
     return res.status(400).json({ error: 'id and decision (allowed|denied) required' });
   }
 
   const now = new Date().toISOString();
-  db.prepare(`UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?`).run(decision, now, id);
+  const responseStr = responseData ? (typeof responseData === 'string' ? responseData : JSON.stringify(responseData)) : '';
+  db.prepare(`UPDATE permissions SET status = ?, decided_at = ?, response = ? WHERE id = ?`).run(decision, now, responseStr, id);
 
   const perm = db.prepare('SELECT * FROM permissions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   if (!perm) return res.status(404).json({ error: 'Permission not found' });
@@ -123,10 +125,18 @@ router.post('/decide', (req, res) => {
   const normalized = normalizePermission(perm);
   getIO().emit('permission_decided', normalized);
 
-  // Resolve any pending long-poll
+  // Resolve any pending long-poll (pass response for hook to use)
   const poll = pendingPolls.get(id);
   if (poll) {
-    poll.resolve(decision);
+    poll.resolve(decision, responseStr);
+  }
+
+  // Auto-approve Claude Code's built-in plan confirmation prompt via the VS Code extension
+  if (decision === 'allowed' && (perm.tool_name as string) === 'ExitPlanMode') {
+    const agentId = perm.agent_id as string;
+    const agentRoom = `agent:${agentId}`;
+    console.log(`[permissions] ExitPlanMode approved — emitting auto_approve_plan to ${agentRoom}`);
+    getIO().to(agentRoom).emit('auto_approve_plan', { agentId });
   }
 
   res.json(normalized);
@@ -159,6 +169,7 @@ function normalizePermission(row: Record<string, unknown>): PermissionRequest {
     status: row.status as PermissionRequest['status'],
     createdAt: (row.created_at ?? row.createdAt) as string,
     decidedAt: (row.decided_at ?? row.decidedAt) as string | null,
+    response: ((row.response as string) ?? '') as string,
   };
 }
 

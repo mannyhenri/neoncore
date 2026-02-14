@@ -38,6 +38,7 @@ export interface PermissionRequest {
   status: 'pending' | 'allowed' | 'denied' | 'timeout';
   createdAt: string;
   decidedAt: string | null;
+  response: string; // JSON string — answers for AskUserQuestion, feedback for ExitPlanMode
 }
 
 export interface Command {
@@ -139,6 +140,7 @@ export type ServerToClientEvents = {
   memory_updated: (data: { agentId: string }) => void;
   permissions_expired: (data: { count: number }) => void;
   workflow_updated: (run: WorkflowRun) => void;
+  auto_approve_plan: (data: { agentId: string }) => void;
 };
 
 export type ClientToServerEvents = {

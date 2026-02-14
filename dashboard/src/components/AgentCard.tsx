@@ -9,7 +9,7 @@ interface Props {
   agent: Agent;
   permissions: PermissionRequest[];
   stuckAlert?: StuckAlert;
-  onDecidePermission: (id: string, decision: 'allowed' | 'denied') => void;
+  onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
   onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
   onDelete: (agentId: string) => void;
@@ -37,55 +37,225 @@ function shortMachine(machine: string): string {
   return machine.replace(/\.local$/, '');
 }
 
-function InlinePermission({ permission, onAllow, onDeny }: {
+// --- Question Answer Card (for AskUserQuestion permissions) ---
+function QuestionAnswerCard({ permission, onDecide }: {
   permission: PermissionRequest;
-  onAllow: () => void;
-  onDeny: () => void;
+  onDecide: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
 }) {
-  // Plan approval card for ExitPlanMode
-  if (permission.toolName === 'ExitPlanMode') {
-    let allowedPrompts: { tool: string; prompt: string }[] = [];
-    try {
-      const input = typeof permission.toolInput === 'string' ? JSON.parse(permission.toolInput) : permission.toolInput;
-      allowedPrompts = input?.allowedPrompts || [];
-    } catch {
-      // ignore parse errors
-    }
+  type Question = { question: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean };
+  let questions: Question[] = [];
+  try {
+    const input = typeof permission.toolInput === 'string' ? JSON.parse(permission.toolInput) : permission.toolInput;
+    questions = input?.questions || [];
+  } catch { /* ignore */ }
 
+  const isMulti = questions.length > 1 || questions.some((q) => q.multiSelect);
+  const [selections, setSelections] = useState<Record<string, string | string[]>>({});
+  const [customTexts, setCustomTexts] = useState<Record<string, string>>({});
+  const [showCustom, setShowCustom] = useState<Record<string, boolean>>({});
+
+  const handleSelect = (qi: number, label: string) => {
+    const key = String(qi);
+    const q = questions[qi];
+    if (q?.multiSelect) {
+      setSelections((prev) => {
+        const existing = (prev[key] as string[]) || [];
+        return { ...prev, [key]: existing.includes(label) ? existing.filter((l) => l !== label) : [...existing, label] };
+      });
+    } else if (isMulti) {
+      setSelections((prev) => ({ ...prev, [key]: label }));
+    } else {
+      // Single question, single select — decide immediately
+      onDecide(permission.id, 'allowed', { answers: { [key]: label } });
+    }
+  };
+
+  const handleSubmit = () => {
+    const answers: Record<string, string> = {};
+    questions.forEach((_q, qi) => {
+      const key = String(qi);
+      if (showCustom[key] && customTexts[key]?.trim()) {
+        answers[key] = customTexts[key].trim();
+      } else {
+        const sel = selections[key];
+        answers[key] = Array.isArray(sel) ? sel.join(', ') : (sel as string) || '';
+      }
+    });
+    onDecide(permission.id, 'allowed', { answers });
+  };
+
+  if (questions.length === 0) {
     return (
-      <div className="bg-violet-950/40 border border-violet-700 rounded-lg px-3 py-3">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-          <span className="text-violet-300 text-sm font-semibold">Plan Ready for Review</span>
+      <div className="bg-yellow-950/40 border border-yellow-700 rounded-lg px-3 py-3">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+          <span className="text-yellow-300 text-sm font-semibold">Question from Agent</span>
         </div>
-        {allowedPrompts.length > 0 && (
-          <div className="mb-2 space-y-1">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
-            {allowedPrompts.map((p, i) => (
-              <div key={i} className="text-sm text-gray-400 font-mono pl-2 border-l border-violet-800">
-                {p.tool}: {p.prompt}
+        <p className="text-sm text-gray-400">{permission.description}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-yellow-950/40 border border-yellow-700 rounded-lg px-3 py-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+        <span className="text-yellow-300 text-sm font-semibold">Question from Agent</span>
+      </div>
+      {questions.map((q, qi) => {
+        const key = String(qi);
+        const sel = selections[key];
+        return (
+          <div key={qi}>
+            {q.header && <div className="text-[10px] text-gray-500 uppercase mb-1">{q.header}</div>}
+            <p className="text-sm text-gray-300 mb-2">{q.question}</p>
+            {q.options && q.options.length > 0 && !showCustom[key] && (
+              <div className="flex flex-wrap gap-1.5">
+                {q.options.map((opt, oi) => {
+                  const isSelected = q.multiSelect
+                    ? ((sel as string[]) || []).includes(opt.label)
+                    : sel === opt.label;
+                  return (
+                    <button
+                      key={oi}
+                      onClick={() => handleSelect(qi, opt.label)}
+                      className={`px-3 py-1.5 text-sm rounded-md transition-colors border ${
+                        isSelected
+                          ? 'bg-yellow-700/80 text-yellow-100 border-yellow-600'
+                          : 'bg-yellow-900/60 hover:bg-yellow-800/80 text-yellow-200 border-yellow-700/50'
+                      }`}
+                      title={opt.description || ''}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setShowCustom((prev) => ({ ...prev, [key]: true }))}
+                  className="px-3 py-1.5 text-sm rounded-md transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50"
+                >
+                  Other...
+                </button>
               </div>
-            ))}
+            )}
+            {showCustom[key] && (
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={customTexts[key] || ''}
+                  onChange={(e) => setCustomTexts((prev) => ({ ...prev, [key]: e.target.value }))}
+                  placeholder="Type your answer..."
+                  className="flex-1 glass-input text-gray-300 text-sm rounded px-2 py-1.5 focus:outline-none"
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !isMulti) handleSubmit(); }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => setShowCustom((prev) => ({ ...prev, [key]: false }))}
+                  className="text-gray-500 hover:text-gray-300 text-xs px-2"
+                >
+                  Back
+                </button>
+              </div>
+            )}
           </div>
-        )}
+        );
+      })}
+      {isMulti && (
+        <button
+          onClick={handleSubmit}
+          className="px-4 py-1.5 bg-yellow-700 hover:bg-yellow-600 text-white text-sm rounded-md transition-colors font-medium"
+        >
+          Submit Answers
+        </button>
+      )}
+    </div>
+  );
+}
+
+// --- Plan Approval Card (for ExitPlanMode permissions) ---
+// Auto-approval is handled server-side: server emits 'auto_approve_plan' to the VS Code extension,
+// which sends "yes" to Claude Code's built-in plan prompt after a delay.
+function PlanApprovalCard({ permission, onDecide }: {
+  permission: PermissionRequest;
+  onDecide: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
+}) {
+  const [showReject, setShowReject] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  let allowedPrompts: { tool: string; prompt: string }[] = [];
+  try {
+    const input = typeof permission.toolInput === 'string' ? JSON.parse(permission.toolInput) : permission.toolInput;
+    allowedPrompts = input?.allowedPrompts || [];
+  } catch { /* ignore */ }
+
+  return (
+    <div className="bg-violet-950/40 border border-violet-700 rounded-lg px-3 py-3">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+        <span className="text-violet-300 text-sm font-semibold">Plan Ready for Review</span>
+      </div>
+      {allowedPrompts.length > 0 && (
+        <div className="mb-2 space-y-1">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
+          {allowedPrompts.map((p, i) => (
+            <div key={i} className="text-sm text-gray-400 font-mono pl-2 border-l border-violet-800">
+              {p.tool}: {p.prompt}
+            </div>
+          ))}
+        </div>
+      )}
+      {showReject ? (
+        <div className="space-y-2">
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="What should be changed? (optional)"
+            className="w-full glass-input text-gray-300 text-sm rounded px-2 py-1.5 resize-none h-16 focus:outline-none"
+            autoFocus
+          />
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => {
+                onDecide(permission.id, 'denied', feedback.trim() ? { feedback: feedback.trim() } : undefined);
+              }}
+              className="px-3 py-1.5 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-sm rounded-md transition-colors font-medium"
+            >
+              Confirm Reject
+            </button>
+            <button
+              onClick={() => setShowReject(false)}
+              className="px-3 py-1.5 text-gray-500 hover:text-gray-300 text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
         <div className="flex items-center gap-1.5">
           <button
-            onClick={onAllow}
+            onClick={() => onDecide(permission.id, 'allowed')}
             className="px-3 py-1.5 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-sm rounded-md transition-colors font-medium"
           >
             Approve Plan
           </button>
           <button
-            onClick={onDeny}
+            onClick={() => setShowReject(true)}
             className="px-3 py-1.5 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-sm rounded-md transition-colors font-medium"
           >
             Reject Plan
           </button>
         </div>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
+// --- Generic permission card (Allow/Deny for regular tools) ---
+function InlinePermission({ permission, onAllow, onDeny }: {
+  permission: PermissionRequest;
+  onAllow: () => void;
+  onDeny: () => void;
+}) {
   return (
     <div className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 gap-2">
       <div className="flex-1 min-w-0">
@@ -108,60 +278,6 @@ function InlinePermission({ permission, onAllow, onDeny }: {
           Deny
         </button>
       </div>
-    </div>
-  );
-}
-
-function PendingQuestion({ questionData, onAnswer }: {
-  questionData: string;
-  onAnswer: (answer: string) => void;
-}) {
-  let questions: { question: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean }[] = [];
-  try {
-    const parsed = JSON.parse(questionData);
-    questions = parsed?.questions || [];
-  } catch {
-    // Not parseable — show raw text
-    return (
-      <div className="bg-yellow-950/40 border border-yellow-800 rounded-lg px-3 py-3 mb-3">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-          <span className="text-yellow-300 text-sm font-semibold">Question from Claude</span>
-        </div>
-        <p className="text-sm text-gray-300 whitespace-pre-wrap">{questionData}</p>
-      </div>
-    );
-  }
-
-  if (questions.length === 0) return null;
-
-  return (
-    <div className="space-y-2 mb-3">
-      {questions.map((q, qi) => (
-        <div key={qi} className="bg-yellow-950/40 border border-yellow-800 rounded-lg px-3 py-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-            <span className="text-yellow-300 text-sm font-semibold">
-              {q.header || 'Question'}
-            </span>
-          </div>
-          <p className="text-sm text-gray-300 mb-2">{q.question}</p>
-          {q.options && q.options.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {q.options.map((opt, oi) => (
-                <button
-                  key={oi}
-                  onClick={() => onAnswer(opt.label)}
-                  className="px-3 py-1.5 bg-yellow-900/60 hover:bg-yellow-800/80 text-yellow-200 text-sm rounded-md transition-colors border border-yellow-700/50"
-                  title={opt.description || ''}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
@@ -335,23 +451,23 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
             Pending ({permissions.length})
           </div>
-          {permissions.map((perm) => (
-            <InlinePermission
-              key={perm.id}
-              permission={perm}
-              onAllow={() => onDecidePermission(perm.id, 'allowed')}
-              onDeny={() => onDecidePermission(perm.id, 'denied')}
-            />
-          ))}
+          {permissions.map((perm) => {
+            if (perm.toolName === 'AskUserQuestion') {
+              return <QuestionAnswerCard key={perm.id} permission={perm} onDecide={onDecidePermission} />;
+            }
+            if (perm.toolName === 'ExitPlanMode') {
+              return <PlanApprovalCard key={perm.id} permission={perm} onDecide={onDecidePermission} />;
+            }
+            return (
+              <InlinePermission
+                key={perm.id}
+                permission={perm}
+                onAllow={() => onDecidePermission(perm.id, 'allowed')}
+                onDeny={() => onDecidePermission(perm.id, 'denied')}
+              />
+            );
+          })}
         </div>
-      )}
-
-      {/* Pending question from Claude (AskUserQuestion) */}
-      {agent.status === 'waiting' && agent.pendingQuestion && (
-        <PendingQuestion
-          questionData={agent.pendingQuestion}
-          onAnswer={(answer) => onSendCommand(agent.id, answer, false)}
-        />
       )}
 
       {/* Input area - always visible; offline commands queue until agent reconnects */}

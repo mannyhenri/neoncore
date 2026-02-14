@@ -111,11 +111,12 @@ if tool_name in ('AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'):
         'toolResult': tool_result
     })
 
-# Print four lines: register JSON, permission JSON, session_id, activity_body
+# Print five lines: register JSON, permission JSON, session_id, activity_body, tool_input JSON
 print(register_body)
 print(permission_body)
 print(session_id)
 print(activity_body)
+print(json.dumps(tool_input))
 " 2>/dev/null)
 
 if [ -z "$PARSED" ]; then
@@ -126,6 +127,7 @@ REGISTER_BODY=$(echo "$PARSED" | sed -n '1p')
 PERMISSION_BODY=$(echo "$PARSED" | sed -n '2p')
 SESSION_ID=$(echo "$PARSED" | sed -n '3p')
 ACTIVITY_BODY=$(echo "$PARSED" | sed -n '4p')
+TOOL_INPUT_JSON=$(echo "$PARSED" | sed -n '5p')
 
 # Register agent (fire-and-forget)
 curl -sf -X POST "$ORCHESTRATOR_URL/api/agents/register" \
@@ -160,7 +162,7 @@ line = sys.stdin.readline()  # line 2 (permission body)
 d = json.loads(line)
 print(d.get('toolName', ''))
 " 2>/dev/null)
-if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "ExitPlanMode" ]; then
+if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "ExitPlanMode" ] && [ "$TOOL_NAME" != "AskUserQuestion" ]; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Auto-approved by NeonCore trust mode"}}'
   exit 0
 fi
@@ -173,26 +175,84 @@ if [ -z "$REQUEST_ID" ]; then
 fi
 
 # Long-poll for decision (with retries so plan reviews aren't rushed)
+# Pass tool data via env vars so Python can safely use it (avoids shell quoting issues)
+export NC_TOOL_NAME="$TOOL_NAME"
+export NC_TOOL_INPUT="$TOOL_INPUT_JSON"
+
 RETRY=0
 while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
-  DECISION=$(curl -sf --max-time $POLL_TIMEOUT \
-    "$ORCHESTRATOR_URL/api/permissions/poll/$REQUEST_ID?timeout=$((POLL_TIMEOUT * 1000))" 2>/dev/null \
-    | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('decision',''))" 2>/dev/null)
+  POLL_RESULT=$(curl -sf --max-time $POLL_TIMEOUT \
+    "$ORCHESTRATOR_URL/api/permissions/poll/$REQUEST_ID?timeout=$((POLL_TIMEOUT * 1000))" 2>/dev/null)
 
-  case "$DECISION" in
-    allowed)
-      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Approved via NeonCore dashboard"}}'
-      exit 0
-      ;;
-    denied)
-      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Denied via NeonCore dashboard"}}'
-      exit 0
-      ;;
-    *)
-      # Timeout — retry the poll (permission stays pending on the server)
-      RETRY=$((RETRY + 1))
-      ;;
-  esac
+  if [ -z "$POLL_RESULT" ]; then
+    RETRY=$((RETRY + 1))
+    continue
+  fi
+
+  # Parse decision + response and construct appropriate hook output
+  HOOK_OUTPUT=$(echo "$POLL_RESULT" | /usr/bin/env python3 -c "
+import sys, json, os
+
+poll = json.load(sys.stdin)
+decision = poll.get('decision', '')
+response_str = poll.get('response', '')
+tool_name = os.environ.get('NC_TOOL_NAME', '')
+tool_input_raw = os.environ.get('NC_TOOL_INPUT', '{}')
+
+if decision == 'allowed':
+    output = {
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'allow',
+            'permissionDecisionReason': 'Approved via NeonCore dashboard'
+        }
+    }
+    # For AskUserQuestion, inject answers into updatedInput
+    if tool_name == 'AskUserQuestion' and response_str:
+        try:
+            resp = json.loads(response_str) if isinstance(response_str, str) else response_str
+            answers = resp.get('answers', {})
+            if answers:
+                try:
+                    original_input = json.loads(tool_input_raw)
+                except Exception:
+                    original_input = {}
+                original_input['answers'] = answers
+                output['hookSpecificOutput']['updatedInput'] = original_input
+        except Exception:
+            pass
+    print(json.dumps(output))
+
+elif decision == 'denied':
+    output = {
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'deny',
+            'permissionDecisionReason': 'Denied via NeonCore dashboard'
+        }
+    }
+    # For ExitPlanMode, include rejection feedback in the reason
+    if tool_name == 'ExitPlanMode' and response_str:
+        try:
+            resp = json.loads(response_str) if isinstance(response_str, str) else response_str
+            feedback = resp.get('feedback', '')
+            if feedback:
+                output['hookSpecificOutput']['permissionDecisionReason'] = 'Plan rejected via NeonCore dashboard: ' + feedback
+        except Exception:
+            pass
+    print(json.dumps(output))
+
+else:
+    # timeout or unknown — print nothing, outer loop retries
+    pass
+" 2>/dev/null)
+
+  if [ -n "$HOOK_OUTPUT" ]; then
+    echo "$HOOK_OUTPUT"
+    exit 0
+  fi
+
+  RETRY=$((RETRY + 1))
 done
 
 # All retries exhausted — fall back to normal Claude Code permission behavior

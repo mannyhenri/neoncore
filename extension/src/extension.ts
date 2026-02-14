@@ -135,6 +135,12 @@ function connectToOrchestrator() {
     bringWindowToFront();
   });
 
+  // Listen for plan auto-approval — respond to Claude Code's built-in plan prompt
+  socket.on('auto_approve_plan' as any, (data: { agentId: string }) => {
+    log(`Auto-approve plan request for agent ${data.agentId}`);
+    handleAutoApprovePlan();
+  });
+
   socket.on('connect_error', (err) => {
     log(`Connection error: ${err.message}`);
     updateStatusBar(false);
@@ -360,6 +366,58 @@ async function handleCommand(command: Command) {
   } catch (err) {
     log(`handleCommand error: ${err}`);
     vscode.window.showErrorMessage(`NeonCore: Failed to deliver command - ${err}`);
+  }
+}
+
+const AUTO_APPROVE_DELAY_MS = 7000;
+
+async function handleAutoApprovePlan() {
+  try {
+    log(`Waiting ${AUTO_APPROVE_DELAY_MS}ms for plan approval prompt to render...`);
+    await sleep(AUTO_APPROVE_DELAY_MS);
+
+    // Copy "yes" to clipboard
+    await vscode.env.clipboard.writeText('yes');
+
+    // Focus Claude Code panel (without raising window — we're already in the right VS Code process)
+    try {
+      await vscode.commands.executeCommand('claude-vscode.focus');
+    } catch {
+      try {
+        await vscode.commands.executeCommand('workbench.action.focusSideBar');
+      } catch {
+        // ignore
+      }
+    }
+    await sleep(500);
+
+    if (process.platform === 'darwin') {
+      // macOS: paste + Enter via AppleScript (lightweight — no window raising)
+      await execAsync(
+        `osascript` +
+        ` -e 'tell application "System Events"'` +
+        ` -e '  keystroke "v" using command down'` +
+        ` -e '  delay 0.3'` +
+        ` -e '  key code 36'` +
+        ` -e 'end tell'`
+      );
+      log('Auto-approve: pasted "yes" + Enter via AppleScript');
+    } else if (process.platform === 'win32') {
+      // Windows: paste via VS Code command, Enter via PowerShell
+      await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+      await sleep(300);
+      const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`;
+      await execAsync(`powershell -Command "${psScript}"`);
+      log('Auto-approve: pasted "yes" + Enter via PowerShell');
+    } else {
+      // Linux: paste via VS Code command, Enter via type command
+      await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+      await sleep(300);
+      await vscode.commands.executeCommand('default:type', { text: '\n' });
+      log('Auto-approve: pasted "yes" + Enter via type command');
+    }
+  } catch (err) {
+    log(`handleAutoApprovePlan failed: ${err}`);
   }
 }
 

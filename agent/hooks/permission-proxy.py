@@ -20,7 +20,8 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
-POLL_TIMEOUT = 60  # seconds
+POLL_TIMEOUT = 120  # seconds per poll attempt
+MAX_POLL_RETRIES = 5  # retry up to 5 times (total ~10 minutes for plan reviews)
 
 
 def post_json(url: str, body: str, timeout: int = 5) -> dict | None:
@@ -162,7 +163,7 @@ def main():
     # Check if trust mode gave immediate approval
     # ExitPlanMode always goes through the permission flow — plans should be human-reviewed
     trust_mode = response.get("trustMode", False)
-    if trust_mode and tool_name != "ExitPlanMode":
+    if trust_mode and tool_name != "ExitPlanMode" and tool_name != "AskUserQuestion":
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -177,32 +178,63 @@ def main():
     if not request_id:
         sys.exit(0)
 
-    # Long-poll for decision
+    # Long-poll for decision (with retries so plan reviews aren't rushed)
     poll_url = f"{ORCHESTRATOR_URL}/api/permissions/poll/{request_id}?timeout={POLL_TIMEOUT * 1000}"
-    poll_result = get_json(poll_url, timeout=POLL_TIMEOUT + 5)
 
-    if poll_result:
+    for _retry in range(MAX_POLL_RETRIES):
+        poll_result = get_json(poll_url, timeout=POLL_TIMEOUT + 5)
+
+        if not poll_result:
+            continue  # timeout or error — retry
+
         decision = poll_result.get("decision", "")
+        response_str = poll_result.get("response", "")
+
         if decision == "allowed":
-            print(json.dumps({
+            output: dict = {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "allow",
                     "permissionDecisionReason": "Approved via NeonCore dashboard",
                 }
-            }))
+            }
+            # For AskUserQuestion, inject answers into updatedInput
+            if tool_name == "AskUserQuestion" and response_str:
+                try:
+                    resp = json.loads(response_str) if isinstance(response_str, str) else response_str
+                    answers = resp.get("answers", {})
+                    if answers:
+                        updated = dict(tool_input)
+                        updated["answers"] = answers
+                        output["hookSpecificOutput"]["updatedInput"] = updated
+                except Exception:
+                    pass
+            print(json.dumps(output))
             sys.exit(0)
+
         elif decision == "denied":
-            print(json.dumps({
+            output = {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": "Denied via NeonCore dashboard",
                 }
-            }))
+            }
+            # For ExitPlanMode, include rejection feedback in the reason
+            if tool_name == "ExitPlanMode" and response_str:
+                try:
+                    resp = json.loads(response_str) if isinstance(response_str, str) else response_str
+                    feedback = resp.get("feedback", "")
+                    if feedback:
+                        output["hookSpecificOutput"]["permissionDecisionReason"] = f"Plan rejected via NeonCore dashboard: {feedback}"
+                except Exception:
+                    pass
+            print(json.dumps(output))
             sys.exit(0)
 
-    # Timeout or error - fall back to normal behavior
+        # else: timeout — continue retry loop
+
+    # All retries exhausted — fall back to normal Claude Code permission behavior
     sys.exit(0)
 
 

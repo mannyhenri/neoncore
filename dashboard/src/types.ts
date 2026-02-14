@@ -38,6 +38,7 @@ export interface PermissionRequest {
   status: 'pending' | 'allowed' | 'denied' | 'timeout';
   createdAt: string;
   decidedAt: string | null;
+  response: string; // JSON string — answers for AskUserQuestion, feedback for ExitPlanMode
 }
 
 export interface Command {

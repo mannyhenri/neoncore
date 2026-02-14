@@ -5,7 +5,7 @@ interface Props {
   agents: Agent[];
   pendingPermissions: PermissionRequest[];
   stuckAlerts: Map<string, StuckAlert>;
-  onDecidePermission: (id: string, decision: 'allowed' | 'denied') => void;
+  onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
   onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
   onDelete: (agentId: string) => void;
