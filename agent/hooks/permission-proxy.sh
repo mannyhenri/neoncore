@@ -207,16 +207,101 @@ if decision == 'allowed':
             'permissionDecisionReason': 'Approved via NeonCore dashboard'
         }
     }
+
+    def extract_question_entries(tool_input):
+        entries = []
+        raw_questions = tool_input.get('questions')
+
+        if isinstance(raw_questions, list):
+            for idx, raw in enumerate(raw_questions):
+                if not isinstance(raw, dict):
+                    continue
+                question_text = str(raw.get('question', '')).strip() or str(raw.get('prompt', '')).strip()
+                if not question_text:
+                    continue
+                entries.append({
+                    'index': idx,
+                    'id': str(raw.get('id', '')).strip(),
+                    'text': question_text,
+                })
+        else:
+            question_text = str(tool_input.get('question', '')).strip() or str(tool_input.get('prompt', '')).strip()
+            if question_text:
+                entries.append({
+                    'index': 0,
+                    'id': str(tool_input.get('id', '')).strip(),
+                    'text': question_text,
+                })
+        return entries
+
+    def stringify_answer_value(value):
+        if isinstance(value, list):
+            items = [str(v).strip() for v in value if str(v).strip()]
+            return ', '.join(items)
+        if value is None:
+            return ''
+        return str(value).strip()
+
+    def normalize_answers(answers, tool_input):
+        if not isinstance(answers, dict):
+            return {}
+        entries = extract_question_entries(tool_input)
+        normalized = {}
+
+        for raw_key, raw_value in answers.items():
+            value = stringify_answer_value(raw_value)
+            if not value:
+                continue
+
+            key = str(raw_key).strip()
+            question_text = ''
+
+            if key.isdigit():
+                idx = int(key)
+                for entry in entries:
+                    if entry['index'] == idx:
+                        question_text = entry['text']
+                        break
+            else:
+                for entry in entries:
+                    if entry['id'] and entry['id'] == key:
+                        question_text = entry['text']
+                        break
+                if not question_text:
+                    for entry in entries:
+                        if entry['text'] == key:
+                            question_text = entry['text']
+                            break
+
+            if not question_text:
+                if len(entries) == 1:
+                    question_text = entries[0]['text']
+                elif key:
+                    question_text = key
+
+            if question_text:
+                normalized[question_text] = value
+
+        return normalized
+
     # For AskUserQuestion, inject answers into updatedInput
     if tool_name == 'AskUserQuestion' and response_str:
         try:
             resp = json.loads(response_str) if isinstance(response_str, str) else response_str
-            answers = resp.get('answers', {})
+            try:
+                original_input = json.loads(tool_input_raw)
+            except Exception:
+                original_input = {}
+
+            answers = normalize_answers(resp.get('answers', {}), original_input)
+
+            # Backward-compat: support single-answer payloads from older UI versions
+            if not answers and isinstance(resp.get('result'), str):
+                entries = extract_question_entries(original_input)
+                if entries:
+                    answers = {entries[0]['text']: resp.get('result', '').strip()}
+
             if answers:
-                try:
-                    original_input = json.loads(tool_input_raw)
-                except Exception:
-                    original_input = {}
                 original_input['answers'] = answers
                 output['hookSpecificOutput']['updatedInput'] = original_input
         except Exception:
