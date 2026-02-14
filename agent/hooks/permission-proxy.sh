@@ -10,7 +10,8 @@
 #   5. On error/timeout → exit 0 (fall back to normal Claude Code behavior)
 
 ORCHESTRATOR_URL="${NEONCORE_URL:-http://localhost:4040}"
-POLL_TIMEOUT=60  # seconds to wait for user decision
+POLL_TIMEOUT=120  # seconds per poll attempt
+MAX_POLL_RETRIES=5  # retry up to 5 times (total ~10 minutes for plan reviews)
 
 # Read hook payload from stdin
 INPUT=$(cat)
@@ -62,6 +63,9 @@ register_data = {
 if tool_name == 'AskUserQuestion':
     register_data['status'] = 'waiting'
     register_data['pendingQuestion'] = json.dumps(tool_input)[:4000]
+else:
+    # Explicitly mark working so the next tool after AskUserQuestion clears 'waiting'
+    register_data['status'] = 'working'
 register_body = json.dumps(register_data)
 permission_body = json.dumps({
     'sessionId': session_id,
@@ -168,22 +172,28 @@ if [ -z "$REQUEST_ID" ]; then
   exit 0
 fi
 
-# Long-poll for decision
-DECISION=$(curl -sf --max-time $POLL_TIMEOUT \
-  "$ORCHESTRATOR_URL/api/permissions/poll/$REQUEST_ID?timeout=$((POLL_TIMEOUT * 1000))" 2>/dev/null \
-  | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('decision',''))" 2>/dev/null)
+# Long-poll for decision (with retries so plan reviews aren't rushed)
+RETRY=0
+while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
+  DECISION=$(curl -sf --max-time $POLL_TIMEOUT \
+    "$ORCHESTRATOR_URL/api/permissions/poll/$REQUEST_ID?timeout=$((POLL_TIMEOUT * 1000))" 2>/dev/null \
+    | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('decision',''))" 2>/dev/null)
 
-case "$DECISION" in
-  allowed)
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Approved via NeonCore dashboard"}}'
-    exit 0
-    ;;
-  denied)
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Denied via NeonCore dashboard"}}'
-    exit 0
-    ;;
-  *)
-    # Timeout or error - fall back to normal Claude Code permission behavior
-    exit 0
-    ;;
-esac
+  case "$DECISION" in
+    allowed)
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Approved via NeonCore dashboard"}}'
+      exit 0
+      ;;
+    denied)
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Denied via NeonCore dashboard"}}'
+      exit 0
+      ;;
+    *)
+      # Timeout — retry the poll (permission stays pending on the server)
+      RETRY=$((RETRY + 1))
+      ;;
+  esac
+done
+
+# All retries exhausted — fall back to normal Claude Code permission behavior
+exit 0

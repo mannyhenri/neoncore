@@ -1,16 +1,43 @@
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import type { Activity, Command } from '../types.js';
+import type { Activity, Agent, Command } from '../types.js';
 
 /**
  * Shared command dispatch — used by both the commands route and workflow executor.
  * Handles memory injection, activity logging, and socket emission.
  */
 export function sendCommandToAgent(agentId: string, text: string, includeMemory = false): Command | null {
-  const agentCheck = db.prepare('SELECT id, repo_name FROM agents WHERE id = ?')
-    .get(agentId) as { id: string; repo_name: string } | undefined;
+  const agentCheck = db.prepare('SELECT id, repo_name, status FROM agents WHERE id = ?')
+    .get(agentId) as { id: string; repo_name: string; status: string } | undefined;
   if (!agentCheck) return null;
+
+  // Clear 'waiting' status when user responds from dashboard
+  if (agentCheck.status === 'waiting') {
+    const now2 = new Date().toISOString();
+    db.prepare(`UPDATE agents SET status = 'working', pending_question = '', last_seen = ? WHERE id = ?`).run(now2, agentId);
+    // Broadcast the status change
+    const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
+    const mode = (updated.agent_mode ?? 'manual') as Agent['mode'];
+    const normalized: Agent = {
+      id: updated.id as string,
+      name: updated.name as string,
+      machine: updated.machine as string,
+      repoPath: (updated.repo_path ?? '') as string,
+      repoName: (updated.repo_name ?? '') as string,
+      branch: (updated.branch ?? '') as string,
+      currentTask: (updated.current_task ?? '') as string,
+      status: (updated.status ?? 'idle') as Agent['status'],
+      trustMode: mode === 'trust',
+      mode,
+      agentType: (updated.agent_type ?? 'claude') as Agent['agentType'],
+      lastSeen: (updated.last_seen ?? '') as string,
+      sessionId: (updated.session_id ?? '') as string,
+      lastMessage: (updated.last_message ?? '') as string,
+      pendingQuestion: '',
+    };
+    getIO().emit('agent_updated', normalized);
+  }
 
   // Auto-inject relevant memories into command context (if enabled)
   let finalText = text;
