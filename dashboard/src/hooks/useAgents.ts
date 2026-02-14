@@ -87,8 +87,8 @@ export function useAgents() {
     },
   });
 
-  const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied') => {
-    await api.decidePermission(id, decision);
+  const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => {
+    await api.decidePermission(id, decision, response);
     setPendingPermissions((prev) => prev.filter((p) => p.id !== id));
   }, []);
 

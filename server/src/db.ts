@@ -176,6 +176,13 @@ try {
   `);
 }
 
+// Migration: add response column to permissions (for AskUserQuestion answers, ExitPlanMode feedback)
+try {
+  db.prepare('SELECT response FROM permissions LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE permissions ADD COLUMN response TEXT NOT NULL DEFAULT ''`);
+}
+
 // Cleanup: expire stale pending permissions from past sessions
 const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 const expired = db.prepare(
