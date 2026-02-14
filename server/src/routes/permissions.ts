@@ -15,6 +15,7 @@ const pendingPolls = new Map<string, {
 // Request a permission decision (called by hook scripts)
 router.post('/request', (req, res) => {
   const { agentId, sessionId, toolName, toolInput, description } = req.body;
+  console.log(`[permissions] Permission request: tool=${toolName} sessionId=${sessionId?.slice(0, 20)} agentId=${agentId || 'none'}`);
 
   // Resolve agent
   let resolvedAgentId = agentId;
@@ -31,6 +32,7 @@ router.post('/request', (req, res) => {
   }
 
   if (!resolvedAgentId) {
+    console.log(`[permissions] Failed to resolve agent — sessionId=${sessionId} agentId=${agentId}`);
     return res.status(400).json({ error: 'agentId or valid sessionId required' });
   }
 
@@ -128,7 +130,10 @@ router.post('/decide', (req, res) => {
   // Resolve any pending long-poll (pass response for hook to use)
   const poll = pendingPolls.get(id);
   if (poll) {
+    console.log(`[permissions] Resolving long-poll for ${id}: decision=${decision} tool=${perm.tool_name} response_len=${responseStr.length}`);
     poll.resolve(decision, responseStr);
+  } else {
+    console.log(`[permissions] No pending long-poll for ${id} (hook may have timed out)`);
   }
 
   // Auto-approve Claude Code's built-in plan confirmation prompt via the VS Code extension

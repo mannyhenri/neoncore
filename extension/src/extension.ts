@@ -108,9 +108,13 @@ async function focusClaudePanel(): Promise<void> {
 function getAutoApproveCommands(): string[] {
   return claudeCommands.filter((cmd) => {
     const lower = cmd.toLowerCase();
+    // Look for commands that mention plan + approval action
     const mentionsPlan = lower.includes('plan');
-    const mentionsApproval = lower.includes('approve') || lower.includes('accept') || lower.includes('confirm') || lower.includes('continue');
-    return mentionsPlan && mentionsApproval;
+    const mentionsApproval = lower.includes('approve') || lower.includes('accept') || lower.includes('confirm') || lower.includes('continue') || lower.includes('proceed');
+    if (mentionsPlan && mentionsApproval) return true;
+    // Also look for generic approval commands (e.g., "claude.approve", "claude.accept")
+    if (lower.includes('claude') && mentionsApproval && !lower.includes('reject') && !lower.includes('deny')) return true;
+    return false;
   });
 }
 
@@ -433,8 +437,8 @@ async function handleCommand(command: Command) {
   }
 }
 
-const AUTO_APPROVE_INITIAL_DELAY_MS = 3500;
-const AUTO_APPROVE_RETRY_INTERVAL_MS = 2200;
+const AUTO_APPROVE_INITIAL_DELAY_MS = 4000;
+const AUTO_APPROVE_RETRY_INTERVAL_MS = 2500;
 const AUTO_APPROVE_MAX_ATTEMPTS = 6;
 
 async function handleAutoApprovePlan() {
@@ -445,22 +449,35 @@ async function handleAutoApprovePlan() {
   }
 
   autoApproveInFlight = true;
+  let succeeded = false;
   try {
     // Refresh command discovery in case Claude extension registered commands after activation
     await discoverClaudeCommands();
 
-    log(`Auto-approve: waiting ${AUTO_APPROVE_INITIAL_DELAY_MS}ms before first attempt`);
+    // Bring this VS Code window to the front first
+    log(`Auto-approve: raising window and waiting ${AUTO_APPROVE_INITIAL_DELAY_MS}ms`);
+    await bringWindowToFront();
     await sleep(AUTO_APPROVE_INITIAL_DELAY_MS);
 
     for (let attempt = 1; attempt <= AUTO_APPROVE_MAX_ATTEMPTS; attempt += 1) {
       log(`Auto-approve attempt ${attempt}/${AUTO_APPROVE_MAX_ATTEMPTS}`);
 
+      // Re-discover commands on each attempt (Claude extension may register lazily)
+      if (attempt > 1) {
+        await discoverClaudeCommands();
+      }
+
       // Best case: Claude exposes a dedicated plan-approval command
       const ranCommand = await runAutoApproveCommands();
       if (ranCommand) {
         log('Auto-approve command(s) executed; stopping retry loop');
+        succeeded = true;
         break;
       }
+
+      // Ensure Claude panel is focused before pasting
+      await focusClaudePanel();
+      await sleep(300);
 
       // Fallback: submit textual confirmations
       const tokens = attempt <= 2 ? ['yes', 'approve'] : ['yes'];
@@ -468,17 +485,33 @@ async function handleAutoApprovePlan() {
         try {
           await pasteAndEnter(token);
           log(`Auto-approve: submitted "${token}"`);
+          succeeded = true;
         } catch (err) {
           log(`Auto-approve token "${token}" failed: ${err}`);
         }
       }
 
+      if (succeeded) break;
+
       if (attempt < AUTO_APPROVE_MAX_ATTEMPTS) {
         await sleep(AUTO_APPROVE_RETRY_INTERVAL_MS);
       }
     }
+
+    // If no method worked, show a notification so the user knows to approve manually
+    if (!succeeded) {
+      log('Auto-approve: all attempts failed — showing notification');
+      vscode.window.showInformationMessage(
+        'NeonCore: Plan approved on dashboard — please confirm in Claude Code',
+        'OK'
+      );
+    }
   } catch (err) {
     log(`handleAutoApprovePlan failed: ${err}`);
+    vscode.window.showInformationMessage(
+      'NeonCore: Plan approved on dashboard — please confirm in Claude Code',
+      'OK'
+    );
   } finally {
     autoApproveInFlight = false;
     if (queuedAutoApprove > 0) {

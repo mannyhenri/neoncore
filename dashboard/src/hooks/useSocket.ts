@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun } from '../types';
 
 interface SocketHandlers {
   onAgentRegistered?: (agent: Agent) => void;
@@ -13,6 +13,7 @@ interface SocketHandlers {
   onAgentUnstuck?: (data: { agentId: string }) => void;
   onMemoryUpdated?: (data: { agentId: string }) => void;
   onPermissionsExpired?: (data: { count: number }) => void;
+  onEpicUpdated?: (run: EpicRun) => void;
   onReconnect?: () => void;
 }
 
@@ -88,6 +89,10 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('permissions_expired' as any, (data: { count: number }) => {
       handlersRef.current.onPermissionsExpired?.(data);
+    });
+
+    socket.on('epic_updated' as any, (run: EpicRun) => {
+      handlersRef.current.onEpicUpdated?.(run);
     });
 
     // Mobile: refresh data when tab becomes visible again

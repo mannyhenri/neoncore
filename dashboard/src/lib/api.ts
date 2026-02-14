@@ -153,4 +153,31 @@ export const api = {
     request<import('../types').WorkflowRun>(`/workflows/runs/${runId}/advance`, { method: 'POST' }),
   cancelWorkflow: (runId: string) =>
     request<import('../types').WorkflowRun>(`/workflows/runs/${runId}/cancel`, { method: 'POST' }),
+
+  // Epics — Discovery
+  scanEpics: (agentId: string) =>
+    request<{ epics: { name: string; filename: string; path: string }[]; prefixes: string[]; taskCount: number }>(`/epics/scan/${agentId}`),
+  scanTasks: (agentId: string, prefix: string) =>
+    request<{ tasks: { taskId: string; label: string; filename: string; taskFilePath: string }[]; prefix: string }>(`/epics/scan/${agentId}/tasks?prefix=${encodeURIComponent(prefix)}`),
+
+  // Epics — Runs
+  startEpic: (data: { name: string; agentId: string; tasks: { taskId: string; label?: string; taskFilePath?: string }[]; config?: Partial<import('../types').EpicRunConfig>; startPaused?: boolean }) =>
+    request<import('../types').EpicRun>('/epics/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getEpicRuns: () =>
+    request<import('../types').EpicRun[]>('/epics/runs'),
+  getEpicRun: (id: string) =>
+    request<import('../types').EpicRun>(`/epics/runs/${id}`),
+  pauseEpic: (id: string) =>
+    request<import('../types').EpicRun>(`/epics/runs/${id}/pause`, { method: 'POST' }),
+  resumeEpic: (id: string) =>
+    request<import('../types').EpicRun>(`/epics/runs/${id}/resume`, { method: 'POST' }),
+  cancelEpic: (id: string) =>
+    request<import('../types').EpicRun>(`/epics/runs/${id}/cancel`, { method: 'POST' }),
+  skipEpicTask: (id: string) =>
+    request<import('../types').EpicRun>(`/epics/runs/${id}/skip`, { method: 'POST' }),
+  retryEpicTask: (id: string) =>
+    request<import('../types').EpicRun>(`/epics/runs/${id}/retry`, { method: 'POST' }),
 };

@@ -127,6 +127,40 @@ export interface WorkflowRun {
   completedAt: string | null;
 }
 
+// Epic Autopilot types
+export interface EpicTaskState {
+  taskId: string;
+  label: string;
+  taskFilePath: string;
+  status: 'pending' | 'running' | 'committing' | 'completed' | 'skipped' | 'failed';
+  startedAt: string;
+  completedAt: string;
+  error: string;
+}
+
+export interface EpicRunConfig {
+  idleThresholdMs: number;
+  commitCommand: string;
+  taskPromptTemplate: string;
+  skipCommitOnLast: boolean;
+  autoEnableTrust: boolean;
+  taskPrefix: string;
+}
+
+export interface EpicRun {
+  id: string;
+  name: string;
+  agentId: string;
+  status: 'pending' | 'running' | 'committing' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  currentTask: number;
+  tasks: EpicTaskState[];
+  config: EpicRunConfig;
+  previousMode: AgentMode;
+  startedAt: string;
+  completedAt: string | null;
+  error: string;
+}
+
 // WebSocket events
 export type ServerToClientEvents = {
   agent_registered: (agent: Agent) => void;
@@ -140,6 +174,7 @@ export type ServerToClientEvents = {
   memory_updated: (data: { agentId: string }) => void;
   permissions_expired: (data: { count: number }) => void;
   workflow_updated: (run: WorkflowRun) => void;
+  epic_updated: (run: EpicRun) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
 };
 

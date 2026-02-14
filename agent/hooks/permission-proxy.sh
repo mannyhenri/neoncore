@@ -18,7 +18,7 @@ INPUT=$(cat)
 
 # Use python3 to parse all fields AND build the JSON payloads safely
 # This avoids shell quoting issues with embedded quotes in tool inputs
-PARSED=$(echo "$INPUT" | /usr/bin/env python3 -c "
+PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
 import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
@@ -123,11 +123,11 @@ if [ -z "$PARSED" ]; then
   exit 0
 fi
 
-REGISTER_BODY=$(echo "$PARSED" | sed -n '1p')
-PERMISSION_BODY=$(echo "$PARSED" | sed -n '2p')
-SESSION_ID=$(echo "$PARSED" | sed -n '3p')
-ACTIVITY_BODY=$(echo "$PARSED" | sed -n '4p')
-TOOL_INPUT_JSON=$(echo "$PARSED" | sed -n '5p')
+REGISTER_BODY=$(printf '%s\n' "$PARSED" | sed -n '1p')
+PERMISSION_BODY=$(printf '%s\n' "$PARSED" | sed -n '2p')
+SESSION_ID=$(printf '%s\n' "$PARSED" | sed -n '3p')
+ACTIVITY_BODY=$(printf '%s\n' "$PARSED" | sed -n '4p')
+TOOL_INPUT_JSON=$(printf '%s\n' "$PARSED" | sed -n '5p')
 
 # Register agent (fire-and-forget)
 curl -sf -X POST "$ORCHESTRATOR_URL/api/agents/register" \
@@ -154,8 +154,8 @@ fi
 
 # Check if trust mode gave immediate approval
 # ExitPlanMode always goes through the permission flow — plans should be human-reviewed
-TRUST_MODE=$(echo "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))" 2>/dev/null)
-TOOL_NAME=$(echo "$PARSED" | /usr/bin/env python3 -c "
+TRUST_MODE=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))" 2>/dev/null)
+TOOL_NAME=$(printf '%s\n' "$PARSED" | /usr/bin/env python3 -c "
 import sys, json
 line = sys.stdin.readline()  # skip line 1 (register body)
 line = sys.stdin.readline()  # line 2 (permission body)
@@ -168,16 +168,18 @@ if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "ExitPlanMode" ] && [ "$TOOL_
 fi
 
 # Extract permission request ID
-REQUEST_ID=$(echo "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+REQUEST_ID=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
 
 if [ -z "$REQUEST_ID" ]; then
   exit 0
 fi
 
 # Long-poll for decision (with retries so plan reviews aren't rushed)
-# Pass tool data via env vars so Python can safely use it (avoids shell quoting issues)
+# Write tool input to temp file instead of env var (avoids bash $ expansion corrupting JSON)
 export NC_TOOL_NAME="$TOOL_NAME"
-export NC_TOOL_INPUT="$TOOL_INPUT_JSON"
+NC_TOOL_INPUT_FILE=$(mktemp /tmp/neoncore-toolinput-XXXXXX)
+printf '%s' "$TOOL_INPUT_JSON" > "$NC_TOOL_INPUT_FILE"
+export NC_TOOL_INPUT_FILE
 
 RETRY=0
 while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
@@ -190,14 +192,34 @@ while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
   fi
 
   # Parse decision + response and construct appropriate hook output
-  HOOK_OUTPUT=$(echo "$POLL_RESULT" | /usr/bin/env python3 -c "
-import sys, json, os
+  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 -c "
+import sys, json, os, traceback, datetime
+
+DEBUG_LOG = '/tmp/neoncore-hook-debug.log'
+def debug(msg):
+    try:
+        with open(DEBUG_LOG, 'a') as f:
+            f.write('[%s] %s\n' % (datetime.datetime.now().isoformat(), msg))
+    except:
+        pass
 
 poll = json.load(sys.stdin)
 decision = poll.get('decision', '')
 response_str = poll.get('response', '')
 tool_name = os.environ.get('NC_TOOL_NAME', '')
-tool_input_raw = os.environ.get('NC_TOOL_INPUT', '{}')
+
+# Read tool input from temp file (avoids bash variable expansion issues)
+tool_input_raw = '{}'
+tool_input_file = os.environ.get('NC_TOOL_INPUT_FILE', '')
+if tool_input_file and os.path.exists(tool_input_file):
+    try:
+        with open(tool_input_file, 'r') as f:
+            tool_input_raw = f.read().strip() or '{}'
+    except Exception as e:
+        debug('Failed to read tool input file %s: %s' % (tool_input_file, e))
+
+debug('Poll result: decision=%s tool=%s response_len=%d tool_input_len=%d' % (
+    decision, tool_name, len(response_str), len(tool_input_raw)))
 
 if decision == 'allowed':
     output = {
@@ -288,24 +310,35 @@ if decision == 'allowed':
     if tool_name == 'AskUserQuestion' and response_str:
         try:
             resp = json.loads(response_str) if isinstance(response_str, str) else response_str
+            debug('AskUserQuestion response parsed: keys=%s' % list(resp.keys()))
+
             try:
                 original_input = json.loads(tool_input_raw)
-            except Exception:
+                debug('Original tool input parsed OK: keys=%s' % list(original_input.keys()))
+            except Exception as e:
+                debug('Failed to parse tool_input_raw: %s (raw=%s)' % (e, tool_input_raw[:200]))
                 original_input = {}
 
             answers = normalize_answers(resp.get('answers', {}), original_input)
+            debug('Normalized answers: %s' % json.dumps(answers))
 
             # Backward-compat: support single-answer payloads from older UI versions
             if not answers and isinstance(resp.get('result'), str):
                 entries = extract_question_entries(original_input)
                 if entries:
                     answers = {entries[0]['text']: resp.get('result', '').strip()}
+                    debug('Used backward-compat single answer: %s' % json.dumps(answers))
 
             if answers:
                 original_input['answers'] = answers
                 output['hookSpecificOutput']['updatedInput'] = original_input
-        except Exception:
-            pass
+                debug('updatedInput set with %d answer(s)' % len(answers))
+            else:
+                debug('WARNING: No answers produced - updatedInput will NOT be set')
+        except Exception as e:
+            debug('EXCEPTION in AskUserQuestion answer injection: %s\n%s' % (e, traceback.format_exc()))
+
+    debug('Hook output: %s' % json.dumps(output)[:500])
     print(json.dumps(output))
 
 elif decision == 'denied':
@@ -328,12 +361,14 @@ elif decision == 'denied':
     print(json.dumps(output))
 
 else:
+    debug('Poll returned unknown decision: %s' % decision)
     # timeout or unknown — print nothing, outer loop retries
     pass
 " 2>/dev/null)
 
   if [ -n "$HOOK_OUTPUT" ]; then
-    echo "$HOOK_OUTPUT"
+    printf '%s\n' "$HOOK_OUTPUT"
+    rm -f "$NC_TOOL_INPUT_FILE" 2>/dev/null
     exit 0
   fi
 
@@ -341,4 +376,5 @@ else:
 done
 
 # All retries exhausted — fall back to normal Claude Code permission behavior
+rm -f "$NC_TOOL_INPUT_FILE" 2>/dev/null
 exit 0
