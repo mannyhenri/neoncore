@@ -7,6 +7,7 @@ import { NotesModal } from './components/NotesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
+import { EpicPanel } from './components/EpicPanel';
 import type { Agent, AgentType } from './types';
 
 export default function App() {
@@ -151,6 +152,12 @@ export default function App() {
 
       {/* Main content */}
       <main className="p-3 md:p-6 space-y-4 md:space-y-6">
+        {/* Epic Autopilot — disabled, not working yet
+        <section>
+          <EpicPanel agents={agents} />
+        </section>
+        */}
+
         {/* Workflows */}
         <section>
           <WorkflowPanel agents={agents} />

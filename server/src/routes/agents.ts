@@ -33,7 +33,10 @@ router.post('/register', (req, res) => {
     // When no status is explicitly provided, preserve the existing status & pendingQuestion.
     // This prevents reporter.sh (PostToolUse, background) from racing with
     // permission-proxy.sh (PreToolUse) and overwriting status='waiting'.
-    const statusToSet = reqStatus || (existing.status as string) || 'working';
+    // Exception: if the agent was offline, a re-registration means it's back online.
+    const statusToSet = reqStatus
+      || ((existing.status as string) === 'offline' ? 'idle' : (existing.status as string))
+      || 'working';
     const questionToSet = reqStatus === 'waiting'
       ? (pendingQuestion || '')
       : reqStatus

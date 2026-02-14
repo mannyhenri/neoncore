@@ -183,6 +183,27 @@ try {
   db.exec(`ALTER TABLE permissions ADD COLUMN response TEXT NOT NULL DEFAULT ''`);
 }
 
+// Epic Autopilot table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS epic_runs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    current_task INTEGER NOT NULL DEFAULT 0,
+    tasks TEXT NOT NULL DEFAULT '[]',
+    config TEXT NOT NULL DEFAULT '{}',
+    previous_mode TEXT NOT NULL DEFAULT 'manual',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    error TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_epic_runs_status ON epic_runs(status);
+  CREATE INDEX IF NOT EXISTS idx_epic_runs_agent ON epic_runs(agent_id);
+`);
+
 // Cleanup: expire stale pending permissions from past sessions
 const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 const expired = db.prepare(
