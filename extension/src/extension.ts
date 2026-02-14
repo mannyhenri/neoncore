@@ -27,6 +27,8 @@ let outputChannel: vscode.OutputChannel;
 
 // All discovered Claude-related commands
 let claudeCommands: string[] = [];
+let autoApproveInFlight = false;
+let queuedAutoApprove = 0;
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('NeonCore');
@@ -76,6 +78,86 @@ async function discoverClaudeCommands() {
   }
 }
 
+async function focusClaudePanel(): Promise<void> {
+  const focusCmds = claudeCommands.filter((c) => {
+    const lower = c.toLowerCase();
+    return lower.includes('focus') && !lower.includes('new') && !lower.includes('open');
+  });
+
+  for (const cmd of focusCmds) {
+    try {
+      await vscode.commands.executeCommand(cmd);
+      return;
+    } catch {
+      // try next
+    }
+  }
+
+  // Conservative fallback if no explicit Claude focus command exists
+  try {
+    await vscode.commands.executeCommand('claude-vscode.sidebar.open');
+  } catch {
+    try {
+      await vscode.commands.executeCommand('workbench.action.focusSideBar');
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function getAutoApproveCommands(): string[] {
+  return claudeCommands.filter((cmd) => {
+    const lower = cmd.toLowerCase();
+    const mentionsPlan = lower.includes('plan');
+    const mentionsApproval = lower.includes('approve') || lower.includes('accept') || lower.includes('confirm') || lower.includes('continue');
+    return mentionsPlan && mentionsApproval;
+  });
+}
+
+async function runAutoApproveCommands(): Promise<boolean> {
+  const commands = getAutoApproveCommands();
+  if (commands.length === 0) return false;
+
+  for (const cmd of commands) {
+    try {
+      await vscode.commands.executeCommand(cmd);
+      log(`Auto-approve: executed Claude command "${cmd}"`);
+      await sleep(150);
+    } catch {
+      // keep trying remaining candidates
+    }
+  }
+  return true;
+}
+
+async function pasteAndEnter(text: string): Promise<void> {
+  await vscode.env.clipboard.writeText(text);
+  await focusClaudePanel();
+  await sleep(250);
+
+  if (process.platform === 'darwin') {
+    await execAsync(
+      `osascript` +
+      ` -e 'tell application "System Events"'` +
+      ` -e '  keystroke "v" using command down'` +
+      ` -e '  delay 0.25'` +
+      ` -e '  key code 36'` +
+      ` -e 'end tell'`
+    );
+    return;
+  }
+
+  await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+  await sleep(180);
+
+  if (process.platform === 'win32') {
+    const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`;
+    await execAsync(`powershell -Command "${psScript}"`);
+  } else {
+    await vscode.commands.executeCommand('default:type', { text: '\n' });
+  }
+}
+
 function log(msg: string) {
   const ts = new Date().toLocaleTimeString();
   outputChannel.appendLine(`[${ts}] ${msg}`);
@@ -83,8 +165,22 @@ function log(msg: string) {
 
 function getLocalIdentity() {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  let repoPath = workspaceFolder?.uri.fsPath || '';
+
+  // Resolve to git root so subfolders don't create separate agents
+  if (repoPath) {
+    try {
+      repoPath = execSync('git rev-parse --show-toplevel', {
+        cwd: repoPath,
+        encoding: 'utf-8',
+      }).trim();
+    } catch {
+      // Not a git repo — keep the workspace folder path
+    }
+  }
+
   return {
-    repoPath: workspaceFolder?.uri.fsPath || '',
+    repoPath,
     machine: os.hostname(),
   };
 }
@@ -257,31 +353,7 @@ async function handleCommand(command: Command) {
     markDelivered(url, command.id);
 
     // Step 2: Focus the Claude Code panel (within THIS window's extension host)
-    const focusCmds = claudeCommands.filter((c) => {
-      const lower = c.toLowerCase();
-      return lower.includes('focus') && !lower.includes('new') && !lower.includes('open');
-    });
-
-    let focused = false;
-    for (const cmd of focusCmds) {
-      try {
-        log(`Focusing: ${cmd}`);
-        await vscode.commands.executeCommand(cmd);
-        focused = true;
-        break;
-      } catch {
-        // try next
-      }
-    }
-
-    if (!focused) {
-      log('No focus command found, opening sidebar');
-      try {
-        await vscode.commands.executeCommand('claude-vscode.sidebar.open');
-      } catch {
-        // ignore
-      }
-    }
+    await focusClaudePanel();
 
     // Step 3: Raise window and paste + submit (platform-specific)
     const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
@@ -310,11 +382,7 @@ async function handleCommand(command: Command) {
         await sleep(500);
 
         // Re-focus Claude Code input after window raise
-        try {
-          await vscode.commands.executeCommand('claude-vscode.focus');
-        } catch {
-          await vscode.commands.executeCommand('workbench.action.focusSideBar');
-        }
+        await focusClaudePanel();
         await sleep(500);
 
         // Paste and Enter via AppleScript
@@ -333,11 +401,7 @@ async function handleCommand(command: Command) {
         await sleep(300);
 
         // Re-focus Claude Code input
-        try {
-          await vscode.commands.executeCommand('claude-vscode.focus');
-        } catch {
-          await vscode.commands.executeCommand('workbench.action.focusSideBar');
-        }
+        await focusClaudePanel();
         await sleep(500);
 
         // Trigger paste via VSCode command
@@ -369,55 +433,60 @@ async function handleCommand(command: Command) {
   }
 }
 
-const AUTO_APPROVE_DELAY_MS = 7000;
+const AUTO_APPROVE_INITIAL_DELAY_MS = 3500;
+const AUTO_APPROVE_RETRY_INTERVAL_MS = 2200;
+const AUTO_APPROVE_MAX_ATTEMPTS = 6;
 
 async function handleAutoApprovePlan() {
+  if (autoApproveInFlight) {
+    queuedAutoApprove += 1;
+    log(`Auto-approve already running; queued another request (queue=${queuedAutoApprove})`);
+    return;
+  }
+
+  autoApproveInFlight = true;
   try {
-    log(`Waiting ${AUTO_APPROVE_DELAY_MS}ms for plan approval prompt to render...`);
-    await sleep(AUTO_APPROVE_DELAY_MS);
+    // Refresh command discovery in case Claude extension registered commands after activation
+    await discoverClaudeCommands();
 
-    // Copy "yes" to clipboard
-    await vscode.env.clipboard.writeText('yes');
+    log(`Auto-approve: waiting ${AUTO_APPROVE_INITIAL_DELAY_MS}ms before first attempt`);
+    await sleep(AUTO_APPROVE_INITIAL_DELAY_MS);
 
-    // Focus Claude Code panel (without raising window — we're already in the right VS Code process)
-    try {
-      await vscode.commands.executeCommand('claude-vscode.focus');
-    } catch {
-      try {
-        await vscode.commands.executeCommand('workbench.action.focusSideBar');
-      } catch {
-        // ignore
+    for (let attempt = 1; attempt <= AUTO_APPROVE_MAX_ATTEMPTS; attempt += 1) {
+      log(`Auto-approve attempt ${attempt}/${AUTO_APPROVE_MAX_ATTEMPTS}`);
+
+      // Best case: Claude exposes a dedicated plan-approval command
+      const ranCommand = await runAutoApproveCommands();
+      if (ranCommand) {
+        log('Auto-approve command(s) executed; stopping retry loop');
+        break;
       }
-    }
-    await sleep(500);
 
-    if (process.platform === 'darwin') {
-      // macOS: paste + Enter via AppleScript (lightweight — no window raising)
-      await execAsync(
-        `osascript` +
-        ` -e 'tell application "System Events"'` +
-        ` -e '  keystroke "v" using command down'` +
-        ` -e '  delay 0.3'` +
-        ` -e '  key code 36'` +
-        ` -e 'end tell'`
-      );
-      log('Auto-approve: pasted "yes" + Enter via AppleScript');
-    } else if (process.platform === 'win32') {
-      // Windows: paste via VS Code command, Enter via PowerShell
-      await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
-      await sleep(300);
-      const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`;
-      await execAsync(`powershell -Command "${psScript}"`);
-      log('Auto-approve: pasted "yes" + Enter via PowerShell');
-    } else {
-      // Linux: paste via VS Code command, Enter via type command
-      await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
-      await sleep(300);
-      await vscode.commands.executeCommand('default:type', { text: '\n' });
-      log('Auto-approve: pasted "yes" + Enter via type command');
+      // Fallback: submit textual confirmations
+      const tokens = attempt <= 2 ? ['yes', 'approve'] : ['yes'];
+      for (const token of tokens) {
+        try {
+          await pasteAndEnter(token);
+          log(`Auto-approve: submitted "${token}"`);
+        } catch (err) {
+          log(`Auto-approve token "${token}" failed: ${err}`);
+        }
+      }
+
+      if (attempt < AUTO_APPROVE_MAX_ATTEMPTS) {
+        await sleep(AUTO_APPROVE_RETRY_INTERVAL_MS);
+      }
     }
   } catch (err) {
     log(`handleAutoApprovePlan failed: ${err}`);
+  } finally {
+    autoApproveInFlight = false;
+    if (queuedAutoApprove > 0) {
+      queuedAutoApprove -= 1;
+      setTimeout(() => {
+        void handleAutoApprovePlan();
+      }, 50);
+    }
   }
 }
 
