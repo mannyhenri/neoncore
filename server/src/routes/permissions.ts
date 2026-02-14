@@ -135,8 +135,27 @@ router.post('/decide', (req, res) => {
   if (decision === 'allowed' && (perm.tool_name as string) === 'ExitPlanMode') {
     const agentId = perm.agent_id as string;
     const agentRoom = `agent:${agentId}`;
-    console.log(`[permissions] ExitPlanMode approved — emitting auto_approve_plan to ${agentRoom}`);
-    getIO().to(agentRoom).emit('auto_approve_plan', { agentId });
+    const io = getIO();
+    const payload = { agentId };
+    const agentRoomSize = io.sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
+
+    if (agentRoomSize > 0) {
+      console.log(`[permissions] ExitPlanMode approved — emitting auto_approve_plan to ${agentRoom} (${agentRoomSize} socket(s))`);
+      io.to(agentRoom).emit('auto_approve_plan', payload);
+    } else {
+      const agent = db.prepare('SELECT machine, repo_path FROM agents WHERE id = ?').get(agentId) as { machine?: string; repo_path?: string } | undefined;
+      const machine = agent?.machine || '';
+      const repoPath = agent?.repo_path || '';
+      const pathRoom = `ext:${machine}:${repoPath}`;
+      const pathRoomSize = io.sockets.adapter.rooms.get(pathRoom)?.size ?? 0;
+
+      if (pathRoomSize > 0) {
+        console.log(`[permissions] ExitPlanMode approved — agent room empty, emitting auto_approve_plan to ${pathRoom} (${pathRoomSize} socket(s))`);
+        io.to(pathRoom).emit('auto_approve_plan', payload);
+      } else {
+        console.log(`[permissions] ExitPlanMode approved but no extension sockets found for agent ${agentId}`);
+      }
+    }
   }
 
   res.json(normalized);

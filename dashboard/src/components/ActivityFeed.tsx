@@ -70,6 +70,8 @@ function summarizeToolInput(toolName: string, toolInput: string): string {
       case 'AskUserQuestion': {
         const questions = input.questions || [];
         if (questions.length > 0) return questions[0].question?.slice(0, 80) || '';
+        if (typeof input.question === 'string') return input.question.slice(0, 80);
+        if (typeof input.prompt === 'string') return input.prompt.slice(0, 80);
         return '';
       }
       case 'EnterPlanMode':
@@ -180,26 +182,60 @@ interface QuestionOption {
 }
 
 interface Question {
+  id?: string;
   question: string;
   header?: string;
-  options?: QuestionOption[];
+  options?: (QuestionOption | string)[];
   multiSelect?: boolean;
+}
+
+function parseAskUserQuestions(toolInput: string): Question[] {
+  try {
+    const parsed = JSON.parse(toolInput) as Record<string, unknown>;
+
+    const normalize = (raw: unknown): Question | null => {
+      if (!raw || typeof raw !== 'object') return null;
+      const q = raw as Record<string, unknown>;
+      const questionText = typeof q.question === 'string'
+        ? q.question.trim()
+        : typeof q.prompt === 'string'
+          ? q.prompt.trim()
+          : '';
+      if (!questionText) return null;
+      return {
+        id: typeof q.id === 'string' ? q.id : undefined,
+        question: questionText,
+        header: typeof q.header === 'string' ? q.header : undefined,
+        options: Array.isArray(q.options) ? q.options as (QuestionOption | string)[] : undefined,
+        multiSelect: Boolean(q.multiSelect),
+      };
+    };
+
+    if (Array.isArray(parsed.questions)) {
+      return parsed.questions
+        .map(normalize)
+        .filter((q): q is Question => q !== null);
+    }
+
+    const single = normalize(parsed);
+    return single ? [single] : [];
+  } catch {
+    return [];
+  }
 }
 
 function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; agentName: string }) {
   const [expanded, setExpanded] = useState(false);
   const summary = summarizeToolInput('AskUserQuestion', activity.toolInput);
 
-  let questions: Question[] = [];
-  try {
-    const input = JSON.parse(activity.toolInput);
-    questions = input.questions || [];
-  } catch { /* empty */ }
+  const questions = parseAskUserQuestions(activity.toolInput);
 
   let answers: Record<string, string> = {};
   try {
     const result = JSON.parse(activity.toolResult || '{}');
-    if (result.result) {
+    if (result.answers && typeof result.answers === 'object') {
+      answers = result.answers as Record<string, string>;
+    } else if (result.result) {
       answers = { '0': result.result };
     } else if (typeof result === 'object') {
       answers = result;
@@ -246,8 +282,8 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
       {expanded && questions.length > 0 && (
         <div className="px-3 pb-3 md:px-4 md:ml-[4.5rem] space-y-3">
           {questions.map((q, qi) => {
-            const answerKey = q.question || String(qi);
-            const answer = answers[answerKey] || answers[String(qi)] || (qi === 0 ? answers['0'] : '');
+            const answerKey = q.id || q.question || String(qi);
+            const answer = answers[answerKey] || answers[q.question] || answers[String(qi)] || (qi === 0 ? answers['0'] : '');
 
             return (
               <div key={qi}>
@@ -258,15 +294,17 @@ function AskUserQuestionActivity({ activity, agentName }: { activity: Activity; 
                 {q.options && q.options.length > 0 && (
                   <div className="space-y-0.5">
                     {q.options.map((opt, oi) => {
-                      const isChosen = answer === opt.label;
+                      const label = typeof opt === 'string' ? opt : opt.label;
+                      const description = typeof opt === 'string' ? '' : (opt.description || '');
+                      const isChosen = answer === label;
                       return (
                         <div key={oi} className={`flex items-start gap-2 text-sm ${isChosen ? 'text-green-400' : 'text-gray-500'}`}>
                           <span className="shrink-0 w-4 text-right">{oi + 1}.</span>
                           <div>
-                            <span className={isChosen ? 'font-medium' : ''}>{opt.label}</span>
+                            <span className={isChosen ? 'font-medium' : ''}>{label}</span>
                             {isChosen && <span className="ml-1">&#10003;</span>}
-                            {opt.description && (
-                              <span className="text-gray-600 ml-1.5">— {opt.description}</span>
+                            {description && (
+                              <span className="text-gray-600 ml-1.5">— {description}</span>
                             )}
                           </div>
                         </div>

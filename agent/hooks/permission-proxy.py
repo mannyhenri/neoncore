@@ -76,6 +76,94 @@ def read_latest_plan(max_chars: int = 8000) -> str:
         return ""
 
 
+def extract_question_entries(tool_input: dict) -> list[dict]:
+    """Extract AskUserQuestion entries with stable text + id + index."""
+    entries: list[dict] = []
+    raw_questions = tool_input.get("questions")
+
+    if isinstance(raw_questions, list):
+        for idx, raw in enumerate(raw_questions):
+            if not isinstance(raw, dict):
+                continue
+            question_text = str(raw.get("question", "")).strip()
+            if not question_text:
+                question_text = str(raw.get("prompt", "")).strip()
+            if not question_text:
+                continue
+            entries.append({
+                "index": idx,
+                "id": str(raw.get("id", "")).strip(),
+                "text": question_text,
+            })
+    else:
+        question_text = str(tool_input.get("question", "")).strip()
+        if not question_text:
+            question_text = str(tool_input.get("prompt", "")).strip()
+        if question_text:
+            entries.append({
+                "index": 0,
+                "id": str(tool_input.get("id", "")).strip(),
+                "text": question_text,
+            })
+
+    return entries
+
+
+def stringify_answer_value(value: object) -> str:
+    """Coerce dashboard answer payloads into AskUserQuestion string values."""
+    if isinstance(value, list):
+        items = [str(v).strip() for v in value if str(v).strip()]
+        return ", ".join(items)
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def normalize_ask_user_answers(answers: object, tool_input: dict) -> dict[str, str]:
+    """Map response answers to AskUserQuestion's expected key: exact question text."""
+    if not isinstance(answers, dict):
+        return {}
+
+    entries = extract_question_entries(tool_input)
+    normalized: dict[str, str] = {}
+
+    for raw_key, raw_value in answers.items():
+        value = stringify_answer_value(raw_value)
+        if not value:
+            continue
+
+        key = str(raw_key).strip()
+        question_text = ""
+
+        if key.isdigit():
+            idx = int(key)
+            for entry in entries:
+                if entry["index"] == idx:
+                    question_text = entry["text"]
+                    break
+        else:
+            for entry in entries:
+                if entry["id"] and entry["id"] == key:
+                    question_text = entry["text"]
+                    break
+            if not question_text:
+                for entry in entries:
+                    if entry["text"] == key:
+                        question_text = entry["text"]
+                        break
+
+        if not question_text:
+            if len(entries) == 1:
+                question_text = entries[0]["text"]
+            elif key:
+                question_text = key
+
+        if question_text:
+            normalized[question_text] = value
+
+    return normalized
+
+
 def main():
     try:
         d = json.load(sys.stdin)
@@ -202,7 +290,14 @@ def main():
             if tool_name == "AskUserQuestion" and response_str:
                 try:
                     resp = json.loads(response_str) if isinstance(response_str, str) else response_str
-                    answers = resp.get("answers", {})
+                    answers = normalize_ask_user_answers(resp.get("answers", {}), tool_input)
+
+                    # Backward-compat: support single-answer payloads from older UI versions
+                    if not answers and isinstance(resp.get("result"), str):
+                        entries = extract_question_entries(tool_input)
+                        if entries:
+                            answers = {entries[0]["text"]: resp.get("result", "").strip()}
+
                     if answers:
                         updated = dict(tool_input)
                         updated["answers"] = answers

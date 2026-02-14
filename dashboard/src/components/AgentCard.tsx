@@ -42,12 +42,63 @@ function QuestionAnswerCard({ permission, onDecide }: {
   permission: PermissionRequest;
   onDecide: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
 }) {
-  type Question = { question: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean };
-  let questions: Question[] = [];
-  try {
-    const input = typeof permission.toolInput === 'string' ? JSON.parse(permission.toolInput) : permission.toolInput;
-    questions = input?.questions || [];
-  } catch { /* ignore */ }
+  type QuestionOption = { label: string; description?: string } | string;
+  type Question = { id?: string; question: string; header?: string; options?: QuestionOption[]; multiSelect?: boolean };
+
+  function normalizeQuestion(raw: unknown): Question | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const q = raw as Record<string, unknown>;
+    const questionText = typeof q.question === 'string'
+      ? q.question.trim()
+      : typeof q.prompt === 'string'
+        ? q.prompt.trim()
+        : '';
+    if (!questionText) return null;
+    return {
+      id: typeof q.id === 'string' ? q.id : undefined,
+      question: questionText,
+      header: typeof q.header === 'string' ? q.header : undefined,
+      options: Array.isArray(q.options) ? q.options as QuestionOption[] : undefined,
+      multiSelect: Boolean(q.multiSelect),
+    };
+  }
+
+  function parseQuestions(toolInput: PermissionRequest['toolInput']): Question[] {
+    try {
+      const input = typeof toolInput === 'string' ? JSON.parse(toolInput) : toolInput;
+      if (!input || typeof input !== 'object') return [];
+
+      const parsed = input as Record<string, unknown>;
+      if (Array.isArray(parsed.questions)) {
+        return parsed.questions
+          .map(normalizeQuestion)
+          .filter((q): q is Question => q !== null);
+      }
+
+      const single = normalizeQuestion(parsed);
+      return single ? [single] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function questionKey(question: Question, index: number): string {
+    const id = question.id?.trim();
+    if (id) return id;
+    const text = question.question.trim();
+    if (text) return text;
+    return String(index);
+  }
+
+  function normalizeOption(option: QuestionOption): { label: string; description?: string } {
+    if (typeof option === 'string') return { label: option };
+    return {
+      label: option.label || '',
+      description: option.description,
+    };
+  }
+
+  const questions = parseQuestions(permission.toolInput);
 
   const isMulti = questions.length > 1 || questions.some((q) => q.multiSelect);
   const [selections, setSelections] = useState<Record<string, string | string[]>>({});
@@ -55,8 +106,10 @@ function QuestionAnswerCard({ permission, onDecide }: {
   const [showCustom, setShowCustom] = useState<Record<string, boolean>>({});
 
   const handleSelect = (qi: number, label: string) => {
-    const key = String(qi);
     const q = questions[qi];
+    if (!q) return;
+    const key = questionKey(q, qi);
+
     if (q?.multiSelect) {
       setSelections((prev) => {
         const existing = (prev[key] as string[]) || [];
@@ -72,8 +125,8 @@ function QuestionAnswerCard({ permission, onDecide }: {
 
   const handleSubmit = () => {
     const answers: Record<string, string> = {};
-    questions.forEach((_q, qi) => {
-      const key = String(qi);
+    questions.forEach((q, qi) => {
+      const key = questionKey(q, qi);
       if (showCustom[key] && customTexts[key]?.trim()) {
         answers[key] = customTexts[key].trim();
       } else {
@@ -103,7 +156,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
         <span className="text-yellow-300 text-sm font-semibold">Question from Agent</span>
       </div>
       {questions.map((q, qi) => {
-        const key = String(qi);
+        const key = questionKey(q, qi);
         const sel = selections[key];
         return (
           <div key={qi}>
@@ -111,7 +164,9 @@ function QuestionAnswerCard({ permission, onDecide }: {
             <p className="text-sm text-gray-300 mb-2">{q.question}</p>
             {q.options && q.options.length > 0 && !showCustom[key] && (
               <div className="flex flex-wrap gap-1.5">
-                {q.options.map((opt, oi) => {
+                {q.options.map((rawOpt, oi) => {
+                  const opt = normalizeOption(rawOpt);
+                  if (!opt.label) return null;
                   const isSelected = q.multiSelect
                     ? ((sel as string[]) || []).includes(opt.label)
                     : sel === opt.label;
