@@ -34,8 +34,9 @@ router.post('/request', (req, res) => {
     return res.status(400).json({ error: 'agentId or valid sessionId required' });
   }
 
-  // If trust mode is ON, immediately allow
-  if (trustMode) {
+  // If trust mode is ON, immediately allow — EXCEPT ExitPlanMode,
+  // which must always go through human review on the dashboard.
+  if (trustMode && toolName !== 'ExitPlanMode') {
     return res.json({ decision: 'allowed', trustMode: true });
   }
 
@@ -69,7 +70,7 @@ router.post('/request', (req, res) => {
 // Long-poll for a permission decision (called by hook scripts)
 router.get('/poll/:id', (req, res) => {
   const { id } = req.params;
-  const timeoutMs = Math.min(parseInt(req.query.timeout as string) || 30000, 120000);
+  const timeoutMs = Math.min(parseInt(req.query.timeout as string) || 30000, 180000);
 
   // Check if already decided
   const existing = db.prepare('SELECT * FROM permissions WHERE id = ?').get(id) as Record<string, unknown> | undefined;

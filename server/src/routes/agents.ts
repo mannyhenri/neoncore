@@ -11,8 +11,6 @@ const router = Router();
 router.post('/register', (req, res) => {
   const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion } = req.body;
   const resolvedType = agentType || 'claude';
-  const resolvedStatus = reqStatus || 'working';
-  const resolvedQuestion = resolvedStatus === 'waiting' ? (pendingQuestion || '') : '';
 
   const now = new Date().toISOString();
 
@@ -32,6 +30,16 @@ router.post('/register', (req, res) => {
   }
 
   if (existing) {
+    // When no status is explicitly provided, preserve the existing status & pendingQuestion.
+    // This prevents reporter.sh (PostToolUse, background) from racing with
+    // permission-proxy.sh (PreToolUse) and overwriting status='waiting'.
+    const statusToSet = reqStatus || (existing.status as string) || 'working';
+    const questionToSet = reqStatus === 'waiting'
+      ? (pendingQuestion || '')
+      : reqStatus
+        ? ''  // explicit non-waiting status clears the question
+        : (existing.pending_question as string) || '';  // no status provided → preserve
+
     db.prepare(`
       UPDATE agents SET name = ?, machine = ?, repo_path = ?, repo_name = ?,
         branch = ?, current_task = ?, status = ?, pending_question = ?, last_seen = ?, session_id = ?,
@@ -41,7 +49,7 @@ router.post('/register', (req, res) => {
       name || existing.name, machine || existing.machine,
       repoPath || existing.repo_path, repoName || existing.repo_name,
       branch || existing.branch, currentTask || existing.current_task,
-      resolvedStatus, resolvedQuestion,
+      statusToSet, questionToSet,
       now, sessionId || existing.session_id,
       resolvedType,
       existing.id
@@ -64,6 +72,9 @@ router.post('/register', (req, res) => {
   const id = uuid();
   const agentName = name || (repoName ? `${machine || 'unknown'}/${repoName}` : `Agent ${id.slice(0, 6)}`);
 
+  const newStatus = reqStatus || 'working';
+  const newQuestion = newStatus === 'waiting' ? (pendingQuestion || '') : '';
+
   db.prepare(`
     INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, pending_question, trust_mode, last_seen, session_id, agent_type)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
@@ -75,8 +86,8 @@ router.post('/register', (req, res) => {
     repoName || '',
     branch || '',
     currentTask || '',
-    resolvedStatus,
-    resolvedQuestion,
+    newStatus,
+    newQuestion,
     now,
     sessionId || '',
     resolvedType
