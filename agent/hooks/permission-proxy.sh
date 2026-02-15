@@ -306,7 +306,10 @@ if decision == 'allowed':
 
         return normalized
 
-    # For AskUserQuestion, inject answers into updatedInput
+    # For AskUserQuestion, deny the tool and pass answers in the reason text.
+    # updatedInput does NOT work for AskUserQuestion (interactive tool, not hookable).
+    # Denying prevents the interactive prompt from showing; the model gets the answers
+    # via permissionDecisionReason and can proceed without re-asking.
     if tool_name == 'AskUserQuestion' and response_str:
         try:
             resp = json.loads(response_str) if isinstance(response_str, str) else response_str
@@ -330,11 +333,26 @@ if decision == 'allowed':
                     debug('Used backward-compat single answer: %s' % json.dumps(answers))
 
             if answers:
-                original_input['answers'] = answers
-                output['hookSpecificOutput']['updatedInput'] = original_input
-                debug('updatedInput set with %d answer(s)' % len(answers))
+                answer_lines = []
+                for question, answer in answers.items():
+                    answer_lines.append('- %s: %s' % (question, answer))
+                answers_text = '\n'.join(answer_lines)
+
+                output = {
+                    'hookSpecificOutput': {
+                        'hookEventName': 'PreToolUse',
+                        'permissionDecision': 'deny',
+                        'permissionDecisionReason': (
+                            'The user already answered these questions via an external dashboard (NeonCore). '
+                            'Here are their answers:\n\n%s\n\n'
+                            'Use these answers and continue your work. '
+                            'Do NOT call AskUserQuestion again for the same questions — the user has already responded.'
+                        ) % answers_text
+                    }
+                }
+                debug('AskUserQuestion DENIED with %d answer(s) in reason text' % len(answers))
             else:
-                debug('WARNING: No answers produced - updatedInput will NOT be set')
+                debug('WARNING: No answers produced - allowing tool to proceed normally')
         except Exception as e:
             debug('EXCEPTION in AskUserQuestion answer injection: %s\n%s' % (e, traceback.format_exc()))
 
