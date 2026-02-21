@@ -16,12 +16,12 @@ import notesRouter from './routes/notes.js';
 import settingsRouter from './routes/settings.js';
 import reposRouter from './routes/repos.js';
 import gitRouter from './routes/git.js';
-import workflowsRouter from './routes/workflows.js';
 import epicsRouter from './routes/epics.js';
+import workflowsRouter from './routes/workflows.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
-import { startWorkflowExecutor } from './routes/workflows.js';
 import { startEpicExecutor } from './routes/epics.js';
+import { startWorkflowExecutor } from './lib/workflow-executor.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -50,8 +50,8 @@ app.use('/api/agents', notesRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/repos', reposRouter);
 app.use('/api/git', gitRouter);
-app.use('/api/workflows', workflowsRouter);
 app.use('/api/epics', epicsRouter);
+app.use('/api/workflows', workflowsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -152,11 +152,11 @@ setInterval(() => {
   }
 }, 120_000);
 
-// Start stuck detector, memory analyzer, and workflow executor
+// Start stuck detector and memory analyzer
 startStuckDetector();
 startMemoryAnalyzer();
-startWorkflowExecutor();
 // startEpicExecutor(); // TODO: disabled — autopilot not working yet
+startWorkflowExecutor();
 
 // Get local IP for display
 import os from 'os';

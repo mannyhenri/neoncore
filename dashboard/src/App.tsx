@@ -6,8 +6,8 @@ import { CommandBar } from './components/CommandBar';
 import { NotesModal } from './components/NotesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
-import { WorkflowPanel } from './components/WorkflowPanel';
 import { EpicPanel } from './components/EpicPanel';
+import { WorkflowPanel } from './components/WorkflowPanel';
 import type { Agent, AgentType } from './types';
 
 export default function App() {
@@ -158,7 +158,7 @@ export default function App() {
         </section>
         */}
 
-        {/* Workflows */}
+        {/* Workflow Panel */}
         <section>
           <WorkflowPanel agents={agents} />
         </section>

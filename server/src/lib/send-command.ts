@@ -4,7 +4,7 @@ import { getIO } from '../ws.js';
 import type { Activity, Agent, Command } from '../types.js';
 
 /**
- * Shared command dispatch — used by both the commands route and workflow executor.
+ * Shared command dispatch — used by the commands route.
  * Handles memory injection, activity logging, and socket emission.
  */
 export function sendCommandToAgent(agentId: string, text: string, includeMemory = false): Command | null {

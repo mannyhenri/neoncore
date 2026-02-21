@@ -122,38 +122,6 @@ export const api = {
   getGitDiff: (agentId: string, staged = false) =>
     request<{ diff: string }>(`/git/${agentId}/diff${staged ? '?staged=true' : ''}`),
 
-  // Workflows
-  getWorkflowTemplates: () =>
-    request<import('../types').WorkflowTemplate[]>('/workflows/templates'),
-  createWorkflowTemplate: (data: { name: string; description?: string; steps: import('../types').WorkflowStep[]; autoRun?: boolean; intervalMinutes?: number; triggerWhen?: string }) =>
-    request<import('../types').WorkflowTemplate>('/workflows/templates', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateWorkflowTemplate: (id: string, data: { name: string; description?: string; steps: import('../types').WorkflowStep[]; autoRun?: boolean; intervalMinutes?: number; triggerWhen?: string }) =>
-    request<import('../types').WorkflowTemplate>(`/workflows/templates/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  toggleAutoRun: (id: string, data: { autoRun: boolean; intervalMinutes?: number; triggerWhen?: string }) =>
-    request<import('../types').WorkflowTemplate>(`/workflows/templates/${id}/auto-run`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
-  deleteWorkflowTemplate: (id: string) =>
-    request<{ ok: boolean }>(`/workflows/templates/${id}`, { method: 'DELETE' }),
-  startWorkflow: (templateId: string) =>
-    request<import('../types').WorkflowRun>('/workflows/run', {
-      method: 'POST',
-      body: JSON.stringify({ templateId }),
-    }),
-  getWorkflowRuns: () =>
-    request<import('../types').WorkflowRun[]>('/workflows/runs'),
-  advanceWorkflow: (runId: string) =>
-    request<import('../types').WorkflowRun>(`/workflows/runs/${runId}/advance`, { method: 'POST' }),
-  cancelWorkflow: (runId: string) =>
-    request<import('../types').WorkflowRun>(`/workflows/runs/${runId}/cancel`, { method: 'POST' }),
-
   // Epics — Discovery
   scanEpics: (agentId: string) =>
     request<{ epics: { name: string; filename: string; path: string }[]; prefixes: string[]; taskCount: number }>(`/epics/scan/${agentId}`),
@@ -180,4 +148,29 @@ export const api = {
     request<import('../types').EpicRun>(`/epics/runs/${id}/skip`, { method: 'POST' }),
   retryEpicTask: (id: string) =>
     request<import('../types').EpicRun>(`/epics/runs/${id}/retry`, { method: 'POST' }),
+
+  // Workflows
+  startWorkflow: (data: {
+    name?: string;
+    jiraTaskId?: string;
+    description: string;
+    players: { playerType: string; agentId?: string; name?: string; modelId?: string; roles: string[] }[];
+    maxIterations?: number;
+  }) =>
+    request<import('../types').Workflow>('/workflows/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getWorkflows: () =>
+    request<import('../types').Workflow[]>('/workflows'),
+  getWorkflow: (id: string) =>
+    request<import('../types').Workflow>(`/workflows/${id}`),
+  pauseWorkflow: (id: string) =>
+    request<import('../types').Workflow>(`/workflows/${id}/pause`, { method: 'POST' }),
+  resumeWorkflow: (id: string) =>
+    request<import('../types').Workflow>(`/workflows/${id}/resume`, { method: 'POST' }),
+  cancelWorkflow: (id: string) =>
+    request<import('../types').Workflow>(`/workflows/${id}/cancel`, { method: 'POST' }),
+  getAvailableModels: () =>
+    request<{ openai: string[]; gridlight: string[] }>('/workflows/models'),
 };

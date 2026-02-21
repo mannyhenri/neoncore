@@ -137,45 +137,6 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN pending_question TEXT NOT NULL DEFAULT ''`);
 }
 
-// Workflow tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS workflow_templates (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    steps TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS workflow_runs (
-    id TEXT PRIMARY KEY,
-    template_id TEXT NOT NULL,
-    name TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    current_step INTEGER NOT NULL DEFAULT 0,
-    steps_state TEXT NOT NULL DEFAULT '[]',
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    FOREIGN KEY (template_id) REFERENCES workflow_templates(id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
-  CREATE INDEX IF NOT EXISTS idx_workflow_runs_template ON workflow_runs(template_id);
-`);
-
-// Migration: add auto-run fields to workflow_templates
-try {
-  db.prepare('SELECT auto_run FROM workflow_templates LIMIT 1').get();
-} catch {
-  db.exec(`
-    ALTER TABLE workflow_templates ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0;
-    ALTER TABLE workflow_templates ADD COLUMN interval_minutes INTEGER NOT NULL DEFAULT 60;
-    ALTER TABLE workflow_templates ADD COLUMN trigger_when TEXT NOT NULL DEFAULT 'idle';
-    ALTER TABLE workflow_templates ADD COLUMN last_auto_run_at TEXT;
-  `);
-}
-
 // Migration: add response column to permissions (for AskUserQuestion answers, ExitPlanMode feedback)
 try {
   db.prepare('SELECT response FROM permissions LIMIT 1').get();
@@ -202,6 +163,29 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_epic_runs_status ON epic_runs(status);
   CREATE INDEX IF NOT EXISTS idx_epic_runs_agent ON epic_runs(agent_id);
+`);
+
+// Workflow table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    jira_task_id TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    players TEXT NOT NULL DEFAULT '[]',
+    phases TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'pending',
+    current_phase INTEGER NOT NULL DEFAULT 0,
+    iteration INTEGER NOT NULL DEFAULT 1,
+    max_iterations INTEGER NOT NULL DEFAULT 3,
+    shared_context TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT '',
+    completed_at TEXT,
+    error TEXT NOT NULL DEFAULT ''
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
 `);
 
 // Cleanup: expire stale pending permissions from past sessions

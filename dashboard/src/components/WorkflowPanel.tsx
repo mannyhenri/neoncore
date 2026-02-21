@@ -1,259 +1,329 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Agent, WorkflowTemplate, WorkflowRun, WorkflowStep } from '../types';
 import { api } from '../lib/api';
+import { useSocket } from '../hooks/useSocket';
+import type { Agent, Workflow, PlayerRole, PlayerType } from '../types';
 
 interface Props {
   agents: Agent[];
 }
 
-// ─── Command Presets ─────────────────────────────────
-
-interface CommandGroup {
-  label: string;
-  commands: { value: string; label: string }[];
+interface SelectedPlayer {
+  playerType: PlayerType;
+  agentId?: string;
+  modelId?: string;
+  name: string;
+  roles: PlayerRole[];
 }
 
-const COMMAND_PRESETS: CommandGroup[] = [
-  {
-    label: 'Quick Actions',
-    commands: [
-      { value: '/full-review', label: '/full-review' },
-      { value: '/full-test', label: '/full-test' },
-      { value: 'Research and provide a recommended implementation plan. Steps:\n1. Analyze the task requirements\n2. Research current best practices using web search\n3. Analyze the existing codebase for architecture and conventions\n4. Produce a detailed implementation plan\n\nDo NOT start implementing — research and plan only.', label: 'Research' },
-    ],
-  },
-  {
-    label: 'Git',
-    commands: [
-      { value: '/commit-push', label: '/commit-push' },
-      { value: '/commit-push-pr', label: '/commit-push-pr' },
-      { value: '/commit-push-pr-actions', label: '/commit-push-pr-actions' },
-      { value: '/sync-branch', label: '/sync-branch' },
-      { value: '/pull-branches', label: '/pull-branches' },
-      { value: '/create-branch', label: '/create-branch' },
-      { value: '/checkout', label: '/checkout' },
-      { value: '/finish-branch', label: '/finish-branch' },
-      { value: '/check-merge', label: '/check-merge' },
-    ],
-  },
-  {
-    label: 'Quality',
-    commands: [
-      { value: '/code-review', label: '/code-review' },
-      { value: '/security-review', label: '/security-review' },
-      { value: '/check-code', label: '/check-code' },
-      { value: '/run-tests', label: '/run-tests' },
-      { value: '/debug-check', label: '/debug-check' },
-      { value: '/mark-risk', label: '/mark-risk' },
-      { value: '/list-risks', label: '/list-risks' },
-    ],
-  },
-  {
-    label: 'Worktree',
-    commands: [
-      { value: '/worktree-add', label: '/worktree-add' },
-      { value: '/worktree-list', label: '/worktree-list' },
-      { value: '/worktree-sync', label: '/worktree-sync' },
-      { value: '/worktree-finish', label: '/worktree-finish' },
-      { value: '/worktree-remove', label: '/worktree-remove' },
-    ],
-  },
-  {
-    label: 'Other',
-    commands: [
-      { value: '/diagnose', label: '/diagnose' },
-      { value: '/challenge', label: '/challenge' },
-      { value: '/scoping', label: '/scoping' },
-      { value: '/start-working', label: '/start-working' },
-      { value: '/reduce-complexity', label: '/reduce-complexity' },
-      { value: '/list-commands', label: '/list-commands' },
-    ],
-  },
-];
+const PHASE_LABELS = { research: 'Research', coding: 'Coding', review: 'Review' } as const;
+const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
+const ROLE_OPTIONS: PlayerRole[] = ['research', 'coding', 'review'];
 
-// ─── Template Editor ─────────────────────────────────
+// ─── WorkflowPanel ──────────────────────────────────
 
-function TemplateEditor({
-  agents,
-  initial,
-  onSave,
-  onCancel,
-}: {
-  agents: Agent[];
-  initial?: WorkflowTemplate;
-  onSave: (data: { name: string; description: string; steps: WorkflowStep[]; autoRun: boolean; intervalMinutes: number; triggerWhen: string }) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(initial?.name || '');
-  const [description, setDescription] = useState(initial?.description || '');
-  const [steps, setSteps] = useState<WorkflowStep[]>(initial?.steps || [{ command: '', target: 'any_idle' }]);
-  const [autoRun, setAutoRun] = useState(initial?.autoRun || false);
-  const [intervalMinutes, setIntervalMinutes] = useState(initial?.intervalMinutes || 60);
-  const [triggerWhen, setTriggerWhen] = useState<'idle' | 'any'>(initial?.triggerWhen || 'idle');
+export function WorkflowPanel({ agents }: Props) {
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [expanded, setExpanded] = useState(true);
+  const [showCreator, setShowCreator] = useState(false);
 
-  const addStep = () => setSteps([...steps, { command: '', target: 'any_idle' }]);
+  const loadWorkflows = useCallback(async () => {
+    try {
+      const data = await api.getWorkflows();
+      setWorkflows(data);
+    } catch {
+      // silent
+    }
+  }, []);
 
-  const removeStep = (i: number) => {
-    if (steps.length <= 1) return;
-    setSteps(steps.filter((_, idx) => idx !== i));
-  };
+  useEffect(() => { loadWorkflows(); }, [loadWorkflows]);
 
-  const moveStep = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= steps.length) return;
-    const next = [...steps];
-    [next[i], next[j]] = [next[j], next[i]];
-    setSteps(next);
-  };
+  useSocket({
+    onWorkflowUpdated: (wf) => {
+      setWorkflows((prev) => {
+        const idx = prev.findIndex((w) => w.id === wf.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = wf;
+          return next;
+        }
+        return [wf, ...prev];
+      });
+    },
+    onReconnect: loadWorkflows,
+  });
 
-  const updateStep = (i: number, field: keyof WorkflowStep, value: string) => {
-    const next = [...steps];
-    next[i] = { ...next[i], [field]: value };
-    setSteps(next);
-  };
-
-  const valid = name.trim() && steps.every((s) => s.command.trim());
+  const activeWorkflows = workflows.filter((w) => ['running', 'paused'].includes(w.status));
+  const recentWorkflows = workflows.filter((w) => !['running', 'paused'].includes(w.status)).slice(0, 5);
 
   return (
-    <div className="glass-light rounded-lg p-4 border border-gl-purple/30 space-y-3">
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Workflow name..."
-        className="w-full glass-input text-sm text-gray-200 rounded-md px-3 py-2 focus:outline-none placeholder-gray-600"
-      />
-      <input
-        type="text"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Description (optional)..."
-        className="w-full glass-input text-xs text-gray-400 rounded-md px-3 py-1.5 focus:outline-none placeholder-gray-600"
-      />
-
-      <div className="space-y-2">
-        <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Steps</span>
-        {steps.map((step, i) => (
-          <div key={i} className="flex gap-2 items-start bg-black/30 rounded-lg p-2.5">
-            <span className="text-xs text-gray-600 pt-2 shrink-0 w-5 text-center">{i + 1}</span>
-            <div className="flex-1 space-y-1.5">
-              <select
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) updateStep(i, 'command', e.target.value);
-                }}
-                className="text-xs glass-input text-gray-400 rounded-md px-2 py-1.5 w-full focus:outline-none"
-              >
-                <option value="">Pick a command...</option>
-                {COMMAND_PRESETS.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.commands.map((cmd) => (
-                      <option key={cmd.label} value={cmd.value}>{cmd.label}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <textarea
-                value={step.command}
-                onChange={(e) => updateStep(i, 'command', e.target.value)}
-                placeholder="Or type a custom command..."
-                className="w-full glass-input text-xs text-gray-200 rounded px-2 py-1.5 focus:outline-none resize-none placeholder-gray-600 font-mono"
-                rows={2}
-              />
-              <select
-                value={step.target}
-                onChange={(e) => updateStep(i, 'target', e.target.value)}
-                className="text-xs glass-input text-gray-300 rounded-md px-2 py-1.5 w-full focus:outline-none"
-              >
-                <option value="any_idle">Any idle agent</option>
-                <option value="all_idle">All idle agents (broadcast)</option>
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.repoName || a.name} ({a.machine})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-0.5 shrink-0">
-              <button
-                onClick={() => moveStep(i, -1)}
-                disabled={i === 0}
-                className="text-[10px] text-gray-600 hover:text-gray-300 disabled:opacity-20 px-1"
-              >
-                ^
-              </button>
-              <button
-                onClick={() => moveStep(i, 1)}
-                disabled={i === steps.length - 1}
-                className="text-[10px] text-gray-600 hover:text-gray-300 disabled:opacity-20 px-1 rotate-180"
-              >
-                ^
-              </button>
-              <button
-                onClick={() => removeStep(i)}
-                disabled={steps.length <= 1}
-                className="text-[10px] text-gray-600 hover:text-red-400 disabled:opacity-20 px-1 mt-1"
-              >
-                x
-              </button>
-            </div>
-          </div>
-        ))}
-        <button
-          onClick={addStep}
-          className="text-xs text-gray-500 hover:text-gl-purple transition-colors"
-        >
-          + Add step
-        </button>
-      </div>
-
-      {/* Auto-run settings */}
-      <div className="space-y-2 pt-1">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setAutoRun(!autoRun)}
-            className={`relative w-8 h-4 rounded-full transition-colors ${autoRun ? 'bg-gl-purple' : 'bg-gray-700'}`}
-          >
-            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoRun ? 'left-4' : 'left-0.5'}`} />
-          </button>
-          <span className="text-xs text-gray-400">Auto-run on schedule</span>
-        </div>
-        {autoRun && (
-          <div className="flex items-center gap-3 pl-10">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-500">Every</span>
-              <input
-                type="number"
-                value={intervalMinutes}
-                onChange={(e) => setIntervalMinutes(Math.max(1, parseInt(e.target.value) || 60))}
-                className="w-16 glass-input text-xs text-gray-200 rounded px-2 py-1 focus:outline-none text-center"
-                min={1}
-              />
-              <span className="text-xs text-gray-500">min</span>
-            </div>
-            <select
-              value={triggerWhen}
-              onChange={(e) => setTriggerWhen(e.target.value as 'idle' | 'any')}
-              className="text-xs glass-input text-gray-300 rounded px-2 py-1 focus:outline-none"
-            >
-              <option value="idle">When agents are idle</option>
-              <option value="any">Always (regardless of status)</option>
-            </select>
-          </div>
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 mb-3 md:mb-4 group"
+      >
+        <span className={`text-xs text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
+        <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide group-hover:text-gray-300 transition-colors">
+          Workflows
+        </h2>
+        {activeWorkflows.length > 0 && (
+          <span className="bg-gl-blue/20 text-gl-blue px-2 py-0.5 rounded-full text-xs font-medium">
+            {activeWorkflows.length} active
+          </span>
         )}
+      </button>
+
+      {expanded && (
+        <div className="space-y-4">
+          {/* Create button */}
+          <button
+            onClick={() => setShowCreator(!showCreator)}
+            className="text-sm px-4 py-2 rounded-lg glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors"
+          >
+            {showCreator ? 'Cancel' : '+ New Workflow'}
+          </button>
+
+          {/* Creator form */}
+          {showCreator && (
+            <WorkflowCreator
+              agents={agents}
+              onCreated={() => { setShowCreator(false); loadWorkflows(); }}
+              onCancel={() => setShowCreator(false)}
+            />
+          )}
+
+          {/* Active runs */}
+          {activeWorkflows.map((wf) => (
+            <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} agents={agents} />
+          ))}
+
+          {/* Recent (collapsed) */}
+          {recentWorkflows.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Recent</div>
+              {recentWorkflows.map((wf) => (
+                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} compact agents={agents} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── WorkflowCreator ────────────────────────────────
+
+function WorkflowCreator({ agents, onCreated, onCancel }: {
+  agents: Agent[];
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const [jiraTaskId, setJiraTaskId] = useState('');
+  const [description, setDescription] = useState('');
+  const [selectedPlayers, setSelectedPlayers] = useState<SelectedPlayer[]>([]);
+  const [maxIterations, setMaxIterations] = useState(3);
+  const [availableModels, setAvailableModels] = useState<{ openai: string[]; gridlight: string[] }>({ openai: [], gridlight: [] });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getAvailableModels().then(setAvailableModels).catch(() => {});
+  }, []);
+
+  const onlineAgents = agents.filter((a) => a.status !== 'offline');
+
+  function toggleAgent(agent: Agent) {
+    setSelectedPlayers((prev) => {
+      const exists = prev.find((p) => p.agentId === agent.id);
+      if (exists) return prev.filter((p) => p.agentId !== agent.id);
+      return [...prev, {
+        playerType: 'vscode-agent' as PlayerType,
+        agentId: agent.id,
+        name: agent.repoName || agent.name,
+        roles: ['research', 'coding', 'review'] as PlayerRole[],
+      }];
+    });
+  }
+
+  function toggleApiModel(type: PlayerType, modelId: string) {
+    setSelectedPlayers((prev) => {
+      const exists = prev.find((p) => p.modelId === modelId && p.playerType === type);
+      if (exists) return prev.filter((p) => !(p.modelId === modelId && p.playerType === type));
+      return [...prev, {
+        playerType: type,
+        modelId,
+        name: modelId,
+        roles: ['research', 'coding', 'review'] as PlayerRole[],
+      }];
+    });
+  }
+
+  function toggleRole(playerId: string, role: PlayerRole) {
+    setSelectedPlayers((prev) => prev.map((p) => {
+      const id = p.agentId || p.modelId;
+      if (id !== playerId) return p;
+      const hasRole = p.roles.includes(role);
+      const newRoles = hasRole ? p.roles.filter((r) => r !== role) : [...p.roles, role];
+      return { ...p, roles: newRoles };
+    }));
+  }
+
+  const hasVsCodeCoder = selectedPlayers.some(
+    (p) => p.playerType === 'vscode-agent' && p.roles.includes('coding'),
+  );
+
+  async function handleSubmit() {
+    if (!description.trim() || selectedPlayers.length === 0) return;
+    if (!hasVsCodeCoder) {
+      setError('At least one VS Code agent must have the Coding role');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.startWorkflow({
+        jiraTaskId: jiraTaskId.trim() || undefined,
+        description: description.trim(),
+        players: selectedPlayers.map((p) => ({
+          playerType: p.playerType,
+          agentId: p.agentId,
+          name: p.name,
+          modelId: p.modelId,
+          roles: p.roles,
+        })),
+        maxIterations,
+      });
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start workflow');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="glass rounded-xl p-4 space-y-4 border border-white/10">
+      <div className="text-sm font-semibold text-gray-300 uppercase tracking-wider">New Workflow</div>
+
+      {/* Task info */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <input
+          type="text"
+          value={jiraTaskId}
+          onChange={(e) => setJiraTaskId(e.target.value)}
+          placeholder="GRD-427 (optional)"
+          className="text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple w-full sm:w-32"
+        />
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Describe what needs to be done..."
+          rows={3}
+          className="text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none focus:border-gl-purple flex-1 resize-none"
+        />
       </div>
 
-      <div className="flex gap-2 pt-1">
+      {/* Player Selection */}
+      <div>
+        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Players</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* VS Code Agents */}
+          <div className="space-y-1.5">
+            <div className="text-xs text-gray-400 font-medium">VS Code Agents</div>
+            {onlineAgents.length === 0 ? (
+              <div className="text-xs text-gray-600 italic">No online agents</div>
+            ) : (
+              onlineAgents.map((agent) => {
+                const selected = selectedPlayers.find((p) => p.agentId === agent.id);
+                return (
+                  <PlayerRow
+                    key={agent.id}
+                    name={agent.repoName || agent.name}
+                    badge={agent.agentType === 'gridlight' ? 'GL' : 'CC'}
+                    badgeColor={agent.agentType === 'gridlight' ? 'text-pink-400' : 'text-blue-400'}
+                    selected={!!selected}
+                    roles={selected?.roles || []}
+                    onToggle={() => toggleAgent(agent)}
+                    onToggleRole={(role) => toggleRole(agent.id, role)}
+                  />
+                );
+              })
+            )}
+          </div>
+
+          {/* API Models */}
+          <div className="space-y-1.5">
+            <div className="text-xs text-gray-400 font-medium">API Models</div>
+            {availableModels.openai.map((m) => {
+              const selected = selectedPlayers.find((p) => p.modelId === m && p.playerType === 'openai');
+              return (
+                <PlayerRow
+                  key={`openai-${m}`}
+                  name={m}
+                  badge="OAI"
+                  badgeColor="text-green-400"
+                  selected={!!selected}
+                  roles={selected?.roles || []}
+                  onToggle={() => toggleApiModel('openai', m)}
+                  onToggleRole={(role) => toggleRole(m, role)}
+                />
+              );
+            })}
+            {availableModels.gridlight.map((m) => {
+              const selected = selectedPlayers.find((p) => p.modelId === m && p.playerType === 'gridlight-gateway');
+              return (
+                <PlayerRow
+                  key={`gl-${m}`}
+                  name={m}
+                  badge="GL"
+                  badgeColor="text-pink-400"
+                  selected={!!selected}
+                  roles={selected?.roles || []}
+                  onToggle={() => toggleApiModel('gridlight-gateway', m)}
+                  onToggleRole={(role) => toggleRole(m, role)}
+                />
+              );
+            })}
+            {availableModels.openai.length === 0 && availableModels.gridlight.length === 0 && (
+              <div className="text-xs text-gray-600 italic">Configure API keys in Settings</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Max iterations */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-gray-500">Max review iterations:</span>
+        <input
+          type="range"
+          min={1}
+          max={5}
+          value={maxIterations}
+          onChange={(e) => setMaxIterations(Number(e.target.value))}
+          className="w-24 accent-purple-500"
+        />
+        <span className="text-xs text-gray-400 font-mono">{maxIterations}</span>
+      </div>
+
+      {/* Validation */}
+      {!hasVsCodeCoder && selectedPlayers.length > 0 && (
+        <div className="text-xs text-amber-400">At least one VS Code agent needs the Coding role</div>
+      )}
+      {error && <div className="text-xs text-red-400">{error}</div>}
+
+      {/* Actions */}
+      <div className="flex gap-2">
         <button
-          onClick={() => onSave({ name: name.trim(), description: description.trim(), steps, autoRun, intervalMinutes, triggerWhen })}
-          disabled={!valid}
-          className="text-sm px-3 py-1.5 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-opacity"
+          onClick={handleSubmit}
+          disabled={!description.trim() || selectedPlayers.length === 0 || !hasVsCodeCoder || submitting}
+          className="text-sm px-4 py-2 rounded-md font-medium gl-gradient text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
         >
-          {initial ? 'Update' : 'Create'}
+          {submitting ? 'Starting...' : 'Start Workflow'}
         </button>
         <button
           onClick={onCancel}
-          className="text-sm px-3 py-1.5 text-gray-500 hover:text-gray-300 transition-colors"
+          className="text-sm px-4 py-2 rounded-md text-gray-400 hover:text-white transition-colors"
         >
           Cancel
         </button>
@@ -262,347 +332,257 @@ function TemplateEditor({
   );
 }
 
-// ─── Step Progress ───────────────────────────────────
+// ─── PlayerRow ──────────────────────────────────────
 
-const STEP_COLORS: Record<string, string> = {
-  pending: 'bg-gray-700',
-  running: 'bg-blue-500',
-  completed: 'bg-green-500',
-  failed: 'bg-red-500',
-};
-
-function RunCard({
-  run,
-  agents,
-  onAdvance,
-  onCancel,
-}: {
-  run: WorkflowRun;
-  agents: Agent[];
-  onAdvance: () => void;
-  onCancel: () => void;
+function PlayerRow({ name, badge, badgeColor, selected, roles, onToggle, onToggleRole }: {
+  name: string;
+  badge: string;
+  badgeColor: string;
+  selected: boolean;
+  roles: PlayerRole[];
+  onToggle: () => void;
+  onToggleRole: (role: PlayerRole) => void;
 }) {
-  const agentName = (id: string) => {
-    const a = agents.find((a) => a.id === id);
-    return a ? (a.repoName || a.name) : id.slice(0, 8);
-  };
-
-  const statusBadge = (status: WorkflowRun['status']) => {
-    const cls = {
-      pending: 'bg-gray-800 text-gray-400',
-      running: 'bg-blue-900/50 text-blue-400',
-      completed: 'bg-green-900/50 text-green-400',
-      failed: 'bg-red-900/50 text-red-400',
-      cancelled: 'bg-gray-800 text-gray-500',
-    }[status];
-    return `text-[10px] px-1.5 py-0.5 rounded ${cls}`;
-  };
-
   return (
-    <div className="glass-light rounded-lg p-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-200 font-medium">{run.name || 'Workflow Run'}</span>
-          <span className={statusBadge(run.status)}>{run.status}</span>
+    <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors ${selected ? 'bg-white/[0.06] border border-white/10' : 'hover:bg-white/[0.03]'}`}>
+      <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          className="accent-purple-500 shrink-0"
+        />
+        <span className={`text-[10px] font-bold ${badgeColor} shrink-0`}>{badge}</span>
+        <span className="text-xs text-gray-300 truncate">{name}</span>
+      </label>
+      {selected && (
+        <div className="flex gap-1 shrink-0">
+          {ROLE_OPTIONS.map((role) => (
+            <button
+              key={role}
+              onClick={() => onToggleRole(role)}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                roles.includes(role)
+                  ? role === 'research' ? 'bg-blue-900/50 text-blue-300'
+                    : role === 'coding' ? 'bg-green-900/50 text-green-300'
+                    : 'bg-purple-900/50 text-purple-300'
+                  : 'bg-white/[0.04] text-gray-600'
+              }`}
+            >
+              {role.charAt(0).toUpperCase()}
+            </button>
+          ))}
         </div>
-        {run.status === 'running' && (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={onAdvance}
-              className="text-xs px-2 py-1 bg-blue-900/40 hover:bg-blue-900/60 text-blue-400 rounded transition-colors"
-            >
-              Advance
-            </button>
-            <button
-              onClick={onCancel}
-              className="text-xs px-2 py-1 text-gray-600 hover:text-red-400 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Progress bar */}
-      <div className="flex gap-0.5 h-1.5 rounded-full overflow-hidden bg-gray-800">
-        {run.steps.map((step, i) => (
-          <div
-            key={i}
-            className={`flex-1 ${STEP_COLORS[step.status] || 'bg-gray-700'} ${
-              step.status === 'running' ? 'animate-pulse' : ''
-            }`}
-          />
-        ))}
-      </div>
-
-      {/* Step details */}
-      <div className="space-y-1">
-        {run.steps.map((step, i) => (
-          <div key={i} className="flex items-center gap-2 text-xs">
-            <div className={`w-2 h-2 rounded-full shrink-0 ${STEP_COLORS[step.status] || 'bg-gray-700'}`} />
-            <span className="text-gray-500 w-4 shrink-0">{i + 1}.</span>
-            <span className="text-gray-400 font-mono truncate flex-1" title={step.command}>
-              {step.command.length > 60 ? step.command.slice(0, 60) + '...' : step.command}
-            </span>
-            {step.agentId && (
-              <span className="text-gray-600 shrink-0">{agentName(step.agentId)}</span>
-            )}
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
 
-// ─── Main Panel ──────────────────────────────────────
+// ─── WorkflowRunCard ────────────────────────────────
 
-export function WorkflowPanel({ agents }: Props) {
-  const [expanded, setExpanded] = useState(true);
-  const [view, setView] = useState<'templates' | 'runs'>('templates');
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [editing, setEditing] = useState<WorkflowTemplate | null>(null);
-  const [creating, setCreating] = useState(false);
+function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
+  workflow: Workflow;
+  onAction: () => void;
+  compact?: boolean;
+  agents?: Agent[];
+}) {
+  const [showContext, setShowContext] = useState(false);
 
-  const loadTemplates = useCallback(() => {
-    api.getWorkflowTemplates().then(setTemplates).catch(() => {});
-  }, []);
+  async function handlePause() {
+    try { await api.pauseWorkflow(wf.id); onAction(); } catch { /* silent */ }
+  }
+  async function handleResume() {
+    try { await api.resumeWorkflow(wf.id); onAction(); } catch { /* silent */ }
+  }
+  async function handleCancel() {
+    try { await api.cancelWorkflow(wf.id); onAction(); } catch { /* silent */ }
+  }
 
-  const loadRuns = useCallback(() => {
-    api.getWorkflowRuns().then(setRuns).catch(() => {});
-  }, []);
+  const statusColor = {
+    pending: 'text-gray-400',
+    running: 'text-blue-400',
+    paused: 'text-amber-400',
+    completed: wf.error ? 'text-amber-400' : 'text-emerald-400',
+    failed: 'text-red-400',
+    cancelled: 'text-gray-500',
+  }[wf.status] || 'text-gray-400';
 
-  useEffect(() => {
-    if (!expanded) return;
-    loadTemplates();
-    loadRuns();
-  }, [expanded, loadTemplates, loadRuns]);
-
-  // Auto-refresh runs while panel is open
-  useEffect(() => {
-    if (!expanded) return;
-    const interval = setInterval(loadRuns, 10_000);
-    return () => clearInterval(interval);
-  }, [expanded, loadRuns]);
-
-  const handleSaveTemplate = async (data: { name: string; description: string; steps: WorkflowStep[]; autoRun?: boolean; intervalMinutes?: number; triggerWhen?: string }) => {
-    try {
-      if (editing) {
-        await api.updateWorkflowTemplate(editing.id, data);
-      } else {
-        await api.createWorkflowTemplate(data);
-      }
-      setEditing(null);
-      setCreating(false);
-      loadTemplates();
-    } catch {
-      // error handled silently
-    }
-  };
-
-  const handleToggleAutoRun = async (t: WorkflowTemplate) => {
-    try {
-      await api.toggleAutoRun(t.id, { autoRun: !t.autoRun });
-      loadTemplates();
-    } catch {
-      // error handled silently
-    }
-  };
-
-  const handleDeleteTemplate = async (id: string) => {
-    try {
-      await api.deleteWorkflowTemplate(id);
-      loadTemplates();
-    } catch {
-      // error handled silently
-    }
-  };
-
-  const handleStartRun = async (templateId: string) => {
-    try {
-      await api.startWorkflow(templateId);
-      loadRuns();
-      setView('runs');
-    } catch {
-      // error handled silently
-    }
-  };
-
-  const handleAdvance = async (runId: string) => {
-    try {
-      await api.advanceWorkflow(runId);
-      loadRuns();
-    } catch {
-      // error handled silently
-    }
-  };
-
-  const handleCancel = async (runId: string) => {
-    try {
-      await api.cancelWorkflow(runId);
-      loadRuns();
-    } catch {
-      // error handled silently
-    }
-  };
-
-  const runningCount = runs.filter((r) => r.status === 'running').length;
-  const autoRunCount = templates.filter((t) => t.autoRun).length;
-
-  const tabClass = (t: 'templates' | 'runs') =>
-    `px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-      view === t
-        ? 'bg-gl-purple/20 text-gl-purple'
-        : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.06]'
-    }`;
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs">
+        <span className={`font-medium ${statusColor}`}>{wf.status}</span>
+        <span className="text-gray-400 truncate flex-1">{wf.name}</span>
+        {wf.jiraTaskId && <span className="text-gray-500 font-mono">{wf.jiraTaskId}</span>}
+      </div>
+    );
+  }
 
   return (
-    <div className="glass rounded-xl md:rounded-2xl overflow-hidden">
-      {/* Collapse header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 md:px-6 md:py-4 text-left hover:bg-white/[0.02] transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <svg
-            className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}
-            fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
-          </svg>
-          <span className="text-gray-400 text-sm font-semibold uppercase tracking-wide">Workflows</span>
-          {runningCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/50 text-blue-400 animate-pulse">
-              {runningCount} running
-            </span>
+    <div className="glass rounded-xl p-4 space-y-3 border border-white/10">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
+          <span className="text-sm text-gray-300 truncate">{wf.name}</span>
+          {wf.jiraTaskId && <span className="text-xs text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {wf.iteration > 1 && (
+            <span className="text-xs text-gray-500">Iteration {wf.iteration}/{wf.maxIterations}</span>
           )}
-          {autoRunCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-900/50 text-cyan-400">
-              {autoRunCount} scheduled
-            </span>
+          {wf.status === 'running' && (
+            <button onClick={handlePause} className="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-white/5">Pause</button>
+          )}
+          {wf.status === 'paused' && (
+            <button onClick={handleResume} className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-white/5">Resume</button>
+          )}
+          {['running', 'paused'].includes(wf.status) && (
+            <button onClick={handleCancel} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-white/5">Cancel</button>
           )}
         </div>
-        <span className="text-xs text-gray-600">
-          {templates.length} template{templates.length !== 1 ? 's' : ''}
-        </span>
-      </button>
+      </div>
 
-      {expanded && (
-        <div className="px-4 pb-4 md:px-6 md:pb-6 space-y-3">
-          {/* View tabs */}
-          <div className="flex gap-1">
-            <button onClick={() => setView('templates')} className={tabClass('templates')}>Templates</button>
-            <button onClick={() => setView('runs')} className={tabClass('runs')}>
-              Runs {runningCount > 0 && `(${runningCount})`}
-            </button>
-          </div>
+      {/* Phase progress */}
+      <PhaseProgress phases={wf.phases} currentPhase={wf.currentPhase} />
 
-          {/* Templates View */}
-          {view === 'templates' && (
-            <div className="space-y-3">
-              {templates.length === 0 && !creating && (
-                <p className="text-sm text-gray-600 italic text-center py-4">No workflow templates yet</p>
-              )}
+      {/* Current phase details */}
+      {wf.status === 'running' && wf.phases[wf.currentPhase] && (
+        <PhaseDetails phase={wf.phases[wf.currentPhase]} players={wf.players} agents={agents} />
+      )}
 
-              {templates.map((t) =>
-                editing?.id === t.id ? (
-                  <TemplateEditor
-                    key={t.id}
-                    agents={agents}
-                    initial={t}
-                    onSave={handleSaveTemplate}
-                    onCancel={() => setEditing(null)}
-                  />
-                ) : (
-                  <div key={t.id} className="glass-light rounded-lg p-3 space-y-1.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-200 font-medium">{t.name}</span>
-                          <span className="text-[10px] text-gray-600">{t.steps.length} step{t.steps.length !== 1 ? 's' : ''}</span>
-                          {t.autoRun && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/50 text-cyan-400">
-                              auto {t.intervalMinutes}m
-                            </span>
-                          )}
-                        </div>
-                        {t.description && (
-                          <p className="text-xs text-gray-500 mt-0.5 truncate">{t.description}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleToggleAutoRun(t)}
-                          className={`relative w-7 h-3.5 rounded-full transition-colors shrink-0 ${t.autoRun ? 'bg-cyan-600' : 'bg-gray-700'}`}
-                          title={t.autoRun ? `Auto-run every ${t.intervalMinutes}m — click to disable` : 'Enable auto-run'}
-                        >
-                          <div className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${t.autoRun ? 'left-3.5' : 'left-0.5'}`} />
-                        </button>
-                        <button
-                          onClick={() => handleStartRun(t.id)}
-                          className="text-xs px-2.5 py-1 gl-gradient hover:opacity-90 text-white rounded transition-opacity"
-                        >
-                          Run
-                        </button>
-                        <button
-                          onClick={() => { setEditing(t); setCreating(false); }}
-                          className="text-xs px-2 py-1 text-gray-500 hover:text-blue-400 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTemplate(t.id)}
-                          className="text-xs px-2 py-1 text-gray-600 hover:text-red-400 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    {t.autoRun && t.lastAutoRunAt && (
-                      <div className="text-[10px] text-gray-600 pl-0.5">
-                        Last auto-run: {new Date(t.lastAutoRunAt).toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-                )
-              )}
+      {/* Error */}
+      {wf.error && (
+        <div className="text-xs text-amber-400 bg-amber-900/20 rounded-lg px-3 py-2">{wf.error}</div>
+      )}
 
-              {creating ? (
-                <TemplateEditor
-                  agents={agents}
-                  onSave={handleSaveTemplate}
-                  onCancel={() => setCreating(false)}
-                />
-              ) : (
-                <button
-                  onClick={() => { setCreating(true); setEditing(null); }}
-                  className="text-sm px-4 py-2 gl-gradient hover:opacity-90 text-white rounded-md transition-opacity"
-                >
-                  + New Template
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Runs View */}
-          {view === 'runs' && (
-            <div className="space-y-3">
-              {runs.length === 0 && (
-                <p className="text-sm text-gray-600 italic text-center py-4">No workflow runs yet</p>
-              )}
-              {runs.map((run) => (
-                <RunCard
-                  key={run.id}
-                  run={run}
-                  agents={agents}
-                  onAdvance={() => handleAdvance(run.id)}
-                  onCancel={() => handleCancel(run.id)}
-                />
-              ))}
-            </div>
+      {/* Shared context viewer */}
+      {wf.sharedContext && (
+        <div>
+          <button
+            onClick={() => setShowContext(!showContext)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            {showContext ? 'Hide' : 'Show'} deliberation context
+          </button>
+          {showContext && (
+            <pre className="mt-2 text-xs text-gray-400 bg-black/30 rounded-lg p-3 max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
+              {wf.sharedContext}
+            </pre>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── PhaseProgress ──────────────────────────────────
+
+function PhaseProgress({ phases, currentPhase }: { phases: Workflow['phases']; currentPhase: number }) {
+  return (
+    <div className="flex gap-1">
+      {phases.map((phase, i) => {
+        const isActive = i === currentPhase && phase.status === 'running';
+        const isDone = phase.status === 'completed';
+        const isFailed = phase.status === 'failed';
+
+        return (
+          <div key={phase.phase} className="flex-1 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] uppercase tracking-wider ${
+                isActive ? 'text-blue-400' : isDone ? 'text-emerald-400' : isFailed ? 'text-red-400' : 'text-gray-600'
+              }`}>
+                {PHASE_LABELS[phase.phase]}
+              </span>
+              {isActive && phase.currentRound > 0 && (
+                <span className="text-[10px] text-blue-400/60">
+                  {ROUND_LABELS[phase.currentRound]}
+                </span>
+              )}
+            </div>
+            {/* Progress bar with 3 segments for rounds */}
+            <div className="flex gap-px h-1.5 rounded-full overflow-hidden bg-white/5">
+              {[1, 2, 3].map((round) => {
+                const roundDone = phase.playerResults.some((r) => r.round === round);
+                const roundActive = isActive && phase.currentRound === round;
+                return (
+                  <div
+                    key={round}
+                    className={`flex-1 rounded-sm transition-colors ${
+                      roundDone ? 'bg-emerald-500/70'
+                        : roundActive ? 'bg-blue-500/70 animate-pulse'
+                        : isFailed ? 'bg-red-500/40'
+                        : 'bg-white/5'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── PhaseDetails ───────────────────────────────────
+
+function PhaseDetails({ phase, players, agents }: { phase: Workflow['phases'][0]; players: Workflow['players']; agents?: Agent[] }) {
+  const phasePlayers = players.filter((p) => p.roles.includes(phase.phase));
+  const currentRound = phase.currentRound;
+
+  return (
+    <div className="space-y-1.5">
+      {phasePlayers.map((player) => {
+        const result = phase.playerResults.find(
+          (r) => r.playerId === player.id && r.round === currentRound,
+        );
+        const hasResult = !!result;
+        const hasError = result?.error;
+        const agentData = player.agentId ? agents?.find((a) => a.id === player.agentId) : undefined;
+        const isGridlight = agentData?.agentType === 'gridlight';
+
+        const badge = player.playerType === 'vscode-agent'
+          ? (isGridlight ? 'GL' : 'CC')
+          : player.playerType === 'openai' ? 'OAI' : 'GL';
+
+        const badgeColor = player.playerType === 'vscode-agent'
+          ? (isGridlight ? 'text-pink-400' : 'text-blue-400')
+          : player.playerType === 'openai' ? 'text-green-400'
+          : 'text-pink-400';
+
+        return (
+          <div key={player.id} className="flex items-center gap-2 text-xs">
+            <span className="w-4 text-center">
+              {hasError ? (
+                <span className="text-red-400">&#10005;</span>
+              ) : hasResult && result?.fallbackModel ? (
+                <span className="text-amber-400">&#9889;</span>
+              ) : hasResult ? (
+                <span className="text-emerald-400">&#10003;</span>
+              ) : (
+                <span className="text-blue-400 animate-spin inline-block">&#9696;</span>
+              )}
+            </span>
+            <span className={`text-[10px] font-bold ${badgeColor}`}>
+              {badge}
+            </span>
+            <span className="text-gray-300 truncate">{player.name}</span>
+            {result?.fallbackModel && (
+              <span className="text-amber-400/70 text-[10px] shrink-0" title={`Original player failed, completed by ${result.fallbackModel}`}>
+                failover
+              </span>
+            )}
+            {hasResult && !hasError && result.output && (
+              <span className="text-gray-500 truncate ml-auto max-w-[200px]">
+                {result.output.slice(0, 80)}...
+              </span>
+            )}
+            {hasError && (
+              <span className="text-red-400 truncate ml-auto max-w-[200px]">{result.error}</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

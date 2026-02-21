@@ -1,0 +1,31 @@
+{
+  "name": "NeonCore Orchestrator",
+  "version": "0.1.6",
+  "short_description": "Multi-model orchestrator for AI agents and workflows",
+  "detailed_description": "NeonCore is a real-time dashboard for orchestrating multiple AI agents across VS Code instances. Run collaborative multi-model workflows (Claude Code, Gridlight, OpenAI), manage agent permissions, relay commands, and monitor activity — all from a single interface.",
+  "usage_instructions": "Start the server, connect your VS Code instances with the NeonCore extension, and manage all your AI agents and workflows from the dashboard.",
+  "author": "Gridlight",
+  "icon": "server/public/logo.png",
+  "entry": "server/public/index.html",
+  "runtime": "1.0",
+  "type": "hybrid",
+  "gridlight_version_required": "0.6.2",
+  "backend": {
+    "command": "npm start",
+    "port": 4040,
+    "install": "npm install",
+    "healthCheck": "/api/agents"
+  },
+  "dependencies": {
+    "components": [],
+    "themes": []
+  },
+  "build": {
+    "target": "hybrid-app",
+    "minify": true
+  },
+  "permissions": ["network", "storage"],
+  "window": {
+    "maximized": true
+  }
+}
