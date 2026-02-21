@@ -25,10 +25,18 @@ let socket: Socket | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 
-// All discovered Claude-related commands
-let claudeCommands: string[] = [];
+// Agent type (claude or gridlight) — read from config
+let agentType: 'claude' | 'gridlight' = 'claude';
+let registeredAgentId: string | null = null;
+
+// All discovered agent-related commands
+let discoveredCommands: string[] = [];
 let autoApproveInFlight = false;
 let queuedAutoApprove = 0;
+
+// Gridlight heartbeat & idle reporting
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let gridlightIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('NeonCore');
@@ -47,39 +55,45 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('neoncore.disconnect', () => disconnectFromOrchestrator()),
   );
 
-  // Discover Claude Code extension commands
-  discoverClaudeCommands();
+  // Read agent type from config
+  const config = vscode.workspace.getConfiguration('neoncore');
+  agentType = config.get('agentType', 'claude') as 'claude' | 'gridlight';
+
+  // Discover agent extension commands
+  discoverAgentCommands();
 
   // Auto-connect if configured
-  const config = vscode.workspace.getConfiguration('neoncore');
   if (config.get('autoConnect', true)) {
     connectToOrchestrator();
   }
 }
 
-async function discoverClaudeCommands() {
+async function discoverAgentCommands() {
   try {
     const allCommands = await vscode.commands.getCommands(true);
-    // Log ALL claude-related commands for debugging
-    claudeCommands = allCommands.filter((c) => {
+    discoveredCommands = allCommands.filter((c) => {
       const lower = c.toLowerCase();
+      if (agentType === 'gridlight') {
+        return lower.includes('gridlight') || lower.includes('gl-');
+      }
       return lower.includes('claude') || lower.includes('cline');
     });
-    if (claudeCommands.length > 0) {
-      log(`Discovered ${claudeCommands.length} Claude commands:`);
-      for (const cmd of claudeCommands) {
+    const label = agentType === 'gridlight' ? 'Gridlight' : 'Claude';
+    if (discoveredCommands.length > 0) {
+      log(`Discovered ${discoveredCommands.length} ${label} commands:`);
+      for (const cmd of discoveredCommands) {
         log(`  - ${cmd}`);
       }
     } else {
-      log('No Claude commands found in this VS Code instance');
+      log(`No ${label} commands found in this VS Code instance`);
     }
   } catch {
     log('Could not discover commands');
   }
 }
 
-async function focusClaudePanel(): Promise<void> {
-  const focusCmds = claudeCommands.filter((c) => {
+async function focusAgentPanel(): Promise<void> {
+  const focusCmds = discoveredCommands.filter((c) => {
     const lower = c.toLowerCase();
     return lower.includes('focus') && !lower.includes('new') && !lower.includes('open');
   });
@@ -93,27 +107,34 @@ async function focusClaudePanel(): Promise<void> {
     }
   }
 
-  // Conservative fallback if no explicit Claude focus command exists
-  try {
-    await vscode.commands.executeCommand('claude-vscode.sidebar.open');
-  } catch {
+  // Type-specific fallbacks
+  if (agentType === 'gridlight') {
     try {
       await vscode.commands.executeCommand('workbench.action.focusSideBar');
     } catch {
       // ignore
     }
+  } else {
+    try {
+      await vscode.commands.executeCommand('claude-vscode.sidebar.open');
+    } catch {
+      try {
+        await vscode.commands.executeCommand('workbench.action.focusSideBar');
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
 function getAutoApproveCommands(): string[] {
-  return claudeCommands.filter((cmd) => {
+  const typeToken = agentType === 'gridlight' ? 'gridlight' : 'claude';
+  return discoveredCommands.filter((cmd) => {
     const lower = cmd.toLowerCase();
-    // Look for commands that mention plan + approval action
     const mentionsPlan = lower.includes('plan');
     const mentionsApproval = lower.includes('approve') || lower.includes('accept') || lower.includes('confirm') || lower.includes('continue') || lower.includes('proceed');
     if (mentionsPlan && mentionsApproval) return true;
-    // Also look for generic approval commands (e.g., "claude.approve", "claude.accept")
-    if (lower.includes('claude') && mentionsApproval && !lower.includes('reject') && !lower.includes('deny')) return true;
+    if (lower.includes(typeToken) && mentionsApproval && !lower.includes('reject') && !lower.includes('deny')) return true;
     return false;
   });
 }
@@ -125,7 +146,7 @@ async function runAutoApproveCommands(): Promise<boolean> {
   for (const cmd of commands) {
     try {
       await vscode.commands.executeCommand(cmd);
-      log(`Auto-approve: executed Claude command "${cmd}"`);
+      log(`Auto-approve: executed ${agentType} command "${cmd}"`);
       await sleep(150);
     } catch {
       // keep trying remaining candidates
@@ -136,7 +157,7 @@ async function runAutoApproveCommands(): Promise<boolean> {
 
 async function pasteAndEnter(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  await focusClaudePanel();
+  await focusAgentPanel();
   await sleep(250);
 
   if (process.platform === 'darwin') {
@@ -210,8 +231,8 @@ function connectToOrchestrator() {
 
     // Join room immediately using local identity (no HTTP dependency)
     const { machine, repoPath } = getLocalIdentity();
-    socket!.emit('register_extension', { machine, repoPath });
-    log(`Registered socket with machine=${machine}, repoPath=${repoPath}`);
+    socket!.emit('register_extension', { machine, repoPath, agentType });
+    log(`Registered socket with machine=${machine}, repoPath=${repoPath}, agentType=${agentType}`);
 
     // Also do HTTP registration for agent metadata (async, non-blocking)
     registerWithOrchestrator();
@@ -248,6 +269,9 @@ function connectToOrchestrator() {
 }
 
 function disconnectFromOrchestrator() {
+  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+  if (gridlightIdleTimer) { clearTimeout(gridlightIdleTimer); gridlightIdleTimer = null; }
+  registeredAgentId = null;
   if (socket) {
     socket.disconnect();
     socket = null;
@@ -294,11 +318,13 @@ function registerWithOrchestrator() {
       repoName,
       branch,
       sessionId: `vscode-${vscode.env.sessionId}`,
+      agentType,
     }),
   })
     .then((res) => res.json())
     .then((agent: Agent) => {
-      log(`Registered as agent: ${agent.id}`);
+      registeredAgentId = agent.id;
+      log(`Registered as ${agentType} agent: ${agent.id}`);
       // Join the agent-specific room now that we know our agent ID (closes race condition)
       if (socket?.connected) {
         socket.emit('join_agent_room', { agentId: agent.id });
@@ -306,6 +332,10 @@ function registerWithOrchestrator() {
       }
       // Drain any commands queued while we were offline
       drainPendingCommands(url, agent.id);
+      // Start heartbeat for Gridlight agents (they lack hooks to keep last_seen fresh)
+      if (agentType === 'gridlight') {
+        startHeartbeat(url);
+      }
     })
     .catch((err) => {
       log(`Registration failed: ${err}`);
@@ -356,8 +386,8 @@ async function handleCommand(command: Command) {
     await vscode.env.clipboard.writeText(command.text);
     markDelivered(url, command.id);
 
-    // Step 2: Focus the Claude Code panel (within THIS window's extension host)
-    await focusClaudePanel();
+    // Step 2: Focus the agent panel (within THIS window's extension host)
+    await focusAgentPanel();
 
     // Step 3: Raise window and paste + submit (platform-specific)
     const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
@@ -385,8 +415,8 @@ async function handleCommand(command: Command) {
         log(`Raised window matching "${workspaceName}"`);
         await sleep(500);
 
-        // Re-focus Claude Code input after window raise
-        await focusClaudePanel();
+        // Re-focus agent input after window raise
+        await focusAgentPanel();
         await sleep(500);
 
         // Paste and Enter via AppleScript
@@ -404,8 +434,8 @@ async function handleCommand(command: Command) {
         // Windows/Linux: Use VSCode commands (clipboard already has the text)
         await sleep(300);
 
-        // Re-focus Claude Code input
-        await focusClaudePanel();
+        // Re-focus agent input
+        await focusAgentPanel();
         await sleep(500);
 
         // Trigger paste via VSCode command
@@ -431,6 +461,16 @@ async function handleCommand(command: Command) {
         `NeonCore: Prompt copied — paste with Cmd+V: "${preview}"`
       );
     }
+
+    // For Gridlight agents: mark as working and schedule idle report
+    if (agentType === 'gridlight' && registeredAgentId) {
+      fetch(`${url}/api/agents/${registeredAgentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'working' }),
+      }).catch(() => {});
+      scheduleIdleReport(url);
+    }
   } catch (err) {
     log(`handleCommand error: ${err}`);
     vscode.window.showErrorMessage(`NeonCore: Failed to deliver command - ${err}`);
@@ -451,8 +491,8 @@ async function handleAutoApprovePlan() {
   autoApproveInFlight = true;
   let succeeded = false;
   try {
-    // Refresh command discovery in case Claude extension registered commands after activation
-    await discoverClaudeCommands();
+    // Refresh command discovery in case agent extension registered commands after activation
+    await discoverAgentCommands();
 
     // Bring this VS Code window to the front first
     log(`Auto-approve: raising window and waiting ${AUTO_APPROVE_INITIAL_DELAY_MS}ms`);
@@ -462,9 +502,9 @@ async function handleAutoApprovePlan() {
     for (let attempt = 1; attempt <= AUTO_APPROVE_MAX_ATTEMPTS; attempt += 1) {
       log(`Auto-approve attempt ${attempt}/${AUTO_APPROVE_MAX_ATTEMPTS}`);
 
-      // Re-discover commands on each attempt (Claude extension may register lazily)
+      // Re-discover commands on each attempt (agent extension may register lazily)
       if (attempt > 1) {
-        await discoverClaudeCommands();
+        await discoverAgentCommands();
       }
 
       // Best case: Claude exposes a dedicated plan-approval command
@@ -475,8 +515,8 @@ async function handleAutoApprovePlan() {
         break;
       }
 
-      // Ensure Claude panel is focused before pasting
-      await focusClaudePanel();
+      // Ensure agent panel is focused before pasting
+      await focusAgentPanel();
       await sleep(300);
 
       // Fallback: submit textual confirmations
@@ -502,14 +542,14 @@ async function handleAutoApprovePlan() {
     if (!succeeded) {
       log('Auto-approve: all attempts failed — showing notification');
       vscode.window.showInformationMessage(
-        'NeonCore: Plan approved on dashboard — please confirm in Claude Code',
+        `NeonCore: Plan approved on dashboard — please confirm in ${agentType === 'gridlight' ? 'Gridlight' : 'Claude Code'}`,
         'OK'
       );
     }
   } catch (err) {
     log(`handleAutoApprovePlan failed: ${err}`);
     vscode.window.showInformationMessage(
-      'NeonCore: Plan approved on dashboard — please confirm in Claude Code',
+      `NeonCore: Plan approved on dashboard — please confirm in ${agentType === 'gridlight' ? 'Gridlight' : 'Claude Code'}`,
       'OK'
     );
   } finally {
@@ -522,6 +562,44 @@ async function handleAutoApprovePlan() {
     }
   }
 }
+
+// ─── Gridlight heartbeat & idle reporting ─────────
+
+function startHeartbeat(url: string) {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  heartbeatInterval = setInterval(async () => {
+    if (!registeredAgentId) return;
+    try {
+      await fetch(`${url}/api/agents/${registeredAgentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    } catch { /* silent */ }
+  }, 30_000);
+  log('Gridlight heartbeat started (30s interval)');
+}
+
+function scheduleIdleReport(url: string) {
+  if (gridlightIdleTimer) clearTimeout(gridlightIdleTimer);
+  gridlightIdleTimer = setTimeout(async () => {
+    if (!registeredAgentId) return;
+    const { machine, repoPath } = getLocalIdentity();
+    try {
+      await fetch(`${url}/api/agents/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          machine, repoPath, agentType: 'gridlight',
+          message: '(Gridlight agent task completed)',
+        }),
+      });
+      log('Gridlight idle report sent');
+    } catch { /* silent */ }
+  }, 60_000);
+}
+
+// ─── Helpers ──────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -551,6 +629,8 @@ function markDelivered(url: string, commandId: string) {
 }
 
 export function deactivate() {
+  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+  if (gridlightIdleTimer) { clearTimeout(gridlightIdleTimer); gridlightIdleTimer = null; }
   if (socket) {
     socket.disconnect();
     socket = null;

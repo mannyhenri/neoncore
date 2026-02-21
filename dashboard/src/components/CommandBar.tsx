@@ -46,8 +46,6 @@ const CATEGORIES: CommandCategory[] = [
 const dropdownBtnClass = 'text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 focus:outline-none text-left cursor-pointer flex items-center justify-between gap-2';
 const btnClass = 'text-sm px-3.5 py-2 rounded-md font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
 
-type QuickAction = 'full-review' | 'full-test' | 'research';
-
 // ─── Custom dropdown (no native <select>) ──────────────
 interface GlassSelectOption {
   value: string;
@@ -220,26 +218,11 @@ const COMMAND_OPTIONS: GlassSelectOption[] = CATEGORIES.flatMap((cat) =>
   cat.commands.map((cmd) => ({ value: cmd, label: `/${cmd}`, group: cat.label })),
 );
 
-const TASK_ACTION_OPTIONS: GlassSelectOption[] = [
-  { value: 'scope', label: 'Scope Task' },
-  { value: 'start', label: 'Start Working' },
-  { value: 'epic', label: 'Scope Epic' },
-];
-
-const QUICK_ACTION_OPTIONS: GlassSelectOption[] = [
-  { value: 'full-review', label: 'Full Review' },
-  { value: 'full-test', label: 'Full Test' },
-  { value: 'research', label: 'Research' },
-];
 
 // ─── CommandBar ────────────────────────────────────────
 export function CommandBar({ agents, onSendCommand }: Props) {
   const [selectedCommand, setSelectedCommand] = useState('');
   const [commandAgents, setCommandAgents] = useState<string[]>([]);
-  const [taskId, setTaskId] = useState('');
-  const [taskAgents, setTaskAgents] = useState<string[]>([]);
-  const [taskAction, setTaskAction] = useState<'start' | 'scope' | 'epic'>('scope');
-  const [quickAction, setQuickAction] = useState<QuickAction>('full-review');
   const commandInitRef = useRef(false);
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
@@ -253,7 +236,6 @@ export function CommandBar({ agents, onSendCommand }: Props) {
     } else {
       setCommandAgents((prev) => prev.filter((id) => onlineIds.has(id)));
     }
-    setTaskAgents((prev) => prev.filter((id) => onlineIds.has(id)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
 
@@ -265,52 +247,6 @@ export function CommandBar({ agents, onSendCommand }: Props) {
     }
     setSelectedCommand('');
   }
-
-  function handleTaskAction() {
-    if (!taskId.trim() || taskAgents.length === 0) return;
-    const id = taskId.trim();
-    for (const agentId of taskAgents) {
-      if (taskAction === 'scope') {
-        onSendCommand(agentId, `/scoping\n\nScope type: Task\nTask ID: ${id}`, false);
-      } else if (taskAction === 'epic') {
-        onSendCommand(agentId, `/scoping\n\nScope type: Epic\nEpic Title: ${id}`, false);
-      } else {
-        onSendCommand(agentId, `/start-working ${id}`, false);
-      }
-    }
-    setTaskId('');
-  }
-
-  function handleQuickAction() {
-    if (taskAgents.length === 0) return;
-    for (const agentId of taskAgents) {
-      if (quickAction === 'full-review') {
-        onSendCommand(agentId, '/full-review', false);
-      } else if (quickAction === 'full-test') {
-        onSendCommand(agentId, '/full-test', false);
-      } else if (quickAction === 'research') {
-        if (!taskId.trim()) return;
-        onSendCommand(agentId, [
-          `Research task ${taskId.trim()} and provide a recommended implementation plan.`,
-          '',
-          'Steps:',
-          `1. Look up task ${taskId.trim()} in Jira using /start-working to get the full task details and acceptance criteria`,
-          '2. Based on the task requirements, research current best practices, patterns, and approaches using web search',
-          '3. Analyze the existing codebase to understand current architecture and conventions',
-          '4. Produce a detailed implementation plan that includes:',
-          '   - Recommended approach with rationale',
-          '   - Key files that will need changes',
-          '   - Libraries or patterns to use (with links to docs)',
-          '   - Potential risks or edge cases to watch for',
-          '   - Estimated complexity and suggested breakdown into subtasks',
-          '',
-          'Present the plan in a clear, actionable format. Do NOT start implementing — research and plan only.',
-        ].join('\n'), false);
-      }
-    }
-  }
-
-  const quickActionDisabled = taskAgents.length === 0 || (quickAction === 'research' && !taskId.trim());
 
   return (
     <div className="border-b border-white/[0.06] px-3 py-2 md:px-6 md:py-3">
@@ -337,66 +273,6 @@ export function CommandBar({ agents, onSendCommand }: Props) {
             className={btnClass + ' w-full sm:w-auto gl-gradient text-white hover:opacity-90'}
           >
             Send
-          </button>
-        </div>
-
-        {/* Jira Task Launcher */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs uppercase tracking-wider text-gray-600 font-semibold">
-            Jira
-          </span>
-          <input
-            type="text"
-            value={taskId}
-            onChange={(e) => setTaskId(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleTaskAction(); }}
-            placeholder={taskAction === 'epic' ? 'Epic title...' : 'GRD-427'}
-            className={`text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple w-full sm:w-auto ${taskAction === 'epic' ? 'sm:w-44' : 'sm:w-28'}`}
-          />
-
-          <AgentPicker
-            agents={onlineAgents}
-            selected={taskAgents}
-            onChange={setTaskAgents}
-          />
-
-          <GlassSelect
-            value={taskAction}
-            onChange={(v) => setTaskAction(v as 'start' | 'scope' | 'epic')}
-            options={TASK_ACTION_OPTIONS}
-          />
-
-          <button
-            onClick={handleTaskAction}
-            disabled={!taskId.trim() || taskAgents.length === 0}
-            className={btnClass + (taskAction === 'epic'
-              ? ' bg-purple-600 text-white hover:bg-purple-500'
-              : taskAction === 'scope'
-              ? ' bg-violet-600 text-white hover:bg-violet-500'
-              : ' bg-indigo-600 text-white hover:bg-indigo-500')}
-          >
-            Run
-          </button>
-
-          <span className="hidden sm:block w-px h-6 bg-white/10 mx-1" />
-
-          {/* Quick Actions */}
-          <GlassSelect
-            value={quickAction}
-            onChange={(v) => setQuickAction(v as QuickAction)}
-            options={QUICK_ACTION_OPTIONS}
-          />
-
-          <button
-            onClick={handleQuickAction}
-            disabled={quickActionDisabled}
-            className={btnClass + (quickAction === 'research'
-              ? ' bg-amber-600 text-white hover:bg-amber-500'
-              : quickAction === 'full-test'
-              ? ' bg-teal-600 text-white hover:bg-teal-500'
-              : ' bg-rose-600 text-white hover:bg-rose-500')}
-          >
-            {quickAction === 'research' ? 'Research' : 'Run'}
           </button>
         </div>
       </div>

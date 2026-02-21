@@ -88,45 +88,6 @@ export interface HookPayload {
   tool_input?: Record<string, unknown>;
 }
 
-// Workflow types
-export interface WorkflowStep {
-  command: string;
-  target: string; // agentId or 'any_idle'
-}
-
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  description: string;
-  steps: WorkflowStep[];
-  autoRun: boolean;
-  intervalMinutes: number;
-  triggerWhen: 'idle' | 'any';
-  lastAutoRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface WorkflowStepState {
-  command: string;
-  target: string;
-  agentId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  startedAt: string;
-  completedAt: string;
-}
-
-export interface WorkflowRun {
-  id: string;
-  templateId: string;
-  name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  currentStep: number;
-  steps: WorkflowStepState[];
-  startedAt: string;
-  completedAt: string | null;
-}
-
 // Epic Autopilot types
 export interface EpicTaskState {
   taskId: string;
@@ -161,6 +122,59 @@ export interface EpicRun {
   error: string;
 }
 
+// Workflow types
+export type WorkflowPhase = 'research' | 'coding' | 'review';
+export type WorkflowStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export type PlayerRole = 'research' | 'coding' | 'review';
+export type PlayerType = 'vscode-agent' | 'openai' | 'gridlight-gateway';
+
+export interface WorkflowPlayer {
+  id: string;
+  name: string;
+  playerType: PlayerType;
+  modelId?: string;
+  roles: PlayerRole[];
+  agentId?: string;
+}
+
+export interface PhaseResult {
+  playerId: string;
+  playerName: string;
+  phase: WorkflowPhase;
+  round: number;
+  output: string;
+  completedAt: string;
+  error?: string;
+  fallbackModel?: string;
+}
+
+export interface WorkflowPhaseState {
+  phase: WorkflowPhase;
+  status: WorkflowStatus;
+  currentRound: number;
+  startedAt: string;
+  completedAt: string;
+  playerResults: PhaseResult[];
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  jiraTaskId: string;
+  description: string;
+  players: WorkflowPlayer[];
+  phases: WorkflowPhaseState[];
+  status: WorkflowStatus;
+  currentPhase: number;
+  iteration: number;
+  maxIterations: number;
+  sharedContext: string;
+  createdAt: string;
+  startedAt: string;
+  completedAt: string | null;
+  error: string;
+}
+
 // WebSocket events
 export type ServerToClientEvents = {
   agent_registered: (agent: Agent) => void;
@@ -173,8 +187,8 @@ export type ServerToClientEvents = {
   agent_unstuck: (data: { agentId: string }) => void;
   memory_updated: (data: { agentId: string }) => void;
   permissions_expired: (data: { count: number }) => void;
-  workflow_updated: (run: WorkflowRun) => void;
   epic_updated: (run: EpicRun) => void;
+  workflow_updated: (workflow: Workflow) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
 };
 

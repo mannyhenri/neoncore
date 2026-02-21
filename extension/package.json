@@ -33,6 +33,12 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically connect to the orchestrator on startup"
+        },
+        "neoncore.agentType": {
+          "type": "string",
+          "enum": ["claude", "gridlight"],
+          "default": "claude",
+          "description": "Type of AI agent in this VS Code workspace (claude or gridlight)"
         }
       }
     }
