@@ -175,6 +175,68 @@ export interface Workflow {
   error: string;
 }
 
+// MCP Server types
+export type McpServerStatus = 'stopped' | 'running' | 'error';
+
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  isPreconfigured: boolean;
+  status: McpServerStatus;
+  error: string;
+  pid: number | null;
+  capabilities: McpTool[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Workflow Step types (V2 canvas workflows)
+export type StepExecutorType = 'mcp' | 'claude-code' | 'claude-plan' | 'claude-review';
+export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface WorkflowStep {
+  id: string;
+  workflowId: string;
+  name: string;
+  description: string;
+  positionX: number;
+  positionY: number;
+  executorType: StepExecutorType;
+  executorId: string;
+  executorConfig: Record<string, unknown>;
+  autoAdvance: boolean;
+  status: StepStatus;
+  result: string;
+  error: string;
+  dependsOn: string[];
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+// Workflow step execution log
+export type StepLogType = 'info' | 'success' | 'error' | 'warn' | 'llm';
+
+export interface WorkflowStepLog {
+  workflowId: string;
+  stepId: string;
+  stepName: string;
+  message: string;
+  type: StepLogType;
+  timestamp: string;
+}
+
 // WebSocket events
 export type ServerToClientEvents = {
   agent_registered: (agent: Agent) => void;
@@ -189,7 +251,11 @@ export type ServerToClientEvents = {
   permissions_expired: (data: { count: number }) => void;
   epic_updated: (run: EpicRun) => void;
   workflow_updated: (workflow: Workflow) => void;
+  workflow_step_updated: (step: WorkflowStep) => void;
+  workflow_step_log: (log: WorkflowStepLog) => void;
+  mcp_server_updated: (server: McpServer) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
+  plan_executed: (data: { agentId: string }) => void;
 };
 
 export type ClientToServerEvents = {

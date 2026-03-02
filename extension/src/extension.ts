@@ -161,11 +161,20 @@ async function pasteAndEnter(text: string): Promise<void> {
   await sleep(250);
 
   if (process.platform === 'darwin') {
+    // Paste first
     await execAsync(
       `osascript` +
       ` -e 'tell application "System Events"'` +
       ` -e '  keystroke "v" using command down'` +
-      ` -e '  delay 0.25'` +
+      ` -e 'end tell'`
+    );
+    await sleep(300);
+    // Re-focus then Enter (separate call ensures correct focus target)
+    await focusAgentPanel();
+    await sleep(300);
+    await execAsync(
+      `osascript` +
+      ` -e 'tell application "System Events"'` +
       ` -e '  key code 36'` +
       ` -e 'end tell'`
     );
@@ -256,10 +265,17 @@ function connectToOrchestrator() {
     bringWindowToFront();
   });
 
-  // Listen for plan auto-approval — respond to Claude Code's built-in plan prompt
+  // Two-phase plan auto-approve:
+  // Phase 1: dashboard approved the plan → arm the extension
   socket.on('auto_approve_plan' as any, (data: { agentId: string }) => {
-    log(`Auto-approve plan request for agent ${data.agentId}`);
-    handleAutoApprovePlan();
+    log(`Phase 1: auto_approve_plan for agent ${data.agentId} — arming`);
+    armPlanAutoApprove();
+  });
+
+  // Phase 2: ExitPlanMode tool finished executing → trigger with precise timing
+  socket.on('plan_executed' as any, (data: { agentId: string }) => {
+    log(`Phase 2: plan_executed for agent ${data.agentId} — triggering`);
+    triggerPlanAutoApprove();
   });
 
   socket.on('connect_error', (err) => {
@@ -419,17 +435,32 @@ async function handleCommand(command: Command) {
         await focusAgentPanel();
         await sleep(500);
 
-        // Paste and Enter via AppleScript
-        const delaySec = Math.min(0.5 + command.text.length / 500, 3).toFixed(1);
+        // Paste via AppleScript (separate from Enter to allow refocus between)
         await execAsync(
           `osascript` +
           ` -e 'tell application "System Events"'` +
           ` -e '  keystroke "v" using command down'` +
-          ` -e '  delay ${delaySec}'` +
+          ` -e 'end tell'`
+        );
+        log(`Pasted command text (${command.text.length} chars)`);
+
+        // Wait for paste to render in the input field
+        const delayMs = Math.min(500 + Math.floor(command.text.length / 2), 3000);
+        await sleep(delayMs);
+
+        // Re-focus agent panel before Enter — critical for step 2+ commands
+        // where Claude Code just finished processing and focus may have shifted
+        await focusAgentPanel();
+        await sleep(400);
+
+        // Send Enter as separate AppleScript call
+        await execAsync(
+          `osascript` +
+          ` -e 'tell application "System Events"'` +
           ` -e '  key code 36'` +
           ` -e 'end tell'`
         );
-        log(`Simulated paste + Enter (delay=${delaySec}s) — command submitted`);
+        log(`Sent Enter keystroke — command submitted`);
       } else {
         // Windows/Linux: Use VSCode commands (clipboard already has the text)
         await sleep(300);
@@ -477,11 +508,55 @@ async function handleCommand(command: Command) {
   }
 }
 
-const AUTO_APPROVE_INITIAL_DELAY_MS = 4000;
-const AUTO_APPROVE_RETRY_INTERVAL_MS = 2500;
-const AUTO_APPROVE_MAX_ATTEMPTS = 6;
+// ─── Two-phase plan auto-approve ─────────────────────
+// Phase 1 (auto_approve_plan): fires when dashboard approves the plan → arms the extension
+// Phase 2 (plan_executed): fires when ExitPlanMode tool finishes → triggers keystroke after
+//   a short delay for Claude to generate its follow-up prompt
+// Fallback: if plan_executed never arrives within 15s, proceed anyway with longer delay
 
-async function handleAutoApprovePlan() {
+let pendingPlanAutoApprove = false;
+let planAutoApproveFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+const AUTO_APPROVE_POST_EXEC_DELAY_MS = 5000; // delay after ExitPlanMode completes
+const AUTO_APPROVE_FALLBACK_DELAY_MS = 8000;   // delay if we never get plan_executed
+const AUTO_APPROVE_FALLBACK_TIMEOUT_MS = 15000; // how long to wait for plan_executed
+const AUTO_APPROVE_RETRY_INTERVAL_MS = 2000;
+const AUTO_APPROVE_MAX_ATTEMPTS = 8;
+
+function armPlanAutoApprove() {
+  if (pendingPlanAutoApprove) {
+    log('Auto-approve already armed');
+    return;
+  }
+  pendingPlanAutoApprove = true;
+  log(`Auto-approve armed — waiting up to ${AUTO_APPROVE_FALLBACK_TIMEOUT_MS}ms for plan_executed signal`);
+
+  // Fallback: if PostToolUse signal never arrives, execute with a longer delay
+  if (planAutoApproveFallbackTimer) clearTimeout(planAutoApproveFallbackTimer);
+  planAutoApproveFallbackTimer = setTimeout(() => {
+    if (pendingPlanAutoApprove) {
+      pendingPlanAutoApprove = false;
+      log('Auto-approve fallback: plan_executed not received, proceeding with longer delay');
+      void executeAutoApprove(AUTO_APPROVE_FALLBACK_DELAY_MS);
+    }
+  }, AUTO_APPROVE_FALLBACK_TIMEOUT_MS);
+}
+
+function triggerPlanAutoApprove() {
+  if (!pendingPlanAutoApprove) {
+    log('plan_executed received but no pending auto-approve — ignoring');
+    return;
+  }
+  pendingPlanAutoApprove = false;
+  if (planAutoApproveFallbackTimer) {
+    clearTimeout(planAutoApproveFallbackTimer);
+    planAutoApproveFallbackTimer = null;
+  }
+  log(`plan_executed received — executing auto-approve after ${AUTO_APPROVE_POST_EXEC_DELAY_MS}ms`);
+  void executeAutoApprove(AUTO_APPROVE_POST_EXEC_DELAY_MS);
+}
+
+async function executeAutoApprove(initialDelayMs: number) {
   if (autoApproveInFlight) {
     queuedAutoApprove += 1;
     log(`Auto-approve already running; queued another request (queue=${queuedAutoApprove})`);
@@ -491,23 +566,19 @@ async function handleAutoApprovePlan() {
   autoApproveInFlight = true;
   let succeeded = false;
   try {
-    // Refresh command discovery in case agent extension registered commands after activation
     await discoverAgentCommands();
 
-    // Bring this VS Code window to the front first
-    log(`Auto-approve: raising window and waiting ${AUTO_APPROVE_INITIAL_DELAY_MS}ms`);
+    log(`Auto-approve: raising window and waiting ${initialDelayMs}ms`);
     await bringWindowToFront();
-    await sleep(AUTO_APPROVE_INITIAL_DELAY_MS);
+    await sleep(initialDelayMs);
 
     for (let attempt = 1; attempt <= AUTO_APPROVE_MAX_ATTEMPTS; attempt += 1) {
       log(`Auto-approve attempt ${attempt}/${AUTO_APPROVE_MAX_ATTEMPTS}`);
 
-      // Re-discover commands on each attempt (agent extension may register lazily)
       if (attempt > 1) {
         await discoverAgentCommands();
       }
 
-      // Best case: Claude exposes a dedicated plan-approval command
       const ranCommand = await runAutoApproveCommands();
       if (ranCommand) {
         log('Auto-approve command(s) executed; stopping retry loop');
@@ -515,11 +586,9 @@ async function handleAutoApprovePlan() {
         break;
       }
 
-      // Ensure agent panel is focused before pasting
       await focusAgentPanel();
       await sleep(300);
 
-      // Fallback: submit textual confirmations
       const tokens = attempt <= 2 ? ['yes', 'approve'] : ['yes'];
       for (const token of tokens) {
         try {
@@ -538,7 +607,6 @@ async function handleAutoApprovePlan() {
       }
     }
 
-    // If no method worked, show a notification so the user knows to approve manually
     if (!succeeded) {
       log('Auto-approve: all attempts failed — showing notification');
       vscode.window.showInformationMessage(
@@ -547,7 +615,7 @@ async function handleAutoApprovePlan() {
       );
     }
   } catch (err) {
-    log(`handleAutoApprovePlan failed: ${err}`);
+    log(`executeAutoApprove failed: ${err}`);
     vscode.window.showInformationMessage(
       `NeonCore: Plan approved on dashboard — please confirm in ${agentType === 'gridlight' ? 'Gridlight' : 'Claude Code'}`,
       'OK'
@@ -557,7 +625,7 @@ async function handleAutoApprovePlan() {
     if (queuedAutoApprove > 0) {
       queuedAutoApprove -= 1;
       setTimeout(() => {
-        void handleAutoApprovePlan();
+        void executeAutoApprove(AUTO_APPROVE_POST_EXEC_DELAY_MS);
       }, 50);
     }
   }

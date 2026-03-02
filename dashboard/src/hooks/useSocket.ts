@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, McpServer, WorkflowStepLog } from '../types';
 
 interface SocketHandlers {
   onAgentRegistered?: (agent: Agent) => void;
@@ -15,6 +15,9 @@ interface SocketHandlers {
   onPermissionsExpired?: (data: { count: number }) => void;
   onEpicUpdated?: (run: EpicRun) => void;
   onWorkflowUpdated?: (workflow: Workflow) => void;
+  onWorkflowStepUpdated?: (step: WorkflowStep) => void;
+  onWorkflowStepLog?: (log: WorkflowStepLog) => void;
+  onMcpServerUpdated?: (server: McpServer) => void;
   onReconnect?: () => void;
 }
 
@@ -98,6 +101,18 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('workflow_updated' as any, (workflow: Workflow) => {
       handlersRef.current.onWorkflowUpdated?.(workflow);
+    });
+
+    socket.on('workflow_step_updated' as any, (step: WorkflowStep) => {
+      handlersRef.current.onWorkflowStepUpdated?.(step);
+    });
+
+    socket.on('workflow_step_log' as any, (log: WorkflowStepLog) => {
+      handlersRef.current.onWorkflowStepLog?.(log);
+    });
+
+    socket.on('mcp_server_updated' as any, (server: McpServer) => {
+      handlersRef.current.onMcpServerUpdated?.(server);
     });
 
     // Mobile: refresh data when tab becomes visible again

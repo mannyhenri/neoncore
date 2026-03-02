@@ -3,6 +3,18 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        pixel: ['"Press Start 2P"', 'monospace'],
+      },
+      keyframes: {
+        'glow-pulse': {
+          '0%, 100%': { boxShadow: '0 0 8px 2px rgba(59, 130, 246, 0.3)' },
+          '50%': { boxShadow: '0 0 20px 6px rgba(59, 130, 246, 0.5)' },
+        },
+      },
+      animation: {
+        'glow-pulse': 'glow-pulse 2s ease-in-out infinite',
+      },
       colors: {
         gl: {
           bg: '#0f0f23',

@@ -34,9 +34,8 @@ def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str) 
     script_path = os.path.join(hooks_dir, script_name)
 
     if platform.system() == "Windows":
-        # On Windows, use python directly with the .py script
-        # Environment variable syntax: set NEONCORE_URL=... && python ...
-        return f'set "NEONCORE_URL={orchestrator_url}" && python "{script_path}"'
+        # Claude Code on Windows uses bash (Git Bash), so use Unix env var syntax
+        return f'NEONCORE_URL={orchestrator_url} python "{script_path}"'
     else:
         # On Unix, use env var prefix
         return f'NEONCORE_URL={orchestrator_url} python3 "{script_path}"'

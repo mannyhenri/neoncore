@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
 import { api } from '../lib/api';
 import { useSocket } from './useSocket';
@@ -121,11 +121,26 @@ export function useAgents() {
     });
   }, []);
 
+  // Group activities by agent for cartridge terminal display
+  const activitiesByAgent = useMemo(() => {
+    const grouped: Record<string, Activity[]> = {};
+    for (const a of activities) {
+      if (!grouped[a.agentId]) grouped[a.agentId] = [];
+      grouped[a.agentId].push(a);
+    }
+    return grouped;
+  }, [activities]);
+
+  // Convert stuckAlerts Map to array for CartridgeGrid
+  const stuckAlertsArray = useMemo(() => Array.from(stuckAlerts.values()), [stuckAlerts]);
+
   return {
     agents,
     activities,
+    activitiesByAgent,
     pendingPermissions,
     stuckAlerts,
+    stuckAlertsArray,
     loading,
     connected,
     decidePermission,

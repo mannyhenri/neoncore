@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { getIO } from '../ws.js';
+import { resolvePendingPoll } from './permissions.js';
 import type { Agent, AgentMode, AgentType } from '../types.js';
 
 const router = Router();
@@ -23,16 +24,9 @@ router.put('/:agentId/mode', (req, res) => {
   db.prepare('UPDATE agents SET agent_mode = ?, trust_mode = ?, last_seen = ? WHERE id = ?')
     .run(mode, trustMode, now, agentId);
 
-  // If switching to trust, auto-approve all pending permissions
+  // If switching to trust, auto-approve all pending permissions and resolve long-polls
   if (mode === 'trust') {
-    const pending = db
-      .prepare('SELECT id FROM permissions WHERE agent_id = ? AND status = ?')
-      .all(agentId, 'pending') as { id: string }[];
-
-    for (const perm of pending) {
-      db.prepare('UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?')
-        .run('allowed', now, perm.id);
-    }
+    autoApprovePending(agentId, now);
   }
 
   const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
@@ -56,16 +50,9 @@ router.put('/:agentId', (req, res) => {
   db.prepare('UPDATE agents SET trust_mode = ?, agent_mode = ?, last_seen = ? WHERE id = ?')
     .run(newTrustMode, newMode, now, agentId);
 
-  // If turning on trust mode, auto-approve all pending permissions for this agent
+  // If turning on trust mode, auto-approve all pending permissions and resolve long-polls
   if (newTrustMode) {
-    const pending = db
-      .prepare('SELECT id FROM permissions WHERE agent_id = ? AND status = ?')
-      .all(agentId, 'pending') as { id: string }[];
-
-    for (const perm of pending) {
-      db.prepare('UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?')
-        .run('allowed', now, perm.id);
-    }
+    autoApprovePending(agentId, now);
   }
 
   const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
@@ -81,6 +68,22 @@ router.get('/:agentId', (req, res) => {
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   res.json({ agentId: agent.id, trustMode: Boolean(agent.trust_mode), mode: agent.agent_mode });
 });
+
+/** Auto-approve all pending permissions for an agent and resolve any active long-polls. */
+function autoApprovePending(agentId: string, now: string) {
+  const pending = db
+    .prepare('SELECT id FROM permissions WHERE agent_id = ? AND status = ?')
+    .all(agentId, 'pending') as { id: string }[];
+
+  for (const perm of pending) {
+    db.prepare('UPDATE permissions SET status = ?, decided_at = ? WHERE id = ?')
+      .run('allowed', now, perm.id);
+    // Resolve the hook's HTTP long-poll immediately (instead of 120s timeout)
+    resolvePendingPoll(perm.id, 'allowed');
+    // Notify dashboard to clear permission card (only `id` is used for filtering)
+    getIO().emit('permission_decided', { id: perm.id, agentId, status: 'allowed' } as any);
+  }
+}
 
 function normalizeAgent(row: Record<string, unknown>): Agent {
   const mode = (row.agent_mode ?? 'manual') as Agent['mode'];

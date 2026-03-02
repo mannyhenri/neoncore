@@ -200,18 +200,21 @@ def main():
     else:
         desc = tool_name
 
-    # Register agent (include waiting status + question data for AskUserQuestion)
+    # Register agent — always mark as 'working' since a PreToolUse hook firing
+    # means Claude is actively using tools.  AskUserQuestion overrides to 'waiting'.
     register_data: dict = {
         "sessionId": session_id,
         "machine": machine,
         "repoPath": cwd,
         "repoName": repo_name,
+        "status": "working",
     }
     if tool_name == "AskUserQuestion":
         register_data["status"] = "waiting"
         register_data["pendingQuestion"] = json.dumps(tool_input)[:4000]
     register_body = json.dumps(register_data)
-    post_json(f"{ORCHESTRATOR_URL}/api/agents/register", register_body)
+    register_resp = post_json(f"{ORCHESTRATOR_URL}/api/agents/register", register_body)
+    resolved_agent_id = register_resp.get("id", "") if register_resp else ""
 
     # Log AskUserQuestion / EnterPlanMode / ExitPlanMode as activity immediately
     if tool_name in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
@@ -236,12 +239,15 @@ def main():
         post_json(f"{ORCHESTRATOR_URL}/api/activity", activity_body)
 
     # Request permission from orchestrator
-    permission_body = json.dumps({
+    perm_data: dict = {
         "sessionId": session_id,
         "toolName": tool_name,
         "toolInput": tool_input,
         "description": desc,
-    })
+    }
+    if resolved_agent_id:
+        perm_data["agentId"] = resolved_agent_id
+    permission_body = json.dumps(perm_data)
     response = post_json(f"{ORCHESTRATOR_URL}/api/permissions/request", permission_body)
 
     if not response:

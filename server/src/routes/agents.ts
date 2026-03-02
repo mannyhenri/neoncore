@@ -6,20 +6,53 @@ import type { Agent, AgentType, Activity } from '../types.js';
 
 const router = Router();
 
+/**
+ * Normalize a repo path for cross-platform matching.
+ * Handles Windows backslashes vs POSIX forward slashes and drive-letter formats:
+ *   c:\Users\Manny\repo  →  /c/users/manny/repo
+ *   /c/Users/Manny/repo  →  /c/users/manny/repo
+ */
+function normalizeRepoPath(p: string): string {
+  if (!p) return '';
+  let n = p.replace(/\\/g, '/');
+  // c:/ → /c/
+  n = n.replace(/^([a-zA-Z]):\//, '/$1/');
+  // Strip trailing slash
+  n = n.replace(/\/+$/, '');
+  return n.toLowerCase();
+}
+
 // Register or update an agent
-// Deduplicates on machine + repoPath + agentType so each extension per repo per machine = 1 agent
+// Deduplicates on machine + repoPath (with cross-platform path normalization)
 router.post('/register', (req, res) => {
   const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion } = req.body;
   const resolvedType = agentType || 'claude';
 
   const now = new Date().toISOString();
 
-  // First try: find by machine + repoPath + agentType (canonical dedup key)
+  // Find existing agent using cross-platform path normalization.
+  // On Windows, hooks (Git Bash) send POSIX paths like /c/Users/... while the
+  // extension sends Windows paths like c:\Users\... — both must match the same agent.
   let existing: Record<string, unknown> | undefined;
   if (machine && repoPath) {
-    existing = db
-      .prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
-      .get(machine, repoPath, resolvedType) as Record<string, unknown> | undefined;
+    const normalizedIncoming = normalizeRepoPath(repoPath);
+    const candidates = db
+      .prepare('SELECT * FROM agents WHERE machine = ?')
+      .all(machine) as Record<string, unknown>[];
+
+    // Exact match: same normalized path + same agentType
+    existing = candidates.find(
+      (a) => normalizeRepoPath(a.repo_path as string) === normalizedIncoming
+        && (a.agent_type as string) === resolvedType
+    );
+
+    // Fuzzy match: same normalized path, any agentType (hooks default to 'claude'
+    // but should find an extension-registered 'gridlight' agent)
+    if (!existing) {
+      existing = candidates.find(
+        (a) => normalizeRepoPath(a.repo_path as string) === normalizedIncoming
+      );
+    }
   }
 
   // Fallback: find by sessionId (for backward compat)
@@ -43,6 +76,10 @@ router.post('/register', (req, res) => {
         ? ''  // explicit non-waiting status clears the question
         : (existing.pending_question as string) || '';  // no status provided → preserve
 
+    // Preserve existing agent_type when the caller didn't explicitly set one
+    // (hooks default to 'claude' but shouldn't overwrite 'gridlight')
+    const typeToSet = agentType ? resolvedType : (existing.agent_type as string) || resolvedType;
+
     db.prepare(`
       UPDATE agents SET name = ?, machine = ?, repo_path = ?, repo_name = ?,
         branch = ?, current_task = ?, status = ?, pending_question = ?, last_seen = ?, session_id = ?,
@@ -54,7 +91,7 @@ router.post('/register', (req, res) => {
       branch || existing.branch, currentTask || existing.current_task,
       statusToSet, questionToSet,
       now, sessionId || existing.session_id,
-      resolvedType,
+      typeToSet,
       existing.id
     );
 
@@ -151,14 +188,20 @@ router.post('/message', (req, res) => {
 
   let agent: Record<string, unknown> | undefined;
   if (machine && repoPath) {
-    // If agentType provided, find the exact agent; otherwise fall back to any match
+    const normalizedIncoming = normalizeRepoPath(repoPath);
+    const candidates = db.prepare('SELECT * FROM agents WHERE machine = ?')
+      .all(machine) as Record<string, unknown>[];
+
     if (agentType) {
-      agent = db.prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
-        .get(machine, repoPath, agentType) as Record<string, unknown> | undefined;
+      agent = candidates.find(
+        (a) => normalizeRepoPath(a.repo_path as string) === normalizedIncoming
+          && (a.agent_type as string) === agentType
+      );
     }
     if (!agent) {
-      agent = db.prepare('SELECT * FROM agents WHERE machine = ? AND repo_path = ?')
-        .get(machine, repoPath) as Record<string, unknown> | undefined;
+      agent = candidates.find(
+        (a) => normalizeRepoPath(a.repo_path as string) === normalizedIncoming
+      );
     }
   }
   if (!agent && sessionId) {
@@ -171,8 +214,11 @@ router.post('/message', (req, res) => {
   const now = new Date().toISOString();
   const fullMessage = (message || '').slice(0, 4000);
   const shortMessage = fullMessage.slice(0, 500);
+  // Receiving a message from Claude is real activity — set working + last_seen.
+  // The periodic timer in index.ts handles the working→idle transition after
+  // the 2-minute grace period once all activity stops.
   db.prepare('UPDATE agents SET last_message = ?, last_seen = ?, status = ? WHERE id = ?')
-    .run(shortMessage, now, 'idle', agent.id);
+    .run(shortMessage, now, 'working', agent.id);
 
   // Also log as activity so it appears in the feed
   const activityId = uuid();
@@ -196,6 +242,46 @@ router.post('/message', (req, res) => {
   const normalized = normalizeAgent(updated);
   getIO().emit('agent_updated', normalized);
   res.json(normalized);
+});
+
+// Signal that ExitPlanMode has completed (sent by PostToolUse reporter hook).
+// The extension uses this to time the auto-approve keystroke after Claude generates
+// its follow-up plan prompt — much more reliable than guessing from permission grant time.
+router.post('/plan-executed', (req, res) => {
+  const { machine, repoPath } = req.body;
+  if (!machine || !repoPath) return res.json({ ok: true });
+
+  const normalizedIncoming = normalizeRepoPath(repoPath);
+  const candidates = db
+    .prepare('SELECT * FROM agents WHERE machine = ?')
+    .all(machine) as Record<string, unknown>[];
+  const agent = candidates.find(
+    (a) => normalizeRepoPath(a.repo_path as string) === normalizedIncoming
+  );
+
+  if (!agent) return res.json({ ok: true });
+
+  const agentId = agent.id as string;
+  const io = getIO();
+  const agentRoom = `agent:${agentId}`;
+  const agentRoomSize = io.sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
+  const payload = { agentId };
+
+  if (agentRoomSize > 0) {
+    console.log(`[agents] plan_executed — emitting to ${agentRoom} (${agentRoomSize} socket(s))`);
+    io.to(agentRoom).emit('plan_executed', payload);
+  } else {
+    const pathRoom = `ext:${machine}:${repoPath}`;
+    const pathRoomSize = io.sockets.adapter.rooms.get(pathRoom)?.size ?? 0;
+    if (pathRoomSize > 0) {
+      console.log(`[agents] plan_executed — agent room empty, emitting to ${pathRoom} (${pathRoomSize} socket(s))`);
+      io.to(pathRoom).emit('plan_executed', payload);
+    } else {
+      console.log(`[agents] plan_executed — no extension sockets found for agent ${agentId}`);
+    }
+  }
+
+  res.json({ ok: true });
 });
 
 // Focus an agent's VS Code window

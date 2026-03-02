@@ -147,6 +147,16 @@ export interface WorkflowPhaseState {
   playerResults: PhaseResult[];
 }
 
+export interface StepSummary {
+  total: number;
+  completed: number;
+  running: number;
+  failed: number;
+  pending: number;
+  /** Brief list of step names for at-a-glance identification */
+  stepNames?: string[];
+}
+
 export interface Workflow {
   id: string;
   name: string;
@@ -163,6 +173,67 @@ export interface Workflow {
   startedAt: string;
   completedAt: string | null;
   error: string;
+  stepSummary?: StepSummary;
+}
+
+// MCP Server types
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  isPreconfigured: boolean;
+  status: 'stopped' | 'running' | 'error';
+  error: string;
+  pid: number | null;
+  capabilities: McpTool[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Workflow Step types (V2 canvas workflows)
+export type StepExecutorType = 'mcp' | 'claude-code' | 'claude-plan' | 'claude-review';
+export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface WorkflowStep {
+  id: string;
+  workflowId: string;
+  name: string;
+  description: string;
+  positionX: number;
+  positionY: number;
+  executorType: StepExecutorType;
+  executorId: string;
+  executorConfig: Record<string, unknown>;
+  autoAdvance: boolean;
+  status: StepStatus;
+  result: string;
+  error: string;
+  dependsOn: string[];
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+// Workflow step execution log
+export type StepLogType = 'info' | 'success' | 'error' | 'warn' | 'llm';
+
+export interface WorkflowStepLog {
+  workflowId: string;
+  stepId: string;
+  stepName: string;
+  message: string;
+  type: StepLogType;
+  timestamp: string;
 }
 
 // Git types
