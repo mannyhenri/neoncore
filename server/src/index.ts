@@ -18,10 +18,13 @@ import reposRouter from './routes/repos.js';
 import gitRouter from './routes/git.js';
 import epicsRouter from './routes/epics.js';
 import workflowsRouter from './routes/workflows.js';
+import mcpRouter from './routes/mcp.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startEpicExecutor } from './routes/epics.js';
 import { startWorkflowExecutor } from './lib/workflow-executor.js';
+import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
+import { restoreRunningServers } from './lib/mcp-manager.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -52,6 +55,7 @@ app.use('/api/repos', reposRouter);
 app.use('/api/git', gitRouter);
 app.use('/api/epics', epicsRouter);
 app.use('/api/workflows', workflowsRouter);
+app.use('/api/mcp', mcpRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -113,7 +117,7 @@ function emitAgentUpdate(row: Record<string, unknown>) {
 setInterval(() => {
   const now = new Date().toISOString();
 
-  // working → idle after 2 minutes
+  // working → idle after 2 minutes of no activity
   const idleCutoff = new Date(Date.now() - IDLE_THRESHOLD_MS).toISOString();
   const staleWorking = db.prepare(
     "SELECT id FROM agents WHERE status = 'working' AND last_seen < ?"
@@ -157,6 +161,10 @@ startStuckDetector();
 startMemoryAnalyzer();
 // startEpicExecutor(); // TODO: disabled — autopilot not working yet
 startWorkflowExecutor();
+startWorkflowExecutorV2();
+
+// Restore MCP servers that were running before restart
+restoreRunningServers().catch((err) => console.error('[mcp] Restore failed:', err));
 
 // Get local IP for display
 import os from 'os';
@@ -172,11 +180,27 @@ function getLocalIP(): string {
   return 'localhost';
 }
 
+// Graceful port-conflict handling for Gridlight deployment
+server.on('error', async (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    try {
+      const res = await fetch(`http://localhost:${PORT}/api/health`);
+      const data = await res.json() as { status?: string };
+      if (data.status === 'ok') {
+        console.log(`[startup] Neon Cartridges already running on port ${PORT}, piggybacking`);
+        process.exit(0);
+      }
+    } catch { /* not Neon Cartridges */ }
+    console.error(`[startup] Port ${PORT} is in use by another process`);
+    process.exit(1);
+  }
+});
+
 server.listen(PORT, '0.0.0.0', () => {
   const localIP = getLocalIP();
   console.log(`
   ╔══════════════════════════════════════════════╗
-  ║   NeonCore Orchestrator Server               ║
+  ║   Neon Cartridges Server                     ║
   ║                                              ║
   ║   Local:   http://localhost:${PORT}              ║
   ║   Network: http://${localIP}:${PORT}    ║

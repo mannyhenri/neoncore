@@ -1,4 +1,4 @@
-# NeonCore Orchestrator
+# Neon Cartridges
 
 ## Project Structure
 

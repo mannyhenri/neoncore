@@ -1,7 +1,29 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
-import type { Agent, Workflow, PlayerRole, PlayerType } from '../types';
+import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
+import type { Agent, Workflow, PlayerRole, PlayerType, StepSummary, WorkflowStep } from '../types';
+
+// ─── Browser notification helper ────────────────────
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function sendNotification(title: string, body: string, tag?: string) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const n = new Notification(title, {
+      body,
+      tag: tag || 'workflow-step',
+      icon: '/favicon.ico',
+      silent: false,
+    });
+    // Auto-close after 8 seconds
+    setTimeout(() => n.close(), 8000);
+  }
+}
 
 interface Props {
   agents: Agent[];
@@ -25,6 +47,8 @@ export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [expanded, setExpanded] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
 
   const loadWorkflows = useCallback(async () => {
     try {
@@ -35,7 +59,18 @@ export function WorkflowPanel({ agents }: Props) {
     }
   }, []);
 
-  useEffect(() => { loadWorkflows(); }, [loadWorkflows]);
+  // Request notification permission on mount
+  useEffect(() => {
+    loadWorkflows();
+    requestNotificationPermission();
+  }, [loadWorkflows]);
+
+  // Debounced reload for step updates (avoid hammering the API)
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const debouncedReload = useCallback(() => {
+    clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(loadWorkflows, 2000);
+  }, [loadWorkflows]);
 
   useSocket({
     onWorkflowUpdated: (wf) => {
@@ -48,6 +83,36 @@ export function WorkflowPanel({ agents }: Props) {
         }
         return [wf, ...prev];
       });
+    },
+    onWorkflowStepUpdated: (step: WorkflowStep) => {
+      // Refresh workflow list to update step summary counters
+      debouncedReload();
+
+      // Send browser notification for completed or failed steps
+      if (step.status === 'completed') {
+        const wf = workflows.find((w) => w.id === step.workflowId);
+        const wfName = wf?.name || 'Workflow';
+        if (step.autoAdvance) {
+          sendNotification(
+            `Step completed`,
+            `"${step.name}" finished — ${wfName}`,
+            `step-${step.id}`,
+          );
+        } else {
+          sendNotification(
+            `Step completed — action needed`,
+            `"${step.name}" finished — advance to continue (${wfName})`,
+            `step-${step.id}`,
+          );
+        }
+      } else if (step.status === 'failed') {
+        const wf = workflows.find((w) => w.id === step.workflowId);
+        sendNotification(
+          `Step failed`,
+          `"${step.name}" failed — ${wf?.name || 'Workflow'}`,
+          `step-${step.id}`,
+        );
+      }
     },
     onReconnect: loadWorkflows,
   });
@@ -76,24 +141,15 @@ export function WorkflowPanel({ agents }: Props) {
         <div className="space-y-4">
           {/* Create button */}
           <button
-            onClick={() => setShowCreator(!showCreator)}
-            className="text-sm px-4 py-2 rounded-lg glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors"
+            onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
+            className="text-sm px-4 py-2 rounded-lg gl-gradient text-white hover:opacity-90 transition-opacity font-medium"
           >
-            {showCreator ? 'Cancel' : '+ New Workflow'}
+            + New Workflow
           </button>
-
-          {/* Creator form */}
-          {showCreator && (
-            <WorkflowCreator
-              agents={agents}
-              onCreated={() => { setShowCreator(false); loadWorkflows(); }}
-              onCancel={() => setShowCreator(false)}
-            />
-          )}
 
           {/* Active runs */}
           {activeWorkflows.map((wf) => (
-            <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} agents={agents} />
+            <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={(id) => { setEditingWorkflowId(id); setCanvasOpen(true); }} agents={agents} />
           ))}
 
           {/* Recent (collapsed) */}
@@ -101,11 +157,21 @@ export function WorkflowPanel({ agents }: Props) {
             <div className="space-y-2">
               <div className="text-xs text-gray-500 uppercase tracking-wider">Recent</div>
               {recentWorkflows.map((wf) => (
-                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} compact agents={agents} />
+                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={(id) => { setEditingWorkflowId(id); setCanvasOpen(true); }} compact agents={agents} />
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {/* Canvas Workflow Editor */}
+      {canvasOpen && (
+        <WorkflowCanvasEditor
+          workflowId={editingWorkflowId}
+          agents={agents}
+          onClose={() => setCanvasOpen(false)}
+          onSaved={() => { loadWorkflows(); }}
+        />
       )}
     </div>
   );
@@ -380,13 +446,29 @@ function PlayerRow({ name, badge, badgeColor, selected, roles, onToggle, onToggl
 
 // ─── WorkflowRunCard ────────────────────────────────
 
-function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
+function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
   workflow: Workflow;
   onAction: () => void;
+  onOpen?: (id: string) => void;
   compact?: boolean;
   agents?: Agent[];
 }) {
   const [showContext, setShowContext] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const isV2 = !!wf.stepSummary;
+  const canRun = isV2 && !['running', 'paused'].includes(wf.status);
+
+  async function handleRunFromList() {
+    if (!canRun || starting) return;
+    setStarting(true);
+    try {
+      await api.startWorkflowV2(wf.id);
+      onAction();
+    } catch { /* silent */ }
+    finally { setStarting(false); }
+  }
 
   async function handlePause() {
     try { await api.pauseWorkflow(wf.id); onAction(); } catch { /* silent */ }
@@ -396,6 +478,9 @@ function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
   }
   async function handleCancel() {
     try { await api.cancelWorkflow(wf.id); onAction(); } catch { /* silent */ }
+  }
+  async function handleDelete() {
+    try { await api.deleteWorkflow(wf.id); onAction(); } catch { /* silent */ }
   }
 
   const statusColor = {
@@ -409,10 +494,49 @@ function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
 
   if (compact) {
     return (
-      <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs">
+      <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs group">
         <span className={`font-medium ${statusColor}`}>{wf.status}</span>
-        <span className="text-gray-400 truncate flex-1">{wf.name}</span>
-        {wf.jiraTaskId && <span className="text-gray-500 font-mono">{wf.jiraTaskId}</span>}
+        <button
+          onClick={() => onOpen?.(wf.id)}
+          className="text-gray-400 truncate flex-1 text-left hover:text-white transition-colors"
+        >
+          {wf.name || 'Untitled'}
+        </button>
+        {wf.stepSummary && (
+          <>
+            <span className="text-gray-600 truncate max-w-[200px]" title={wf.stepSummary.stepNames?.join(' → ')}>
+              {wf.stepSummary.stepNames?.join(' → ')}
+            </span>
+            <span className="text-gray-600 shrink-0">
+              {wf.stepSummary.completed}/{wf.stepSummary.total}
+            </span>
+          </>
+        )}
+        {wf.jiraTaskId && <span className="text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
+        {canRun && (
+          <button
+            onClick={handleRunFromList}
+            disabled={starting}
+            className="text-emerald-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all shrink-0 disabled:opacity-30"
+            title="Run workflow"
+          >
+            {starting ? '...' : '▶'}
+          </button>
+        )}
+        {confirmDelete ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={handleDelete} className="text-[10px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/20">Delete</button>
+            <button onClick={() => setConfirmDelete(false)} className="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5">No</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+            title="Delete workflow"
+          >
+            &times;
+          </button>
+        )}
       </div>
     );
   }
@@ -423,12 +547,26 @@ function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
-          <span className="text-sm text-gray-300 truncate">{wf.name}</span>
+          <button
+            onClick={() => onOpen?.(wf.id)}
+            className="text-sm text-gray-300 truncate hover:text-white transition-colors"
+          >
+            {wf.name || 'Untitled'}
+          </button>
           {wf.jiraTaskId && <span className="text-xs text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {wf.iteration > 1 && (
             <span className="text-xs text-gray-500">Iteration {wf.iteration}/{wf.maxIterations}</span>
+          )}
+          {canRun && (
+            <button
+              onClick={handleRunFromList}
+              disabled={starting}
+              className="text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded hover:bg-white/5 disabled:opacity-30"
+            >
+              {starting ? 'Starting...' : '▶ Run'}
+            </button>
           )}
           {wf.status === 'running' && (
             <button onClick={handlePause} className="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-white/5">Pause</button>
@@ -439,16 +577,30 @@ function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
           {['running', 'paused'].includes(wf.status) && (
             <button onClick={handleCancel} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-white/5">Cancel</button>
           )}
+          {!['running', 'paused'].includes(wf.status) && (
+            confirmDelete ? (
+              <div className="flex items-center gap-1">
+                <button onClick={handleDelete} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-red-500/20">Delete</button>
+                <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmDelete(true)} className="text-xs text-gray-600 hover:text-red-400 px-2 py-1 rounded hover:bg-white/5 transition-colors">Delete</button>
+            )
+          )}
         </div>
       </div>
 
-      {/* Phase progress */}
-      <PhaseProgress phases={wf.phases} currentPhase={wf.currentPhase} />
-
-      {/* Current phase details */}
-      {wf.status === 'running' && wf.phases[wf.currentPhase] && (
-        <PhaseDetails phase={wf.phases[wf.currentPhase]} players={wf.players} agents={agents} />
-      )}
+      {/* Step progress (V2 canvas) or Phase progress (V1) */}
+      {wf.stepSummary ? (
+        <StepProgress summary={wf.stepSummary} />
+      ) : wf.phases.length > 0 ? (
+        <>
+          <PhaseProgress phases={wf.phases} currentPhase={wf.currentPhase} />
+          {wf.status === 'running' && wf.phases[wf.currentPhase] && (
+            <PhaseDetails phase={wf.phases[wf.currentPhase]} players={wf.players} agents={agents} />
+          )}
+        </>
+      ) : null}
 
       {/* Error */}
       {wf.error && (
@@ -475,7 +627,49 @@ function WorkflowRunCard({ workflow: wf, onAction, compact, agents }: {
   );
 }
 
-// ─── PhaseProgress ──────────────────────────────────
+// ─── StepProgress (V2 Canvas workflows) ──────────────
+
+function StepProgress({ summary }: { summary: StepSummary }) {
+  const { total, completed, running, failed, pending } = summary;
+
+  return (
+    <div className="space-y-1.5">
+      {/* Progress bar */}
+      <div className="flex h-1.5 rounded-full overflow-hidden bg-white/5 gap-px">
+        {completed > 0 && (
+          <div className="bg-emerald-500/70 rounded-sm" style={{ flex: completed }} />
+        )}
+        {running > 0 && (
+          <div className="bg-blue-500/70 animate-pulse rounded-sm" style={{ flex: running }} />
+        )}
+        {failed > 0 && (
+          <div className="bg-red-500/60 rounded-sm" style={{ flex: failed }} />
+        )}
+        {pending > 0 && (
+          <div className="bg-white/5 rounded-sm" style={{ flex: pending }} />
+        )}
+      </div>
+
+      {/* Step names */}
+      {summary.stepNames && summary.stepNames.length > 0 && (
+        <div className="text-[10px] text-gray-500 truncate" title={summary.stepNames.join(' → ')}>
+          {summary.stepNames.join(' → ')}
+        </div>
+      )}
+
+      {/* Labels */}
+      <div className="flex gap-3 text-[10px]">
+        {completed > 0 && <span className="text-emerald-400">{completed} done</span>}
+        {running > 0 && <span className="text-blue-400">{running} running</span>}
+        {failed > 0 && <span className="text-red-400">{failed} failed</span>}
+        {pending > 0 && <span className="text-gray-500">{pending} pending</span>}
+        <span className="text-gray-600 ml-auto">{completed}/{total} steps</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── PhaseProgress (V1 workflows) ──────────────────
 
 function PhaseProgress({ phases, currentPhase }: { phases: Workflow['phases']; currentPhase: number }) {
   return (

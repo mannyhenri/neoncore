@@ -84,7 +84,7 @@ export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled
   }, [text, onSend, agentId, history]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
       return;
@@ -160,7 +160,7 @@ export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled
               {memoryEnabled ? 'Memory' : 'No memory'}
             </button>
           )}
-          <span>Cmd+Enter to send</span>
+          <span>Enter to send, Shift+Enter for newline</span>
         </span>
         <button
           onClick={handleSubmit}

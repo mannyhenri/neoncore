@@ -12,21 +12,40 @@ const pendingPolls = new Map<string, {
   timer: ReturnType<typeof setTimeout>;
 }>();
 
+/**
+ * Resolve a pending long-poll by ID. Called from trust.ts when auto-approving
+ * permissions so the hook gets an immediate response instead of timing out.
+ */
+export function resolvePendingPoll(id: string, decision: 'allowed' | 'denied', response = '') {
+  const poll = pendingPolls.get(id);
+  if (poll) {
+    poll.resolve(decision, response);
+  }
+}
+
 // Request a permission decision (called by hook scripts)
 router.post('/request', (req, res) => {
   const { agentId, sessionId, toolName, toolInput, description } = req.body;
   console.log(`[permissions] Permission request: tool=${toolName} sessionId=${sessionId?.slice(0, 20)} agentId=${agentId || 'none'}`);
 
-  // Resolve agent
+  // Resolve agent — try sessionId first, then fall back to agentId.
+  // Both lookups are needed because hooks may register under a different
+  // session_id than the one stored when agentType differs (e.g. gridlight).
   let resolvedAgentId = agentId;
   let trustMode = false;
+  let resolvedBySession = false;
+
   if (sessionId) {
     const agent = db.prepare('SELECT id, trust_mode, agent_mode FROM agents WHERE session_id = ?').get(sessionId) as { id: string; trust_mode: number; agent_mode: string } | undefined;
     if (agent) {
       resolvedAgentId = agent.id;
       trustMode = agent.agent_mode === 'trust';
+      resolvedBySession = true;
     }
-  } else if (resolvedAgentId) {
+  }
+
+  // Fallback: if sessionId didn't find the agent, try by agentId
+  if (!resolvedBySession && resolvedAgentId) {
     const agent = db.prepare('SELECT trust_mode, agent_mode FROM agents WHERE id = ?').get(resolvedAgentId) as { trust_mode: number; agent_mode: string } | undefined;
     trustMode = agent?.agent_mode === 'trust';
   }

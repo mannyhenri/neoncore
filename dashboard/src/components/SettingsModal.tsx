@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
+import { friendlyTool, getServerCapabilityPreview } from '../lib/mcp-tools';
+import type { McpServer } from '../types';
 
 interface Props {
   onClose: () => void;
 }
 
-type SettingsTab = 'projects' | 'api-keys';
+type SettingsTab = 'projects' | 'api-keys' | 'mcp-servers';
 
 export function SettingsModal({ onClose }: Props) {
   const [tab, setTab] = useState<SettingsTab>('projects');
@@ -25,6 +27,24 @@ export function SettingsModal({ onClose }: Props) {
   const [gridlightModels, setGridlightModels] = useState('');
   const [apiSaving, setApiSaving] = useState(false);
   const [apiSaved, setApiSaved] = useState(false);
+
+  // MCP servers
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpEditing, setMcpEditing] = useState<Record<string, Record<string, string>>>({});
+  const [customCommand, setCustomCommand] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [mcpBusy, setMcpBusy] = useState<Set<string>>(new Set());
+  const [mcpExpanded, setMcpExpanded] = useState<Set<string>>(new Set());
+  const [mcpToolsOpen, setMcpToolsOpen] = useState<Set<string>>(new Set());
+
+  const toggleMcpTools = (id: string) => {
+    setMcpToolsOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const browse = useCallback((dirPath?: string) => {
     setLoading(true);
@@ -69,6 +89,89 @@ export function SettingsModal({ onClose }: Props) {
 
   const isSelected = currentPath === savedDir && savedDir !== '';
 
+  // Load MCP servers when tab opens
+  useEffect(() => {
+    if (tab !== 'mcp-servers') return;
+    setMcpLoading(true);
+    api.getMcpServers()
+      .then((servers) => {
+        setMcpServers(servers);
+        const editing: Record<string, Record<string, string>> = {};
+        const autoExpand = new Set<string>();
+        for (const s of servers) {
+          editing[s.id] = { ...s.env };
+          // Auto-expand servers with errors or empty required env fields
+          const hasEmptyEnv = Object.values(s.env).some((v) => !v);
+          if (s.status === 'error' || (hasEmptyEnv && Object.keys(s.env).length > 0)) {
+            autoExpand.add(s.id);
+          }
+        }
+        setMcpEditing(editing);
+        setMcpExpanded(autoExpand);
+      })
+      .catch(() => {})
+      .finally(() => setMcpLoading(false));
+  }, [tab]);
+
+  const toggleMcpExpanded = (id: string) => {
+    setMcpExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleMcpEnvChange = (serverId: string, key: string, value: string) => {
+    setMcpEditing((prev) => ({
+      ...prev,
+      [serverId]: { ...prev[serverId], [key]: value },
+    }));
+  };
+
+  const handleMcpSaveEnv = async (serverId: string) => {
+    const env = mcpEditing[serverId];
+    if (!env) return;
+    setMcpBusy((prev) => new Set(prev).add(serverId));
+    try {
+      const updated = await api.updateMcpServer(serverId, { env });
+      setMcpServers((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    } catch { /* ignore */ }
+    setMcpBusy((prev) => { const n = new Set(prev); n.delete(serverId); return n; });
+  };
+
+  const handleMcpToggle = async (server: McpServer) => {
+    setMcpBusy((prev) => new Set(prev).add(server.id));
+    try {
+      // Save env first if changed
+      const env = mcpEditing[server.id];
+      if (env) await api.updateMcpServer(server.id, { env });
+
+      const updated = server.status === 'running'
+        ? await api.stopMcpServer(server.id)
+        : await api.startMcpServer(server.id);
+      setMcpServers((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    } catch { /* ignore */ }
+    setMcpBusy((prev) => { const n = new Set(prev); n.delete(server.id); return n; });
+  };
+
+  const handleAddCustomMcp = async () => {
+    if (!customCommand.trim()) return;
+    try {
+      const server = await api.addMcpServer({ command: customCommand.trim(), name: customName.trim() || undefined });
+      setMcpServers((prev) => [...prev, server]);
+      setMcpEditing((prev) => ({ ...prev, [server.id]: { ...server.env } }));
+      setCustomCommand('');
+      setCustomName('');
+    } catch { /* ignore */ }
+  };
+
+  const handleDeleteMcp = async (id: string) => {
+    try {
+      await api.deleteMcpServer(id);
+      setMcpServers((prev) => prev.filter((s) => s.id !== id));
+    } catch { /* ignore */ }
+  };
+
   const handleSaveApiKeys = async () => {
     setApiSaving(true);
     try {
@@ -108,6 +211,7 @@ export function SettingsModal({ onClose }: Props) {
             <div className="flex gap-1">
               <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
               <button onClick={() => setTab('api-keys')} className={tabClass('api-keys')}>API Keys</button>
+              <button onClick={() => setTab('mcp-servers')} className={tabClass('mcp-servers')}>MCP Servers</button>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
@@ -168,7 +272,7 @@ export function SettingsModal({ onClose }: Props) {
               {saved && <span className="text-xs text-green-400">Saved</span>}
             </div>
           </>
-        ) : (
+        ) : tab === 'api-keys' ? (
           <>
             {/* API Keys tab */}
             <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-5">
@@ -239,7 +343,282 @@ export function SettingsModal({ onClose }: Props) {
               {apiSaved && <span className="text-xs text-green-400">Saved</span>}
             </div>
           </>
-        )}
+        ) : tab === 'mcp-servers' ? (
+          <>
+            {/* MCP Servers tab */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-4">
+              {mcpLoading ? (
+                <div className="text-sm text-gray-500 text-center py-6">Loading MCP servers...</div>
+              ) : (
+                <>
+                  {/* Pre-configured servers */}
+                  <div className="space-y-2">
+                    {mcpServers.filter((s) => s.isPreconfigured).map((server) => {
+                      const envKeys = Object.keys(server.env);
+                      const busy = mcpBusy.has(server.id);
+                      const expanded = mcpExpanded.has(server.id);
+                      const statusColor = server.status === 'running' ? 'bg-green-500' : server.status === 'error' ? 'bg-red-500' : 'bg-gray-600';
+                      return (
+                        <div key={server.id} className="glass-light rounded-lg overflow-hidden">
+                          <div className="flex items-center justify-between p-3">
+                            <button
+                              onClick={() => toggleMcpExpanded(server.id)}
+                              className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                            >
+                              <svg
+                                className={`w-3 h-3 text-gray-500 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                                fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                              </svg>
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
+                              <span className="text-sm font-medium text-white truncate">{server.name}</span>
+                              <span className="text-[10px] text-gray-500 shrink-0">{server.status}</span>
+                            </button>
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              <button
+                                onClick={() => handleMcpToggle(server)}
+                                disabled={busy || (!server.command && server.slug !== 'claude-code')}
+                                className={`text-xs px-3 py-1 rounded-md transition-colors ${
+                                  server.status === 'running'
+                                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                    : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                                } disabled:opacity-30`}
+                              >
+                                {busy ? '...' : server.status === 'running' ? 'Stop' : 'Start'}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteMcp(server.id)}
+                                className="text-xs text-gray-500 hover:text-red-400 px-1 transition-colors"
+                              >&times;</button>
+                            </div>
+                          </div>
+                          {expanded && (
+                            <div className="px-3 pb-3 space-y-2 border-t border-white/[0.04] pt-2">
+                              {server.description && (
+                                <p className="text-xs text-gray-400">{server.description}</p>
+                              )}
+                              {server.error && (
+                                <div className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1">{server.error}</div>
+                              )}
+                              {envKeys.length > 0 && (
+                                <div className="space-y-1.5">
+                                  {envKeys.map((key) => (
+                                    <div key={key}>
+                                      <label className="block text-[10px] text-gray-500 mb-0.5">{key}</label>
+                                      <input
+                                        type={key.toLowerCase().includes('key') || key.toLowerCase().includes('token') || key.toLowerCase().includes('secret') ? 'password' : 'text'}
+                                        value={mcpEditing[server.id]?.[key] ?? ''}
+                                        onChange={(e) => handleMcpEnvChange(server.id, key, e.target.value)}
+                                        onBlur={() => handleMcpSaveEnv(server.id)}
+                                        placeholder={key}
+                                        className="w-full text-xs glass-input text-gray-300 rounded px-2 py-1.5 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {server.capabilities.length > 0 && (
+                                <div>
+                                  <button
+                                    onClick={() => toggleMcpTools(server.id)}
+                                    className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                                  >
+                                    <svg
+                                      className={`w-2.5 h-2.5 transition-transform ${mcpToolsOpen.has(server.id) ? 'rotate-90' : ''}`}
+                                      fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    {server.capabilities.length} tool{server.capabilities.length !== 1 ? 's' : ''} available
+                                  </button>
+                                  {mcpToolsOpen.has(server.id) && (
+                                    <div className="mt-1.5 space-y-1.5 pl-3 border-l border-white/[0.06]">
+                                      {server.capabilities.map((tool) => {
+                                        const friendly = friendlyTool(tool.name, tool.description);
+                                        return (
+                                          <div key={tool.name}>
+                                            <div className="flex items-baseline gap-1.5">
+                                              <span className="text-[11px] text-gray-300 font-medium">{friendly.label}</span>
+                                              <span className="text-[9px] text-gray-600 font-mono">{tool.name}</span>
+                                            </div>
+                                            {friendly.description && (
+                                              <p className="text-[10px] text-gray-500 leading-snug">{friendly.description}</p>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {server.capabilities.length === 0 && (() => {
+                                const preview = getServerCapabilityPreview(server.slug);
+                                if (!preview) return null;
+                                return (
+                                  <div>
+                                    <button
+                                      onClick={() => toggleMcpTools(server.id)}
+                                      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                                    >
+                                      <svg
+                                        className={`w-2.5 h-2.5 transition-transform ${mcpToolsOpen.has(server.id) ? 'rotate-90' : ''}`}
+                                        fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                                      >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                      </svg>
+                                      What you can do ({preview.length})
+                                    </button>
+                                    {mcpToolsOpen.has(server.id) && (
+                                      <div className="mt-1.5 space-y-1.5 pl-3 border-l border-white/[0.06]">
+                                        {preview.map((cap) => (
+                                          <div key={cap.label}>
+                                            <span className="text-[11px] text-gray-300 font-medium">{cap.label}</span>
+                                            <p className="text-[10px] text-gray-500 leading-snug">{cap.description}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom servers */}
+                  {mcpServers.filter((s) => !s.isPreconfigured).length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Custom Servers</h3>
+                      {mcpServers.filter((s) => !s.isPreconfigured).map((server) => {
+                        const busy = mcpBusy.has(server.id);
+                        const expanded = mcpExpanded.has(server.id);
+                        const statusColor = server.status === 'running' ? 'bg-green-500' : server.status === 'error' ? 'bg-red-500' : 'bg-gray-600';
+                        return (
+                          <div key={server.id} className="glass-light rounded-lg overflow-hidden">
+                            <div className="flex items-center justify-between p-3">
+                              <button
+                                onClick={() => toggleMcpExpanded(server.id)}
+                                className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                              >
+                                <svg
+                                  className={`w-3 h-3 text-gray-500 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                                  fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
+                                <span className="text-sm font-medium text-white truncate">{server.name}</span>
+                                <span className="text-[10px] text-gray-500 shrink-0">{server.status}</span>
+                              </button>
+                              <div className="flex items-center gap-1 shrink-0 ml-2">
+                                <button
+                                  onClick={() => handleMcpToggle(server)}
+                                  disabled={busy}
+                                  className={`text-xs px-2 py-1 rounded transition-colors ${
+                                    server.status === 'running'
+                                      ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                      : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                                  } disabled:opacity-30`}
+                                >
+                                  {busy ? '...' : server.status === 'running' ? 'Stop' : 'Start'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteMcp(server.id)}
+                                  className="text-xs text-gray-500 hover:text-red-400 px-1 transition-colors"
+                                >&times;</button>
+                              </div>
+                            </div>
+                            {expanded && (
+                              <div className="px-3 pb-3 border-t border-white/[0.04] pt-2 space-y-1.5">
+                                <span className="text-[10px] text-gray-500 font-mono">{server.command} {server.args.join(' ')}</span>
+                                {server.description && (
+                                  <p className="text-xs text-gray-400">{server.description}</p>
+                                )}
+                                {server.error && (
+                                  <div className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1">{server.error}</div>
+                                )}
+                                {server.capabilities.length > 0 && (
+                                  <div>
+                                    <button
+                                      onClick={() => toggleMcpTools(server.id)}
+                                      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                                    >
+                                      <svg
+                                        className={`w-2.5 h-2.5 transition-transform ${mcpToolsOpen.has(server.id) ? 'rotate-90' : ''}`}
+                                        fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                                      >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                      </svg>
+                                      {server.capabilities.length} tool{server.capabilities.length !== 1 ? 's' : ''} available
+                                    </button>
+                                    {mcpToolsOpen.has(server.id) && (
+                                      <div className="mt-1.5 space-y-1.5 pl-3 border-l border-white/[0.06]">
+                                        {server.capabilities.map((tool) => {
+                                          const friendly = friendlyTool(tool.name, tool.description);
+                                          return (
+                                          <div key={tool.name}>
+                                            <div className="flex items-baseline gap-1.5">
+                                              <span className="text-[11px] text-gray-300 font-medium">{friendly.label}</span>
+                                              <span className="text-[9px] text-gray-600 font-mono">{tool.name}</span>
+                                            </div>
+                                            {friendly.description && (
+                                              <p className="text-[10px] text-gray-500 leading-snug">{friendly.description}</p>
+                                            )}
+                                          </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Add custom server */}
+                  <div className="border-t border-white/[0.06] pt-3 space-y-2">
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Add Custom MCP Server</h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customName}
+                        onChange={(e) => setCustomName(e.target.value)}
+                        placeholder="Name (optional)"
+                        className="w-28 text-xs glass-input text-gray-300 rounded px-2 py-1.5 placeholder-gray-600 focus:outline-none focus:border-gl-purple"
+                      />
+                      <input
+                        type="text"
+                        value={customCommand}
+                        onChange={(e) => setCustomCommand(e.target.value)}
+                        placeholder="npx @some/mcp-server"
+                        className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddCustomMcp(); }}
+                      />
+                      <button
+                        onClick={handleAddCustomMcp}
+                        disabled={!customCommand.trim()}
+                        className="text-xs px-3 py-1.5 gl-gradient text-white rounded disabled:opacity-30 hover:opacity-90 transition-colors"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-600">
+                      Paste any npx command from mcp-awesome.com or the MCP server registry
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );

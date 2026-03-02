@@ -49,7 +49,7 @@ export function RepoPicker() {
         onClick={() => setOpen(!open)}
         className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors"
       >
-        Repos
+        Cartridges
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1.5 z-50 glass rounded-xl shadow-2xl py-1.5 min-w-[220px] max-h-[400px] overflow-y-auto">

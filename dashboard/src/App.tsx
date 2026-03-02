@@ -1,23 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAgents } from './hooks/useAgents';
-import { AgentGrid } from './components/AgentGrid';
-import { ActivityFeed } from './components/ActivityFeed';
+import { CartridgeGrid } from './components/CartridgeGrid';
+import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { CommandBar } from './components/CommandBar';
 import { NotesModal } from './components/NotesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
-import { EpicPanel } from './components/EpicPanel';
 import { WorkflowPanel } from './components/WorkflowPanel';
-import type { Agent, AgentType } from './types';
+import type { Agent, AgentType, Activity } from './types';
 
 export default function App() {
   const {
     agents,
-    activities,
+    activitiesByAgent,
     pendingPermissions,
     loading,
     connected,
-    stuckAlerts,
+    stuckAlertsArray,
     decidePermission,
     setMode,
     sendCommand,
@@ -29,6 +28,7 @@ export default function App() {
   const [notesPickerOpen, setNotesPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const notesPickerRef = useRef<HTMLDivElement>(null);
 
   // Close picker on outside click
@@ -45,6 +45,8 @@ export default function App() {
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
   const offlineAgents = agents.filter((a) => a.status === 'offline');
+
+  const filteredAgents = typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter);
 
   if (loading) {
     return (
@@ -63,7 +65,7 @@ export default function App() {
             <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8" />
             <h1 className="text-lg md:text-xl font-bold tracking-tight">
               <span className="text-gl-blue">Neon</span>
-              <span className="text-gl-pink">Core</span>
+              <span className="text-gl-pink">Cartridges</span>
             </h1>
             <span className="hidden sm:inline text-[10px] text-gray-500 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
               Orchestrator
@@ -152,22 +154,16 @@ export default function App() {
 
       {/* Main content */}
       <main className="p-3 md:p-6 space-y-4 md:space-y-6">
-        {/* Epic Autopilot — disabled, not working yet
-        <section>
-          <EpicPanel agents={agents} />
-        </section>
-        */}
-
         {/* Workflow Panel */}
         <section>
           <WorkflowPanel agents={agents} />
         </section>
 
-        {/* Agent Grid */}
+        {/* Cartridge Grid (replaces Agent Grid + global Activity Feed) */}
         <section>
           <div className="flex items-center gap-3 md:gap-4 mb-3 md:mb-4">
             <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide">
-              Agents
+              Cartridges
             </h2>
             <div className="flex rounded-lg overflow-hidden border border-white/10">
               {(['all', 'claude', 'gridlight'] as const).map((t) => (
@@ -187,21 +183,18 @@ export default function App() {
               ))}
             </div>
           </div>
-          <AgentGrid
-            agents={typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter)}
+          <CartridgeGrid
+            agents={filteredAgents}
+            activitiesByAgent={activitiesByAgent}
             pendingPermissions={pendingPermissions}
-            stuckAlerts={stuckAlerts}
+            stuckAlerts={stuckAlertsArray}
             onDecidePermission={decidePermission}
             onSetMode={setMode}
             onSendCommand={sendCommand}
             onDelete={deleteAgent}
             onDismissStuck={dismissStuckAlert}
+            onActivityClick={setSelectedActivity}
           />
-        </section>
-
-        {/* Activity Feed */}
-        <section>
-          <ActivityFeed activities={activities} agents={agents} />
         </section>
       </main>
 
@@ -213,6 +206,15 @@ export default function App() {
       {/* Settings Modal */}
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />
+      )}
+
+      {/* Activity Detail Modal */}
+      {selectedActivity && (
+        <ActivityDetailModal
+          activity={selectedActivity}
+          agent={agents.find((a) => a.id === selectedActivity.agentId)}
+          onClose={() => setSelectedActivity(null)}
+        />
       )}
     </div>
   );

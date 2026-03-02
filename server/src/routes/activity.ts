@@ -6,15 +6,26 @@ import type { Activity } from '../types.js';
 
 const router = Router();
 
+/** Normalize a repo path for cross-platform matching (Windows ↔ POSIX). */
+function normalizeRepoPath(p: string): string {
+  if (!p) return '';
+  let n = p.replace(/\\/g, '/');
+  n = n.replace(/^([a-zA-Z]):\//, '/$1/');
+  n = n.replace(/\/+$/, '');
+  return n.toLowerCase();
+}
+
 // Log an activity event (called by hooks)
 router.post('/', (req, res) => {
   const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult } = req.body;
 
-  // Resolve agent by ID, machine+repoPath, or sessionId
+  // Resolve agent by ID, machine+repoPath (with cross-platform normalization), or sessionId
   let resolvedAgentId = agentId;
   if (!resolvedAgentId && machine && repoPath) {
-    const agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ?').get(machine, repoPath) as { id: string } | undefined;
-    resolvedAgentId = agent?.id;
+    const normalizedIncoming = normalizeRepoPath(repoPath);
+    const candidates = db.prepare('SELECT id, repo_path FROM agents WHERE machine = ?').all(machine) as { id: string; repo_path: string }[];
+    const match = candidates.find((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
+    resolvedAgentId = match?.id;
   }
   if (!resolvedAgentId && sessionId) {
     const agent = db.prepare('SELECT id FROM agents WHERE session_id = ?').get(sessionId) as { id: string } | undefined;

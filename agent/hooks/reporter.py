@@ -86,12 +86,13 @@ def main():
         activity["toolName"] = ""
         activity["toolInput"] = user_text[:4000] if user_text else ""
 
-    # Build register body
+    # Build register body — always mark 'working' since a hook firing means activity
     register = {
         "sessionId": session_id,
         "machine": machine,
         "repoPath": cwd,
         "repoName": repo_name,
+        "status": "working",
     }
 
     # Register agent
@@ -102,6 +103,16 @@ def main():
     # But still extract assistant messages below so the dashboard shows Claude's text
     if tool_name not in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
         post_json(f"{ORCHESTRATOR_URL}/api/activity", json.dumps(activity))
+
+    # Notify server that ExitPlanMode has finished executing.
+    # The extension uses this to time the auto-approve of Claude's follow-up plan prompt
+    # (much more reliable than guessing timing from when permission was granted).
+    if hook_event == "PostToolUse" and tool_name == "ExitPlanMode":
+        post_json(f"{ORCHESTRATOR_URL}/api/agents/plan-executed", json.dumps({
+            "sessionId": session_id,
+            "machine": machine,
+            "repoPath": cwd,
+        }))
 
     # Try to extract last assistant text from transcript (deduped)
     if hook_event == "PostToolUse" and transcript_path and os.path.exists(transcript_path):

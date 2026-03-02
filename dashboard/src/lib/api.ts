@@ -171,6 +171,108 @@ export const api = {
     request<import('../types').Workflow>(`/workflows/${id}/resume`, { method: 'POST' }),
   cancelWorkflow: (id: string) =>
     request<import('../types').Workflow>(`/workflows/${id}/cancel`, { method: 'POST' }),
+  deleteWorkflow: (id: string) =>
+    request<void>(`/workflows/${id}`, { method: 'DELETE' }),
   getAvailableModels: () =>
     request<{ openai: string[]; gridlight: string[] }>('/workflows/models'),
+
+  // MCP Servers
+  getMcpServers: () =>
+    request<import('../types').McpServer[]>('/mcp/servers'),
+  addMcpServer: (data: { command: string; name?: string }) =>
+    request<import('../types').McpServer>('/mcp/servers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateMcpServer: (id: string, data: { env?: Record<string, string>; command?: string; args?: string[]; name?: string }) =>
+    request<import('../types').McpServer>(`/mcp/servers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteMcpServer: (id: string) =>
+    request<void>(`/mcp/servers/${id}`, { method: 'DELETE' }),
+  startMcpServer: (id: string) =>
+    request<import('../types').McpServer>(`/mcp/servers/${id}/start`, { method: 'POST' }),
+  stopMcpServer: (id: string) =>
+    request<import('../types').McpServer>(`/mcp/servers/${id}/stop`, { method: 'POST' }),
+  getMcpTools: (id: string) =>
+    request<import('../types').McpTool[]>(`/mcp/servers/${id}/tools`),
+
+  // Workflow V2 (Canvas)
+  createWorkflowV2: (data: {
+    name: string;
+    description: string;
+    targetRepos?: string[];
+    steps: {
+      id: string;
+      name: string;
+      description?: string;
+      positionX: number;
+      positionY: number;
+      executorType: import('../types').StepExecutorType;
+      executorId?: string;
+      executorConfig?: Record<string, unknown>;
+      autoAdvance?: boolean;
+      dependsOn?: string[];
+    }[];
+  }) =>
+    request<{ workflow: import('../types').Workflow; steps: import('../types').WorkflowStep[] }>('/workflows/v2/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getWorkflowV2: (id: string) =>
+    request<{ workflow: import('../types').Workflow; steps: import('../types').WorkflowStep[] }>(`/workflows/v2/${id}`),
+  updateWorkflowV2: (id: string, data: {
+    name: string;
+    description: string;
+    steps: {
+      id: string;
+      name: string;
+      description?: string;
+      positionX: number;
+      positionY: number;
+      executorType: import('../types').StepExecutorType;
+      executorId?: string;
+      executorConfig?: Record<string, unknown>;
+      autoAdvance?: boolean;
+      dependsOn?: string[];
+    }[];
+  }) =>
+    request<{ workflow: import('../types').Workflow; steps: import('../types').WorkflowStep[] }>(`/workflows/v2/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  addWorkflowStep: (workflowId: string, step: {
+    name: string;
+    description?: string;
+    positionX: number;
+    positionY: number;
+    executorType: import('../types').StepExecutorType;
+    executorId?: string;
+    executorConfig?: Record<string, unknown>;
+    autoAdvance?: boolean;
+    dependsOn?: string[];
+  }) =>
+    request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps`, {
+      method: 'POST',
+      body: JSON.stringify(step),
+    }),
+  updateWorkflowStep: (workflowId: string, stepId: string, data: Record<string, unknown>) =>
+    request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteWorkflowStep: (workflowId: string, stepId: string) =>
+    request<void>(`/workflows/v2/${workflowId}/steps/${stepId}`, { method: 'DELETE' }),
+  startWorkflowV2: (workflowId: string) =>
+    request<import('../types').Workflow>(`/workflows/v2/${workflowId}/start`, { method: 'POST' }),
+  completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
+    request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ result }),
+    }),
+  advanceWorkflowStep: (workflowId: string, stepId: string) =>
+    request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/advance`, {
+      method: 'POST',
+    }),
 };
