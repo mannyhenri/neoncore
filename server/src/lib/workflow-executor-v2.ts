@@ -127,7 +127,7 @@ async function executeStep(step: WorkflowStep): Promise<void> {
   try {
     const agentName = getAgentName(step.executorId);
     const roleLabel = role === 'general' ? 'general' : role;
-    emitStepLog(step.workflowId, step.id, step.name, `Dispatching [${roleLabel}] command to agent "${agentName}"`, 'info');
+    emitStepLog(step.workflowId, step.id, step.name, `Dispatching [${roleLabel}] command to agent "${agentName}" (${step.executorId.slice(0, 8)})`, 'info');
 
     // Log what components are included in the final prompt
     const parts: string[] = [];
@@ -217,12 +217,13 @@ function processWorkflow(workflowId: string) {
         return false;
       }
 
-      if (dep.status !== 'completed') {
+      if (dep.status !== 'completed' && dep.status !== 'skipped') {
         return false; // Normal — dep still in progress
       }
 
       // If the dependency has autoAdvance off, block until manually advanced
-      if (!dep.autoAdvance) return false;
+      // (skipped steps always allow advancement)
+      if (dep.status !== 'skipped' && !dep.autoAdvance) return false;
     }
     return true;
   });

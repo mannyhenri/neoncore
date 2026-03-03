@@ -63,6 +63,8 @@ interface StepNodeData {
   name: string;
   role: string;
   executorId: string;
+  agentName: string;
+  agentType: 'claude' | 'gridlight' | '';
   prompt: string;
   autoAdvance: boolean;
   waitForWebhook: boolean;
@@ -72,6 +74,8 @@ interface StepNodeData {
   onNameChange: (stepId: string, name: string) => void;
   onAutoAdvanceToggle: (stepId: string) => void;
   onAdvance: (stepId: string) => void;
+  onForceComplete: (stepId: string) => void;
+  onSkip: (stepId: string) => void;
   [key: string]: unknown;
 }
 
@@ -148,7 +152,6 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
 
   const badge = ROLE_MAP.get(data.role) || DEFAULT_ROLE;
   const statusStyle = STATUS_STYLES[data.status];
-  const preview = data.prompt ? data.prompt.slice(0, 60) + (data.prompt.length > 60 ? '...' : '') : '';
 
   function commitName() {
     setEditing(false);
@@ -163,7 +166,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
   return (
     <div
       className={`
-        relative rounded-xl border transition-all duration-200 w-[220px]
+        relative rounded-xl border transition-all duration-200 w-[300px]
         ${selected ? 'border-gl-purple/60 shadow-lg shadow-purple-900/30' : 'border-white/10 hover:border-white/20'}
         ${statusStyle.ring} ${statusStyle.node}
         glass
@@ -177,53 +180,75 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         className="!w-3 !h-3 !bg-gl-purple !border-2 !border-gl-surface !-top-1.5"
       />
 
-      <div className="p-3 space-y-2">
-        {/* Header: name + status */}
-        <div className="flex items-center gap-2">
-          {data.isRunning && (
-            <span className={`w-2 h-2 rounded-full shrink-0 ${statusStyle.dot}`} />
-          )}
+      {/* Header bar: status dot + name */}
+      <div className="flex items-center gap-2 px-3 pt-3 pb-1.5">
+        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusStyle.dot}`} />
 
-          {editing ? (
-            <input
-              ref={inputRef}
-              value={localName}
-              onChange={(e) => setLocalName(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitName();
-                if (e.key === 'Escape') { setLocalName(data.name); setEditing(false); }
-              }}
-              className="text-sm text-white bg-transparent border-b border-gl-purple/50 outline-none w-full font-medium"
-            />
-          ) : (
-            <span
-              className="text-sm text-white font-medium truncate cursor-text"
-              onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
-              title="Double-click to edit"
-            >
-              {data.name}
-            </span>
-          )}
-        </div>
-
-        {/* Role badge + webhook indicator */}
-        <div className="flex items-center gap-1.5">
-          <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.bg} ${badge.color} uppercase tracking-wider`}>
-            {badge.name}
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={localName}
+            onChange={(e) => setLocalName(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitName();
+              if (e.key === 'Escape') { setLocalName(data.name); setEditing(false); }
+            }}
+            className="text-sm text-white bg-transparent border-b border-gl-purple/50 outline-none w-full font-medium"
+          />
+        ) : (
+          <span
+            className="text-sm text-white font-semibold truncate cursor-text flex-1"
+            onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
+            title="Double-click to edit"
+          >
+            {data.name}
           </span>
-          {data.waitForWebhook && (
-            <span className="text-[9px] text-amber-400/70 font-medium" title="Waits for external webhook to complete">
-              webhook
-            </span>
-          )}
-        </div>
-
-        {/* Prompt preview */}
-        {preview && (
-          <p className="text-[11px] text-gray-500 leading-snug line-clamp-2">{preview}</p>
         )}
+      </div>
 
+      {/* Meta row: role + agent type + agent name + webhook */}
+      <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
+        <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.bg} ${badge.color} uppercase tracking-wider`}>
+          {badge.name}
+        </span>
+        {data.agentType === 'claude' && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 uppercase tracking-wider">
+            CC
+          </span>
+        )}
+        {data.agentType === 'gridlight' && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 uppercase tracking-wider">
+            GL
+          </span>
+        )}
+        {data.agentName ? (
+          <span className="text-[10px] text-cyan-400/80 font-medium px-1.5 py-0.5 rounded-full bg-cyan-500/10 truncate max-w-[140px]" title={data.agentName}>
+            {data.agentName}
+          </span>
+        ) : (
+          <span className="text-[10px] text-gray-600 italic">no agent</span>
+        )}
+        {data.waitForWebhook && (
+          <span className="text-[9px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10" title="Waits for external webhook to complete">
+            webhook
+          </span>
+        )}
+      </div>
+
+      {/* Prompt body */}
+      {data.prompt ? (
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-4 whitespace-pre-wrap">{data.prompt}</p>
+        </div>
+      ) : (
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-gray-600 italic">No prompt configured</p>
+        </div>
+      )}
+
+      {/* Footer: controls */}
+      <div className="px-3 pb-3 space-y-1.5">
         {/* Auto-advance toggle */}
         <label
           className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer select-none"
@@ -245,6 +270,16 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
             className="w-full text-[10px] font-medium px-2 py-1 rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
           >
             Advance to next step
+          </button>
+        )}
+
+        {/* Force complete — shown when step is running */}
+        {data.status === 'running' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onForceComplete(data.stepId); }}
+            className="w-full text-[10px] font-medium px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+          >
+            Mark complete
           </button>
         )}
       </div>
@@ -402,28 +437,77 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     } catch { /* silent */ }
   }, [savedWorkflowId, showToast]);
 
+  const handleForceComplete = useCallback(async (stepId: string) => {
+    if (!savedWorkflowId) return;
+    try {
+      await api.completeWorkflowStep(savedWorkflowId, stepId, 'Force-completed manually');
+      setSteps((prev) => prev.map((s) =>
+        s.id === stepId ? { ...s, status: 'completed' } : s,
+      ));
+      showToast('Step marked as completed');
+    } catch { /* silent */ }
+  }, [savedWorkflowId, showToast]);
+
+  const handleSkipStep = useCallback(async (stepId: string) => {
+    if (!savedWorkflowId) return;
+    try {
+      await api.skipWorkflowStep(savedWorkflowId, stepId);
+      setSteps((prev) => prev.map((s) =>
+        s.id === stepId ? { ...s, status: 'skipped' } : s,
+      ));
+      showToast('Step skipped');
+    } catch { /* silent */ }
+  }, [savedWorkflowId, showToast]);
+
+  const handleCompleteWorkflow = useCallback(async () => {
+    if (!savedWorkflowId) return;
+    try {
+      await api.completeWorkflowV2(savedWorkflowId);
+      setWorkflowStatus('completed');
+      showToast('Workflow completed — remaining steps skipped');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to complete workflow');
+    }
+  }, [savedWorkflowId, showToast]);
+
+  // Build agent lookup: id -> { name, type }
+  const agentMap = useMemo(() => {
+    const map = new Map<string, { name: string; type: 'claude' | 'gridlight' }>();
+    for (const a of agents) {
+      map.set(a.id, { name: a.repoName || a.name, type: a.agentType });
+    }
+    return map;
+  }, [agents]);
+
   useEffect(() => {
-    const newNodes: StepNode[] = steps.map((step) => ({
-      id: step.id,
-      type: 'stepNode' as const,
-      position: { x: step.positionX, y: step.positionY },
-      selected: step.id === selectedStepId,
-      data: {
-        stepId: step.id,
-        name: step.name,
-        role: getStepRole(step).id,
-        executorId: step.executorId,
-        prompt: (step.executorConfig.prompt as string) || step.description || '',
-        autoAdvance: step.autoAdvance,
-        waitForWebhook: !!step.executorConfig.waitForWebhook,
-        status: step.status,
-        isRunning: isExecuting,
-        onSelect: handleSelectStep,
-        onNameChange: handleNameChange,
-        onAutoAdvanceToggle: handleAutoAdvanceToggle,
-        onAdvance: handleAdvance,
-      },
-    }));
+    const newNodes: StepNode[] = steps.map((step) => {
+      const agent = step.executorId ? agentMap.get(step.executorId) : undefined;
+      return {
+        id: step.id,
+        type: 'stepNode' as const,
+        position: { x: step.positionX, y: step.positionY },
+        selected: step.id === selectedStepId,
+        data: {
+          stepId: step.id,
+          name: step.name,
+          role: getStepRole(step).id,
+          executorId: step.executorId,
+          agentName: agent?.name || '',
+          agentType: agent?.type || '',
+          prompt: (step.executorConfig.prompt as string) || step.description || '',
+          autoAdvance: step.autoAdvance,
+          waitForWebhook: !!step.executorConfig.waitForWebhook,
+          status: step.status,
+          isRunning: isExecuting,
+          onSelect: handleSelectStep,
+          onNameChange: handleNameChange,
+          onAutoAdvanceToggle: handleAutoAdvanceToggle,
+          onAdvance: handleAdvance,
+          onForceComplete: handleForceComplete,
+          onSkip: handleSkipStep,
+        },
+      };
+    });
 
     // Preserve existing node positions when they were dragged
     setNodes((prevNodes) => {
@@ -451,7 +535,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       }
     }
     setEdges(newEdges);
-  }, [steps, selectedStepId, isExecuting, handleSelectStep, handleNameChange, handleAutoAdvanceToggle, handleAdvance, setNodes, setEdges]);
+  }, [steps, selectedStepId, isExecuting, agentMap, handleSelectStep, handleNameChange, handleAutoAdvanceToggle, handleAdvance, handleForceComplete, handleSkipStep, setNodes, setEdges]);
 
   // ── Node drag -> update step positions ──────────
 
@@ -762,6 +846,20 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             {running ? 'Starting...' : 'Run'}
           </button>
 
+          {/* Execution controls — visible only while running */}
+          {isExecuting && (
+            <>
+              <div className="w-px h-5 bg-white/10" />
+              <button
+                onClick={handleCompleteWorkflow}
+                className="text-xs px-3 py-1.5 rounded-md font-medium text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/20 transition-colors"
+                title="Mark workflow as done — complete running steps and skip pending ones"
+              >
+                Complete
+              </button>
+            </>
+          )}
+
           {/* Close */}
           <button
             onClick={onClose}
@@ -827,6 +925,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 onDelete={() => deleteStep(selectedStep.id)}
                 onClose={() => setSelectedStepId(null)}
                 onAdvance={() => handleAdvance(selectedStep.id)}
+                onForceComplete={() => handleForceComplete(selectedStep.id)}
+                onSkip={() => handleSkipStep(selectedStep.id)}
               />
             )}
           </div>
@@ -880,6 +980,8 @@ function SidePanel({
   onDelete,
   onClose,
   onAdvance,
+  onForceComplete,
+  onSkip,
 }: {
   step: LocalStep;
   agentOptions: { id: string; label: string }[];
@@ -888,6 +990,8 @@ function SidePanel({
   onDelete: () => void;
   onClose: () => void;
   onAdvance: () => void;
+  onForceComplete: () => void;
+  onSkip: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -1063,6 +1167,30 @@ function SidePanel({
                 className="mt-2 w-full text-xs font-medium px-3 py-2 rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/20 transition-colors"
               >
                 Advance to next step
+              </button>
+            )}
+            {step.status === 'running' && (
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={onForceComplete}
+                  className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/20 transition-colors"
+                >
+                  Mark complete
+                </button>
+                <button
+                  onClick={onSkip}
+                  className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
+                >
+                  Skip
+                </button>
+              </div>
+            )}
+            {step.status === 'pending' && (
+              <button
+                onClick={onSkip}
+                className="mt-2 w-full text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
+              >
+                Skip step
               </button>
             )}
           </div>

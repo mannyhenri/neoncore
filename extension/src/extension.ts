@@ -253,8 +253,12 @@ function connectToOrchestrator() {
     updateStatusBar(false);
   });
 
-  // Listen for commands — only received if we're in the correct agent room
+  // Listen for commands — validate this command is targeted at our registered agent
   socket.on('command_send', (command: Command) => {
+    if (registeredAgentId && command.agentId !== registeredAgentId) {
+      log(`Ignoring command for agent ${command.agentId} (we are ${registeredAgentId})`);
+      return;
+    }
     log(`Command received: agent=${command.agentId}, text="${command.text.slice(0, 80)}"`);
     handleCommand(command);
   });
