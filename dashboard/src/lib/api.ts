@@ -275,4 +275,10 @@ export const api = {
     request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/advance`, {
       method: 'POST',
     }),
+  skipWorkflowStep: (workflowId: string, stepId: string) =>
+    request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/skip`, {
+      method: 'POST',
+    }),
+  completeWorkflowV2: (workflowId: string) =>
+    request<import('../types').Workflow>(`/workflows/v2/${workflowId}/complete`, { method: 'POST' }),
 };

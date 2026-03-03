@@ -508,6 +508,80 @@ router.post('/v2/:id/steps/:stepId/advance', (req, res) => {
   res.json(step);
 });
 
+// Force-complete a running workflow: complete running steps, skip pending ones
+router.post('/v2/:id/complete', (req, res) => {
+  const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'Workflow not found' });
+  if ((row.status as string) !== 'running') {
+    return res.status(400).json({ error: `Workflow is not running (status: ${row.status})` });
+  }
+
+  const now = new Date().toISOString();
+
+  // Complete any running steps
+  db.prepare(`
+    UPDATE workflow_steps SET status = 'completed', result = 'Force-completed manually', completed_at = ?, auto_advance = 1
+    WHERE workflow_id = ? AND status = 'running'
+  `).run(now, req.params.id);
+
+  // Skip any remaining pending steps
+  db.prepare(`
+    UPDATE workflow_steps SET status = 'skipped', completed_at = ?
+    WHERE workflow_id = ? AND status = 'pending'
+  `).run(now, req.params.id);
+
+  // Mark workflow as completed
+  db.prepare("UPDATE workflows SET status = 'completed', completed_at = ? WHERE id = ?").run(now, req.params.id);
+
+  // Emit updates for all steps
+  const stepRows = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(req.params.id) as Record<string, unknown>[];
+  for (const sr of stepRows) {
+    getIO().emit('workflow_step_updated', normalizeStep(sr));
+  }
+
+  getIO().emit('workflow_step_log', {
+    workflowId: req.params.id,
+    stepId: '',
+    stepName: 'Workflow',
+    message: 'Workflow force-completed manually',
+    type: 'success',
+    timestamp: now,
+  });
+
+  console.log(`[workflow-v2] Workflow ${req.params.id} force-completed`);
+  emitWorkflowUpdate(req.params.id);
+
+  const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+  res.json(normalizeWorkflow(updated));
+});
+
+// Skip a specific step (mark as skipped so dependents are unblocked)
+router.post('/v2/:id/steps/:stepId/skip', (req, res) => {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ? AND workflow_id = ?')
+    .get(req.params.stepId, req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'Step not found' });
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE workflow_steps SET status = ?, completed_at = ?, auto_advance = 1 WHERE id = ?')
+    .run('skipped', now, req.params.stepId);
+
+  const updated = normalizeStep(
+    db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown>
+  );
+  getIO().emit('workflow_step_updated', updated);
+
+  getIO().emit('workflow_step_log', {
+    workflowId: req.params.id,
+    stepId: updated.id,
+    stepName: updated.name,
+    message: 'Step skipped manually',
+    type: 'warn',
+    timestamp: now,
+  });
+
+  res.json(updated);
+});
+
 // Webhook: external process marks a step as complete (only needs step ID)
 // Usage: curl -X POST http://localhost:4040/api/workflows/webhook/<stepId>/complete -H 'Content-Type: application/json' -d '{"result": "done"}'
 router.post('/webhook/:stepId/complete', (req, res) => {

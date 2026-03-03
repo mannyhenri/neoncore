@@ -24,29 +24,26 @@ export function initWebSocket(server: HTTPServer) {
 
     // VS Code extensions register with machine+repoPath+agentType (known immediately, no HTTP needed)
     socket.on('register_extension', ({ machine, repoPath, agentType }) => {
-      // Always join the path-based room (works even if agent not yet in DB)
+      // Always join the path-based room (for backwards compat, but commands only use agent rooms)
       const pathRoom = `ext:${machine}:${repoPath}`;
       socket.join(pathRoom);
       console.log(`[ws] Socket ${socket.id} joined path room ${pathRoom} (${agentType || 'claude'})`);
 
-      // Try to resolve to agent ID for targeted delivery and offline tracking
-      let agent: { id: string } | undefined;
+      // Resolve to agent ID — require exact match on machine + path + type to prevent misrouting
       if (agentType) {
-        agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
+        const agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ? AND agent_type = ?')
           .get(machine, repoPath, agentType) as { id: string } | undefined;
-      }
-      if (!agent) {
-        agent = db.prepare('SELECT id FROM agents WHERE machine = ? AND repo_path = ?')
-          .get(machine, repoPath) as { id: string } | undefined;
-      }
 
-      if (agent) {
-        const agentRoom = `agent:${agent.id}`;
-        socket.join(agentRoom);
-        socketToAgent.set(socket.id, agent.id);
-        console.log(`[ws] Socket ${socket.id} also joined agent room ${agentRoom}`);
+        if (agent) {
+          const agentRoom = `agent:${agent.id}`;
+          socket.join(agentRoom);
+          socketToAgent.set(socket.id, agent.id);
+          console.log(`[ws] Socket ${socket.id} also joined agent room ${agentRoom}`);
+        } else {
+          console.log(`[ws] No agent found for ${machine}:${repoPath} (type=${agentType}) — path room only`);
+        }
       } else {
-        console.log(`[ws] No agent found yet for ${machine}:${repoPath} — path room only`);
+        console.log(`[ws] No agentType provided for ${machine}:${repoPath} — path room only, awaiting join_agent_room`);
       }
     });
 

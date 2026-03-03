@@ -94,7 +94,7 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
   };
   getIO().emit('activity_logged', activity);
 
-  // Try agent-specific room first, fall back to path-based room
+  // Emit to the agent-specific room only — no fallback to path room to prevent misdelivery
   const agentRoom = `agent:${agentId}`;
   const agentRoomSize = getIO().sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
 
@@ -102,19 +102,7 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
     console.log(`[cmd] Emitting command_send to agent room ${agentRoom} (${agentRoomSize} socket(s))`);
     getIO().to(agentRoom).emit('command_send', command);
   } else {
-    const agentFallback = db.prepare('SELECT machine, repo_path FROM agents WHERE id = ?')
-      .get(agentId) as Record<string, unknown> | undefined;
-    const machine = (agentFallback?.machine as string) ?? '';
-    const repoPath = (agentFallback?.repo_path as string) ?? '';
-    const pathRoom = `ext:${machine}:${repoPath}`;
-    const pathRoomSize = getIO().sockets.adapter.rooms.get(pathRoom)?.size ?? 0;
-
-    console.log(`[cmd] Agent room empty, trying path room ${pathRoom} (${pathRoomSize} socket(s))`);
-    if (pathRoomSize > 0) {
-      getIO().to(pathRoom).emit('command_send', command);
-    } else {
-      console.log(`[cmd] No sockets in any room for agent ${agentId} — command queued as pending`);
-    }
+    console.log(`[cmd] Agent room ${agentRoom} empty — command queued as pending (will drain on reconnect)`);
   }
 
   return command;
