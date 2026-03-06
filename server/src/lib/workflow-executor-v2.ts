@@ -127,14 +127,8 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     ? composeIntentPrompt(step.executorConfig)
     : (step.executorConfig.prompt as string) || step.description || step.name;
 
-  // Resolve expert role: new role field → legacy mode → legacy executorType → general
-  let role = (step.executorConfig.role as string) || '';
-  if (!role) {
-    const mode = (step.executorConfig.mode as string) || '';
-    if (mode === 'plan' || step.executorType === 'claude-plan') role = 'planner';
-    else if (mode === 'review' || step.executorType === 'claude-review') role = 'reviewer';
-    else role = 'general';
-  }
+  // Resolve expert role from config, default to general
+  const role = (step.executorConfig.role as string) || 'general';
 
   const rolePrefix = ROLE_PROMPTS[role] ?? '';
 
@@ -193,18 +187,76 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   sendCommandToAgent(reviewAgentId, reviewPrompt, includeMemory);
 }
 
+/** Find online agents matching a repo path */
+function findOnlineAgentsForRepo(repoPath: string): string[] {
+  const rows = db.prepare(
+    "SELECT id FROM agents WHERE repo_path = ? AND status != 'offline'"
+  ).all(repoPath) as { id: string }[];
+  return rows.map((r) => r.id);
+}
+
+/** Launch VS Code windows for a repo path */
+async function launchVSCodeWindows(repoPath: string, count: number, stepName: string): Promise<void> {
+  const { exec } = await import('child_process');
+  for (let i = 0; i < count; i++) {
+    exec(`code --new-window "${repoPath}"`, (err) => {
+      if (err) console.error(`[workflow-v2] Failed to launch VS Code window ${i + 1} for "${stepName}": ${err.message}`);
+    });
+  }
+}
+
 /** Deliberation step — dispatch prompt to panel agents in parallel */
 async function executeDeliberation(step: WorkflowStep): Promise<void> {
+  const autoLaunch = !!step.executorConfig.autoLaunch;
+  const repoPath = (step.executorConfig.repoPath as string) || '';
+  const panelSize = (step.executorConfig.panelSize as number) || 2;
+
+  if (autoLaunch) {
+    // Auto-launch mode: find or spawn agents for the repo
+    if (!repoPath) throw new Error('Auto-launch deliberation requires a repo path');
+
+    const onlineAgents = findOnlineAgentsForRepo(repoPath);
+    const needed = Math.max(0, panelSize - onlineAgents.length);
+
+    if (needed > 0) {
+      emitStepLog(step.workflowId, step.id, step.name,
+        `Found ${onlineAgents.length}/${panelSize} agents for "${repoPath}" — launching ${needed} VS Code window(s)`, 'info');
+      await launchVSCodeWindows(repoPath, needed, step.name);
+
+      // Set phase to launching — poll loop will check for agents
+      const updatedConfig = JSON.stringify({
+        ...step.executorConfig,
+        deliberationPhase: 'launching',
+        launchedAt: new Date().toISOString(),
+        panelResults: {},
+      });
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+        .run(updatedConfig, step.id);
+      return;
+    }
+
+    // All agents available — pick the first N and dispatch immediately
+    const panelAgentIds = onlineAgents.slice(0, panelSize);
+    emitStepLog(step.workflowId, step.id, step.name,
+      `All ${panelSize} agents online — dispatching deliberation`, 'info');
+    dispatchDeliberationPrompts(step, panelAgentIds);
+    return;
+  }
+
+  // Manual mode: use pre-selected panel agent IDs
   const panelAgentIds = (step.executorConfig.panelAgentIds as string[]) || [];
   if (panelAgentIds.length < 2) throw new Error('Deliberation requires at least 2 panel agents');
+  dispatchDeliberationPrompts(step, panelAgentIds);
+}
 
+/** Dispatch the deliberation prompt to panel agents and set phase to collecting */
+function dispatchDeliberationPrompts(step: WorkflowStep, panelAgentIds: string[]): void {
   const context = gatherDependencyContext(step);
   const prompt = (step.executorConfig.prompt as string) || step.description || step.name;
   const fullPrompt = context + prompt;
 
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching to ${panelAgentIds.length} panel agents for deliberation`, 'info');
 
-  // Dispatch to each panel agent
   for (const agentId of panelAgentIds) {
     if (!agentId) continue;
     const agentName = getAgentName(agentId);
@@ -216,6 +268,7 @@ async function executeDeliberation(step: WorkflowStep): Promise<void> {
   // Set phase to collecting — processWorkflow will monitor panel agents
   const updatedConfig = JSON.stringify({
     ...step.executorConfig,
+    panelAgentIds,
     deliberationPhase: 'collecting',
     panelResults: {},
   });
@@ -584,12 +637,39 @@ function processReviewGateResult(
   }
 }
 
-/** Handle deliberation step phases: collecting → synthesis → done */
+/** Handle deliberation step phases: launching → collecting → synthesis → done */
 function processDeliberationStep(workflowId: string, step: WorkflowStep) {
   const config = step.executorConfig;
   const phase = (config.deliberationPhase as string) || 'dispatch';
   const panelAgentIds = (config.panelAgentIds as string[]) || [];
   const panelResults = (config.panelResults as Record<string, string>) || {};
+
+  if (phase === 'launching') {
+    // Auto-launch mode: waiting for agents to come online
+    const repoPath = (config.repoPath as string) || '';
+    const panelSize = (config.panelSize as number) || 2;
+    const launchedAt = new Date((config.launchedAt as string) || Date.now()).getTime();
+    const LAUNCH_TIMEOUT_MS = 120_000; // 2 minutes to wait for agents
+
+    if (Date.now() - launchedAt > LAUNCH_TIMEOUT_MS) {
+      const now = new Date().toISOString();
+      db.prepare('UPDATE workflow_steps SET status = ?, error = ?, completed_at = ? WHERE id = ?')
+        .run('failed', 'Timed out waiting for agents to come online', now, step.id);
+      emitStepUpdate(step.id);
+      emitStepLog(workflowId, step.id, step.name, 'Timed out waiting for agents to launch (2 min)', 'error');
+      return;
+    }
+
+    const onlineAgents = findOnlineAgentsForRepo(repoPath);
+    if (onlineAgents.length >= panelSize) {
+      const selectedAgents = onlineAgents.slice(0, panelSize);
+      emitStepLog(workflowId, step.id, step.name,
+        `${selectedAgents.length} agents now online — dispatching deliberation`, 'success');
+      dispatchDeliberationPrompts(step, selectedAgents);
+    }
+    // else: keep waiting, next poll will check again
+    return;
+  }
 
   if (phase === 'collecting') {
     // Check if all panel agents are idle and collect their results

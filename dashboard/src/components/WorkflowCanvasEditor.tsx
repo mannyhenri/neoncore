@@ -124,14 +124,10 @@ const STATUS_STYLES: Record<StepStatus, { dot: string; ring: string; node: strin
   skipped: { dot: 'bg-gray-600', ring: '', node: '' },
 };
 
-/** Resolve expert role from executorConfig, with legacy fallbacks */
+/** Resolve expert role from executorConfig */
 function getStepRole(step: LocalStep): ExpertRole {
   const roleId = step.executorConfig.role as string | undefined;
   if (roleId && ROLE_MAP.has(roleId)) return ROLE_MAP.get(roleId)!;
-  // Legacy: map old modes/executor types
-  const mode = step.executorConfig.mode as string | undefined;
-  if (mode === 'plan' || step.executorType === 'claude-plan') return ROLE_MAP.get('planner')!;
-  if (mode === 'review' || step.executorType === 'claude-review') return ROLE_MAP.get('reviewer')!;
   return DEFAULT_ROLE;
 }
 
@@ -1222,54 +1218,112 @@ function DeliberationConfig({
   onUpdate: (patch: Partial<LocalStep>) => void;
   isExecuting: boolean;
 }) {
+  const autoLaunch = !!step.executorConfig.autoLaunch;
   const panelAgentIds = (step.executorConfig.panelAgentIds as string[]) || [];
   const synthesisAgentId = (step.executorConfig.synthesisAgentId as string) || '';
+  const repoPath = (step.executorConfig.repoPath as string) || '';
+  const panelSize = (step.executorConfig.panelSize as number) || 2;
   const prompt = (step.executorConfig.prompt as string) || '';
 
   return (
     <>
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Panel Agents (2-4)</label>
-        <p className="text-[10px] text-gray-600 mb-1.5">Each agent receives the same prompt independently</p>
-        {panelAgentIds.map((agentId, i) => (
-          <div key={i} className="flex items-center gap-1 mb-1">
-            <select
-              value={agentId}
-              onChange={(e) => {
-                const updated = [...panelAgentIds];
-                updated[i] = e.target.value;
-                onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
-              }}
+      {/* Mode toggle */}
+      <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={autoLaunch}
+          onChange={() =>
+            onUpdate({
+              executorConfig: { ...step.executorConfig, autoLaunch: !autoLaunch },
+            })
+          }
+          disabled={isExecuting}
+          className="accent-violet-500"
+        />
+        Auto-launch VS Code windows
+      </label>
+
+      {autoLaunch ? (
+        <>
+          {/* Auto-launch config */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Repo Path</label>
+            <input
+              value={repoPath}
+              onKeyDown={(e) => e.stopPropagation()}
+              onChange={(e) =>
+                onUpdate({ executorConfig: { ...step.executorConfig, repoPath: e.target.value } })
+              }
               disabled={isExecuting}
-              className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              placeholder="/path/to/project"
+            />
+            <p className="text-[10px] text-gray-600 mt-1">Each window opens this repo with its own Claude Code session</p>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Panel Size</label>
+            <select
+              value={panelSize}
+              onChange={(e) =>
+                onUpdate({ executorConfig: { ...step.executorConfig, panelSize: Number(e.target.value) } })
+              }
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
             >
-              <option value="">-- Select --</option>
-              {agentOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              {[2, 3, 4].map((n) => (
+                <option key={n} value={n}>{n} agents</option>
               ))}
             </select>
-            <button
-              onClick={() => {
-                const updated = panelAgentIds.filter((_, j) => j !== i);
-                onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
-              }}
-              disabled={isExecuting}
-              className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
-            >&times;</button>
           </div>
-        ))}
-        {panelAgentIds.length < 4 && (
-          <button
-            onClick={() =>
-              onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: [...panelAgentIds, ''] } })
-            }
-            disabled={isExecuting}
-            className="text-[10px] text-violet-400/70 hover:text-violet-400 transition-colors disabled:opacity-30"
-          >
-            + Add panel agent
-          </button>
-        )}
-      </div>
+        </>
+      ) : (
+        <>
+          {/* Manual agent selection */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Panel Agents (2-4)</label>
+            <p className="text-[10px] text-gray-600 mb-1.5">Each agent receives the same prompt independently</p>
+            {panelAgentIds.map((agentId, i) => (
+              <div key={i} className="flex items-center gap-1 mb-1">
+                <select
+                  value={agentId}
+                  onChange={(e) => {
+                    const updated = [...panelAgentIds];
+                    updated[i] = e.target.value;
+                    onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
+                  }}
+                  disabled={isExecuting}
+                  className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 focus:outline-none disabled:opacity-50"
+                >
+                  <option value="">-- Select --</option>
+                  {agentOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    const updated = panelAgentIds.filter((_, j) => j !== i);
+                    onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
+                  }}
+                  disabled={isExecuting}
+                  className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+                >&times;</button>
+              </div>
+            ))}
+            {panelAgentIds.length < 4 && (
+              <button
+                onClick={() =>
+                  onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: [...panelAgentIds, ''] } })
+                }
+                disabled={isExecuting}
+                className="text-[10px] text-violet-400/70 hover:text-violet-400 transition-colors disabled:opacity-30"
+              >
+                + Add panel agent
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       <div>
         <label className="block text-xs text-gray-500 mb-1">Synthesis Agent</label>
@@ -1498,9 +1552,9 @@ function SidePanel({
         <div>
           <label className="block text-xs text-gray-500 mb-1">Step Type</label>
           <select
-            value={step.executorType === 'review-gate' ? 'review-gate' : step.executorType === 'deliberation' ? 'deliberation' : step.executorType === 'quality-gate' ? 'quality-gate' : 'claude-code'}
+            value={step.executorType}
             onChange={(e) => {
-              const newType = e.target.value as 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate';
+              const newType = e.target.value as StepExecutorType;
               onUpdate({ executorType: newType, executorConfig: { ...step.executorConfig } });
             }}
             disabled={isExecuting}
