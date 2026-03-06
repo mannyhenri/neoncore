@@ -3,6 +3,7 @@ import type { Agent, AgentMode, AgentMemory, Activity, PermissionRequest, StuckA
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
 import { GitPanel } from './GitPanel';
+import ProjectMemoryPanel from './ProjectMemoryPanel';
 import { api } from '../lib/api';
 
 // ---------------------------------------------------------------------------
@@ -782,12 +783,16 @@ export function CartridgeCard({
 
   const pixelBg = spriteFrame === 0 ? frame1 : frame2;
   const [gitOpen, setGitOpen] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [addingMemory, setAddingMemory] = useState(false);
   const [newCategory, setNewCategory] = useState('common_error');
   const [newContent, setNewContent] = useState('');
-  const [useMemory, setUseMemory] = useState(false);
+  const useMemory = agent.memoryEnabled;
+  const toggleMemoryEnabled = useCallback(() => {
+    api.updateAgent(agent.id, { memoryEnabled: !agent.memoryEnabled }).catch(() => {});
+  }, [agent.id, agent.memoryEnabled]);
 
   const loadMemories = useCallback(() => {
     api.getMemory(agent.id).then(setMemories).catch(() => {});
@@ -892,6 +897,15 @@ export function CartridgeCard({
               {agent.repoName || 'UNKNOWN'}
             </h3>
             <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setJournalOpen(true)}
+                className="text-gray-400 hover:text-cyan-400 transition-colors"
+                title="Project journal & session memory"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                </svg>
+              </button>
               <button
                 onClick={() => setGitOpen(true)}
                 className="text-gray-400 hover:text-gl-purple transition-colors"
@@ -1019,7 +1033,7 @@ export function CartridgeCard({
               onSendCommand(agent.id, text + planSuffix, useMemory);
             }}
             memoryEnabled={useMemory}
-            onToggleMemory={() => setUseMemory((v) => !v)}
+            onToggleMemory={toggleMemoryEnabled}
           />
         </div>
 
@@ -1151,6 +1165,11 @@ export function CartridgeCard({
 
       {/* Git Panel Modal */}
       {gitOpen && <GitPanel agent={agent} onClose={() => setGitOpen(false)} />}
+
+      {/* Journal / Session Memory Modal */}
+      {journalOpen && agent.repoName && (
+        <ProjectMemoryPanel project={agent.repoName} onClose={() => setJournalOpen(false)} />
+      )}
     </div>
   );
 }

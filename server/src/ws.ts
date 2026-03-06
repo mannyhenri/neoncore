@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import type { Server as HTTPServer } from 'http';
 import type { ServerToClientEvents, ClientToServerEvents } from './types.js';
 import db from './db.js';
+import { endSession } from './lib/session-manager.js';
 
 let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 
@@ -69,6 +70,7 @@ export function initWebSocket(server: HTTPServer) {
 }
 
 function markAgentOffline(agentId: string) {
+  endSession(agentId);
   const now = new Date().toISOString();
   db.prepare("UPDATE agents SET status = 'offline', last_seen = ? WHERE id = ?").run(now, agentId);
 
@@ -91,6 +93,7 @@ function markAgentOffline(agentId: string) {
       sessionId: (row.session_id as string) ?? '',
       lastMessage: (row.last_message as string) ?? '',
       pendingQuestion: (row.pending_question as string) ?? '',
+      memoryEnabled: (row.memory_enabled as number) === 1,
     });
     console.log(`[ws] Agent ${agentId} marked offline (extension disconnected)`);
   }

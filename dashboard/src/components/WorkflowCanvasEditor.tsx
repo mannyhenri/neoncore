@@ -62,12 +62,15 @@ interface StepNodeData {
   stepId: string;
   name: string;
   role: string;
+  executorType: StepExecutorType;
   executorId: string;
   agentName: string;
   agentType: 'claude' | 'gridlight' | '';
   prompt: string;
   autoAdvance: boolean;
   waitForWebhook: boolean;
+  useIntent: boolean;
+  gateType: string;
   status: StepStatus;
   isRunning: boolean;
   onSelect: (stepId: string) => void;
@@ -232,6 +235,26 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         {data.waitForWebhook && (
           <span className="text-[9px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10" title="Waits for external webhook to complete">
             webhook
+          </span>
+        )}
+        {data.useIntent && (
+          <span className="text-[9px] text-emerald-400/70 font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10">
+            intent
+          </span>
+        )}
+        {data.executorType === 'review-gate' && (
+          <span className="text-[9px] text-rose-400/70 font-medium px-1.5 py-0.5 rounded-full bg-rose-500/10 uppercase">
+            critic
+          </span>
+        )}
+        {data.executorType === 'deliberation' && (
+          <span className="text-[9px] text-violet-400/70 font-medium px-1.5 py-0.5 rounded-full bg-violet-500/10 uppercase">
+            deliberation
+          </span>
+        )}
+        {data.executorType === 'quality-gate' && (
+          <span className="text-[9px] text-teal-400/70 font-medium px-1.5 py-0.5 rounded-full bg-teal-500/10 uppercase">
+            {data.gateType || 'quality'}
           </span>
         )}
       </div>
@@ -491,12 +514,15 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           stepId: step.id,
           name: step.name,
           role: getStepRole(step).id,
+          executorType: step.executorType,
           executorId: step.executorId,
           agentName: agent?.name || '',
           agentType: agent?.type || '',
           prompt: (step.executorConfig.prompt as string) || step.description || '',
           autoAdvance: step.autoAdvance,
           waitForWebhook: !!step.executorConfig.waitForWebhook,
+          useIntent: !!step.executorConfig.useIntent,
+          gateType: (step.executorConfig.gateType as string) || '',
           status: step.status,
           isRunning: isExecuting,
           onSelect: handleSelectStep,
@@ -970,6 +996,442 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   );
 }
 
+// ─── Intent Editor ──────────────────────────────────
+
+function IntentEditor({
+  step,
+  onUpdate,
+  isExecuting,
+}: {
+  step: LocalStep;
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+}) {
+  const intent = (step.executorConfig.intent as {
+    objective?: string;
+    acceptanceCriteria?: string[];
+    constraints?: string[];
+    context?: string;
+  }) || {};
+
+  const updateIntent = (patch: Record<string, unknown>) => {
+    onUpdate({
+      executorConfig: {
+        ...step.executorConfig,
+        intent: { ...intent, ...patch },
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Objective <span className="text-red-400">*</span></label>
+        <textarea
+          value={intent.objective || ''}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) => updateIntent({ objective: e.target.value })}
+          disabled={isExecuting}
+          rows={3}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          placeholder="What should be accomplished?"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Acceptance Criteria</label>
+        {(intent.acceptanceCriteria || []).map((criterion, i) => (
+          <div key={i} className="flex items-center gap-1 mb-1">
+            <span className="text-[10px] text-gray-600 w-4">{i + 1}.</span>
+            <input
+              type="text"
+              value={criterion}
+              onKeyDown={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const updated = [...(intent.acceptanceCriteria || [])];
+                updated[i] = e.target.value;
+                updateIntent({ acceptanceCriteria: updated });
+              }}
+              disabled={isExecuting}
+              className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              placeholder="Criterion..."
+            />
+            <button
+              onClick={() => {
+                const updated = (intent.acceptanceCriteria || []).filter((_, j) => j !== i);
+                updateIntent({ acceptanceCriteria: updated });
+              }}
+              disabled={isExecuting}
+              className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+            >&times;</button>
+          </div>
+        ))}
+        <button
+          onClick={() => updateIntent({ acceptanceCriteria: [...(intent.acceptanceCriteria || []), ''] })}
+          disabled={isExecuting}
+          className="text-[10px] text-emerald-400/70 hover:text-emerald-400 transition-colors disabled:opacity-30"
+        >
+          + Add criterion
+        </button>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Constraints</label>
+        {(intent.constraints || []).map((constraint, i) => (
+          <div key={i} className="flex items-center gap-1 mb-1">
+            <span className="text-[10px] text-gray-600 w-4">-</span>
+            <input
+              type="text"
+              value={constraint}
+              onKeyDown={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const updated = [...(intent.constraints || [])];
+                updated[i] = e.target.value;
+                updateIntent({ constraints: updated });
+              }}
+              disabled={isExecuting}
+              className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              placeholder="Constraint..."
+            />
+            <button
+              onClick={() => {
+                const updated = (intent.constraints || []).filter((_, j) => j !== i);
+                updateIntent({ constraints: updated });
+              }}
+              disabled={isExecuting}
+              className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+            >&times;</button>
+          </div>
+        ))}
+        <button
+          onClick={() => updateIntent({ constraints: [...(intent.constraints || []), ''] })}
+          disabled={isExecuting}
+          className="text-[10px] text-emerald-400/70 hover:text-emerald-400 transition-colors disabled:opacity-30"
+        >
+          + Add constraint
+        </button>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Context</label>
+        <textarea
+          value={intent.context || ''}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) => updateIntent({ context: e.target.value })}
+          disabled={isExecuting}
+          rows={2}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          placeholder="Additional context, relevant files, etc."
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Review Gate Config ─────────────────────────────
+
+function ReviewGateConfig({
+  step,
+  agentOptions,
+  onUpdate,
+  isExecuting,
+}: {
+  step: LocalStep;
+  agentOptions: { id: string; label: string }[];
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+}) {
+  const reviewAgentId = (step.executorConfig.reviewAgentId as string) || '';
+  const criteria = (step.executorConfig.criteria as string) || '';
+  const maxRetries = (step.executorConfig.maxRetries as number) || 3;
+
+  return (
+    <>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Review Agent</label>
+        <select
+          value={reviewAgentId}
+          onChange={(e) =>
+            onUpdate({
+              executorId: e.target.value,
+              executorConfig: { ...step.executorConfig, reviewAgentId: e.target.value },
+            })
+          }
+          disabled={isExecuting}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+        >
+          <option value="">-- Select critic agent --</option>
+          {agentOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
+          ))}
+        </select>
+        <p className="text-[10px] text-gray-600 mt-1">This agent evaluates the output from dependency steps</p>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Review Criteria</label>
+        <textarea
+          value={criteria}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) =>
+            onUpdate({
+              executorConfig: { ...step.executorConfig, criteria: e.target.value },
+            })
+          }
+          disabled={isExecuting}
+          rows={4}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          placeholder="What should the critic evaluate? e.g. code quality, acceptance criteria, security..."
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Max Retries</label>
+        <input
+          type="number"
+          min={1}
+          max={5}
+          value={maxRetries}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) =>
+            onUpdate({
+              executorConfig: { ...step.executorConfig, maxRetries: parseInt(e.target.value) || 3 },
+            })
+          }
+          disabled={isExecuting}
+          className="w-20 text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+        />
+        <p className="text-[10px] text-gray-600 mt-1">
+          If FAIL, resets dependency steps and re-runs up to {maxRetries} time(s)
+        </p>
+      </div>
+    </>
+  );
+}
+
+// ─── Deliberation Config ────────────────────────────
+
+function DeliberationConfig({
+  step,
+  agentOptions,
+  onUpdate,
+  isExecuting,
+}: {
+  step: LocalStep;
+  agentOptions: { id: string; label: string }[];
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+}) {
+  const panelAgentIds = (step.executorConfig.panelAgentIds as string[]) || [];
+  const synthesisAgentId = (step.executorConfig.synthesisAgentId as string) || '';
+  const prompt = (step.executorConfig.prompt as string) || '';
+
+  return (
+    <>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Panel Agents (2-4)</label>
+        <p className="text-[10px] text-gray-600 mb-1.5">Each agent receives the same prompt independently</p>
+        {panelAgentIds.map((agentId, i) => (
+          <div key={i} className="flex items-center gap-1 mb-1">
+            <select
+              value={agentId}
+              onChange={(e) => {
+                const updated = [...panelAgentIds];
+                updated[i] = e.target.value;
+                onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
+              }}
+              disabled={isExecuting}
+              className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 focus:outline-none disabled:opacity-50"
+            >
+              <option value="">-- Select --</option>
+              {agentOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                const updated = panelAgentIds.filter((_, j) => j !== i);
+                onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
+              }}
+              disabled={isExecuting}
+              className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+            >&times;</button>
+          </div>
+        ))}
+        {panelAgentIds.length < 4 && (
+          <button
+            onClick={() =>
+              onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: [...panelAgentIds, ''] } })
+            }
+            disabled={isExecuting}
+            className="text-[10px] text-violet-400/70 hover:text-violet-400 transition-colors disabled:opacity-30"
+          >
+            + Add panel agent
+          </button>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Synthesis Agent</label>
+        <select
+          value={synthesisAgentId}
+          onChange={(e) =>
+            onUpdate({
+              executorId: e.target.value,
+              executorConfig: { ...step.executorConfig, synthesisAgentId: e.target.value },
+            })
+          }
+          disabled={isExecuting}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+        >
+          <option value="">-- Select synthesis agent --</option>
+          {agentOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
+          ))}
+        </select>
+        <p className="text-[10px] text-gray-600 mt-1">Combines all panel responses into a unified consensus</p>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Shared Prompt</label>
+        <textarea
+          value={prompt}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) =>
+            onUpdate({
+              description: e.target.value,
+              executorConfig: { ...step.executorConfig, prompt: e.target.value },
+            })
+          }
+          disabled={isExecuting}
+          rows={5}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          placeholder="The prompt all panel agents will analyze..."
+        />
+      </div>
+    </>
+  );
+}
+
+// ─── Quality Gate Config ────────────────────────────
+
+const QUALITY_GATE_PRESETS = [
+  { id: 'test',        label: 'Test Suite',       color: 'text-amber-400',   bg: 'bg-amber-500/20',  description: 'Run all tests, gate on pass/fail' },
+  { id: 'lint',        label: 'Lint & Type Check', color: 'text-cyan-400',    bg: 'bg-cyan-500/20',   description: 'Formatting, linting, type checking' },
+  { id: 'security',    label: 'Security Scan',    color: 'text-red-400',     bg: 'bg-red-500/20',    description: 'Secrets, OWASP, dependency audit' },
+  { id: 'build',       label: 'Build Check',      color: 'text-blue-400',    bg: 'bg-blue-500/20',   description: 'Verify the project builds cleanly' },
+  { id: 'full-review', label: 'Full Code Review', color: 'text-emerald-400', bg: 'bg-emerald-500/20', description: 'Lint + security + quality + tests' },
+  { id: 'custom',      label: 'Custom Gate',      color: 'text-gray-400',    bg: 'bg-gray-500/20',   description: 'Write your own quality check' },
+];
+
+function QualityGateConfig({
+  step,
+  agentOptions,
+  onUpdate,
+  isExecuting,
+}: {
+  step: LocalStep;
+  agentOptions: { id: string; label: string }[];
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+}) {
+  const gateType = (step.executorConfig.gateType as string) || 'test';
+  const maxRetries = (step.executorConfig.maxRetries as number) || 2;
+  const customPrompt = (step.executorConfig.customPrompt as string) || '';
+
+  return (
+    <>
+      {/* Gate type preset selector */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1.5">Quality Check</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {QUALITY_GATE_PRESETS.map((preset) => {
+            const isActive = gateType === preset.id;
+            return (
+              <button
+                key={preset.id}
+                onClick={() =>
+                  onUpdate({
+                    executorConfig: { ...step.executorConfig, gateType: preset.id },
+                  })
+                }
+                disabled={isExecuting}
+                className={`text-left rounded-lg px-2.5 py-2 border transition-colors disabled:opacity-50 ${
+                  isActive
+                    ? `${preset.bg} ${preset.color} border-current/30`
+                    : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+                }`}
+              >
+                <div className="text-[11px] font-medium leading-tight">{preset.label}</div>
+                <div className="text-[9px] leading-snug mt-0.5 opacity-60">{preset.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Agent selector */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Agent</label>
+        <select
+          value={step.executorId}
+          onChange={(e) => onUpdate({ executorId: e.target.value })}
+          disabled={isExecuting}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+        >
+          <option value="">-- Select agent --</option>
+          {agentOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
+          ))}
+        </select>
+        <p className="text-[10px] text-gray-600 mt-1">Agent runs the quality check on its own codebase</p>
+      </div>
+
+      {/* Custom prompt (only for 'custom' gate type) */}
+      {gateType === 'custom' && (
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Custom Quality Check Prompt</label>
+          <textarea
+            value={customPrompt}
+            onKeyDown={(e) => e.stopPropagation()}
+            onChange={(e) =>
+              onUpdate({
+                executorConfig: { ...step.executorConfig, customPrompt: e.target.value },
+              })
+            }
+            disabled={isExecuting}
+            rows={6}
+            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+            placeholder="Describe your quality check. The agent must respond with PASS or FAIL on the first line..."
+          />
+        </div>
+      )}
+
+      {/* Max retries */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Max Retries</label>
+        <input
+          type="number"
+          min={0}
+          max={5}
+          value={maxRetries}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) =>
+            onUpdate({
+              executorConfig: { ...step.executorConfig, maxRetries: parseInt(e.target.value) || 2 },
+            })
+          }
+          disabled={isExecuting}
+          className="w-20 text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+        />
+        <p className="text-[10px] text-gray-600 mt-1">
+          If FAIL, resets upstream steps with feedback and re-runs (up to {maxRetries} time(s))
+        </p>
+      </div>
+    </>
+  );
+}
+
 // ─── Side Panel Component ───────────────────────────
 
 function SidePanel({
@@ -1032,73 +1494,132 @@ function SidePanel({
           />
         </div>
 
-        {/* Expert role selector */}
+        {/* Step type selector */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1.5">Expert Role</label>
-          <div className="grid grid-cols-2 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
-            {EXPERT_ROLES.map((role) => {
-              const isActive = currentRole.id === role.id;
-              return (
-                <button
-                  key={role.id}
-                  onClick={() =>
-                    onUpdate({
-                      executorType: 'claude-code',
-                      executorConfig: { ...step.executorConfig, role: role.id },
-                    })
-                  }
-                  disabled={isExecuting}
-                  className={`text-left rounded-lg px-2.5 py-2 border transition-colors disabled:opacity-50 ${
-                    isActive
-                      ? `${role.bg} ${role.color} border-current/30`
-                      : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <div className="text-[11px] font-medium leading-tight">{role.name}</div>
-                  <div className="text-[9px] leading-snug mt-0.5 opacity-60">{role.description}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Agent selector */}
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Agent</label>
+          <label className="block text-xs text-gray-500 mb-1">Step Type</label>
           <select
-            value={step.executorId}
-            onChange={(e) => onUpdate({ executorId: e.target.value })}
+            value={step.executorType === 'review-gate' ? 'review-gate' : step.executorType === 'deliberation' ? 'deliberation' : step.executorType === 'quality-gate' ? 'quality-gate' : 'claude-code'}
+            onChange={(e) => {
+              const newType = e.target.value as 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate';
+              onUpdate({ executorType: newType, executorConfig: { ...step.executorConfig } });
+            }}
             disabled={isExecuting}
             className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
           >
-            <option value="">-- Select agent --</option>
-            {agentOptions.map((opt) => (
-              <option key={opt.id} value={opt.id}>{opt.label}</option>
-            ))}
+            <option value="claude-code">Standard (Agent Step)</option>
+            <option value="quality-gate">Quality Gate (Test / Lint / Security)</option>
+            <option value="review-gate">Critic / Review Gate</option>
+            <option value="deliberation">Multi-Agent Deliberation</option>
           </select>
-          {agentOptions.length === 0 && (
-            <p className="text-[10px] text-gray-600 mt-1 italic">No online agents</p>
-          )}
         </div>
 
-        {/* Prompt */}
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">What should this agent do?</label>
-          <textarea
-            value={currentPrompt}
-            onKeyDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              onUpdate({
-                description: e.target.value,
-                executorConfig: { ...step.executorConfig, prompt: e.target.value },
-              });
-            }}
-            disabled={isExecuting}
-            rows={6}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
-            placeholder="Describe the task in natural language..."
-          />
-        </div>
+        {/* ── Standard step config ── */}
+        {step.executorType !== 'review-gate' && step.executorType !== 'deliberation' && step.executorType !== 'quality-gate' && (
+          <>
+            {/* Expert role selector */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Expert Role</label>
+              <div className="grid grid-cols-2 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
+                {EXPERT_ROLES.map((role) => {
+                  const isActive = currentRole.id === role.id;
+                  return (
+                    <button
+                      key={role.id}
+                      onClick={() =>
+                        onUpdate({
+                          executorType: 'claude-code',
+                          executorConfig: { ...step.executorConfig, role: role.id },
+                        })
+                      }
+                      disabled={isExecuting}
+                      className={`text-left rounded-lg px-2.5 py-2 border transition-colors disabled:opacity-50 ${
+                        isActive
+                          ? `${role.bg} ${role.color} border-current/30`
+                          : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <div className="text-[11px] font-medium leading-tight">{role.name}</div>
+                      <div className="text-[9px] leading-snug mt-0.5 opacity-60">{role.description}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Agent selector */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Agent</label>
+              <select
+                value={step.executorId}
+                onChange={(e) => onUpdate({ executorId: e.target.value })}
+                disabled={isExecuting}
+                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">-- Select agent --</option>
+                {agentOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))}
+              </select>
+              {agentOptions.length === 0 && (
+                <p className="text-[10px] text-gray-600 mt-1 italic">No online agents</p>
+              )}
+            </div>
+
+            {/* Intent toggle */}
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!step.executorConfig.useIntent}
+                onChange={() =>
+                  onUpdate({
+                    executorConfig: { ...step.executorConfig, useIntent: !step.executorConfig.useIntent },
+                  })
+                }
+                disabled={isExecuting}
+                className="accent-emerald-500"
+              />
+              Use structured intent
+            </label>
+
+            {/* Prompt — free text or structured intent */}
+            {step.executorConfig.useIntent ? (
+              <IntentEditor step={step} onUpdate={onUpdate} isExecuting={isExecuting} />
+            ) : (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">What should this agent do?</label>
+                <textarea
+                  value={currentPrompt}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    onUpdate({
+                      description: e.target.value,
+                      executorConfig: { ...step.executorConfig, prompt: e.target.value },
+                    });
+                  }}
+                  disabled={isExecuting}
+                  rows={6}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+                  placeholder="Describe the task in natural language..."
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Review gate config ── */}
+        {step.executorType === 'review-gate' && (
+          <ReviewGateConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
+        )}
+
+        {/* ── Deliberation config ── */}
+        {step.executorType === 'deliberation' && (
+          <DeliberationConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
+        )}
+
+        {/* ── Quality gate config ── */}
+        {step.executorType === 'quality-gate' && (
+          <QualityGateConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
+        )}
 
         {/* Auto-advance */}
         <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
@@ -1112,28 +1633,32 @@ function SidePanel({
           Auto-advance to next step
         </label>
 
-        {/* Wait for webhook */}
-        <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={!!step.executorConfig.waitForWebhook}
-            onChange={() =>
-              onUpdate({
-                executorConfig: { ...step.executorConfig, waitForWebhook: !step.executorConfig.waitForWebhook },
-              })
-            }
-            disabled={isExecuting}
-            className="accent-amber-500"
-          />
-          Wait for external webhook
-        </label>
-        {!!step.executorConfig.waitForWebhook && (
-          <div className="text-[10px] text-gray-500 bg-black/20 rounded-md px-3 py-2 font-mono break-all select-all">
-            <div className="text-amber-400/70 mb-1 font-sans">
-              Step won't auto-complete. Call this when done:
-            </div>
-            curl -X POST {window.location.origin}/api/workflows/webhook/{step.id}/complete
-          </div>
+        {/* Wait for webhook (standard steps only) */}
+        {step.executorType !== 'review-gate' && step.executorType !== 'deliberation' && step.executorType !== 'quality-gate' && (
+          <>
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!step.executorConfig.waitForWebhook}
+                onChange={() =>
+                  onUpdate({
+                    executorConfig: { ...step.executorConfig, waitForWebhook: !step.executorConfig.waitForWebhook },
+                  })
+                }
+                disabled={isExecuting}
+                className="accent-amber-500"
+              />
+              Wait for external webhook
+            </label>
+            {!!step.executorConfig.waitForWebhook && (
+              <div className="text-[10px] text-gray-500 bg-black/20 rounded-md px-3 py-2 font-mono break-all select-all">
+                <div className="text-amber-400/70 mb-1 font-sans">
+                  Step won't auto-complete. Call this when done:
+                </div>
+                curl -X POST {window.location.origin}/api/workflows/webhook/{step.id}/complete
+              </div>
+            )}
+          </>
         )}
 
         {/* Dependencies display */}

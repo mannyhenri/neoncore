@@ -21,6 +21,11 @@ export const api = {
   // Agents
   getAgents: () => request<import('../types').Agent[]>('/agents'),
   deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
+  updateAgent: (id: string, data: Record<string, unknown>) =>
+    request<import('../types').Agent>(`/agents/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
   focusAgent: (id: string) => request<{ ok: boolean }>(`/agents/${id}/focus`, { method: 'POST' }),
 
   // Activity
@@ -281,4 +286,19 @@ export const api = {
     }),
   completeWorkflowV2: (workflowId: string) =>
     request<import('../types').Workflow>(`/workflows/v2/${workflowId}/complete`, { method: 'POST' }),
+
+  // Journal / Session Memory
+  getProjects: () =>
+    request<{ project: string; sessionCount: number; lastSession: string }[]>('/journal/projects'),
+  getProjectSessions: (project: string, limit = 20) =>
+    request<import('../types').Session[]>(`/journal/projects/${encodeURIComponent(project)}/sessions?limit=${limit}`),
+  getSession: (id: string) =>
+    request<import('../types').Session>(`/journal/sessions/${id}`),
+  getKnowledgeFile: (project: string, filename: string) =>
+    request<import('../types').ProjectKnowledge>(`/journal/projects/${encodeURIComponent(project)}/knowledge/${filename}`),
+  updateKnowledgeFile: (project: string, filename: string, content: string) =>
+    request<{ ok: boolean }>(`/journal/projects/${encodeURIComponent(project)}/knowledge/${filename}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
 };

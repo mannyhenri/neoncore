@@ -17,6 +17,7 @@ export interface Agent {
   sessionId: string;
   lastMessage: string;
   pendingQuestion: string;
+  memoryEnabled: boolean;
 }
 
 export interface Activity {
@@ -60,6 +61,21 @@ export interface AgentMemory {
   source: 'auto' | 'manual';
   active: boolean;
   createdAt: string;
+}
+
+export interface Session {
+  id: string;
+  agentId: string;
+  sessionId: string;
+  project: string;
+  repoPath: string;
+  machine: string;
+  branch: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: 'active' | 'ended' | 'summarized';
+  activityCount: number;
+  summary: string;
 }
 
 export interface StuckAlert {
@@ -202,7 +218,7 @@ export interface McpServer {
 }
 
 // Workflow Step types (V2 canvas workflows)
-export type StepExecutorType = 'mcp' | 'claude-code' | 'claude-plan' | 'claude-review';
+export type StepExecutorType = 'mcp' | 'claude-code' | 'claude-plan' | 'claude-review' | 'review-gate' | 'deliberation' | 'quality-gate';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface WorkflowStep {
@@ -256,6 +272,8 @@ export type ServerToClientEvents = {
   mcp_server_updated: (server: McpServer) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
   plan_executed: (data: { agentId: string }) => void;
+  session_started: (data: { agentId: string; project: string; sessionId: string }) => void;
+  session_ended: (data: { agentId: string; project: string; sessionId: string }) => void;
 };
 
 export type ClientToServerEvents = {
