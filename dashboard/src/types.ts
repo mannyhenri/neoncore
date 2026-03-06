@@ -226,7 +226,7 @@ export interface McpServer {
 }
 
 // Workflow Step types (V2 canvas workflows)
-export type StepExecutorType = 'mcp' | 'claude-code' | 'claude-plan' | 'claude-review' | 'review-gate' | 'deliberation' | 'quality-gate';
+export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface WorkflowStep {
