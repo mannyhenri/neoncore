@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
+import { startSession, endSession } from '../lib/session-manager.js';
 
 const router = Router();
 
@@ -95,6 +96,22 @@ router.post('/register', (req, res) => {
       existing.id
     );
 
+    // Detect session boundary: sessionId changed → end old session, start new one
+    const oldSessionId = (existing.session_id as string) || '';
+    if (sessionId && sessionId !== oldSessionId) {
+      if (oldSessionId) {
+        endSession(existing.id as string);
+      }
+      startSession(
+        existing.id as string,
+        sessionId,
+        (repoName || existing.repo_name || '') as string,
+        (repoPath || existing.repo_path || '') as string,
+        (machine || existing.machine || '') as string,
+        (branch || existing.branch || '') as string,
+      );
+    }
+
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(existing.id) as Record<string, unknown>;
     const normalized = normalizeAgent(agent);
 
@@ -141,6 +158,11 @@ router.post('/register', (req, res) => {
     upgradeSocketsToAgentRoom(machine, repoPath, id);
   }
 
+  // Start initial session for the new agent
+  if (sessionId) {
+    startSession(id, sessionId, repoName || '', repoPath || '', machine || '', branch || '');
+  }
+
   getIO().emit('agent_registered', normalized);
   res.status(201).json(normalized);
 });
@@ -160,7 +182,7 @@ router.get('/:id', (req, res) => {
 
 // Update agent status
 router.patch('/:id', (req, res) => {
-  const { status, currentTask, branch, lastMessage } = req.body;
+  const { status, currentTask, branch, lastMessage, memoryEnabled } = req.body;
   const now = new Date().toISOString();
 
   const updates: string[] = ['last_seen = ?'];
@@ -170,6 +192,7 @@ router.patch('/:id', (req, res) => {
   if (currentTask !== undefined) { updates.push('current_task = ?'); values.push(currentTask); }
   if (branch) { updates.push('branch = ?'); values.push(branch); }
   if (lastMessage !== undefined) { updates.push('last_message = ?'); values.push(lastMessage); }
+  if (memoryEnabled !== undefined) { updates.push('memory_enabled = ?'); values.push(memoryEnabled ? 1 : 0); }
 
   values.push(req.params.id);
   db.prepare(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -321,6 +344,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
     pendingQuestion: (row.pending_question ?? '') as string,
+    memoryEnabled: (row.memory_enabled as number) === 1,
   };
 }
 

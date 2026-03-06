@@ -19,12 +19,14 @@ import gitRouter from './routes/git.js';
 import epicsRouter from './routes/epics.js';
 import workflowsRouter from './routes/workflows.js';
 import mcpRouter from './routes/mcp.js';
+import journalRouter from './routes/journal.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startEpicExecutor } from './routes/epics.js';
 import { startWorkflowExecutor } from './lib/workflow-executor.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
 import { restoreRunningServers } from './lib/mcp-manager.js';
+import { endSession } from './lib/session-manager.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -56,6 +58,7 @@ app.use('/api/git', gitRouter);
 app.use('/api/epics', epicsRouter);
 app.use('/api/workflows', workflowsRouter);
 app.use('/api/mcp', mcpRouter);
+app.use('/api/journal', journalRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -111,6 +114,7 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     sessionId: (row.session_id as string) ?? '',
     lastMessage: (row.last_message as string) ?? '',
     pendingQuestion: (row.pending_question as string) ?? '',
+    memoryEnabled: (row.memory_enabled as number) === 1,
   });
 }
 
@@ -137,6 +141,7 @@ setInterval(() => {
 
   for (const { id } of staleIdle) {
     if (hasActiveSocket(id)) continue; // extension still connected — skip
+    endSession(id);
     db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(id);
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
     if (row) emitAgentUpdate(row);

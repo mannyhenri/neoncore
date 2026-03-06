@@ -137,6 +137,13 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN pending_question TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add memory_enabled column to agents
+try {
+  db.prepare('SELECT memory_enabled FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 0`);
+}
+
 // Migration: add response column to permissions (for AskUserQuestion answers, ExitPlanMode feedback)
 try {
   db.prepare('SELECT response FROM permissions LIMIT 1').get();
@@ -334,5 +341,41 @@ const expired = db.prepare(
 if (expired.changes > 0) {
   console.log(`[db] Expired ${expired.changes} stale pending permission(s) from past sessions`);
 }
+
+// Session journal table — tracks session lifecycle per agent
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    project TEXT NOT NULL DEFAULT '',
+    repo_path TEXT NOT NULL DEFAULT '',
+    machine TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    activity_count INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+`);
+
+// Project knowledge files — per-project editable markdown documents
+db.exec(`
+  CREATE TABLE IF NOT EXISTS project_knowledge (
+    id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    UNIQUE(project, filename)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_knowledge_project ON project_knowledge(project);
+`);
 
 export default db;
