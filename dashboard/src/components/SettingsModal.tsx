@@ -17,7 +17,7 @@ export function SettingsModal({ onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [savedDir, setSavedDir] = useState('');
+  const [savedDirs, setSavedDirs] = useState<string[]>([]);
   const backdropRef = useRef<HTMLDivElement>(null);
 
   // API key settings
@@ -61,9 +61,15 @@ export function SettingsModal({ onClose }: Props) {
   // Load saved settings
   useEffect(() => {
     api.getSettings().then((settings) => {
-      const saved = settings.projects_dir || '';
-      setSavedDir(saved);
-      browse(saved || undefined);
+      const raw = settings.projects_dir || '';
+      let dirs: string[] = [];
+      if (raw.startsWith('[')) {
+        try { dirs = JSON.parse(raw); } catch { /* ignore */ }
+      } else if (raw) {
+        dirs = [raw];
+      }
+      setSavedDirs(dirs);
+      browse(dirs[0] || undefined);
       setOpenaiKey(settings.openai_api_key || '');
       setGridlightUrl(settings.gridlight_gateway_url || '');
       setOpenaiModels(settings.openai_models || 'gpt-4.1,gpt-4.1-mini');
@@ -73,11 +79,13 @@ export function SettingsModal({ onClose }: Props) {
     });
   }, [browse]);
 
-  const handleSelect = async () => {
+  const handleAddDir = async () => {
+    if (savedDirs.includes(currentPath)) return;
     setSaving(true);
     try {
-      await api.updateSettings({ projects_dir: currentPath });
-      setSavedDir(currentPath);
+      const next = [...savedDirs, currentPath];
+      await api.updateSettings({ projects_dir: JSON.stringify(next) });
+      setSavedDirs(next);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -87,7 +95,15 @@ export function SettingsModal({ onClose }: Props) {
     }
   };
 
-  const isSelected = currentPath === savedDir && savedDir !== '';
+  const handleRemoveDir = async (dirToRemove: string) => {
+    const next = savedDirs.filter((d) => d !== dirToRemove);
+    try {
+      await api.updateSettings({ projects_dir: JSON.stringify(next) });
+      setSavedDirs(next);
+    } catch { /* ignore */ }
+  };
+
+  const isAlreadyAdded = savedDirs.includes(currentPath);
 
   // Load MCP servers when tab opens
   useEffect(() => {
@@ -219,6 +235,24 @@ export function SettingsModal({ onClose }: Props) {
 
         {tab === 'projects' ? (
           <>
+            {/* Saved directories list */}
+            {savedDirs.length > 0 && (
+              <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.06] space-y-1">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Watched Directories</span>
+                {savedDirs.map((dir) => (
+                  <div key={dir} className="flex items-center gap-2 group">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gl-purple shrink-0" />
+                    <span className="text-xs text-gray-300 font-mono truncate flex-1">{dir}</span>
+                    <button
+                      onClick={() => handleRemoveDir(dir)}
+                      className="text-gray-600 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                      title="Remove"
+                    >&times;</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Current path breadcrumb */}
             <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.06] flex items-center gap-2 min-h-[2.5rem]">
               {parentPath && (
@@ -233,8 +267,8 @@ export function SettingsModal({ onClose }: Props) {
                 </button>
               )}
               <span className="text-sm text-gray-300 font-mono truncate">{currentPath}</span>
-              {isSelected && (
-                <span className="text-xs text-green-400 shrink-0 ml-auto">Current</span>
+              {isAlreadyAdded && (
+                <span className="text-xs text-green-400 shrink-0 ml-auto">Added</span>
               )}
             </div>
 
@@ -263,13 +297,13 @@ export function SettingsModal({ onClose }: Props) {
             {/* Footer */}
             <div className="px-4 py-3 md:px-6 md:py-4 border-t border-white/[0.06] flex items-center gap-3">
               <button
-                onClick={handleSelect}
-                disabled={saving || !currentPath}
+                onClick={handleAddDir}
+                disabled={saving || !currentPath || isAlreadyAdded}
                 className="text-sm px-4 py-2 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-colors"
               >
-                {saving ? 'Saving...' : 'Select This Directory'}
+                {saving ? 'Saving...' : isAlreadyAdded ? 'Already Added' : 'Add This Directory'}
               </button>
-              {saved && <span className="text-xs text-green-400">Saved</span>}
+              {saved && <span className="text-xs text-green-400">Added</span>}
             </div>
           </>
         ) : tab === 'api-keys' ? (
