@@ -95,7 +95,7 @@ export const api = {
     request<{ current: string; parent: string | null; dirs: string[] }>(
       `/repos/browse${dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''}`
     ),
-  getRepos: () => request<{ repos: { name: string; path: string }[]; projectsDir: string }>('/repos'),
+  getRepos: () => request<{ repos: { name: string; path: string; source: string }[]; projectsDirs: string[] }>('/repos'),
   openRepo: (repoPath: string) =>
     request<{ ok: boolean }>('/repos/open', {
       method: 'POST',

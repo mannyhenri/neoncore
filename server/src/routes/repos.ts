@@ -40,36 +40,53 @@ router.get('/browse', (req, res) => {
   }
 });
 
-// GET /api/repos - list git repos in the configured projects directory
-router.get('/', (_req, res) => {
+/**
+ * Parse the projects_dir setting.
+ * Supports both legacy single-path string and JSON array of paths.
+ */
+function getProjectsDirs(): string[] {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'projects_dir'").get() as { value: string } | undefined;
-  if (!row || !row.value) {
-    return res.json({ repos: [], projectsDir: '' });
+  if (!row || !row.value) return [];
+  const val = row.value.trim();
+  if (val.startsWith('[')) {
+    try {
+      const arr = JSON.parse(val);
+      return Array.isArray(arr) ? arr.filter((s: unknown) => typeof s === 'string' && s) : [];
+    } catch {
+      return [];
+    }
+  }
+  return val ? [val] : [];
+}
+
+// GET /api/repos - list git repos in all configured projects directories
+router.get('/', (_req, res) => {
+  const projectsDirs = getProjectsDirs();
+  if (projectsDirs.length === 0) {
+    return res.json({ repos: [], projectsDirs: [] });
   }
 
-  const projectsDir = row.value;
-  if (!fs.existsSync(projectsDir)) {
-    return res.status(400).json({ error: 'Projects directory does not exist', projectsDir });
+  const repos: { name: string; path: string; source: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const projectsDir of projectsDirs) {
+    if (!fs.existsSync(projectsDir)) continue;
+    try {
+      const entries = fs.readdirSync(projectsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        const fullPath = path.join(projectsDir, entry.name);
+        if (seen.has(fullPath)) continue;
+        const gitPath = path.join(fullPath, '.git');
+        if (!fs.existsSync(gitPath)) continue;
+        seen.add(fullPath);
+        repos.push({ name: entry.name, path: fullPath, source: projectsDir });
+      }
+    } catch { /* skip unreadable dirs */ }
   }
 
-  try {
-    const entries = fs.readdirSync(projectsDir, { withFileTypes: true });
-    const repos = entries
-      .filter((entry) => {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) return false;
-        const gitPath = path.join(projectsDir, entry.name, '.git');
-        return fs.existsSync(gitPath);
-      })
-      .map((entry) => ({
-        name: entry.name,
-        path: path.join(projectsDir, entry.name),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    res.json({ repos, projectsDir });
-  } catch {
-    res.status(500).json({ error: 'Failed to read projects directory' });
-  }
+  repos.sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ repos, projectsDirs });
 });
 
 // Find the `code` CLI binary — the server's shell may not have it in PATH

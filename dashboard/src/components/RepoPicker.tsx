@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 interface Repo {
   name: string;
   path: string;
+  source: string;
 }
 
 export function RepoPicker() {
@@ -24,14 +25,19 @@ export function RepoPicker() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  // Fetch repos when dropdown opens
+  // Fetch repos when dropdown opens + auto-refresh every 30s while open
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
-    api.getRepos()
-      .then(({ repos }) => setRepos(repos))
-      .catch(() => setRepos([]))
-      .finally(() => setLoading(false));
+    const fetch = () => {
+      setLoading((prev) => repos.length === 0 ? true : prev);
+      api.getRepos()
+        .then(({ repos }) => setRepos(repos))
+        .catch(() => setRepos([]))
+        .finally(() => setLoading(false));
+    };
+    fetch();
+    const interval = setInterval(fetch, 30000);
+    return () => clearInterval(interval);
   }, [open]);
 
   const handleOpen = async (repoPath: string) => {
