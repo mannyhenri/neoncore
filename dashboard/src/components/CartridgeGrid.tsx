@@ -116,7 +116,7 @@ export function CartridgeGrid({
         </div>
         <h3 className="text-lg font-medium text-gray-400 mb-2">No cartridges inserted</h3>
         <p className="text-sm text-center max-w-md text-gray-500">
-          Install the Neon Cartridges hooks on your machines to connect Claude Code agents.
+          Install the NeonCore hooks on your machines to connect Claude Code agents.
           <br />
           Run{' '}
           <code className="text-gl-purple bg-white/[0.06] px-1.5 py-0.5 rounded text-xs font-mono">

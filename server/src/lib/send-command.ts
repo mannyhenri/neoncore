@@ -35,7 +35,6 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
       sessionId: (updated.session_id ?? '') as string,
       lastMessage: (updated.last_message ?? '') as string,
       pendingQuestion: '',
-      memoryEnabled: (updated.memory_enabled as number) === 1,
     };
     getIO().emit('agent_updated', normalized);
   }

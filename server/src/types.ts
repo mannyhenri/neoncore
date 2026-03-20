@@ -17,7 +17,6 @@ export interface Agent {
   sessionId: string;
   lastMessage: string;
   pendingQuestion: string;
-  memoryEnabled: boolean;
 }
 
 export interface Activity {

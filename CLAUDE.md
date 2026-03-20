@@ -1,4 +1,4 @@
-# Neon Cartridges
+# NeonCore
 
 ## Project Structure
 
