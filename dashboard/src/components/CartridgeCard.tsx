@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import type { Agent, AgentMode, AgentMemory, Activity, PermissionRequest, StuckAlert } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
 import { GitPanel } from './GitPanel';
@@ -698,30 +698,6 @@ function InlinePermission({ permission, onAllow, onDeny }: {
 }
 
 // ---------------------------------------------------------------------------
-// Memory helpers (same categories as AgentCard)
-// ---------------------------------------------------------------------------
-
-const CATEGORY_COLORS: Record<string, string> = {
-  common_error: 'bg-red-900/50 text-red-400',
-  failed_approach: 'bg-orange-900/50 text-orange-400',
-  file_impact: 'bg-blue-900/50 text-blue-400',
-  working_pattern: 'bg-green-900/50 text-green-400',
-  dependency_quirk: 'bg-yellow-900/50 text-yellow-400',
-  test_setup: 'bg-cyan-900/50 text-cyan-400',
-  build_deploy: 'bg-purple-900/50 text-purple-400',
-  architecture: 'bg-indigo-900/50 text-indigo-400',
-};
-
-const CATEGORY_OPTIONS = [
-  'common_error', 'failed_approach', 'working_pattern', 'file_impact',
-  'dependency_quirk', 'test_setup', 'build_deploy', 'architecture',
-];
-
-function categoryBadge(category: string) {
-  const cls = CATEGORY_COLORS[category] || 'bg-gray-800 text-gray-400';
-  return `text-[9px] px-1 py-0.5 rounded ${cls}`;
-}
-
 // ---------------------------------------------------------------------------
 // CartridgeCard
 // ---------------------------------------------------------------------------
@@ -784,49 +760,7 @@ export function CartridgeCard({
   const pixelBg = spriteFrame === 0 ? frame1 : frame2;
   const [gitOpen, setGitOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
-  const [memoryOpen, setMemoryOpen] = useState(false);
-  const [memories, setMemories] = useState<AgentMemory[]>([]);
-  const [addingMemory, setAddingMemory] = useState(false);
-  const [newCategory, setNewCategory] = useState('common_error');
-  const [newContent, setNewContent] = useState('');
-  const useMemory = agent.memoryEnabled;
-  const toggleMemoryEnabled = useCallback(() => {
-    api.updateAgent(agent.id, { memoryEnabled: !agent.memoryEnabled }).catch(() => {});
-  }, [agent.id, agent.memoryEnabled]);
 
-  const loadMemories = useCallback(() => {
-    api.getMemory(agent.id).then(setMemories).catch(() => {});
-  }, [agent.id]);
-
-  useEffect(() => {
-    if (memoryOpen) loadMemories();
-  }, [memoryOpen, loadMemories]);
-
-  useEffect(() => {
-    if (memoryOpen) loadMemories();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.lastSeen]);
-
-  const handleAddMemory = () => {
-    if (!newContent.trim()) return;
-    api.addMemory(agent.id, { category: newCategory, content: newContent.trim() })
-      .then(() => { setNewContent(''); setAddingMemory(false); loadMemories(); })
-      .catch(() => {});
-  };
-
-  const handleToggleMemory = (memoryId: string) => {
-    api.toggleMemory(agent.id, memoryId)
-      .then((updated) => {
-        setMemories((prev) => prev.map((m) => m.id === updated.id ? updated : m));
-      })
-      .catch(() => {});
-  };
-
-  const handleDeleteMemory = (memoryId: string) => {
-    api.deleteMemory(agent.id, memoryId)
-      .then(loadMemories)
-      .catch(() => {});
-  };
 
   // Take last 8 activities for the terminal
   const terminalActivities = activities.slice(0, 8);
@@ -1030,94 +964,11 @@ export function CartridgeCard({
               const planSuffix = agent.mode === 'plan'
                 ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
                 : '';
-              onSendCommand(agent.id, text + planSuffix, useMemory);
+              onSendCommand(agent.id, text + planSuffix);
             }}
-            memoryEnabled={useMemory}
-            onToggleMemory={toggleMemoryEnabled}
           />
         </div>
 
-        {/* ── Memory panel ── */}
-        <div className="mx-3 mb-2">
-          <button
-            onClick={() => setMemoryOpen(!memoryOpen)}
-            className="text-[9px] text-gray-500 hover:text-gray-300 transition-colors uppercase tracking-wider"
-          >
-            {memoryOpen ? '- ' : '+ '}Memory{memories.length > 0 ? ` (${memories.filter(m => m.active).length}/${memories.length})` : ''}
-          </button>
-
-          {memoryOpen && (
-            <div className="mt-1.5 space-y-1 max-h-36 overflow-y-auto">
-              {memories.length === 0 && (
-                <p className="text-[10px] text-gray-600 italic">No memories yet</p>
-              )}
-              {memories.map((m) => (
-                <div key={m.id} className={`flex items-start gap-1 group ${m.active ? '' : 'opacity-40'}`}>
-                  <button
-                    onClick={() => handleToggleMemory(m.id)}
-                    className={`shrink-0 w-3 h-3 mt-0.5 rounded border transition-colors ${
-                      m.active
-                        ? 'bg-gl-purple border-gl-purple'
-                        : 'bg-gray-800 border-gray-600 hover:border-gray-500'
-                    }`}
-                    title={m.active ? 'Active - click to disable' : 'Inactive - click to enable'}
-                  />
-                  <span className={categoryBadge(m.category)}>{m.category}</span>
-                  <span className="text-[10px] text-gray-400 flex-1 break-words">{m.content}</span>
-                  <span className="text-[8px] text-gray-600">{m.source === 'auto' ? 'auto' : ''}</span>
-                  <button
-                    onClick={() => handleDeleteMemory(m.id)}
-                    className="text-gray-700 hover:text-red-400 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-
-              {addingMemory ? (
-                <div className="space-y-1 pt-0.5">
-                  <select
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    className="text-[10px] glass-input text-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
-                  >
-                    {CATEGORY_OPTIONS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  <textarea
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                    placeholder="What did you learn?"
-                    className="text-[10px] glass-input text-gray-300 rounded px-2 py-1 w-full resize-none h-12 focus:outline-none"
-                  />
-                  <div className="flex gap-1">
-                    <button
-                      onClick={handleAddMemory}
-                      disabled={!newContent.trim()}
-                      className="text-[10px] px-1.5 py-0.5 gl-gradient hover:opacity-90 text-white rounded disabled:opacity-30"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => { setAddingMemory(false); setNewContent(''); }}
-                      className="text-[10px] px-1.5 py-0.5 text-gray-500 hover:text-gray-300"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setAddingMemory(true)}
-                  className="text-[9px] text-gray-600 hover:text-gl-purple transition-colors"
-                >
-                  + Add memory
-                </button>
-              )}
-            </div>
-          )}
-        </div>
 
         {/* ── Mode selector ── */}
         <div className="mx-3 mb-2 flex items-center justify-between">

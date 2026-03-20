@@ -366,7 +366,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
   const [addingMemory, setAddingMemory] = useState(false);
   const [newCategory, setNewCategory] = useState('common_error');
   const [newContent, setNewContent] = useState('');
-  const [useMemory, setUseMemory] = useState(false);
+
 
   const loadMemories = useCallback(() => {
     api.getMemory(agent.id).then(setMemories).catch(() => {});
@@ -539,10 +539,8 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             const planSuffix = agent.mode === 'plan'
               ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
               : '';
-            onSendCommand(agent.id, text + planSuffix, useMemory);
+            onSendCommand(agent.id, text + planSuffix);
           }}
-          memoryEnabled={useMemory}
-          onToggleMemory={() => setUseMemory((v) => !v)}
         />
       </div>
 

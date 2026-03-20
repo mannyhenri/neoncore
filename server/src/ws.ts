@@ -93,7 +93,6 @@ function markAgentOffline(agentId: string) {
       sessionId: (row.session_id as string) ?? '',
       lastMessage: (row.last_message as string) ?? '',
       pendingQuestion: (row.pending_question as string) ?? '',
-      memoryEnabled: (row.memory_enabled as number) === 1,
     });
     console.log(`[ws] Agent ${agentId} marked offline (extension disconnected)`);
   }

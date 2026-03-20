@@ -182,7 +182,7 @@ router.get('/:id', (req, res) => {
 
 // Update agent status
 router.patch('/:id', (req, res) => {
-  const { status, currentTask, branch, lastMessage, memoryEnabled } = req.body;
+  const { status, currentTask, branch, lastMessage } = req.body;
   const now = new Date().toISOString();
 
   const updates: string[] = ['last_seen = ?'];
@@ -192,7 +192,6 @@ router.patch('/:id', (req, res) => {
   if (currentTask !== undefined) { updates.push('current_task = ?'); values.push(currentTask); }
   if (branch) { updates.push('branch = ?'); values.push(branch); }
   if (lastMessage !== undefined) { updates.push('last_message = ?'); values.push(lastMessage); }
-  if (memoryEnabled !== undefined) { updates.push('memory_enabled = ?'); values.push(memoryEnabled ? 1 : 0); }
 
   values.push(req.params.id);
   db.prepare(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -344,7 +343,6 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
     pendingQuestion: (row.pending_question ?? '') as string,
-    memoryEnabled: (row.memory_enabled as number) === 1,
   };
 }
 

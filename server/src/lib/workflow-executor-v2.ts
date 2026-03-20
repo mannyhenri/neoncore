@@ -113,11 +113,9 @@ function gatherDependencyContext(step: WorkflowStep): string {
   return parts.length > 0 ? parts.join('\n\n---\n\n') + '\n\n' : '';
 }
 
-/** Check if the assigned agent has memory enabled */
-function isMemoryEnabled(agentId: string): boolean {
-  const row = db.prepare('SELECT memory_enabled FROM agents WHERE id = ?')
-    .get(agentId) as { memory_enabled: number } | undefined;
-  return (row?.memory_enabled ?? 0) === 1;
+/** Memory is always included when entries exist — managed via the memory modal */
+function isMemoryEnabled(_agentId: string): boolean {
+  return true;
 }
 
 /** Standard step execution — dispatches prompt to agent with role prefix, memory, webhook */

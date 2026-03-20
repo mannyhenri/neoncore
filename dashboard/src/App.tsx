@@ -63,9 +63,9 @@ export default function App() {
         <div className="flex items-center justify-between flex-wrap gap-2 md:gap-0">
           <div className="flex items-center gap-2 md:gap-3">
             <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8" />
-            <h1 className="text-lg md:text-xl font-bold tracking-tight">
+            <h1 className="font-pixel text-xs md:text-sm tracking-wide" style={{ imageRendering: 'pixelated' }}>
               <span className="text-gl-blue">Neon</span>
-              <span className="text-gl-pink">Cartridges</span>
+              <span className="text-gl-pink">Core</span>
             </h1>
             <span className="hidden sm:inline text-[10px] text-gray-500 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
               Orchestrator

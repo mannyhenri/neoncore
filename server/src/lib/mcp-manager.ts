@@ -67,7 +67,7 @@ export async function startMcpServer(serverId: string): Promise<McpServer> {
     });
 
     const client = new Client(
-      { name: 'neon-cartridges', version: '0.2.0' },
+      { name: 'neoncore', version: '0.2.0' },
       { capabilities: {} }
     );
 

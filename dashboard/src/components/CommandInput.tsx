@@ -7,8 +7,6 @@ interface Props {
   placeholder?: string;
   agentId?: string;
   mode?: 'plan' | 'manual' | 'trust';
-  memoryEnabled?: boolean;
-  onToggleMemory?: () => void;
 }
 
 function loadHistory(agentId: string): string[] {
@@ -28,7 +26,7 @@ function saveHistory(agentId: string, history: string[]) {
   }
 }
 
-export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled, onToggleMemory }: Props) {
+export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -151,15 +149,6 @@ export function CommandInput({ onSend, placeholder, agentId, mode, memoryEnabled
       <div className="flex justify-between items-center">
         <span className="text-sm text-gray-600 flex items-center gap-2">
           {mode === 'plan' && <span className="text-indigo-400">Plan mode</span>}
-          {onToggleMemory && (
-            <button
-              onClick={onToggleMemory}
-              className={`transition-colors ${memoryEnabled ? 'text-cyan-400' : 'text-gray-600 hover:text-gray-400'}`}
-              title={memoryEnabled ? 'Memory: ON — click to disable' : 'Memory: OFF — click to enable'}
-            >
-              {memoryEnabled ? 'Memory' : 'No memory'}
-            </button>
-          )}
           <span>Enter to send, Shift+Enter for newline</span>
         </span>
         <button

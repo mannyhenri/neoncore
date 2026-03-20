@@ -114,7 +114,6 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     sessionId: (row.session_id as string) ?? '',
     lastMessage: (row.last_message as string) ?? '',
     pendingQuestion: (row.pending_question as string) ?? '',
-    memoryEnabled: (row.memory_enabled as number) === 1,
   });
 }
 
@@ -192,10 +191,10 @@ server.on('error', async (err: NodeJS.ErrnoException) => {
       const res = await fetch(`http://localhost:${PORT}/api/health`);
       const data = await res.json() as { status?: string };
       if (data.status === 'ok') {
-        console.log(`[startup] Neon Cartridges already running on port ${PORT}, piggybacking`);
+        console.log(`[startup] NeonCore already running on port ${PORT}, piggybacking`);
         process.exit(0);
       }
-    } catch { /* not Neon Cartridges */ }
+    } catch { /* not NeonCore */ }
     console.error(`[startup] Port ${PORT} is in use by another process`);
     process.exit(1);
   }
@@ -205,7 +204,7 @@ server.listen(PORT, '0.0.0.0', () => {
   const localIP = getLocalIP();
   console.log(`
   ╔══════════════════════════════════════════════╗
-  ║   Neon Cartridges Server                     ║
+  ║   NeonCore Server                             ║
   ║                                              ║
   ║   Local:   http://localhost:${PORT}              ║
   ║   Network: http://${localIP}:${PORT}    ║
