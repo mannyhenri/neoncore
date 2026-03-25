@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
+import type { AgentType } from '../types';
 
 interface Repo {
   name: string;
@@ -11,6 +12,7 @@ export function RepoPicker() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -19,6 +21,7 @@ export function RepoPicker() {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
+        setSelectedRepo(null);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -40,10 +43,11 @@ export function RepoPicker() {
     return () => clearInterval(interval);
   }, [open]);
 
-  const handleOpen = async (repoPath: string) => {
+  const handleOpen = async (repoPath: string, agentType: AgentType) => {
     setOpen(false);
+    setSelectedRepo(null);
     try {
-      await api.openRepo(repoPath);
+      await api.openRepo(repoPath, agentType);
     } catch {
       // ignore
     }
@@ -52,7 +56,7 @@ export function RepoPicker() {
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => { setOpen(!open); setSelectedRepo(null); }}
         className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors"
       >
         Cartridges
@@ -67,14 +71,32 @@ export function RepoPicker() {
             </div>
           ) : (
             repos.map((repo) => (
-              <button
-                key={repo.path}
-                onClick={() => handleOpen(repo.path)}
-                className="w-full text-left text-xs text-gray-300 hover:bg-white/5 hover:text-white px-3 py-1.5 transition-colors flex items-center gap-2"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-gl-purple shrink-0" />
-                {repo.name}
-              </button>
+              <div key={repo.path} className="relative">
+                <button
+                  onClick={() => setSelectedRepo(selectedRepo === repo.path ? null : repo.path)}
+                  className="w-full text-left text-xs text-gray-300 hover:bg-white/5 hover:text-white px-3 py-1.5 transition-colors flex items-center gap-2"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-gl-purple shrink-0" />
+                  <span className="flex-1 truncate">{repo.name}</span>
+                  <span className={`text-gray-600 text-[10px] transition-transform ${selectedRepo === repo.path ? 'rotate-90' : ''}`}>▶</span>
+                </button>
+                {selectedRepo === repo.path && (
+                  <div className="flex gap-1 px-3 pb-1.5 pl-7">
+                    <button
+                      onClick={() => handleOpen(repo.path, 'gridlight')}
+                      className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gl-purple hover:text-purple-300 transition-colors"
+                    >
+                      Gridlight
+                    </button>
+                    <button
+                      onClick={() => handleOpen(repo.path, 'claude')}
+                      className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      Claude
+                    </button>
+                  </div>
+                )}
+              </div>
             ))
           )}
         </div>

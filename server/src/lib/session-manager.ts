@@ -69,12 +69,7 @@ export function startSession(
   getIO().emit('session_started', { agentId, project, sessionId });
   console.log(`[session] Started session for agent ${agentId.slice(0, 8)} on project "${project}"`);
 
-  // Inject project context from previous sessions (non-blocking)
-  try {
-    injectProjectContext(agentId, project);
-  } catch (err) {
-    console.error(`[session] Failed to inject project context:`, err);
-  }
+  // Context injection is now manual — triggered via dashboard "Send Context" button
 }
 
 export function endSession(agentId: string): void {

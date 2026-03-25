@@ -315,6 +315,19 @@ router.post('/:id/focus', (req, res) => {
   res.json({ ok: true });
 });
 
+// Manually send project context to an agent
+router.post('/:id/send-context', (req, res) => {
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const project = (agent.repo_name as string) || '';
+  if (!project) return res.status(400).json({ error: 'No project associated with agent' });
+
+  const { injectProjectContext } = require('../lib/context-injector.js');
+  injectProjectContext(req.params.id, project);
+  res.json({ ok: true });
+});
+
 // Delete an agent (cascade related records)
 router.delete('/:id', (req, res) => {
   const id = req.params.id;
