@@ -59,6 +59,16 @@ export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('neoncore');
   agentType = config.get('agentType', 'claude') as 'claude' | 'gridlight';
 
+  // If agentType is 'gridlight', the Gridlight extension handles NeonCore natively
+  // (programmatic command injection, activity reporting, permissions).
+  // This extension should only connect for 'claude' to avoid double command delivery.
+  if (agentType === 'gridlight') {
+    log('Agent type is gridlight — deferring to Gridlight extension for NeonCore integration');
+    statusBarItem.text = '$(plug) NeonCore → Gridlight';
+    statusBarItem.tooltip = 'NeonCore: Managed by Gridlight extension';
+    return;
+  }
+
   // Discover agent extension commands
   discoverAgentCommands();
 
@@ -350,6 +360,8 @@ function registerWithOrchestrator() {
         socket.emit('join_agent_room', { agentId: agent.id });
         log(`Joined agent room agent:${agent.id}`);
       }
+      // Auto-focus Claude sidebar so it's ready for commands
+      focusAgentPanel();
       // Drain any commands queued while we were offline
       drainPendingCommands(url, agent.id);
       // Start heartbeat for Gridlight agents (they lack hooks to keep last_seen fresh)

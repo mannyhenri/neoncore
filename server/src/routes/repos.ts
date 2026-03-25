@@ -124,9 +124,9 @@ function findCodeBinary(): string {
 
 let codeBin: string | null = null;
 
-// POST /api/repos/open - open a repo in VS Code
+// POST /api/repos/open - open a repo in VS Code with the chosen agent extension
 router.post('/open', (req, res) => {
-  const { path: repoPath } = req.body;
+  const { path: repoPath, agentType } = req.body;
   if (!repoPath || typeof repoPath !== 'string') {
     return res.status(400).json({ error: 'path required' });
   }
@@ -134,6 +134,29 @@ router.post('/open', (req, res) => {
   if (!fs.existsSync(repoPath)) {
     return res.status(400).json({ error: 'Path does not exist' });
   }
+
+  // Set the NeonCore extension's agentType in the workspace settings
+  const resolvedType = agentType === 'gridlight' ? 'gridlight' : 'claude';
+  const vscodeDir = path.join(repoPath, '.vscode');
+  const settingsPath = path.join(vscodeDir, 'settings.json');
+  try {
+    if (!fs.existsSync(vscodeDir)) fs.mkdirSync(vscodeDir, { recursive: true });
+    let settings: Record<string, unknown> = {};
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8');
+      try { settings = JSON.parse(raw); } catch { /* overwrite broken JSON */ }
+    }
+    settings['neoncore.agentType'] = resolvedType;
+
+    // When Gridlight is selected, enable its built-in NeonCore client
+    // so it auto-connects and opens the Gridlight panel on launch
+    if (resolvedType === 'gridlight') {
+      settings['gridlight.neoncore.enabled'] = true;
+      settings['gridlight.neoncore.serverUrl'] = `http://localhost:${process.env.PORT || 4040}`;
+    }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  } catch { /* best-effort — extension falls back to 'claude' */ }
 
   // Cache the resolved binary path
   if (!codeBin) codeBin = findCodeBinary();

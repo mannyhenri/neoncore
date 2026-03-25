@@ -27,6 +27,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   focusAgent: (id: string) => request<{ ok: boolean }>(`/agents/${id}/focus`, { method: 'POST' }),
+  sendContext: (id: string) => request<{ ok: boolean }>(`/agents/${id}/send-context`, { method: 'POST' }),
 
   // Activity
   getActivity: (limit = 50) => request<import('../types').Activity[]>(`/activity?limit=${limit}`),
@@ -96,10 +97,10 @@ export const api = {
       `/repos/browse${dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''}`
     ),
   getRepos: () => request<{ repos: { name: string; path: string; source: string }[]; projectsDirs: string[] }>('/repos'),
-  openRepo: (repoPath: string) =>
+  openRepo: (repoPath: string, agentType: 'claude' | 'gridlight' = 'claude') =>
     request<{ ok: boolean }>('/repos/open', {
       method: 'POST',
-      body: JSON.stringify({ path: repoPath }),
+      body: JSON.stringify({ path: repoPath, agentType }),
     }),
 
   // Git
