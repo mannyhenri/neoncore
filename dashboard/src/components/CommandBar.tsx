@@ -1,47 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
-import type { Agent } from '../types';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import type { Agent, CommandTemplate } from '../types';
+import { api } from '../lib/api';
 
 interface Props {
   agents: Agent[];
   onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
 }
-
-interface CommandCategory {
-  label: string;
-  commands: string[];
-}
-
-const CATEGORIES: CommandCategory[] = [
-  {
-    label: 'Git',
-    commands: [
-      'commit-push', 'commit-push-pr', 'commit-push-pr-actions',
-      'sync-branch', 'pull-branches', 'create-branch', 'checkout',
-      'finish-branch', 'check-merge',
-    ],
-  },
-  {
-    label: 'Quality',
-    commands: [
-      'full-review', 'full-test', 'check-code', 'code-review', 'security-review',
-      'run-tests', 'debug-check', 'mark-risk', 'list-risks',
-    ],
-  },
-  {
-    label: 'Worktree',
-    commands: [
-      'worktree-add', 'worktree-list', 'worktree-sync',
-      'worktree-finish', 'worktree-remove', 'worktree-help',
-    ],
-  },
-  {
-    label: 'Other',
-    commands: [
-      'deploy-to-gridlight', 'diagnose', 'challenge', 'scoping',
-      'start-working', 'reduce-complexity', 'list-commands',
-    ],
-  },
-];
 
 const dropdownBtnClass = 'text-sm glass-input text-gray-300 rounded-md px-2.5 py-2 focus:outline-none text-left cursor-pointer flex items-center justify-between gap-2';
 const btnClass = 'text-sm px-3.5 py-2 rounded-md font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed';
@@ -168,12 +132,12 @@ function AgentPicker({
     return a.machine ? `${name} (${a.machine})` : name;
   };
 
-  let label = 'Select agents...';
+  let label = 'Select cartridges...';
   if (allSelected && agents.length > 0) label = `All (${agents.length})`;
   else if (selected.length === 1) {
     const agent = agents.find((a) => a.id === selected[0]);
-    label = agent ? agentLabel(agent) : '1 agent';
-  } else if (selected.length > 1) label = `${selected.length} agents`;
+    label = agent ? agentLabel(agent) : '1 cartridge';
+  } else if (selected.length > 1) label = `${selected.length} cartridges`;
 
   return (
     <div ref={ref} className="relative">
@@ -213,19 +177,31 @@ function AgentPicker({
   );
 }
 
-// ─── Build command options with groups ──────────────────
-const COMMAND_OPTIONS: GlassSelectOption[] = CATEGORIES.flatMap((cat) =>
-  cat.commands.map((cmd) => ({ value: cmd, label: `/${cmd}`, group: cat.label })),
-);
-
-
 // ─── CommandBar ────────────────────────────────────────
 export function CommandBar({ agents, onSendCommand }: Props) {
   const [selectedCommand, setSelectedCommand] = useState('');
   const [commandAgents, setCommandAgents] = useState<string[]>([]);
+  const [templates, setTemplates] = useState<CommandTemplate[]>([]);
   const commandInitRef = useRef(false);
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
+
+  // Fetch command templates and refresh every 5s
+  useEffect(() => {
+    const fetch = () => api.getCommandTemplates().then(setTemplates).catch(() => {});
+    fetch();
+    const interval = setInterval(fetch, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Build options from DB templates only
+  const COMMAND_OPTIONS = useMemo<GlassSelectOption[]>(() =>
+    templates.map((t) => ({
+      value: t.id,
+      label: t.name,
+      group: t.category || 'Custom',
+    })),
+  [templates]);
 
   // Only auto-select all on first mount; after that just prune offline agents
   useEffect(() => {
@@ -239,13 +215,21 @@ export function CommandBar({ agents, onSendCommand }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
 
-  function handleSendCommand() {
+  async function handleSendCommand() {
     if (!selectedCommand || commandAgents.length === 0) return;
-    const text = `/${selectedCommand}`;
-    for (const id of commandAgents) {
-      onSendCommand(id, text, false);
-    }
+    const tpl = templates.find((t) => t.id === selectedCommand);
+    if (!tpl) return;
+
+    const targets = [...commandAgents];
     setSelectedCommand('');
+
+    // Send sequentially with delay so each extension has time to paste
+    for (let i = 0; i < targets.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 5000));
+      try {
+        await api.sendCommand(targets[i], tpl.content, false);
+      } catch { /* continue to next */ }
+    }
   }
 
   return (

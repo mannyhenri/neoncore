@@ -20,6 +20,7 @@ import epicsRouter from './routes/epics.js';
 import workflowsRouter from './routes/workflows.js';
 import mcpRouter from './routes/mcp.js';
 import journalRouter from './routes/journal.js';
+import commandTemplatesRouter from './routes/command-templates.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startEpicExecutor } from './routes/epics.js';
@@ -59,6 +60,7 @@ app.use('/api/epics', epicsRouter);
 app.use('/api/workflows', workflowsRouter);
 app.use('/api/mcp', mcpRouter);
 app.use('/api/journal', journalRouter);
+app.use('/api/command-templates', commandTemplatesRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

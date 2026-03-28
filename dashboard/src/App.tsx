@@ -4,6 +4,7 @@ import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { CommandBar } from './components/CommandBar';
 import { NotesModal } from './components/NotesModal';
+import CommandTemplatesModal from './components/CommandTemplatesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
@@ -28,6 +29,7 @@ export default function App() {
   const [notesPickerOpen, setNotesPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const notesPickerRef = useRef<HTMLDivElement>(null);
 
@@ -74,6 +76,13 @@ export default function App() {
           <div className="flex items-center gap-2 md:gap-4 text-base">
             {/* Repo Picker */}
             <RepoPicker />
+            {/* Commands button */}
+            <button
+              onClick={() => setCommandsOpen(true)}
+              className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors"
+            >
+              Commands
+            </button>
             {/* Notes button */}
             <div className="relative" ref={notesPickerRef}>
               <button
@@ -85,7 +94,7 @@ export default function App() {
               {notesPickerOpen && (
                 <div className="absolute right-0 top-full mt-1.5 z-50 glass rounded-xl shadow-2xl py-1.5 min-w-[200px] max-h-[400px] overflow-y-auto">
                   {agents.length === 0 ? (
-                    <div className="text-xs text-gray-500 px-3 py-2">No agents</div>
+                    <div className="text-xs text-gray-500 px-3 py-2">No cartridges</div>
                   ) : (
                     <>
                       {onlineAgents.map((agent) => (
@@ -201,6 +210,11 @@ export default function App() {
       {/* Notes Modal */}
       {notesAgent && (
         <NotesModal agent={notesAgent} onClose={() => setNotesAgent(null)} />
+      )}
+
+      {/* Command Templates Modal */}
+      {commandsOpen && (
+        <CommandTemplatesModal onClose={() => setCommandsOpen(false)} />
       )}
 
       {/* Settings Modal */}

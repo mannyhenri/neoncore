@@ -9,7 +9,7 @@
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
-import type { WorkflowStep, StepLogType } from '../types.js';
+import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
 
 const POLL_INTERVAL_MS = 12_000;
 /** Minimum time (ms) a step must be running before idle-detection can auto-complete it.
@@ -50,6 +50,39 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     startedAt: (row.started_at as string) || null,
     completedAt: (row.completed_at as string) || null,
   };
+}
+
+function emitWorkflowUpdate(workflowId: string) {
+  const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as Record<string, unknown> | undefined;
+  if (!row) return;
+  // Compute step summary for the dashboard
+  const stepRows = db.prepare('SELECT status, name FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as { status: string; name: string }[];
+  const stepSummary = {
+    total: stepRows.length,
+    completed: stepRows.filter((s) => s.status === 'completed').length,
+    running: stepRows.filter((s) => s.status === 'running').length,
+    failed: stepRows.filter((s) => s.status === 'failed').length,
+    pending: stepRows.filter((s) => s.status === 'pending').length,
+    stepNames: stepRows.map((s) => s.name),
+  };
+  getIO().emit('workflow_updated', {
+    id: row.id as string,
+    name: (row.name ?? '') as string,
+    jiraTaskId: (row.jira_task_id ?? '') as string,
+    description: (row.description ?? '') as string,
+    players: JSON.parse((row.players ?? '[]') as string),
+    phases: JSON.parse((row.phases ?? '[]') as string),
+    status: (row.status ?? 'pending') as WorkflowStatus,
+    currentPhase: (row.current_phase ?? 0) as number,
+    iteration: (row.iteration ?? 1) as number,
+    maxIterations: (row.max_iterations ?? 3) as number,
+    sharedContext: (row.shared_context ?? '') as string,
+    createdAt: (row.created_at ?? '') as string,
+    startedAt: (row.started_at ?? '') as string,
+    completedAt: (row.completed_at as string) || null,
+    error: (row.error ?? '') as string,
+    stepSummary,
+  });
 }
 
 function emitStepUpdate(stepId: string) {
@@ -159,6 +192,38 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
 
   if (step.executorConfig.waitForWebhook) {
     emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
+  }
+}
+
+/** Command template step — looks up a saved command template and sends its content */
+async function executeCommandStep(step: WorkflowStep): Promise<void> {
+  const templateId = step.executorConfig.commandTemplateId as string;
+  if (!templateId) throw new Error('Command step requires a commandTemplateId in executorConfig');
+  if (!step.executorId) throw new Error('Command step requires an agent ID');
+
+  const template = db.prepare('SELECT * FROM command_templates WHERE id = ?')
+    .get(templateId) as { id: string; name: string; content: string } | undefined;
+  if (!template) throw new Error(`Command template "${templateId}" not found`);
+
+  const context = gatherDependencyContext(step);
+
+  let webhookSuffix = '';
+  if (step.executorConfig.waitForWebhook) {
+    const port = process.env.PORT || '4040';
+    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "Done"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+  }
+
+  const finalPrompt = context + template.content + webhookSuffix;
+
+  const agentName = getAgentName(step.executorId);
+  emitStepLog(step.workflowId, step.id, step.name,
+    `Dispatching command template "${template.name}" to cartridge "${agentName}"`, 'info');
+
+  const includeMemory = isMemoryEnabled(step.executorId);
+  sendCommandToAgent(step.executorId, finalPrompt, includeMemory);
+
+  if (step.executorConfig.waitForWebhook) {
+    emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step`, 'warn');
   }
 }
 
@@ -548,6 +613,8 @@ async function executeStep(step: WorkflowStep): Promise<void> {
       await executeDeliberation(step);
     } else if (step.executorType === 'quality-gate') {
       await executeQualityGate(step);
+    } else if (step.executorType === 'command') {
+      await executeCommandStep(step);
     } else {
       if (!step.executorId) throw new Error('Step requires an agent ID');
       await executeStandardStep(step);
@@ -871,6 +938,19 @@ function processWorkflow(workflowId: string) {
     const now = new Date().toISOString();
     db.prepare('UPDATE workflows SET status = ?, completed_at = ? WHERE id = ?')
       .run(finalStatus, now, workflowId);
+
+    // Restore __deferred__ on steps that were temporarily assigned for this run
+    for (const step of currentSteps) {
+      if (step.executorConfig._wasDeferred) {
+        const config = { ...step.executorConfig };
+        delete config._wasDeferred;
+        db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+          .run('__deferred__', JSON.stringify(config), step.id);
+      }
+    }
+
+    // Emit workflow update so the dashboard reflects the final status
+    emitWorkflowUpdate(workflowId);
     emitStepLog(workflowId, '', 'Workflow', `Workflow ${finalStatus}`, finalStatus === 'completed' ? 'success' : 'error');
     console.log(`[workflow-v2] Workflow ${workflowId} ${finalStatus}`);
   } else {

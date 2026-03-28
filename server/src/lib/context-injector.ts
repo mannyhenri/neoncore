@@ -53,6 +53,61 @@ export function buildProjectContext(project: string): string {
 }
 
 /**
+ * Build selective context based on user-chosen options from the Send Context popup.
+ */
+export function buildSelectiveContext(
+  project: string,
+  options: {
+    sessionIds?: string[];
+    includeProgress?: boolean;
+    includeGotchas?: boolean;
+    includeDecisions?: boolean;
+    includeDetails?: boolean;
+  },
+): string {
+  if (!project) return '';
+  const parts: string[] = [];
+
+  // Selected sessions
+  if (options.sessionIds?.length) {
+    const placeholders = options.sessionIds.map(() => '?').join(',');
+    const sessions = db.prepare(
+      `SELECT summary FROM sessions WHERE id IN (${placeholders}) ORDER BY started_at DESC`
+    ).all(...options.sessionIds) as { summary: string }[];
+
+    if (sessions.length > 0) {
+      parts.push('## Recent Sessions');
+      for (const s of sessions) {
+        parts.push(s.summary);
+        parts.push('---');
+      }
+    }
+  }
+
+  // Knowledge files
+  const fileMap: [boolean | undefined, string, string][] = [
+    [options.includeProgress, 'progress.md', '## Recent Progress'],
+    [options.includeGotchas, 'gotchas.md', '## Known Gotchas'],
+    [options.includeDecisions, 'decisions.md', '## Decisions'],
+    [options.includeDetails, 'details.md', '## Project Details'],
+  ];
+
+  for (const [include, filename, heading] of fileMap) {
+    if (!include) continue;
+    const row = db.prepare(
+      'SELECT content FROM project_knowledge WHERE project = ? AND filename = ?'
+    ).get(project, filename) as { content: string } | undefined;
+    if (row?.content?.trim()) {
+      parts.push(heading);
+      parts.push(row.content);
+    }
+  }
+
+  if (parts.length === 0) return '';
+  return `[Project Context for ${project}]\n\n${parts.join('\n\n')}`;
+}
+
+/**
  * Inject project context into a new agent session.
  * Called from session-manager.ts startSession().
  */

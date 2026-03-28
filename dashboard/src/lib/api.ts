@@ -27,7 +27,24 @@ export const api = {
       body: JSON.stringify(data),
     }),
   focusAgent: (id: string) => request<{ ok: boolean }>(`/agents/${id}/focus`, { method: 'POST' }),
-  sendContext: (id: string) => request<{ ok: boolean }>(`/agents/${id}/send-context`, { method: 'POST' }),
+  getContextOptions: (id: string) =>
+    request<{
+      sessions: { id: string; startedAt: string; summary: string; branch: string }[];
+      hasProgress: boolean;
+      hasGotchas: boolean;
+      hasDecisions: boolean;
+      hasDetails: boolean;
+    }>(`/agents/${id}/context-options`),
+  sendContext: (id: string, options?: {
+    sessionIds?: string[];
+    includeProgress?: boolean;
+    includeGotchas?: boolean;
+    includeDecisions?: boolean;
+    includeDetails?: boolean;
+  }) => request<{ ok: boolean }>(`/agents/${id}/send-context`, {
+    method: 'POST',
+    body: JSON.stringify(options || {}),
+  }),
 
   // Activity
   getActivity: (limit = 50) => request<import('../types').Activity[]>(`/activity?limit=${limit}`),
@@ -82,6 +99,21 @@ export const api = {
     }),
   deleteNote: (agentId: string, noteId: string) =>
     request<void>(`/agents/${agentId}/notes/${noteId}`, { method: 'DELETE' }),
+
+  // Command Templates
+  getCommandTemplates: () => request<import('../types').CommandTemplate[]>('/command-templates'),
+  createCommandTemplate: (data: { name: string; content: string; category: string }) =>
+    request<import('../types').CommandTemplate>('/command-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateCommandTemplate: (id: string, data: { name?: string; content?: string; category?: string }) =>
+    request<import('../types').CommandTemplate>(`/command-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteCommandTemplate: (id: string) =>
+    request<void>(`/command-templates/${id}`, { method: 'DELETE' }),
 
   // Settings
   getSettings: () => request<Record<string, string>>('/settings'),
@@ -270,8 +302,11 @@ export const api = {
     }),
   deleteWorkflowStep: (workflowId: string, stepId: string) =>
     request<void>(`/workflows/v2/${workflowId}/steps/${stepId}`, { method: 'DELETE' }),
-  startWorkflowV2: (workflowId: string) =>
-    request<import('../types').Workflow>(`/workflows/v2/${workflowId}/start`, { method: 'POST' }),
+  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>) =>
+    request<import('../types').Workflow>(`/workflows/v2/${workflowId}/start`, {
+      method: 'POST',
+      body: JSON.stringify({ agentOverrides }),
+    }),
   completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
     request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {
       method: 'POST',

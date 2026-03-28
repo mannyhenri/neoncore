@@ -456,15 +456,48 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
   const [showContext, setShowContext] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [deferredPopup, setDeferredPopup] = useState<{ steps: { stepId: string; stepName: string }[] } | null>(null);
+  const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
 
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
+  const onlineAgents = (agents || []).filter((a) => a.status !== 'offline');
 
   async function handleRunFromList() {
     if (!canRun || starting) return;
     setStarting(true);
     try {
+      // Fetch steps to check for deferred agents
+      const { steps } = await api.getWorkflowV2(wf.id);
+      const deferred = steps.filter((s) =>
+        s.executorId === '__deferred__' ||
+        (s.executorType === 'review-gate' && (s.executorConfig as Record<string, unknown>).reviewAgentId === '__deferred__')
+      );
+
+      if (deferred.length > 0) {
+        setDeferredPopup({
+          steps: deferred.map((s) => ({ stepId: s.id, stepName: s.name })),
+        });
+        setDeferredAssignments({});
+        setStarting(false);
+        return;
+      }
+
       await api.startWorkflowV2(wf.id);
+      onAction();
+    } catch { /* silent */ }
+    finally { setStarting(false); }
+  }
+
+  async function handleDeferredRun() {
+    if (!deferredPopup) return;
+    const allAssigned = deferredPopup.steps.every((s) => deferredAssignments[s.stepId]);
+    if (!allAssigned) return;
+
+    setStarting(true);
+    setDeferredPopup(null);
+    try {
+      await api.startWorkflowV2(wf.id, deferredAssignments);
       onAction();
     } catch { /* silent */ }
     finally { setStarting(false); }
@@ -492,52 +525,99 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
     cancelled: 'text-gray-500',
   }[wf.status] || 'text-gray-400';
 
+  // Deferred popup (shared between compact and full card views)
+  const deferredPopupEl = deferredPopup && (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[420px] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Assign Cartridges</h2>
+            <p className="text-[10px] text-gray-500 mt-0.5">Select a cartridge for each step before running</p>
+          </div>
+          <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
+        </div>
+        <div className="p-4 space-y-3">
+          {deferredPopup.steps.map((s) => (
+            <div key={s.stepId}>
+              <label className="block text-xs text-gray-400 mb-1">{s.stepName}</label>
+              <select
+                value={deferredAssignments[s.stepId] || ''}
+                onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
+                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+              >
+                <option value="">Select cartridge...</option>
+                {onlineAgents.map((a) => (
+                  <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
+          <button
+            onClick={handleDeferredRun}
+            disabled={!deferredPopup.steps.every((s) => deferredAssignments[s.stepId])}
+            className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
+          >
+            Run Workflow
+          </button>
+          <button onClick={() => setDeferredPopup(null)} className="text-sm px-3 py-2 text-gray-500 hover:text-white transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (compact) {
     return (
-      <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs group">
-        <span className={`font-medium ${statusColor}`}>{wf.status}</span>
-        <button
-          onClick={() => onOpen?.(wf.id)}
-          className="text-gray-400 truncate flex-1 text-left hover:text-white transition-colors"
-        >
-          {wf.name || 'Untitled'}
-        </button>
-        {wf.stepSummary && (
-          <>
-            <span className="text-gray-600 truncate max-w-[200px]" title={wf.stepSummary.stepNames?.join(' → ')}>
-              {wf.stepSummary.stepNames?.join(' → ')}
-            </span>
-            <span className="text-gray-600 shrink-0">
-              {wf.stepSummary.completed}/{wf.stepSummary.total}
-            </span>
-          </>
-        )}
-        {wf.jiraTaskId && <span className="text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
-        {canRun && (
+      <>
+        <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs group">
+          <span className={`font-medium ${statusColor}`}>{wf.status}</span>
           <button
-            onClick={handleRunFromList}
-            disabled={starting}
-            className="text-emerald-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all shrink-0 disabled:opacity-30"
-            title="Run workflow"
+            onClick={() => onOpen?.(wf.id)}
+            className="text-gray-400 truncate flex-1 text-left hover:text-white transition-colors"
           >
-            {starting ? '...' : '▶'}
+            {wf.name || 'Untitled'}
           </button>
-        )}
-        {confirmDelete ? (
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={handleDelete} className="text-[10px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/20">Delete</button>
-            <button onClick={() => setConfirmDelete(false)} className="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5">No</button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-            title="Delete workflow"
-          >
-            &times;
-          </button>
-        )}
-      </div>
+          {wf.stepSummary && (
+            <>
+              <span className="text-gray-600 truncate max-w-[200px]" title={wf.stepSummary.stepNames?.join(' → ')}>
+                {wf.stepSummary.stepNames?.join(' → ')}
+              </span>
+              <span className="text-gray-600 shrink-0">
+                {wf.stepSummary.completed}/{wf.stepSummary.total}
+              </span>
+            </>
+          )}
+          {wf.jiraTaskId && <span className="text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
+          {canRun && (
+            <button
+              onClick={handleRunFromList}
+              disabled={starting}
+              className="text-emerald-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all shrink-0 disabled:opacity-30"
+              title="Run workflow"
+            >
+              {starting ? '...' : '▶'}
+            </button>
+          )}
+          {confirmDelete ? (
+            <div className="flex items-center gap-1 shrink-0">
+              <button onClick={handleDelete} className="text-[10px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/20">Delete</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5">No</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+              title="Delete workflow"
+            >
+              &times;
+            </button>
+          )}
+        </div>
+        {deferredPopupEl}
+      </>
     );
   }
 
@@ -623,6 +703,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
           )}
         </div>
       )}
+
+      {deferredPopupEl}
     </div>
   );
 }

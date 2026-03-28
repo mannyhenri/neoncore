@@ -470,6 +470,22 @@ router.post('/v2/:id/start', (req, res) => {
     WHERE workflow_id = ?
   `).run(req.params.id);
 
+  // Apply deferred agent overrides (steps that had "Choose when running")
+  // Store overrides in executor_config so we can restore __deferred__ after completion
+  const agentOverrides = req.body?.agentOverrides as Record<string, string> | undefined;
+  if (agentOverrides && Object.keys(agentOverrides).length > 0) {
+    console.log(`[workflow] Applying ${Object.keys(agentOverrides).length} agent overrides for workflow ${req.params.id}`);
+    for (const [stepId, agentId] of Object.entries(agentOverrides)) {
+      console.log(`[workflow]   Step ${stepId} -> agent ${agentId}`);
+      // Mark as originally deferred in executor_config
+      const step = db.prepare('SELECT executor_config FROM workflow_steps WHERE id = ?').get(stepId) as { executor_config: string } | undefined;
+      const config = JSON.parse(step?.executor_config || '{}');
+      config._wasDeferred = true;
+      db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ? AND workflow_id = ?')
+        .run(agentId, JSON.stringify(config), stepId, req.params.id);
+    }
+  }
+
   emitWorkflowUpdate(req.params.id);
 
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;

@@ -4,6 +4,8 @@ import db from '../db.js';
 import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
+import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
+import { sendCommandToAgent } from '../lib/send-command.js';
 
 const router = Router();
 
@@ -315,7 +317,42 @@ router.post('/:id/focus', (req, res) => {
   res.json({ ok: true });
 });
 
-// Manually send project context to an agent
+// Get available context options for the Send Context popup
+router.get('/:id/context-options', (req, res) => {
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const project = (agent.repo_name as string) || '';
+  if (!project) return res.json({ sessions: [], hasProgress: false, hasGotchas: false, hasDecisions: false, hasDetails: false });
+
+  const sessions = db.prepare(
+    "SELECT id, started_at, summary, branch FROM sessions WHERE project = ? AND status = 'summarized' AND summary != '' ORDER BY started_at DESC LIMIT 10"
+  ).all(project) as { id: string; started_at: string; summary: string; branch: string }[];
+
+  const knowledgeFiles = ['progress.md', 'gotchas.md', 'decisions.md', 'details.md'];
+  const hasContent: Record<string, boolean> = {};
+  for (const f of knowledgeFiles) {
+    const row = db.prepare(
+      'SELECT content FROM project_knowledge WHERE project = ? AND filename = ?'
+    ).get(project, f) as { content: string } | undefined;
+    hasContent[f] = !!(row?.content?.trim());
+  }
+
+  res.json({
+    sessions: sessions.map((s) => ({
+      id: s.id,
+      startedAt: s.started_at,
+      summary: s.summary.slice(0, 200),
+      branch: s.branch,
+    })),
+    hasProgress: hasContent['progress.md'],
+    hasGotchas: hasContent['gotchas.md'],
+    hasDecisions: hasContent['decisions.md'],
+    hasDetails: hasContent['details.md'],
+  });
+});
+
+// Manually send selective project context to an agent
 router.post('/:id/send-context', (req, res) => {
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -323,8 +360,17 @@ router.post('/:id/send-context', (req, res) => {
   const project = (agent.repo_name as string) || '';
   if (!project) return res.status(400).json({ error: 'No project associated with agent' });
 
-  const { injectProjectContext } = require('../lib/context-injector.js');
-  injectProjectContext(req.params.id, project);
+  const { sessionIds, includeProgress, includeGotchas, includeDecisions, includeDetails } = req.body || {};
+
+  // If no selections provided, fall back to full context
+  if (!sessionIds && !includeProgress && !includeGotchas && !includeDecisions && !includeDetails) {
+    injectProjectContext(req.params.id, project);
+  } else {
+    const context = buildSelectiveContext(project, { sessionIds, includeProgress, includeGotchas, includeDecisions, includeDetails });
+    if (context) {
+      sendCommandToAgent(req.params.id, context, false);
+    }
+  }
   res.json({ ok: true });
 });
 
