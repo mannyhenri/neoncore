@@ -224,8 +224,18 @@ export interface McpServer {
   updatedAt: string;
 }
 
+// Command templates
+export interface CommandTemplate {
+  id: string;
+  name: string;
+  content: string;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Workflow Step types (V2 canvas workflows)
-export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate';
+export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate' | 'command';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface WorkflowStep {

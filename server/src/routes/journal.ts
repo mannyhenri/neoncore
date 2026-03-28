@@ -45,7 +45,7 @@ router.get('/sessions/:id', (req, res) => {
 
 router.get('/projects/:project/knowledge/:filename', (req, res) => {
   const { project, filename } = req.params;
-  const allowed = ['progress.md', 'decisions.md', 'gotchas.md'];
+  const allowed = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'];
   if (!allowed.includes(filename)) {
     return res.status(400).json({ error: `Invalid filename. Allowed: ${allowed.join(', ')}` });
   }
@@ -70,7 +70,7 @@ router.get('/projects/:project/knowledge/:filename', (req, res) => {
 router.put('/projects/:project/knowledge/:filename', (req, res) => {
   const { project, filename } = req.params;
   const { content } = req.body;
-  const allowed = ['progress.md', 'decisions.md', 'gotchas.md'];
+  const allowed = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'];
   if (!allowed.includes(filename)) {
     return res.status(400).json({ error: `Invalid filename. Allowed: ${allowed.join(', ')}` });
   }

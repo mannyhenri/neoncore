@@ -7,7 +7,7 @@ interface Props {
   onClose: () => void;
 }
 
-const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md'] as const;
+const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'] as const;
 
 export default function ProjectMemoryPanel({ project, onClose }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -89,6 +89,9 @@ export default function ProjectMemoryPanel({ project, onClose }: Props) {
           </TabButton>
           <TabButton active={activeTab === 'gotchas.md'} onClick={() => setActiveTab('gotchas.md')}>
             Gotchas
+          </TabButton>
+          <TabButton active={activeTab === 'details.md'} onClick={() => setActiveTab('details.md')}>
+            Project Details
           </TabButton>
         </div>
 

@@ -376,6 +376,18 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_knowledge_project ON project_knowledge(project);
+
+  -- Centralized command templates
+  CREATE TABLE IF NOT EXISTS command_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'Custom',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_command_templates_category ON command_templates(category);
 `);
 
 export default db;

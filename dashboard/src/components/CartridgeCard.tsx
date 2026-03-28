@@ -4,6 +4,7 @@ import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
 import { GitPanel } from './GitPanel';
 import ProjectMemoryPanel from './ProjectMemoryPanel';
+import SendContextModal from './SendContextModal';
 import { api } from '../lib/api';
 
 // ---------------------------------------------------------------------------
@@ -760,6 +761,7 @@ export function CartridgeCard({
   const pixelBg = spriteFrame === 0 ? frame1 : frame2;
   const [gitOpen, setGitOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
 
 
   // Take last 8 activities for the terminal
@@ -850,7 +852,7 @@ export function CartridgeCard({
                 </svg>
               </button>
               <button
-                onClick={() => api.sendContext(agent.id).catch(() => {})}
+                onClick={() => setContextOpen(true)}
                 className="text-gray-400 hover:text-gl-purple transition-colors"
                 title="Send project context to agent"
               >
@@ -1029,6 +1031,11 @@ export function CartridgeCard({
       {/* Journal / Session Memory Modal */}
       {journalOpen && agent.repoName && (
         <ProjectMemoryPanel project={agent.repoName} onClose={() => setJournalOpen(false)} />
+      )}
+
+      {/* Send Context Modal */}
+      {contextOpen && agent.repoName && (
+        <SendContextModal agentId={agent.id} project={agent.repoName} onClose={() => setContextOpen(false)} />
       )}
     </div>
   );
