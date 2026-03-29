@@ -25,7 +25,7 @@ let socket: Socket | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 
-// Agent type (claude or gridlight) — read from config
+// Agent type (claude or gridlight) — read from config (used for command handling)
 let agentType: 'claude' | 'gridlight' = 'claude';
 let registeredAgentId: string | null = null;
 
@@ -37,6 +37,10 @@ let queuedAutoApprove = 0;
 // Gridlight heartbeat & idle reporting
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 let gridlightIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Presence monitoring: track which AI extensions are active in this VS Code instance
+let presenceInterval: ReturnType<typeof setInterval> | null = null;
+let lastKnownActiveTypes = new Set<string>();
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('NeonCore');
@@ -55,27 +59,22 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('neoncore.disconnect', () => disconnectFromOrchestrator()),
   );
 
-  // Read agent type from config
+  // Read agent type from config (determines which commands this extension handles)
   const config = vscode.workspace.getConfiguration('neoncore');
   agentType = config.get('agentType', 'claude') as 'claude' | 'gridlight';
 
-  // If agentType is 'gridlight', the Gridlight extension handles NeonCore natively
-  // (programmatic command injection, activity reporting, permissions).
-  // This extension should only connect for 'claude' to avoid double command delivery.
-  if (agentType === 'gridlight') {
-    log('Agent type is gridlight — deferring to Gridlight extension for NeonCore integration');
-    statusBarItem.text = '$(plug) NeonCore → Gridlight';
-    statusBarItem.tooltip = 'NeonCore: Managed by Gridlight extension';
-    return;
-  }
-
-  // Discover agent extension commands
+  // Discover agent extension commands (for command injection)
   discoverAgentCommands();
 
-  // Auto-connect if configured
+  // Always connect — the NeonCore extension acts as both command handler
+  // and presence monitor for AI extensions in this VS Code instance.
   if (config.get('autoConnect', true)) {
     connectToOrchestrator();
   }
+
+  // Start monitoring which AI extensions are active (Gridlight, Claude, etc.)
+  // This updates the server so the dashboard shows the correct badges.
+  startPresenceMonitoring(context);
 }
 
 async function discoverAgentCommands() {
@@ -256,13 +255,15 @@ function connectToOrchestrator() {
     log('Connected to orchestrator');
     updateStatusBar(true);
 
-    // Join room immediately using local identity (no HTTP dependency)
+    // Join room using local identity (for socket presence tracking)
     const { machine, repoPath } = getLocalIdentity();
     socket!.emit('register_extension', { machine, repoPath, agentType });
     log(`Registered socket with machine=${machine}, repoPath=${repoPath}, agentType=${agentType}`);
 
-    // Also do HTTP registration for agent metadata (async, non-blocking)
-    registerWithOrchestrator();
+    // HTTP registration + command handling only for claude — Gridlight extension manages its own
+    if (agentType !== 'gridlight') {
+      registerWithOrchestrator();
+    }
     vscode.window.showInformationMessage(`NeonCore: Connected to orchestrator at ${url}`);
   });
 
@@ -271,33 +272,36 @@ function connectToOrchestrator() {
     updateStatusBar(false);
   });
 
-  // Listen for commands — validate this command is targeted at our registered agent
-  socket.on('command_send', (command: Command) => {
-    if (registeredAgentId && command.agentId !== registeredAgentId) {
-      log(`Ignoring command for agent ${command.agentId} (we are ${registeredAgentId})`);
-      return;
-    }
-    log(`Command received: agent=${command.agentId}, text="${command.text.slice(0, 80)}"`);
-    handleCommand(command);
-  });
+  // Skip command/plan listeners for gridlight — the Gridlight extension handles those
+  if (agentType !== 'gridlight') {
+    // Listen for commands — validate this command is targeted at our registered agent
+    socket.on('command_send', (command: Command) => {
+      if (registeredAgentId && command.agentId !== registeredAgentId) {
+        log(`Ignoring command for agent ${command.agentId} (we are ${registeredAgentId})`);
+        return;
+      }
+      log(`Command received: agent=${command.agentId}, text="${command.text.slice(0, 80)}"`);
+      handleCommand(command);
+    });
 
-  // Listen for focus requests — bring this VS Code window to front
+    // Two-phase plan auto-approve:
+    // Phase 1: dashboard approved the plan → arm the extension
+    socket.on('auto_approve_plan' as any, (data: { agentId: string }) => {
+      log(`Phase 1: auto_approve_plan for agent ${data.agentId} — arming`);
+      armPlanAutoApprove();
+    });
+
+    // Phase 2: ExitPlanMode tool finished executing → trigger with precise timing
+    socket.on('plan_executed' as any, (data: { agentId: string }) => {
+      log(`Phase 2: plan_executed for agent ${data.agentId} — triggering`);
+      triggerPlanAutoApprove();
+    });
+  }
+
+  // Listen for focus requests — bring this VS Code window to front (both types)
   socket.on('focus_window' as any, () => {
     log('Focus window request received');
     bringWindowToFront();
-  });
-
-  // Two-phase plan auto-approve:
-  // Phase 1: dashboard approved the plan → arm the extension
-  socket.on('auto_approve_plan' as any, (data: { agentId: string }) => {
-    log(`Phase 1: auto_approve_plan for agent ${data.agentId} — arming`);
-    armPlanAutoApprove();
-  });
-
-  // Phase 2: ExitPlanMode tool finished executing → trigger with precise timing
-  socket.on('plan_executed' as any, (data: { agentId: string }) => {
-    log(`Phase 2: plan_executed for agent ${data.agentId} — triggering`);
-    triggerPlanAutoApprove();
   });
 
   socket.on('connect_error', (err) => {
@@ -309,6 +313,7 @@ function connectToOrchestrator() {
 function disconnectFromOrchestrator() {
   if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
   if (gridlightIdleTimer) { clearTimeout(gridlightIdleTimer); gridlightIdleTimer = null; }
+  if (presenceInterval) { clearInterval(presenceInterval); presenceInterval = null; }
   registeredAgentId = null;
   if (socket) {
     socket.disconnect();
@@ -316,6 +321,78 @@ function disconnectFromOrchestrator() {
     updateStatusBar(false);
     vscode.window.showInformationMessage('NeonCore: Disconnected from orchestrator');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Presence monitoring: detect which AI extensions are active in this VS Code
+// instance and tell the server, so the dashboard shows the correct badges.
+// ---------------------------------------------------------------------------
+
+function detectActiveAIExtensions(): Set<string> {
+  const active = new Set<string>();
+  for (const ext of vscode.extensions.all) {
+    const id = ext.id.toLowerCase();
+    if (id.includes('neoncore')) continue; // skip ourselves
+    if (ext.isActive) {
+      if (id.includes('gridlight')) active.add('gridlight');
+      if (id.includes('claude') || id.includes('anthropic')) active.add('claude');
+    }
+  }
+  return active;
+}
+
+function startPresenceMonitoring(context: vscode.ExtensionContext) {
+  // Initial sync after a short delay (give other extensions time to activate)
+  setTimeout(() => syncPresence(), 5000);
+
+  // Re-check every 15 seconds
+  presenceInterval = setInterval(() => syncPresence(), 15_000);
+
+  // Also react immediately to extension install/uninstall/enable/disable
+  context.subscriptions.push(
+    vscode.extensions.onDidChange(() => {
+      log('Extension change detected — re-syncing presence');
+      syncPresence();
+    })
+  );
+}
+
+async function syncPresence() {
+  const config = vscode.workspace.getConfiguration('neoncore');
+  const url = config.get('orchestratorUrl', 'http://localhost:4040');
+  const { machine, repoPath } = getLocalIdentity();
+
+  const activeTypes = detectActiveAIExtensions();
+
+  // Detect newly disappeared extensions → mark their agents offline
+  for (const type of lastKnownActiveTypes) {
+    if (!activeTypes.has(type)) {
+      log(`Presence: ${type} extension no longer active — marking offline`);
+      try {
+        // Find the agent for this type and mark it offline
+        const resp = await fetch(`${url}/api/agents`);
+        if (resp.ok) {
+          const agents = (await resp.json()) as { id: string; machine: string; repoPath: string; agentType: string; status: string }[];
+          const agent = agents.find(
+            (a) => a.machine === machine && a.repoPath === repoPath && a.agentType === type && a.status !== 'offline'
+          );
+          if (agent) {
+            await fetch(`${url}/api/agents/${agent.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'offline' }),
+            });
+            log(`Presence: marked ${type} agent ${agent.id} offline`);
+          }
+        }
+      } catch (err) {
+        log(`Presence: failed to mark ${type} offline: ${err}`);
+      }
+    }
+  }
+
+  lastKnownActiveTypes = activeTypes;
+  log(`Presence: active AI extensions: ${[...activeTypes].join(', ') || 'none'}`);
 }
 
 function updateStatusBar(connected: boolean) {

@@ -895,22 +895,17 @@ export function CartridgeCard({
             <span className="text-[13px] text-gray-500">{timeAgo(agent.lastSeen)}</span>
           </div>
 
-          {/* Agent type badges + machine */}
+          {/* Agent type badges + machine — Gridlight first, then Claude */}
           <div className="flex items-center gap-2">
-            <span className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
-              agent.agentType === 'gridlight'
-                ? 'bg-pink-900/60 text-pink-300'
-                : 'bg-blue-900/60 text-blue-300'
-            }`}>
-              {agent.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
-            </span>
-            {siblingAgents?.map((s) => (
-              <span key={s.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
-                s.agentType === 'gridlight'
+            {[agent, ...(siblingAgents || [])]
+              .sort((a, b) => (a.agentType === 'gridlight' ? -1 : 1) - (b.agentType === 'gridlight' ? -1 : 1))
+              .map((a) => (
+              <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
+                a.agentType === 'gridlight'
                   ? 'bg-pink-900/60 text-pink-300'
                   : 'bg-blue-900/60 text-blue-300'
               }`}>
-                {s.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
+                {a.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
               </span>
             ))}
             <span className="text-[13px] text-gray-500 font-mono truncate">
@@ -988,10 +983,12 @@ export function CartridgeCard({
                 : '';
               const finalText = text + planSuffix;
               onSendCommand(agent.id, finalText);
-              // Also send to sibling agents (e.g. both Claude and Gridlight for same project)
+              // Also send to active sibling agents (e.g. both Claude and Gridlight for same project)
               if (siblingAgents?.length) {
                 for (const s of siblingAgents) {
-                  setTimeout(() => onSendCommand(s.id, finalText), 5000);
+                  if (s.status !== 'offline') {
+                    setTimeout(() => onSendCommand(s.id, finalText), 5000);
+                  }
                 }
               }
             }}
@@ -1001,7 +998,10 @@ export function CartridgeCard({
 
         {/* ── Mode selector ── */}
         <div className="mx-3 mb-2 flex items-center justify-between">
-          <AgentModeSelector mode={agent.mode} onSetMode={(mode) => onSetMode(agent.id, mode)} />
+          <AgentModeSelector mode={agent.mode} onSetMode={(mode) => {
+            onSetMode(agent.id, mode);
+            siblingAgents?.forEach((s) => { if (s.status !== 'offline') onSetMode(s.id, mode); });
+          }} />
         </div>
 
         {/* ── Terminal: recent activity ── */}
