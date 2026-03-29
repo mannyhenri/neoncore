@@ -144,7 +144,7 @@ function gatherDependencyContext(step: WorkflowStep): string {
       const truncated = depRow.result.length > DEP_RESULT_MAX_CHARS
         ? depRow.result.slice(0, DEP_RESULT_MAX_CHARS) + '...truncated'
         : depRow.result;
-      parts.push(`[Result from "${depRow.name}"]\n${truncated}`);
+      parts.push(`[Output from previous step: "${depRow.name}"]\n${truncated}`);
     }
   }
   if (parts.length === 0) return '';
@@ -162,7 +162,7 @@ function isMemoryEnabled(_agentId: string): boolean {
 
 /** Standard step execution — dispatches prompt to agent with role prefix, memory, webhook */
 async function executeStandardStep(step: WorkflowStep): Promise<void> {
-  const context = gatherDependencyContext(step);
+  const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
   const prompt = step.executorConfig.useIntent
     ? composeIntentPrompt(step.executorConfig)
     : (step.executorConfig.prompt as string) || step.description || step.name;
@@ -176,10 +176,16 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   let webhookSuffix = '';
   if (step.executorConfig.waitForWebhook) {
     const port = process.env.PORT || '4040';
-    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "Done"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
   }
 
-  const finalPrompt = context + rolePrefix + prompt + webhookSuffix;
+  // Handoff suffix for non-webhook steps — helps downstream steps get useful context
+  let handoffSuffix = '';
+  if (!step.executorConfig.waitForWebhook && step.dependsOn.length >= 0) {
+    handoffSuffix = '\n\nWhen you are done, end your response with a brief summary under "## Handoff" describing what you did and what the next step should focus on.';
+  }
+
+  const finalPrompt = context + rolePrefix + prompt + webhookSuffix + handoffSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
@@ -214,15 +220,20 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
     .get(templateId) as { id: string; name: string; content: string } | undefined;
   if (!template) throw new Error(`Command template "${templateId}" not found`);
 
-  const context = gatherDependencyContext(step);
+  const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
 
   let webhookSuffix = '';
   if (step.executorConfig.waitForWebhook) {
     const port = process.env.PORT || '4040';
-    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "Done"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
   }
 
-  const finalPrompt = context + template.content + webhookSuffix;
+  let handoffSuffix = '';
+  if (!step.executorConfig.waitForWebhook) {
+    handoffSuffix = '\n\nWhen you are done, end your response with a brief summary under "## Handoff" describing what you did and what the next step should focus on.';
+  }
+
+  const finalPrompt = context + template.content + webhookSuffix + handoffSuffix;
 
   const agentName = getAgentName(step.executorId);
   emitStepLog(step.workflowId, step.id, step.name,
@@ -888,12 +899,35 @@ function processWorkflow(workflowId: string) {
         continue;
       }
 
+      // Check loop: if step has loopCount > 1, re-dispatch instead of completing
+      const loopCount = (step.executorConfig.loopCount as number) || 1;
+      const currentLoop = (step.executorConfig._currentLoop as number) || 1;
+
+      if (loopCount > 1 && currentLoop < loopCount) {
+        // Increment loop counter and re-dispatch
+        const nextLoop = currentLoop + 1;
+        const updatedConfig = { ...step.executorConfig, _currentLoop: nextLoop };
+        db.prepare('UPDATE workflow_steps SET executor_config = ?, started_at = ? WHERE id = ?')
+          .run(JSON.stringify(updatedConfig), now, step.id);
+        emitStepLog(workflowId, step.id, step.name, `Loop ${nextLoop}/${loopCount} — re-dispatching`, 'info');
+        console.log(`[workflow-v2] Step "${step.name}" loop ${nextLoop}/${loopCount}`);
+
+        // Re-dispatch the step
+        const freshStep = normalizeStep(
+          db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>
+        );
+        executeStep(freshStep).catch((err) => {
+          console.error(`[workflow-v2] Loop re-dispatch failed for "${step.name}": ${err}`);
+        });
+        continue;
+      }
+
       // Standard step completion
       db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
         .run('completed', result, now, step.id);
       emitStepUpdate(step.id);
       if (step.autoAdvance) {
-        emitStepLog(workflowId, step.id, step.name, 'Auto-completed (agent went idle)', 'success');
+        emitStepLog(workflowId, step.id, step.name, `Completed${loopCount > 1 ? ` (${loopCount} loops done)` : ''} (agent went idle)`, 'success');
       } else {
         emitStepLog(workflowId, step.id, step.name, 'Step completed — waiting for manual advance before continuing', 'warn');
       }
