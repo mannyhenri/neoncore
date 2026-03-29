@@ -1918,6 +1918,63 @@ function SidePanel({
           <QualityGateConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
         )}
 
+        {/* Loop */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!step.executorConfig.loopCount && (step.executorConfig.loopCount as number) > 1}
+              onChange={() =>
+                onUpdate({
+                  executorConfig: {
+                    ...step.executorConfig,
+                    loopCount: step.executorConfig.loopCount && (step.executorConfig.loopCount as number) > 1 ? 1 : 3,
+                  },
+                })
+              }
+              disabled={isExecuting}
+              className="accent-cyan-500"
+            />
+            Loop this step multiple times
+          </label>
+          {!!step.executorConfig.loopCount && (step.executorConfig.loopCount as number) > 1 && (
+            <div className="flex items-center gap-2 pl-6">
+              <label className="text-[13px] text-gray-500">Iterations:</label>
+              <input
+                type="number"
+                min={2}
+                max={10}
+                value={(step.executorConfig.loopCount as number) || 3}
+                onChange={(e) =>
+                  onUpdate({
+                    executorConfig: { ...step.executorConfig, loopCount: Math.max(2, Math.min(10, parseInt(e.target.value) || 2)) },
+                  })
+                }
+                disabled={isExecuting}
+                className="w-16 text-sm glass-input text-gray-300 rounded-md px-2 py-1 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Include output from previous step */}
+        {step.dependsOn.length > 0 && (
+          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!step.executorConfig.includeDepOutput}
+              onChange={() =>
+                onUpdate({
+                  executorConfig: { ...step.executorConfig, includeDepOutput: !step.executorConfig.includeDepOutput },
+                })
+              }
+              disabled={isExecuting}
+              className="accent-blue-500"
+            />
+            Include output from previous step
+          </label>
+        )}
+
         {/* Auto-advance */}
         <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
           <input

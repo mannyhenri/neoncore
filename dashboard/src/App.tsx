@@ -110,7 +110,7 @@ export default function App() {
               Cartridges
             </h2>
             <div className="flex rounded-lg overflow-hidden border border-white/10">
-              {(['all', 'claude', 'gridlight'] as const).map((t) => (
+              {(['all', 'gridlight', 'claude'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTypeFilter(t)}

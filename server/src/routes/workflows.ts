@@ -470,6 +470,16 @@ router.post('/v2/:id/start', (req, res) => {
     WHERE workflow_id = ?
   `).run(req.params.id);
 
+  // Reset loop counters on steps that use loops
+  const loopSteps = db.prepare(
+    "SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ? AND executor_config LIKE '%_currentLoop%'"
+  ).all(req.params.id) as { id: string; executor_config: string }[];
+  for (const ls of loopSteps) {
+    const config = JSON.parse(ls.executor_config);
+    delete config._currentLoop;
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(config), ls.id);
+  }
+
   // Apply deferred agent overrides (steps that had "Choose when running")
   // Store overrides in executor_config so we can restore __deferred__ after completion
   const agentOverrides = req.body?.agentOverrides as Record<string, string> | undefined;
