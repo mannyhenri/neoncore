@@ -10,6 +10,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
+import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 
 const POLL_INTERVAL_MS = 12_000;
 /** Minimum time (ms) a step must be running before idle-detection can auto-complete it.
@@ -132,7 +133,7 @@ function composeIntentPrompt(config: Record<string, unknown>): string {
   return parts.join('\n\n');
 }
 
-/** Collect result text from all dependency steps */
+/** Collect result text from all dependency steps (capped by budget) */
 function gatherDependencyContext(step: WorkflowStep): string {
   if (step.dependsOn.length === 0) return '';
 
@@ -140,10 +141,18 @@ function gatherDependencyContext(step: WorkflowStep): string {
   for (const depId of step.dependsOn) {
     const depRow = db.prepare('SELECT name, result FROM workflow_steps WHERE id = ?').get(depId) as { name: string; result: string } | undefined;
     if (depRow?.result) {
-      parts.push(`[Result from "${depRow.name}"]\n${depRow.result}`);
+      const truncated = depRow.result.length > DEP_RESULT_MAX_CHARS
+        ? depRow.result.slice(0, DEP_RESULT_MAX_CHARS) + '...truncated'
+        : depRow.result;
+      parts.push(`[Result from "${depRow.name}"]\n${truncated}`);
     }
   }
-  return parts.length > 0 ? parts.join('\n\n---\n\n') + '\n\n' : '';
+  if (parts.length === 0) return '';
+  let result = parts.join('\n\n---\n\n') + '\n\n';
+  if (result.length > DEP_TOTAL_MAX_CHARS) {
+    result = result.slice(0, DEP_TOTAL_MAX_CHARS) + '...truncated\n\n';
+  }
+  return result;
 }
 
 /** Memory is always included when entries exist — managed via the memory modal */
@@ -939,13 +948,44 @@ function processWorkflow(workflowId: string) {
     db.prepare('UPDATE workflows SET status = ?, completed_at = ? WHERE id = ?')
       .run(finalStatus, now, workflowId);
 
-    // Restore __deferred__ on steps that were temporarily assigned for this run
+    // Restore deferred values on steps that were temporarily overridden for this run
     for (const step of currentSteps) {
-      if (step.executorConfig._wasDeferred) {
-        const config = { ...step.executorConfig };
+      const config = { ...step.executorConfig };
+      let needsUpdate = false;
+      let executorId = step.executorId;
+      let clearDescription = false;
+
+      // Restore __deferred__ agent
+      if (config._wasDeferred) {
         delete config._wasDeferred;
-        db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
-          .run('__deferred__', JSON.stringify(config), step.id);
+        executorId = '__deferred__';
+        needsUpdate = true;
+      }
+
+      // Restore empty prompts that were filled at runtime
+      if (Array.isArray(config._deferredPrompts)) {
+        for (const field of config._deferredPrompts as string[]) {
+          if (field === 'intent.objective') {
+            if (config.intent) (config.intent as Record<string, unknown>).objective = '';
+          } else if (field === 'prompt') {
+            config.prompt = '';
+            clearDescription = true;
+          } else {
+            config[field] = '';
+          }
+        }
+        delete config._deferredPrompts;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        if (clearDescription) {
+          db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ?, description = \'\' WHERE id = ?')
+            .run(executorId, JSON.stringify(config), step.id);
+        } else {
+          db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+            .run(executorId, JSON.stringify(config), step.id);
+        }
       }
     }
 

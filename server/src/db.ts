@@ -388,6 +388,31 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_command_templates_category ON command_templates(category);
+
+  -- Cleanup performance indexes
+  CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_commands_created ON commands(created_at);
+
+  -- Add project column to notes for project-scoped notes
+  -- (SQLite ALTER TABLE ADD COLUMN is safe to run multiple times if column exists — handled below)
 `);
+
+// Add project column to notes table (migration-safe)
+try {
+  db.prepare("SELECT project FROM notes LIMIT 1").get();
+} catch {
+  db.prepare("ALTER TABLE notes ADD COLUMN project TEXT NOT NULL DEFAULT ''").run();
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_notes_project ON notes(project)").run();
+}
+
+// Backfill project on existing notes from their agent's repo_name
+const orphanNotes = db.prepare("SELECT n.id, a.repo_name FROM notes n JOIN agents a ON n.agent_id = a.id WHERE n.project = '' AND a.repo_name != ''").all() as { id: string; repo_name: string }[];
+if (orphanNotes.length > 0) {
+  const update = db.prepare("UPDATE notes SET project = ? WHERE id = ?");
+  for (const n of orphanNotes) {
+    update.run(n.repo_name, n.id);
+  }
+  console.log(`[db] Migrated ${orphanNotes.length} notes to project-scoped`);
+}
 
 export default db;

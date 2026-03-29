@@ -418,7 +418,7 @@ function PlayerRow({ name, badge, badgeColor, selected, roles, onToggle, onToggl
           onChange={onToggle}
           className="accent-purple-500 shrink-0"
         />
-        <span className={`text-[10px] font-bold ${badgeColor} shrink-0`}>{badge}</span>
+        <span className={`text-[13px] font-bold ${badgeColor} shrink-0`}>{badge}</span>
         <span className="text-xs text-gray-300 truncate">{name}</span>
       </label>
       {selected && (
@@ -427,7 +427,7 @@ function PlayerRow({ name, badge, badgeColor, selected, roles, onToggle, onToggl
             <button
               key={role}
               onClick={() => onToggleRole(role)}
-              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+              className={`text-[13px] px-1.5 py-0.5 rounded transition-colors ${
                 roles.includes(role)
                   ? role === 'research' ? 'bg-blue-900/50 text-blue-300'
                     : role === 'coding' ? 'bg-green-900/50 text-green-300'
@@ -456,8 +456,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
   const [showContext, setShowContext] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [deferredPopup, setDeferredPopup] = useState<{ steps: { stepId: string; stepName: string }[] } | null>(null);
+  const [deferredPopup, setDeferredPopup] = useState<{
+    agentSteps: { stepId: string; stepName: string }[];
+    promptSteps: { stepId: string; stepName: string; field: string; label: string }[];
+  } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
+  const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
 
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
@@ -467,18 +471,38 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
     if (!canRun || starting) return;
     setStarting(true);
     try {
-      // Fetch steps to check for deferred agents
       const { steps } = await api.getWorkflowV2(wf.id);
-      const deferred = steps.filter((s) =>
+
+      // Deferred cartridge assignments
+      const agentSteps = steps.filter((s) =>
         s.executorId === '__deferred__' ||
         (s.executorType === 'review-gate' && (s.executorConfig as Record<string, unknown>).reviewAgentId === '__deferred__')
-      );
+      ).map((s) => ({ stepId: s.id, stepName: s.name }));
 
-      if (deferred.length > 0) {
-        setDeferredPopup({
-          steps: deferred.map((s) => ({ stepId: s.id, stepName: s.name })),
-        });
+      // Deferred prompt inputs
+      const promptSteps: { stepId: string; stepName: string; field: string; label: string }[] = [];
+      for (const s of steps) {
+        const cfg = s.executorConfig as Record<string, unknown>;
+        if (s.executorType === 'claude-code' || !s.executorType) {
+          if (cfg.useIntent) {
+            const intent = cfg.intent as Record<string, unknown> | undefined;
+            if (!intent?.objective) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'intent.objective', label: 'Objective' });
+          } else {
+            if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Prompt' });
+          }
+        } else if (s.executorType === 'review-gate') {
+          if (!cfg.criteria) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'criteria', label: 'Review Criteria' });
+        } else if (s.executorType === 'deliberation') {
+          if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Shared Prompt' });
+        } else if (s.executorType === 'quality-gate') {
+          if (cfg.gateType === 'custom' && !cfg.customPrompt) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'customPrompt', label: 'Custom Quality Check' });
+        }
+      }
+
+      if (agentSteps.length > 0 || promptSteps.length > 0) {
+        setDeferredPopup({ agentSteps, promptSteps });
         setDeferredAssignments({});
+        setDeferredPrompts({});
         setStarting(false);
         return;
       }
@@ -491,13 +515,18 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
 
   async function handleDeferredRun() {
     if (!deferredPopup) return;
-    const allAssigned = deferredPopup.steps.every((s) => deferredAssignments[s.stepId]);
-    if (!allAssigned) return;
+    const allAgentsAssigned = deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]);
+    const allPromptsAssigned = deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim());
+    if (!allAgentsAssigned || !allPromptsAssigned) return;
 
     setStarting(true);
     setDeferredPopup(null);
     try {
-      await api.startWorkflowV2(wf.id, deferredAssignments);
+      await api.startWorkflowV2(
+        wf.id,
+        deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
+        deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
+      );
       onAction();
     } catch { /* silent */ }
     finally { setStarting(false); }
@@ -528,35 +557,65 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
   // Deferred popup (shared between compact and full card views)
   const deferredPopupEl = deferredPopup && (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[420px] flex flex-col">
+      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
           <div>
-            <h2 className="text-sm font-semibold text-white">Assign Cartridges</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5">Select a cartridge for each step before running</p>
+            <h2 className="text-sm font-semibold text-white">Configure & Run</h2>
+            <p className="text-[13px] text-gray-500 mt-0.5">Fill in the required fields before running</p>
           </div>
           <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
         </div>
-        <div className="p-4 space-y-3">
-          {deferredPopup.steps.map((s) => (
-            <div key={s.stepId}>
-              <label className="block text-xs text-gray-400 mb-1">{s.stepName}</label>
-              <select
-                value={deferredAssignments[s.stepId] || ''}
-                onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
-              >
-                <option value="">Select cartridge...</option>
-                {onlineAgents.map((a) => (
-                  <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
-                ))}
-              </select>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {deferredPopup.agentSteps.length > 0 && (
+            <div className="space-y-3">
+              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge Selection</span>
+              {deferredPopup.agentSteps.map((s) => (
+                <div key={s.stepId}>
+                  <label className="block text-sm text-gray-400 mb-1">{s.stepName}</label>
+                  <select
+                    value={deferredAssignments[s.stepId] || ''}
+                    onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
+                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                  >
+                    <option value="">Select cartridge...</option>
+                    {onlineAgents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+          {deferredPopup.promptSteps.length > 0 && (
+            <div className="space-y-3">
+              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Prompt Inputs</span>
+              {deferredPopup.promptSteps.map((s) => (
+                <div key={`${s.stepId}-${s.field}`}>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    {s.stepName} — <span className="text-gray-500">{s.label}</span>
+                  </label>
+                  <textarea
+                    value={deferredPrompts[s.stepId]?.[s.field] || ''}
+                    onChange={(e) => setDeferredPrompts((prev) => ({
+                      ...prev,
+                      [s.stepId]: { ...prev[s.stepId], [s.field]: e.target.value },
+                    }))}
+                    rows={3}
+                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                    placeholder={`Enter ${s.label.toLowerCase()}...`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
           <button
             onClick={handleDeferredRun}
-            disabled={!deferredPopup.steps.every((s) => deferredAssignments[s.stepId])}
+            disabled={
+              !deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]) ||
+              !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim())
+            }
             className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
           >
             Run Workflow
@@ -603,8 +662,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
           )}
           {confirmDelete ? (
             <div className="flex items-center gap-1 shrink-0">
-              <button onClick={handleDelete} className="text-[10px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/20">Delete</button>
-              <button onClick={() => setConfirmDelete(false)} className="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5">No</button>
+              <button onClick={handleDelete} className="text-[13px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/20">Delete</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-[13px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5">No</button>
             </div>
           ) : (
             <button
@@ -734,13 +793,13 @@ function StepProgress({ summary }: { summary: StepSummary }) {
 
       {/* Step names */}
       {summary.stepNames && summary.stepNames.length > 0 && (
-        <div className="text-[10px] text-gray-500 truncate" title={summary.stepNames.join(' → ')}>
+        <div className="text-[13px] text-gray-500 truncate" title={summary.stepNames.join(' → ')}>
           {summary.stepNames.join(' → ')}
         </div>
       )}
 
       {/* Labels */}
-      <div className="flex gap-3 text-[10px]">
+      <div className="flex gap-3 text-[13px]">
         {completed > 0 && <span className="text-emerald-400">{completed} done</span>}
         {running > 0 && <span className="text-blue-400">{running} running</span>}
         {failed > 0 && <span className="text-red-400">{failed} failed</span>}
@@ -764,13 +823,13 @@ function PhaseProgress({ phases, currentPhase }: { phases: Workflow['phases']; c
         return (
           <div key={phase.phase} className="flex-1 space-y-1">
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] uppercase tracking-wider ${
+              <span className={`text-[13px] uppercase tracking-wider ${
                 isActive ? 'text-blue-400' : isDone ? 'text-emerald-400' : isFailed ? 'text-red-400' : 'text-gray-600'
               }`}>
                 {PHASE_LABELS[phase.phase]}
               </span>
               {isActive && phase.currentRound > 0 && (
-                <span className="text-[10px] text-blue-400/60">
+                <span className="text-[13px] text-blue-400/60">
                   {ROUND_LABELS[phase.currentRound]}
                 </span>
               )}
@@ -839,12 +898,12 @@ function PhaseDetails({ phase, players, agents }: { phase: Workflow['phases'][0]
                 <span className="text-blue-400 animate-spin inline-block">&#9696;</span>
               )}
             </span>
-            <span className={`text-[10px] font-bold ${badgeColor}`}>
+            <span className={`text-[13px] font-bold ${badgeColor}`}>
               {badge}
             </span>
             <span className="text-gray-300 truncate">{player.name}</span>
             {result?.fallbackModel && (
-              <span className="text-amber-400/70 text-[10px] shrink-0" title={`Original player failed, completed by ${result.fallbackModel}`}>
+              <span className="text-amber-400/70 text-[13px] shrink-0" title={`Original player failed, completed by ${result.fallbackModel}`}>
                 failover
               </span>
             )}

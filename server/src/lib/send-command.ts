@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Activity, Agent, Command } from '../types.js';
+import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 
 /**
  * Shared command dispatch — used by the commands route.
@@ -45,15 +46,20 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
     const project = agentCheck.repo_name || '';
     const memories = (project
       ? db.prepare(
-          'SELECT category, content FROM agent_memory WHERE active = 1 AND (agent_id = ? OR (project = ? AND project != \'\')) ORDER BY created_at DESC LIMIT 20'
+          `SELECT category, content FROM agent_memory WHERE active = 1 AND (agent_id = ? OR (project = ? AND project != '')) ORDER BY created_at DESC LIMIT ${MEMORY_MAX_ITEMS}`
         ).all(agentId, project)
       : db.prepare(
-          'SELECT category, content FROM agent_memory WHERE active = 1 AND agent_id = ? ORDER BY created_at DESC LIMIT 20'
+          `SELECT category, content FROM agent_memory WHERE active = 1 AND agent_id = ? ORDER BY created_at DESC LIMIT ${MEMORY_MAX_ITEMS}`
         ).all(agentId)
     ) as { category: string; content: string }[];
 
     if (memories.length > 0) {
-      const memoryBlock = memories.map((m) => `${m.category}: ${m.content}`).join(' | ');
+      let memoryBlock = memories
+        .map((m) => `${m.category}: ${m.content.slice(0, MEMORY_ITEM_MAX_CHARS)}`)
+        .join(' | ');
+      if (memoryBlock.length > MEMORY_MAX_TOTAL_CHARS) {
+        memoryBlock = memoryBlock.slice(0, MEMORY_MAX_TOTAL_CHARS) + '...';
+      }
       finalText = `[Memory: ${memoryBlock}]\n${text}`;
     }
   }

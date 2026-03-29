@@ -334,6 +334,7 @@ function generatePixelSprites(agentId: string): [string, string, number] {
 
 interface CartridgeCardProps {
   agent: Agent;
+  siblingAgents?: Agent[];
   activities: Activity[];
   permissions: PermissionRequest[];
   stuckAlert?: StuckAlert;
@@ -517,7 +518,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
         const sel = selections[key];
         return (
           <div key={qi}>
-            {q.header && <div className="text-[9px] text-gray-500 uppercase mb-0.5">{q.header}</div>}
+            {q.header && <div className="text-[13px] text-gray-500 uppercase mb-0.5">{q.header}</div>}
             <p className="text-xs text-gray-300 mb-1.5">{q.question}</p>
             {q.options && q.options.length > 0 && !showCustom[key] && (
               <div className="flex flex-wrap gap-1">
@@ -563,7 +564,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
                 />
                 <button
                   onClick={() => setShowCustom((prev) => ({ ...prev, [key]: false }))}
-                  className="text-gray-500 hover:text-gray-300 text-[10px] px-1.5"
+                  className="text-gray-500 hover:text-gray-300 text-[13px] px-1.5"
                 >
                   Back
                 </button>
@@ -609,7 +610,7 @@ function PlanApprovalCard({ permission, onDecide }: {
       </div>
       {allowedPrompts.length > 0 && (
         <div className="mb-2 space-y-0.5">
-          <span className="text-[9px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
+          <span className="text-[13px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
           {allowedPrompts.map((p, i) => (
             <div key={i} className="text-xs text-gray-400 font-mono pl-2 border-l border-violet-800">
               {p.tool}: {p.prompt}
@@ -705,6 +706,7 @@ function InlinePermission({ permission, onAllow, onDeny }: {
 
 export function CartridgeCard({
   agent,
+  siblingAgents,
   activities,
   permissions,
   stuckAlert,
@@ -848,7 +850,7 @@ export function CartridgeCard({
                 title="Git worktrees & status"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                  <circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M6 21V9a9 9 0 0 0 9 9h6" />
                 </svg>
               </button>
               <button
@@ -878,7 +880,7 @@ export function CartridgeCard({
           </div>
 
           {/* Branch */}
-          <div className="text-[10px] text-gray-300 mb-1 font-mono">
+          <div className="text-[13px] text-gray-300 mb-1 font-mono">
             Branch: {agent.branch || 'n/a'}
           </div>
 
@@ -889,20 +891,29 @@ export function CartridgeCard({
               className={`w-2 h-2 ${status.color} ${effectiveStatus === 'working' || effectiveStatus === 'waiting' ? 'animate-pulse' : ''}`}
               style={{ imageRendering: 'pixelated' }}
             />
-            <span className="text-[10px] text-gray-200">{status.label}</span>
-            <span className="text-[9px] text-gray-500">{timeAgo(agent.lastSeen)}</span>
+            <span className="text-[13px] text-gray-200">{status.label}</span>
+            <span className="text-[13px] text-gray-500">{timeAgo(agent.lastSeen)}</span>
           </div>
 
-          {/* Agent type + machine */}
+          {/* Agent type badges + machine */}
           <div className="flex items-center gap-2">
-            <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
+            <span className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
               agent.agentType === 'gridlight'
                 ? 'bg-pink-900/60 text-pink-300'
                 : 'bg-blue-900/60 text-blue-300'
             }`}>
               {agent.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
             </span>
-            <span className="text-[9px] text-gray-500 font-mono truncate">
+            {siblingAgents?.map((s) => (
+              <span key={s.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
+                s.agentType === 'gridlight'
+                  ? 'bg-pink-900/60 text-pink-300'
+                  : 'bg-blue-900/60 text-blue-300'
+              }`}>
+                {s.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
+              </span>
+            ))}
+            <span className="text-[13px] text-gray-500 font-mono truncate">
               {shortMachine(agent.machine)}
             </span>
           </div>
@@ -920,7 +931,7 @@ export function CartridgeCard({
               </div>
               <button
                 onClick={() => onDismissStuck(agent.id)}
-                className="text-gray-500 hover:text-gray-300 text-[10px]"
+                className="text-gray-500 hover:text-gray-300 text-[13px]"
               >
                 dismiss
               </button>
@@ -928,7 +939,7 @@ export function CartridgeCard({
             <p className="text-xs text-gray-400 mb-1.5">{stuckAlert.pattern}</p>
             <button
               onClick={() => onSendCommand(agent.id, stuckAlert.suggestion)}
-              className="px-2 py-0.5 bg-amber-800 hover:bg-amber-700 text-white text-[10px] rounded transition-colors"
+              className="px-2 py-0.5 bg-amber-800 hover:bg-amber-700 text-white text-[13px] rounded transition-colors"
             >
               Send Hint
             </button>
@@ -975,7 +986,14 @@ export function CartridgeCard({
               const planSuffix = agent.mode === 'plan'
                 ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
                 : '';
-              onSendCommand(agent.id, text + planSuffix);
+              const finalText = text + planSuffix;
+              onSendCommand(agent.id, finalText);
+              // Also send to sibling agents (e.g. both Claude and Gridlight for same project)
+              if (siblingAgents?.length) {
+                for (const s of siblingAgents) {
+                  setTimeout(() => onSendCommand(s.id, finalText), 5000);
+                }
+              }
             }}
           />
         </div>
@@ -995,15 +1013,15 @@ export function CartridgeCard({
           }}
         >
           <div className="px-2 py-1 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <span className="text-[9px] text-gray-500 uppercase tracking-wider font-mono">Activity</span>
-            <span className="text-[9px] text-gray-600 font-mono">{activities.length} events</span>
+            <span className="text-[13px] text-gray-500 uppercase tracking-wider font-mono">Activity</span>
+            <span className="text-[13px] text-gray-600 font-mono">{activities.length} events</span>
           </div>
           <div
-            className="overflow-y-auto font-mono text-[11px] leading-relaxed"
+            className="overflow-y-auto font-mono text-[13px] leading-relaxed"
             style={{ maxHeight: '120px' }}
           >
             {terminalActivities.length === 0 ? (
-              <div className="px-2 py-3 text-gray-600 text-center text-[10px]">
+              <div className="px-2 py-3 text-gray-600 text-center text-[13px]">
                 No activity yet
               </div>
             ) : (

@@ -238,7 +238,7 @@ export function SettingsModal({ onClose }: Props) {
             {/* Saved directories list */}
             {savedDirs.length > 0 && (
               <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.06] space-y-1">
-                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Watched Directories</span>
+                <span className="text-[13px] text-gray-500 uppercase tracking-wider">Watched Directories</span>
                 {savedDirs.map((dir) => (
                   <div key={dir} className="flex items-center gap-2 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-gl-purple shrink-0" />
@@ -407,7 +407,7 @@ export function SettingsModal({ onClose }: Props) {
                               </svg>
                               <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
                               <span className="text-sm font-medium text-white truncate">{server.name}</span>
-                              <span className="text-[10px] text-gray-500 shrink-0">{server.status}</span>
+                              <span className="text-[13px] text-gray-500 shrink-0">{server.status}</span>
                             </button>
                             <div className="flex items-center gap-1 shrink-0 ml-2">
                               <button
@@ -439,7 +439,7 @@ export function SettingsModal({ onClose }: Props) {
                                 <div className="space-y-1.5">
                                   {envKeys.map((key) => (
                                     <div key={key}>
-                                      <label className="block text-[10px] text-gray-500 mb-0.5">{key}</label>
+                                      <label className="block text-[13px] text-gray-500 mb-0.5">{key}</label>
                                       <input
                                         type={key.toLowerCase().includes('key') || key.toLowerCase().includes('token') || key.toLowerCase().includes('secret') ? 'password' : 'text'}
                                         value={mcpEditing[server.id]?.[key] ?? ''}
@@ -456,7 +456,7 @@ export function SettingsModal({ onClose }: Props) {
                                 <div>
                                   <button
                                     onClick={() => toggleMcpTools(server.id)}
-                                    className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                                    className="text-[13px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
                                   >
                                     <svg
                                       className={`w-2.5 h-2.5 transition-transform ${mcpToolsOpen.has(server.id) ? 'rotate-90' : ''}`}
@@ -473,11 +473,11 @@ export function SettingsModal({ onClose }: Props) {
                                         return (
                                           <div key={tool.name}>
                                             <div className="flex items-baseline gap-1.5">
-                                              <span className="text-[11px] text-gray-300 font-medium">{friendly.label}</span>
-                                              <span className="text-[9px] text-gray-600 font-mono">{tool.name}</span>
+                                              <span className="text-[13px] text-gray-300 font-medium">{friendly.label}</span>
+                                              <span className="text-[13px] text-gray-600 font-mono">{tool.name}</span>
                                             </div>
                                             {friendly.description && (
-                                              <p className="text-[10px] text-gray-500 leading-snug">{friendly.description}</p>
+                                              <p className="text-[13px] text-gray-500 leading-snug">{friendly.description}</p>
                                             )}
                                           </div>
                                         );
@@ -493,7 +493,7 @@ export function SettingsModal({ onClose }: Props) {
                                   <div>
                                     <button
                                       onClick={() => toggleMcpTools(server.id)}
-                                      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                                      className="text-[13px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
                                     >
                                       <svg
                                         className={`w-2.5 h-2.5 transition-transform ${mcpToolsOpen.has(server.id) ? 'rotate-90' : ''}`}
@@ -507,8 +507,8 @@ export function SettingsModal({ onClose }: Props) {
                                       <div className="mt-1.5 space-y-1.5 pl-3 border-l border-white/[0.06]">
                                         {preview.map((cap) => (
                                           <div key={cap.label}>
-                                            <span className="text-[11px] text-gray-300 font-medium">{cap.label}</span>
-                                            <p className="text-[10px] text-gray-500 leading-snug">{cap.description}</p>
+                                            <span className="text-[13px] text-gray-300 font-medium">{cap.label}</span>
+                                            <p className="text-[13px] text-gray-500 leading-snug">{cap.description}</p>
                                           </div>
                                         ))}
                                       </div>
@@ -546,7 +546,7 @@ export function SettingsModal({ onClose }: Props) {
                                 </svg>
                                 <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
                                 <span className="text-sm font-medium text-white truncate">{server.name}</span>
-                                <span className="text-[10px] text-gray-500 shrink-0">{server.status}</span>
+                                <span className="text-[13px] text-gray-500 shrink-0">{server.status}</span>
                               </button>
                               <div className="flex items-center gap-1 shrink-0 ml-2">
                                 <button
@@ -568,7 +568,7 @@ export function SettingsModal({ onClose }: Props) {
                             </div>
                             {expanded && (
                               <div className="px-3 pb-3 border-t border-white/[0.04] pt-2 space-y-1.5">
-                                <span className="text-[10px] text-gray-500 font-mono">{server.command} {server.args.join(' ')}</span>
+                                <span className="text-[13px] text-gray-500 font-mono">{server.command} {server.args.join(' ')}</span>
                                 {server.description && (
                                   <p className="text-xs text-gray-400">{server.description}</p>
                                 )}
@@ -579,7 +579,7 @@ export function SettingsModal({ onClose }: Props) {
                                   <div>
                                     <button
                                       onClick={() => toggleMcpTools(server.id)}
-                                      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                                      className="text-[13px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
                                     >
                                       <svg
                                         className={`w-2.5 h-2.5 transition-transform ${mcpToolsOpen.has(server.id) ? 'rotate-90' : ''}`}
@@ -596,11 +596,11 @@ export function SettingsModal({ onClose }: Props) {
                                           return (
                                           <div key={tool.name}>
                                             <div className="flex items-baseline gap-1.5">
-                                              <span className="text-[11px] text-gray-300 font-medium">{friendly.label}</span>
-                                              <span className="text-[9px] text-gray-600 font-mono">{tool.name}</span>
+                                              <span className="text-[13px] text-gray-300 font-medium">{friendly.label}</span>
+                                              <span className="text-[13px] text-gray-600 font-mono">{tool.name}</span>
                                             </div>
                                             {friendly.description && (
-                                              <p className="text-[10px] text-gray-500 leading-snug">{friendly.description}</p>
+                                              <p className="text-[13px] text-gray-500 leading-snug">{friendly.description}</p>
                                             )}
                                           </div>
                                           );
@@ -644,7 +644,7 @@ export function SettingsModal({ onClose }: Props) {
                         Add
                       </button>
                     </div>
-                    <p className="text-[10px] text-gray-600">
+                    <p className="text-[13px] text-gray-600">
                       Paste any npx command from mcp-awesome.com or the MCP server registry
                     </p>
                   </div>

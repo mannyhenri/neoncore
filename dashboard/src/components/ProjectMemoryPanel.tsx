@@ -9,10 +9,12 @@ interface Props {
 
 const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'] as const;
 
+type TabKey = 'sessions' | 'notes' | typeof KNOWLEDGE_FILES[number];
+
 export default function ProjectMemoryPanel({ project, onClose }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'sessions' | typeof KNOWLEDGE_FILES[number]>('sessions');
+  const [activeTab, setActiveTab] = useState<TabKey>('sessions');
   const [fileContent, setFileContent] = useState('');
   const [fileDirty, setFileDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,7 +73,7 @@ export default function ProjectMemoryPanel({ project, onClose }: Props) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
           <div>
             <h2 className="text-sm font-semibold text-white">Project Memory</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5">{project} &middot; {sessions.length} sessions</p>
+            <p className="text-[13px] text-gray-500 mt-0.5">{project} &middot; {sessions.length} sessions</p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">&times;</button>
         </div>
@@ -93,6 +95,9 @@ export default function ProjectMemoryPanel({ project, onClose }: Props) {
           <TabButton active={activeTab === 'details.md'} onClick={() => setActiveTab('details.md')}>
             Project Details
           </TabButton>
+          <TabButton active={activeTab === 'notes'} onClick={() => setActiveTab('notes')}>
+            Notes
+          </TabButton>
         </div>
 
         {/* Content */}
@@ -105,6 +110,8 @@ export default function ProjectMemoryPanel({ project, onClose }: Props) {
               formatDate={formatDate}
               formatDuration={formatDuration}
             />
+          ) : activeTab === 'notes' ? (
+            <NotesEditor project={project} />
           ) : (
             <KnowledgeEditor
               content={fileContent}
@@ -126,7 +133,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+      className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
         active
           ? 'bg-white/[0.08] text-white font-medium'
           : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
@@ -151,7 +158,7 @@ function SessionTimeline({
   formatDuration: (start: string, end: string | null) => string;
 }) {
   if (sessions.length === 0) {
-    return <p className="text-xs text-gray-600 italic text-center py-8">No sessions recorded yet</p>;
+    return <p className="text-sm text-gray-600 italic text-center py-8">No sessions recorded yet</p>;
   }
 
   return (
@@ -177,23 +184,23 @@ function SessionTimeline({
               }`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-300 font-medium">{formatDate(s.startedAt)}</span>
-                  <span className="text-[10px] text-gray-600">{formatDuration(s.startedAt, s.endedAt)}</span>
-                  <span className="text-[10px] text-gray-600">{s.activityCount} actions</span>
+                  <span className="text-sm text-gray-300 font-medium">{formatDate(s.startedAt)}</span>
+                  <span className="text-[13px] text-gray-600">{formatDuration(s.startedAt, s.endedAt)}</span>
+                  <span className="text-[13px] text-gray-600">{s.activityCount} actions</span>
                   {s.branch && (
-                    <span className="text-[10px] text-purple-400/60 font-mono">{s.branch}</span>
+                    <span className="text-[13px] text-purple-400/60 font-mono">{s.branch}</span>
                   )}
                 </div>
                 {taskLine && (
-                  <p className="text-[11px] text-gray-500 truncate mt-0.5">{taskLine}</p>
+                  <p className="text-[13px] text-gray-500 truncate mt-0.5">{taskLine}</p>
                 )}
               </div>
-              <span className="text-gray-600 text-xs">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+              <span className="text-gray-600 text-sm">{isExpanded ? '\u25B2' : '\u25BC'}</span>
             </button>
 
             {isExpanded && s.summary && (
               <div className="px-4 pb-3 pt-1 border-t border-white/[0.04]">
-                <pre className="text-[11px] text-gray-400 whitespace-pre-wrap font-sans leading-relaxed">
+                <pre className="text-[13px] text-gray-400 whitespace-pre-wrap font-sans leading-relaxed">
                   {s.summary}
                 </pre>
               </div>
@@ -201,6 +208,112 @@ function SessionTimeline({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function NotesEditor({ project }: { project: string }) {
+  const [notes, setNotes] = useState<{ id: string; content: string; createdAt: string; updatedAt: string }[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [newContent, setNewContent] = useState('');
+
+  const load = useCallback(() => {
+    api.getProjectNotes(project).then(setNotes).catch(() => {});
+  }, [project]);
+
+  useEffect(load, [load]);
+
+  const handleCreate = async () => {
+    if (!newContent.trim()) return;
+    await api.createProjectNote(project, newContent.trim());
+    setNewContent('');
+    load();
+  };
+
+  const handleUpdate = async (id: string) => {
+    if (!editContent.trim()) return;
+    await api.updateProjectNote(project, id, editContent.trim());
+    setEditingId(null);
+    load();
+  };
+
+  const handleDelete = async (id: string) => {
+    await api.deleteProjectNote(project, id);
+    if (editingId === id) setEditingId(null);
+    load();
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* New note input */}
+      <div className="flex gap-2">
+        <textarea
+          value={newContent}
+          onChange={(e) => setNewContent(e.target.value)}
+          placeholder="Add a note..."
+          rows={2}
+          className="flex-1 text-sm font-mono glass-input text-gray-300 rounded-lg px-3 py-2 placeholder-gray-600 focus:outline-none resize-none"
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreate(); }}
+        />
+        <button
+          onClick={handleCreate}
+          disabled={!newContent.trim()}
+          className="text-sm px-3 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 self-end"
+        >
+          Add
+        </button>
+      </div>
+
+      {notes.length === 0 && (
+        <p className="text-sm text-gray-600 italic text-center py-4">No notes yet</p>
+      )}
+
+      {notes.map((note) => (
+        <div key={note.id} className="border border-white/[0.06] rounded-lg p-3 group">
+          {editingId === note.id ? (
+            <div className="space-y-2">
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                rows={3}
+                className="w-full text-sm font-mono glass-input text-gray-300 rounded-lg px-3 py-2 focus:outline-none resize-none"
+              />
+              <div className="flex gap-2">
+                <button onClick={() => handleUpdate(note.id)} className="text-[13px] px-2 py-1 bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">Save</button>
+                <button onClick={() => setEditingId(null)} className="text-[13px] px-2 py-1 text-gray-500 hover:text-white">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <pre className="text-[13px] text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">{note.content}</pre>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[13px] text-gray-600">{formatDate(note.updatedAt)}</span>
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => { setEditingId(note.id); setEditContent(note.content); }}
+                    className="text-[13px] text-gray-500 hover:text-white"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(note.id)}
+                    className="text-[13px] text-gray-500 hover:text-red-400"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -223,17 +336,17 @@ function KnowledgeEditor({
       <textarea
         value={content}
         onChange={(e) => onChange(e.target.value)}
-        className="flex-1 min-h-[300px] w-full text-xs font-mono glass-input text-gray-300 rounded-lg px-4 py-3 placeholder-gray-600 focus:outline-none resize-none"
+        className="flex-1 min-h-[300px] w-full text-sm font-mono glass-input text-gray-300 rounded-lg px-4 py-3 placeholder-gray-600 focus:outline-none resize-none"
         placeholder="No content yet. Start typing..."
       />
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-gray-600">
+        <span className="text-[13px] text-gray-600">
           {dirty ? 'Unsaved changes' : 'Saved'}
         </span>
         <button
           onClick={onSave}
           disabled={!dirty || saving}
-          className="text-xs px-4 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="text-sm px-4 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {saving ? 'Saving...' : 'Save'}
         </button>

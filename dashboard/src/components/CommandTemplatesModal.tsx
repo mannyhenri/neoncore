@@ -84,7 +84,7 @@ export default function CommandTemplatesModal({ onClose }: Props) {
           <div className="flex items-center gap-3">
             <button
               onClick={startCreate}
-              className="text-[11px] text-gl-purple hover:text-purple-300 transition-colors"
+              className="text-[13px] text-gl-purple hover:text-purple-300 transition-colors"
             >
               + Add New
             </button>
@@ -123,10 +123,10 @@ export default function CommandTemplatesModal({ onClose }: Props) {
                 className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white placeholder-gray-600 focus:outline-none focus:border-gl-purple/50 resize-y font-mono"
               />
               <div className="flex gap-2">
-                <button onClick={saveEdit} className="text-[11px] px-3 py-1 gl-gradient text-white rounded hover:opacity-90">
+                <button onClick={saveEdit} className="text-[13px] px-3 py-1 gl-gradient text-white rounded hover:opacity-90">
                   {creating ? 'Create' : 'Save'}
                 </button>
-                <button onClick={cancelEdit} className="text-[11px] px-3 py-1 text-gray-500 hover:text-white">
+                <button onClick={cancelEdit} className="text-[13px] px-3 py-1 text-gray-500 hover:text-white">
                   Cancel
                 </button>
               </div>
@@ -142,7 +142,7 @@ export default function CommandTemplatesModal({ onClose }: Props) {
           ) : (
             Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([category, items]) => (
               <div key={category} className="space-y-1">
-                <span className="text-[10px] text-gray-500 uppercase tracking-wider">{category}</span>
+                <span className="text-[13px] text-gray-500 uppercase tracking-wider">{category}</span>
                 {items.map((t) => (
                   <div
                     key={t.id}
@@ -151,7 +151,7 @@ export default function CommandTemplatesModal({ onClose }: Props) {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-white font-medium">{t.name}</div>
-                      <p className="text-[11px] text-gray-500 truncate mt-0.5 font-mono">{t.content.slice(0, 100)}</p>
+                      <p className="text-[13px] text-gray-500 truncate mt-0.5 font-mono">{t.content.slice(0, 100)}</p>
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}

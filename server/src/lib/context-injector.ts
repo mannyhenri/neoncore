@@ -1,25 +1,30 @@
 import db from '../db.js';
 import { sendCommandToAgent } from './send-command.js';
+import {
+  SESSION_SUMMARY_MAX_CHARS,
+  SESSION_COUNT,
+  KNOWLEDGE_FILE_MAX_CHARS,
+  PROJECT_CONTEXT_MAX_CHARS,
+} from './context-budget.js';
 
 /**
  * Build a project context block from recent sessions and knowledge files.
- * Injected when a new session starts so the agent has continuity.
+ * All components are capped by context-budget constants.
  */
 export function buildProjectContext(project: string): string {
   if (!project) return '';
 
   const parts: string[] = [];
 
-  // Last 2 session summaries
+  // Last N session summaries
   const sessions = db.prepare(
-    "SELECT summary FROM sessions WHERE project = ? AND status = 'summarized' AND summary != '' ORDER BY started_at DESC LIMIT 2"
+    `SELECT summary FROM sessions WHERE project = ? AND status = 'summarized' AND summary != '' ORDER BY started_at DESC LIMIT ${SESSION_COUNT}`
   ).all(project) as { summary: string }[];
 
   if (sessions.length > 0) {
     parts.push('## Recent Sessions');
     for (const s of sessions) {
-      // Truncate each summary to ~600 chars to stay within budget
-      parts.push(s.summary.slice(0, 600));
+      parts.push(s.summary.slice(0, SESSION_SUMMARY_MAX_CHARS));
       parts.push('---');
     }
   }
@@ -31,10 +36,10 @@ export function buildProjectContext(project: string): string {
 
   if (gotchas?.content && gotchas.content.trim().length > 30) {
     parts.push('## Known Gotchas');
-    parts.push(gotchas.content.slice(0, 500));
+    parts.push(gotchas.content.slice(0, KNOWLEDGE_FILE_MAX_CHARS));
   }
 
-  // Recent progress (last 10 lines)
+  // Recent progress (last 8 lines)
   const progress = db.prepare(
     "SELECT content FROM project_knowledge WHERE project = ? AND filename = 'progress.md'"
   ).get(project) as { content: string } | undefined;
@@ -43,17 +48,23 @@ export function buildProjectContext(project: string): string {
     const lines = progress.content.trim().split('\n').filter((l) => l.startsWith('- '));
     if (lines.length > 0) {
       parts.push('## Recent Progress');
-      parts.push(lines.slice(-10).join('\n'));
+      const progressText = lines.slice(-8).join('\n');
+      parts.push(progressText.slice(0, KNOWLEDGE_FILE_MAX_CHARS));
     }
   }
 
   if (parts.length === 0) return '';
 
-  return `[Project Context for ${project}]\n\n${parts.join('\n\n')}`;
+  let result = `[Project Context for ${project}]\n\n${parts.join('\n\n')}`;
+  if (result.length > PROJECT_CONTEXT_MAX_CHARS) {
+    result = result.slice(0, PROJECT_CONTEXT_MAX_CHARS) + '\n...truncated';
+  }
+  return result;
 }
 
 /**
  * Build selective context based on user-chosen options from the Send Context popup.
+ * No caps here — user explicitly chose what to send, so send it in full.
  */
 export function buildSelectiveContext(
   project: string,
@@ -68,7 +79,7 @@ export function buildSelectiveContext(
   if (!project) return '';
   const parts: string[] = [];
 
-  // Selected sessions
+  // Selected sessions (full summaries)
   if (options.sessionIds?.length) {
     const placeholders = options.sessionIds.map(() => '?').join(',');
     const sessions = db.prepare(
@@ -84,7 +95,7 @@ export function buildSelectiveContext(
     }
   }
 
-  // Knowledge files
+  // Knowledge files (full content)
   const fileMap: [boolean | undefined, string, string][] = [
     [options.includeProgress, 'progress.md', '## Recent Progress'],
     [options.includeGotchas, 'gotchas.md', '## Known Gotchas'],

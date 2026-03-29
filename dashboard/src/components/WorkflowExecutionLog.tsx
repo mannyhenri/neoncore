@@ -68,11 +68,11 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
         </svg>
-        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">
+        <span className="text-[13px] text-gray-500 uppercase tracking-wider font-semibold">
           Execution Log
         </span>
         {logs.length > 0 && (
-          <span className="text-[10px] bg-white/5 text-gray-500 px-1.5 rounded-full">
+          <span className="text-[13px] bg-white/5 text-gray-500 px-1.5 rounded-full">
             {logs.length}
           </span>
         )}
@@ -83,7 +83,7 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
               e.stopPropagation();
               onClear();
             }}
-            className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors cursor-pointer"
+            className="text-[13px] text-gray-600 hover:text-gray-400 transition-colors cursor-pointer"
           >
             Clear
           </span>
@@ -95,7 +95,7 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-40 overflow-y-auto bg-[#0d0d14] px-3 py-2 font-mono text-[11px] leading-relaxed"
+          className="h-40 overflow-y-auto bg-[#0d0d14] px-3 py-2 font-mono text-[13px] leading-relaxed"
         >
           {logs.length === 0 ? (
             <div className="text-gray-600 text-center py-6">
