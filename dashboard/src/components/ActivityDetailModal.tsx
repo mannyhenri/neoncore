@@ -116,7 +116,7 @@ function isFilePath(value: string): boolean {
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
+    <h3 className="text-[13px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
       {children}
     </h3>
   );
@@ -134,7 +134,7 @@ function CodeBlock({ content }: { content: string }) {
 function FieldRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-start gap-2">
-      <span className="text-[10px] text-gray-500 uppercase tracking-wide shrink-0 pt-0.5 min-w-[60px]">{label}</span>
+      <span className="text-[13px] text-gray-500 uppercase tracking-wide shrink-0 pt-0.5 min-w-[60px]">{label}</span>
       <span className={`text-xs text-gray-300 break-all ${mono ? 'font-mono bg-white/[0.04] px-1.5 py-0.5 rounded' : ''}`}>
         {value}
       </span>
@@ -199,7 +199,7 @@ function ToolInputSection({ toolName, rawInput }: { toolName: string; rawInput: 
         {/* Diff preview for Edit tool */}
         {toolName === 'Edit' && typeof obj.old_string === 'string' && typeof obj.new_string === 'string' && (
           <div className="space-y-1">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Diff Preview</div>
+            <div className="text-[13px] text-gray-500 uppercase tracking-wide">Diff Preview</div>
             <div className="bg-black/40 rounded-lg p-3 overflow-x-auto text-xs font-mono leading-relaxed space-y-2">
               <div>
                 <span className="text-red-400 select-none">- </span>
@@ -225,7 +225,7 @@ function ToolInputSection({ toolName, rawInput }: { toolName: string; rawInput: 
         {/* Collapsible raw JSON */}
         <button
           onClick={() => setShowRaw(!showRaw)}
-          className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+          className="text-[13px] text-gray-600 hover:text-gray-400 transition-colors"
         >
           {showRaw ? 'Hide raw' : 'Show raw'}
         </button>
@@ -306,7 +306,7 @@ function ToolResultSection({ rawResult, renderMarkdown }: { rawResult: string; r
         <>
           <button
             onClick={() => setShowRaw(!showRaw)}
-            className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+            className="text-[13px] text-gray-600 hover:text-gray-400 transition-colors"
           >
             {showRaw ? 'Hide raw' : 'Show raw'}
           </button>
@@ -352,7 +352,7 @@ export function ActivityDetailModal({ activity, agent, onClose }: ActivityDetail
 
             {/* Event type badge */}
             {activity.toolName && activity.eventType && (
-              <span className="text-[10px] px-2 py-0.5 rounded bg-white/[0.06] text-gray-400 shrink-0">
+              <span className="text-[13px] px-2 py-0.5 rounded bg-white/[0.06] text-gray-400 shrink-0">
                 {activity.eventType}
               </span>
             )}
@@ -378,7 +378,7 @@ export function ActivityDetailModal({ activity, agent, onClose }: ActivityDetail
             <div className="space-y-2">
               <SectionHeading>Agent</SectionHeading>
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
+                <span className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
                   agent.agentType === 'gridlight'
                     ? 'bg-pink-900/60 text-pink-300'
                     : 'bg-blue-900/60 text-blue-300'
@@ -421,7 +421,7 @@ export function ActivityDetailModal({ activity, agent, onClose }: ActivityDetail
 
         {/* ── Footer ── */}
         <div className="px-4 py-3 md:px-6 md:py-3 border-t border-white/[0.06] flex items-center justify-between">
-          <span className="text-[10px] text-gray-600 font-mono">
+          <span className="text-[13px] text-gray-600 font-mono">
             ID: {activity.id}
           </span>
           <button

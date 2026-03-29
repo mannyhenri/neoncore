@@ -78,19 +78,19 @@ export function RepoPicker() {
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-gl-purple shrink-0" />
                   <span className="flex-1 truncate">{repo.name}</span>
-                  <span className={`text-gray-600 text-[10px] transition-transform ${selectedRepo === repo.path ? 'rotate-90' : ''}`}>▶</span>
+                  <span className={`text-gray-600 text-[13px] transition-transform ${selectedRepo === repo.path ? 'rotate-90' : ''}`}>▶</span>
                 </button>
                 {selectedRepo === repo.path && (
                   <div className="flex gap-1 px-3 pb-1.5 pl-7">
                     <button
                       onClick={() => handleOpen(repo.path, 'gridlight')}
-                      className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gl-purple hover:text-purple-300 transition-colors"
+                      className="text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gl-purple hover:text-purple-300 transition-colors"
                     >
                       Gridlight
                     </button>
                     <button
                       onClick={() => handleOpen(repo.path, 'claude')}
-                      className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-blue-400 hover:text-blue-300 transition-colors"
+                      className="text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-blue-400 hover:text-blue-300 transition-colors"
                     >
                       Claude
                     </button>

@@ -302,10 +302,10 @@ export const api = {
     }),
   deleteWorkflowStep: (workflowId: string, stepId: string) =>
     request<void>(`/workflows/v2/${workflowId}/steps/${stepId}`, { method: 'DELETE' }),
-  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>) =>
+  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>) =>
     request<import('../types').Workflow>(`/workflows/v2/${workflowId}/start`, {
       method: 'POST',
-      body: JSON.stringify({ agentOverrides }),
+      body: JSON.stringify({ agentOverrides, promptOverrides }),
     }),
   completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
     request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {
@@ -337,4 +337,22 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ content }),
     }),
+
+  // Project-scoped notes
+  getProjectNotes: (project: string) =>
+    request<{ id: string; content: string; createdAt: string; updatedAt: string }[]>(
+      `/journal/projects/${encodeURIComponent(project)}/notes`
+    ),
+  createProjectNote: (project: string, content: string) =>
+    request<{ id: string; content: string; createdAt: string; updatedAt: string }>(
+      `/journal/projects/${encodeURIComponent(project)}/notes`,
+      { method: 'POST', body: JSON.stringify({ content }) },
+    ),
+  updateProjectNote: (project: string, noteId: string, content: string) =>
+    request<{ id: string; content: string; updatedAt: string }>(
+      `/journal/projects/${encodeURIComponent(project)}/notes/${noteId}`,
+      { method: 'PUT', body: JSON.stringify({ content }) },
+    ),
+  deleteProjectNote: (project: string, noteId: string) =>
+    request<void>(`/journal/projects/${encodeURIComponent(project)}/notes/${noteId}`, { method: 'DELETE' }),
 };

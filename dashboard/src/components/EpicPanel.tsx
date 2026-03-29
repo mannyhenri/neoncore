@@ -68,7 +68,7 @@ export function EpicPanel({ agents }: Props) {
           </svg>
           <span className="text-gray-400 text-sm font-semibold uppercase tracking-wide">Epic Autopilot</span>
           {activeCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-900/50 text-purple-400 animate-pulse">
+            <span className="text-[13px] px-1.5 py-0.5 rounded-full bg-purple-900/50 text-purple-400 animate-pulse">
               {activeCount} active
             </span>
           )}
@@ -333,7 +333,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
         {/* Step 2: Pick epic/prefix (auto-discovered) */}
         {agentId && !scanning && (prefixes.length > 0 || epics.length > 0) && (
           <div className="space-y-1.5">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Select epic</div>
+            <div className="text-[13px] text-gray-500 uppercase tracking-wide">Select epic</div>
             <div className="flex flex-wrap gap-1.5">
               {prefixes.map((p) => (
                 <button
@@ -355,7 +355,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
         {/* No epics found — show manual prefix input */}
         {agentId && !scanning && prefixes.length === 0 && epics.length === 0 && (
           <div className="space-y-1.5">
-            <div className="text-[10px] text-gray-500">No .claude/tasks/ found. Enter task prefix manually:</div>
+            <div className="text-[13px] text-gray-500">No .claude/tasks/ found. Enter task prefix manually:</div>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -383,19 +383,19 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
         {discoveredTasks.length > 0 && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">
+              <div className="text-[13px] text-gray-500 uppercase tracking-wide">
                 Tasks ({selectedTasks.length} selected, starting from #{startFrom + 1})
               </div>
               <div className="flex gap-2">
-                <button onClick={selectAll} className="text-[10px] text-gray-500 hover:text-gray-300">All</button>
-                <button onClick={selectNone} className="text-[10px] text-gray-500 hover:text-gray-300">None</button>
+                <button onClick={selectAll} className="text-[13px] text-gray-500 hover:text-gray-300">All</button>
+                <button onClick={selectNone} className="text-[13px] text-gray-500 hover:text-gray-300">None</button>
               </div>
             </div>
 
             {/* Start from selector */}
             {selectedTasks.length > 1 && (
               <div className="flex items-center gap-2">
-                <label className="text-[10px] text-gray-500 shrink-0">Start from:</label>
+                <label className="text-[13px] text-gray-500 shrink-0">Start from:</label>
                 <select
                   value={startFrom}
                   onChange={(e) => setStartFrom(Number(e.target.value))}
@@ -405,7 +405,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                     <option key={i} value={i}>#{i + 1} — {t.taskId}</option>
                   ))}
                 </select>
-                <span className="text-[10px] text-gray-600">
+                <span className="text-[13px] text-gray-600">
                   ({tasksFromStart.length} task{tasksFromStart.length !== 1 ? 's' : ''} will run)
                 </span>
               </div>
@@ -417,7 +417,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                 return (
                   <label
                     key={i}
-                    className={`flex items-center gap-2 text-[11px] px-2 py-0.5 rounded cursor-pointer hover:bg-white/[0.04] ${
+                    className={`flex items-center gap-2 text-[13px] px-2 py-0.5 rounded cursor-pointer hover:bg-white/[0.04] ${
                       isBeforeStart ? 'opacity-40' : ''
                     }`}
                   >
@@ -454,7 +454,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
             {useWorktree && (
               <div className="space-y-1.5 pl-5">
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-gray-500 shrink-0">Branch</label>
+                  <label className="text-[13px] text-gray-500 shrink-0">Branch</label>
                   <input
                     type="text"
                     value={worktreeBranch}
@@ -463,7 +463,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                     className="flex-1 text-xs bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono focus:outline-none focus:border-gl-purple/50"
                   />
                 </div>
-                <div className="text-[10px] text-gray-600">
+                <div className="text-[13px] text-gray-600">
                   Creates a worktree from {agents.find((a) => a.id === agentId)?.repoName || 'source repo'}, opens in VS Code, and starts the epic on the new agent
                 </div>
               </div>
@@ -487,7 +487,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
           <>
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-[10px] text-gray-500 hover:text-gray-400 transition-colors"
+              className="text-[13px] text-gray-500 hover:text-gray-400 transition-colors"
             >
               {showAdvanced ? '▼' : '▶'} Advanced config
             </button>
@@ -495,7 +495,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
             {showAdvanced && (
               <div className="space-y-2 pl-2 border-l border-white/5">
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-gray-500 w-24 shrink-0">Commit cmd</label>
+                  <label className="text-[13px] text-gray-500 w-24 shrink-0">Commit cmd</label>
                   <input
                     type="text"
                     value={config.commitCommand ?? DEFAULT_CONFIG.commitCommand}
@@ -504,7 +504,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-gray-500 w-24 shrink-0">Idle threshold</label>
+                  <label className="text-[13px] text-gray-500 w-24 shrink-0">Idle threshold</label>
                   <input
                     type="range"
                     min={15}
@@ -513,12 +513,12 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                     onChange={(e) => setConfig({ ...config, idleThresholdMs: Number(e.target.value) * 1000 })}
                     className="flex-1"
                   />
-                  <span className="text-[10px] text-gray-500 w-8 text-right">
+                  <span className="text-[13px] text-gray-500 w-8 text-right">
                     {(config.idleThresholdMs ?? DEFAULT_CONFIG.idleThresholdMs) / 1000}s
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-gray-500 w-24 shrink-0">Prompt template</label>
+                  <label className="text-[13px] text-gray-500 w-24 shrink-0">Prompt template</label>
                   <textarea
                     placeholder="Custom prompt (use {{taskId}}, {{taskFilePath}}, {{label}})"
                     value={config.taskPromptTemplate ?? ''}
@@ -527,7 +527,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                     className="flex-1 text-xs bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono focus:outline-none focus:border-gl-purple/50"
                   />
                 </div>
-                <label className="flex items-center gap-2 text-[10px] text-gray-500">
+                <label className="flex items-center gap-2 text-[13px] text-gray-500">
                   <input
                     type="checkbox"
                     checked={config.autoEnableTrust ?? DEFAULT_CONFIG.autoEnableTrust}
@@ -536,7 +536,7 @@ function EpicCreator({ agents, onStart, onCancel }: CreatorProps) {
                   />
                   Auto-enable trust mode
                 </label>
-                <label className="flex items-center gap-2 text-[10px] text-gray-500">
+                <label className="flex items-center gap-2 text-[13px] text-gray-500">
                   <input
                     type="checkbox"
                     checked={config.skipCommitOnLast ?? DEFAULT_CONFIG.skipCommitOnLast}
@@ -615,7 +615,7 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
       pending: 'bg-gray-700/50 text-gray-400',
     };
     return (
-      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${styles[run.status] || styles.pending}`}>
+      <span className={`text-[13px] px-1.5 py-0.5 rounded-full ${styles[run.status] || styles.pending}`}>
         {run.status}
       </span>
     );
@@ -630,7 +630,7 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
             <span className="text-sm text-gray-200 font-medium">{run.name}</span>
             {statusBadge()}
           </div>
-          <div className="text-[10px] text-gray-500 mt-0.5">
+          <div className="text-[13px] text-gray-500 mt-0.5">
             {agent?.name || run.agentId.slice(0, 8)} · {completedCount}/{run.tasks.length} tasks
             {skippedCount > 0 && ` · ${skippedCount} skipped`}
           </div>
@@ -641,14 +641,14 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
           {run.status === 'running' || run.status === 'committing' ? (
             <button
               onClick={() => handleAction(() => api.pauseEpic(run.id))}
-              className="text-[10px] px-2 py-0.5 text-orange-400 hover:bg-orange-900/30 rounded transition-colors"
+              className="text-[13px] px-2 py-0.5 text-orange-400 hover:bg-orange-900/30 rounded transition-colors"
             >
               Pause
             </button>
           ) : run.status === 'paused' ? (
             <button
               onClick={() => handleAction(() => api.resumeEpic(run.id))}
-              className="text-[10px] px-2 py-0.5 text-blue-400 hover:bg-blue-900/30 rounded transition-colors"
+              className="text-[13px] px-2 py-0.5 text-blue-400 hover:bg-blue-900/30 rounded transition-colors"
             >
               Resume
             </button>
@@ -657,7 +657,7 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
           {['running', 'committing', 'failed'].includes(run.status) && (
             <button
               onClick={() => handleAction(() => api.skipEpicTask(run.id))}
-              className="text-[10px] px-2 py-0.5 text-gray-400 hover:bg-white/[0.06] rounded transition-colors"
+              className="text-[13px] px-2 py-0.5 text-gray-400 hover:bg-white/[0.06] rounded transition-colors"
               title="Skip current task"
             >
               Skip
@@ -667,7 +667,7 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
           {run.status === 'failed' && (
             <button
               onClick={() => handleAction(() => api.retryEpicTask(run.id))}
-              className="text-[10px] px-2 py-0.5 text-yellow-400 hover:bg-yellow-900/30 rounded transition-colors"
+              className="text-[13px] px-2 py-0.5 text-yellow-400 hover:bg-yellow-900/30 rounded transition-colors"
             >
               Retry
             </button>
@@ -676,7 +676,7 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
           {!['completed', 'cancelled'].includes(run.status) && (
             <button
               onClick={() => handleAction(() => api.cancelEpic(run.id))}
-              className="text-[10px] px-2 py-0.5 text-red-400 hover:bg-red-900/30 rounded transition-colors"
+              className="text-[13px] px-2 py-0.5 text-red-400 hover:bg-red-900/30 rounded transition-colors"
             >
               Cancel
             </button>
@@ -707,13 +707,13 @@ function EpicRunCard({ run, agents, onAction }: RunCardProps) {
 
       {/* Error */}
       {run.error && (
-        <div className="text-[10px] text-red-400 bg-red-900/20 rounded px-2 py-1">{run.error}</div>
+        <div className="text-[13px] text-red-400 bg-red-900/20 rounded px-2 py-1">{run.error}</div>
       )}
 
       {/* Expandable task list */}
       <button
         onClick={() => setShowTasks(!showTasks)}
-        className="text-[10px] text-gray-500 hover:text-gray-400 transition-colors"
+        className="text-[13px] text-gray-500 hover:text-gray-400 transition-colors"
       >
         {showTasks ? '▼' : '▶'} Tasks ({run.tasks.length})
       </button>
@@ -752,7 +752,7 @@ function TaskRow({ task, isCurrent }: { task: EpicTaskState; isCurrent: boolean 
 
   return (
     <div
-      className={`flex items-center gap-2 text-[11px] px-2 py-0.5 rounded ${
+      className={`flex items-center gap-2 text-[13px] px-2 py-0.5 rounded ${
         isCurrent ? 'bg-white/[0.04]' : ''
       }`}
     >
@@ -766,10 +766,10 @@ function TaskRow({ task, isCurrent }: { task: EpicTaskState; isCurrent: boolean 
         <span className="text-gray-600 truncate">{task.label}</span>
       )}
       {task.status === 'committing' && (
-        <span className="text-yellow-500/70 text-[9px] ml-auto">committing...</span>
+        <span className="text-yellow-500/70 text-[13px] ml-auto">committing...</span>
       )}
       {task.error && (
-        <span className="text-red-400 text-[9px] ml-auto truncate max-w-32" title={task.error}>
+        <span className="text-red-400 text-[13px] ml-auto truncate max-w-32" title={task.error}>
           {task.error}
         </span>
       )}
@@ -798,7 +798,7 @@ function WorktreeProgress({ status, branch }: { status: string; branch: string }
         return (
           <div
             key={step.key}
-            className={`flex items-center gap-2 text-[11px] ${
+            className={`flex items-center gap-2 text-[13px] ${
               isDone ? 'text-green-400' : isActive ? (step.key === 'ready' ? 'text-amber-400' : 'text-blue-400') : 'text-gray-600'
             }`}
           >

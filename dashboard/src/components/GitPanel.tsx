@@ -185,7 +185,7 @@ export function GitPanel({ agent, onClose }: Props) {
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-gray-200 font-mono truncate">{wt.branch || '(detached)'}</span>
                         {i === 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400">main</span>
+                          <span className="text-[13px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400">main</span>
                         )}
                       </div>
                       <p className="text-xs text-gray-600 truncate mt-0.5" title={wt.path}>{wt.path}</p>
@@ -252,7 +252,7 @@ export function GitPanel({ agent, onClose }: Props) {
                       {b}
                     </span>
                     {b === agent.branch && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gl-purple/20 text-gl-purple">current</span>
+                      <span className="text-[13px] px-1.5 py-0.5 rounded bg-gl-purple/20 text-gl-purple">current</span>
                     )}
                   </div>
                 ))}

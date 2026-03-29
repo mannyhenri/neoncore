@@ -208,53 +208,53 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
 
       {/* Meta row: role + agent type + agent name + webhook */}
       <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
-        <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.bg} ${badge.color} uppercase tracking-wider`}>
+        <span className={`inline-block text-[13px] font-semibold px-2 py-0.5 rounded-full ${badge.bg} ${badge.color} uppercase tracking-wider`}>
           {badge.name}
         </span>
         {data.agentType === 'claude' && (
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 uppercase tracking-wider">
+          <span className="text-[13px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 uppercase tracking-wider">
             CC
           </span>
         )}
         {data.agentType === 'gridlight' && (
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 uppercase tracking-wider">
+          <span className="text-[13px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 uppercase tracking-wider">
             GL
           </span>
         )}
         {data.agentName ? (
-          <span className="text-[10px] text-cyan-400/80 font-medium px-1.5 py-0.5 rounded-full bg-cyan-500/10 truncate max-w-[140px]" title={data.agentName}>
+          <span className="text-[13px] text-cyan-400/80 font-medium px-1.5 py-0.5 rounded-full bg-cyan-500/10 truncate max-w-[140px]" title={data.agentName}>
             {data.agentName}
           </span>
         ) : (
-          <span className="text-[10px] text-gray-600 italic">no cartridge</span>
+          <span className="text-[13px] text-gray-600 italic">no cartridge</span>
         )}
         {data.waitForWebhook && (
-          <span className="text-[9px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10" title="Waits for external webhook to complete">
+          <span className="text-[13px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10" title="Waits for external webhook to complete">
             webhook
           </span>
         )}
         {data.useIntent && (
-          <span className="text-[9px] text-emerald-400/70 font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10">
+          <span className="text-[13px] text-emerald-400/70 font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10">
             intent
           </span>
         )}
         {data.executorType === 'review-gate' && (
-          <span className="text-[9px] text-rose-400/70 font-medium px-1.5 py-0.5 rounded-full bg-rose-500/10 uppercase">
+          <span className="text-[13px] text-rose-400/70 font-medium px-1.5 py-0.5 rounded-full bg-rose-500/10 uppercase">
             critic
           </span>
         )}
         {data.executorType === 'deliberation' && (
-          <span className="text-[9px] text-violet-400/70 font-medium px-1.5 py-0.5 rounded-full bg-violet-500/10 uppercase">
+          <span className="text-[13px] text-violet-400/70 font-medium px-1.5 py-0.5 rounded-full bg-violet-500/10 uppercase">
             deliberation
           </span>
         )}
         {data.executorType === 'quality-gate' && (
-          <span className="text-[9px] text-teal-400/70 font-medium px-1.5 py-0.5 rounded-full bg-teal-500/10 uppercase">
+          <span className="text-[13px] text-teal-400/70 font-medium px-1.5 py-0.5 rounded-full bg-teal-500/10 uppercase">
             {data.gateType || 'quality'}
           </span>
         )}
         {data.executorType === 'command' && (
-          <span className="text-[9px] text-sky-400/70 font-medium px-1.5 py-0.5 rounded-full bg-sky-500/10 uppercase">
+          <span className="text-[13px] text-sky-400/70 font-medium px-1.5 py-0.5 rounded-full bg-sky-500/10 uppercase">
             command
           </span>
         )}
@@ -263,11 +263,11 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
       {/* Prompt body */}
       {data.prompt ? (
         <div className="px-3 pb-2">
-          <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-4 whitespace-pre-wrap">{data.prompt}</p>
+          <p className="text-[13px] text-gray-400 leading-relaxed line-clamp-4 whitespace-pre-wrap">{data.prompt}</p>
         </div>
       ) : (
         <div className="px-3 pb-2">
-          <p className="text-[11px] text-gray-600 italic">No prompt configured</p>
+          <p className="text-[13px] text-gray-600 italic">No prompt configured</p>
         </div>
       )}
 
@@ -275,7 +275,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
       <div className="px-3 pb-3 space-y-1.5">
         {/* Auto-advance toggle */}
         <label
-          className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer select-none"
+          className="flex items-center gap-1.5 text-[13px] text-gray-500 cursor-pointer select-none"
           onClick={(e) => e.stopPropagation()}
         >
           <input
@@ -291,7 +291,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         {data.status === 'completed' && !data.autoAdvance && (
           <button
             onClick={(e) => { e.stopPropagation(); data.onAdvance(data.stepId); }}
-            className="w-full text-[10px] font-medium px-2 py-1 rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+            className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
           >
             Advance to next step
           </button>
@@ -301,7 +301,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         {data.status === 'running' && (
           <button
             onClick={(e) => { e.stopPropagation(); data.onForceComplete(data.stepId); }}
-            className="w-full text-[10px] font-medium px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+            className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
           >
             Mark complete
           </button>
@@ -349,8 +349,13 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | undefined>(workflowId);
-  const [deferredPopup, setDeferredPopup] = useState<{ workflowId: string; steps: { stepId: string; stepName: string }[] } | null>(null);
+  const [deferredPopup, setDeferredPopup] = useState<{
+    workflowId: string;
+    agentSteps: { stepId: string; stepName: string }[];
+    promptSteps: { stepId: string; stepName: string; field: string; label: string }[];
+  } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
+  const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
 
   // Execution log
   const [executionLogs, setExecutionLogs] = useState<WorkflowStepLog[]>([]);
@@ -772,21 +777,41 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         return;
       }
 
-      // Fetch fresh steps from server to check for deferred assignments
+      // Fetch fresh steps from server to check for deferred assignments and prompts
       const { steps: freshSteps } = await api.getWorkflowV2(id);
-      const deferred = freshSteps.filter((s) => {
+
+      // Deferred cartridge assignments
+      const agentSteps = freshSteps.filter((s) => {
         if (s.executorId === '__deferred__') return true;
         const cfg = s.executorConfig as Record<string, unknown>;
         if (s.executorType === 'review-gate' && cfg.reviewAgentId === '__deferred__') return true;
         return false;
-      });
+      }).map((s) => ({ stepId: s.id, stepName: s.name }));
 
-      if (deferred.length > 0) {
-        setDeferredPopup({
-          workflowId: id,
-          steps: deferred.map((s) => ({ stepId: s.id, stepName: s.name })),
-        });
+      // Deferred prompt inputs (empty prompt fields)
+      const promptSteps: { stepId: string; stepName: string; field: string; label: string }[] = [];
+      for (const s of freshSteps) {
+        const cfg = s.executorConfig as Record<string, unknown>;
+        if (s.executorType === 'claude-code' || s.executorType === undefined) {
+          if (cfg.useIntent) {
+            const intent = cfg.intent as Record<string, unknown> | undefined;
+            if (!intent?.objective) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'intent.objective', label: 'Objective' });
+          } else {
+            if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Prompt' });
+          }
+        } else if (s.executorType === 'review-gate') {
+          if (!cfg.criteria) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'criteria', label: 'Review Criteria' });
+        } else if (s.executorType === 'deliberation') {
+          if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Shared Prompt' });
+        } else if (s.executorType === 'quality-gate') {
+          if (cfg.gateType === 'custom' && !cfg.customPrompt) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'customPrompt', label: 'Custom Quality Check' });
+        }
+      }
+
+      if (agentSteps.length > 0 || promptSteps.length > 0) {
+        setDeferredPopup({ workflowId: id, agentSteps, promptSteps });
         setDeferredAssignments({});
+        setDeferredPrompts({});
         setRunning(false);
         return;
       }
@@ -803,22 +828,28 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
   const handleDeferredRun = useCallback(async () => {
     if (!deferredPopup) return;
-    // Validate all deferred steps have assignments
-    const allAssigned = deferredPopup.steps.every((s) => deferredAssignments[s.stepId]);
-    if (!allAssigned) return;
+    // Validate all deferred agents have assignments
+    const allAgentsAssigned = deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]);
+    // Validate all deferred prompts have values
+    const allPromptsAssigned = deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim());
+    if (!allAgentsAssigned || !allPromptsAssigned) return;
 
     setRunning(true);
     setDeferredPopup(null);
     try {
-      const wf = await api.startWorkflowV2(deferredPopup.workflowId, deferredAssignments);
+      const wf = await api.startWorkflowV2(
+        deferredPopup.workflowId,
+        deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
+        deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
+      );
       setWorkflowStatus(wf.status);
-      showToast('Workflow started with selected cartridges');
+      showToast('Workflow started');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start workflow');
     } finally {
       setRunning(false);
     }
-  }, [deferredPopup, deferredAssignments, showToast]);
+  }, [deferredPopup, deferredAssignments, deferredPrompts, showToast]);
 
   // ── Click on canvas background -> deselect ──────
 
@@ -1013,7 +1044,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         )}
 
         {/* ── Status bar ──────────────────────── */}
-        <div className="flex items-center gap-4 px-4 py-1.5 border-t border-white/[0.06] text-[10px] text-gray-600 shrink-0">
+        <div className="flex items-center gap-4 px-4 py-1.5 border-t border-white/[0.06] text-[13px] text-gray-600 shrink-0">
           <span>{steps.length} step{steps.length !== 1 ? 's' : ''}</span>
           <span>{edges.length} connection{edges.length !== 1 ? 's' : ''}</span>
           {savedWorkflowId && (
@@ -1037,38 +1068,71 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         )}
       </div>
 
-      {/* Deferred agent assignment popup */}
+      {/* Deferred assignment popup (cartridges + prompts) */}
       {deferredPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[420px] flex flex-col">
+          <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
               <div>
-                <h2 className="text-sm font-semibold text-white">Assign Cartridges</h2>
-                <p className="text-[10px] text-gray-500 mt-0.5">Select a cartridge for each step before running</p>
+                <h2 className="text-sm font-semibold text-white">Configure & Run</h2>
+                <p className="text-[13px] text-gray-500 mt-0.5">Fill in the required fields before running</p>
               </div>
               <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
             </div>
-            <div className="p-4 space-y-3">
-              {deferredPopup.steps.map((s) => (
-                <div key={s.stepId}>
-                  <label className="block text-xs text-gray-400 mb-1">{s.stepName}</label>
-                  <select
-                    value={deferredAssignments[s.stepId] || ''}
-                    onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
-                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
-                  >
-                    <option value="">Select cartridge...</option>
-                    {onlineAgents.map((a) => (
-                      <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
-                    ))}
-                  </select>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Deferred cartridge selections */}
+              {deferredPopup.agentSteps.length > 0 && (
+                <div className="space-y-3">
+                  <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge Selection</span>
+                  {deferredPopup.agentSteps.map((s) => (
+                    <div key={s.stepId}>
+                      <label className="block text-sm text-gray-400 mb-1">{s.stepName}</label>
+                      <select
+                        value={deferredAssignments[s.stepId] || ''}
+                        onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
+                        className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                      >
+                        <option value="">Select cartridge...</option>
+                        {onlineAgents.map((a) => (
+                          <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {/* Deferred prompt inputs */}
+              {deferredPopup.promptSteps.length > 0 && (
+                <div className="space-y-3">
+                  <span className="text-[13px] text-gray-500 uppercase tracking-wider">Prompt Inputs</span>
+                  {deferredPopup.promptSteps.map((s) => (
+                    <div key={`${s.stepId}-${s.field}`}>
+                      <label className="block text-sm text-gray-400 mb-1">
+                        {s.stepName} — <span className="text-gray-500">{s.label}</span>
+                      </label>
+                      <textarea
+                        value={deferredPrompts[s.stepId]?.[s.field] || ''}
+                        onChange={(e) => setDeferredPrompts((prev) => ({
+                          ...prev,
+                          [s.stepId]: { ...prev[s.stepId], [s.field]: e.target.value },
+                        }))}
+                        rows={3}
+                        className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                        placeholder={`Enter ${s.label.toLowerCase()}...`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
               <button
                 onClick={handleDeferredRun}
-                disabled={!deferredPopup.steps.every((s) => deferredAssignments[s.stepId])}
+                disabled={
+                  !deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]) ||
+                  !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim())
+                }
                 className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
               >
                 Run Workflow
@@ -1130,7 +1194,7 @@ function IntentEditor({
         <label className="block text-xs text-gray-500 mb-1">Acceptance Criteria</label>
         {(intent.acceptanceCriteria || []).map((criterion, i) => (
           <div key={i} className="flex items-center gap-1 mb-1">
-            <span className="text-[10px] text-gray-600 w-4">{i + 1}.</span>
+            <span className="text-[13px] text-gray-600 w-4">{i + 1}.</span>
             <input
               type="text"
               value={criterion}
@@ -1157,7 +1221,7 @@ function IntentEditor({
         <button
           onClick={() => updateIntent({ acceptanceCriteria: [...(intent.acceptanceCriteria || []), ''] })}
           disabled={isExecuting}
-          className="text-[10px] text-emerald-400/70 hover:text-emerald-400 transition-colors disabled:opacity-30"
+          className="text-[13px] text-emerald-400/70 hover:text-emerald-400 transition-colors disabled:opacity-30"
         >
           + Add criterion
         </button>
@@ -1167,7 +1231,7 @@ function IntentEditor({
         <label className="block text-xs text-gray-500 mb-1">Constraints</label>
         {(intent.constraints || []).map((constraint, i) => (
           <div key={i} className="flex items-center gap-1 mb-1">
-            <span className="text-[10px] text-gray-600 w-4">-</span>
+            <span className="text-[13px] text-gray-600 w-4">-</span>
             <input
               type="text"
               value={constraint}
@@ -1194,7 +1258,7 @@ function IntentEditor({
         <button
           onClick={() => updateIntent({ constraints: [...(intent.constraints || []), ''] })}
           disabled={isExecuting}
-          className="text-[10px] text-emerald-400/70 hover:text-emerald-400 transition-colors disabled:opacity-30"
+          className="text-[13px] text-emerald-400/70 hover:text-emerald-400 transition-colors disabled:opacity-30"
         >
           + Add constraint
         </button>
@@ -1253,7 +1317,7 @@ function ReviewGateConfig({
             <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        <p className="text-[10px] text-gray-600 mt-1">This cartridge evaluates the output from dependency steps</p>
+        <p className="text-[13px] text-gray-600 mt-1">This cartridge evaluates the output from dependency steps</p>
       </div>
 
       <div>
@@ -1289,7 +1353,7 @@ function ReviewGateConfig({
           disabled={isExecuting}
           className="w-20 text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
         />
-        <p className="text-[10px] text-gray-600 mt-1">
+        <p className="text-[13px] text-gray-600 mt-1">
           If FAIL, resets dependency steps and re-runs up to {maxRetries} time(s)
         </p>
       </div>
@@ -1350,7 +1414,7 @@ function DeliberationConfig({
               className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
               placeholder="/path/to/project"
             />
-            <p className="text-[10px] text-gray-600 mt-1">Each window opens this repo with its own Claude Code session</p>
+            <p className="text-[13px] text-gray-600 mt-1">Each window opens this repo with its own Claude Code session</p>
           </div>
 
           <div>
@@ -1374,7 +1438,7 @@ function DeliberationConfig({
           {/* Manual agent selection */}
           <div>
             <label className="block text-xs text-gray-500 mb-1">Panel Cartridges (2-4)</label>
-            <p className="text-[10px] text-gray-600 mb-1.5">Each cartridge receives the same prompt independently</p>
+            <p className="text-[13px] text-gray-600 mb-1.5">Each cartridge receives the same prompt independently</p>
             {panelAgentIds.map((agentId, i) => (
               <div key={i} className="flex items-center gap-1 mb-1">
                 <select
@@ -1408,7 +1472,7 @@ function DeliberationConfig({
                   onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: [...panelAgentIds, ''] } })
                 }
                 disabled={isExecuting}
-                className="text-[10px] text-violet-400/70 hover:text-violet-400 transition-colors disabled:opacity-30"
+                className="text-[13px] text-violet-400/70 hover:text-violet-400 transition-colors disabled:opacity-30"
               >
                 + Add panel cartridge
               </button>
@@ -1435,7 +1499,7 @@ function DeliberationConfig({
             <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        <p className="text-[10px] text-gray-600 mt-1">Combines all panel responses into a unified consensus</p>
+        <p className="text-[13px] text-gray-600 mt-1">Combines all panel responses into a unified consensus</p>
       </div>
 
       <div>
@@ -1538,14 +1602,14 @@ function CommandStepConfig({
       {selectedTemplate && (
         <div>
           <label className="block text-xs text-gray-500 mb-1">Preview</label>
-          <pre className="text-[11px] text-gray-400 bg-white/[0.02] border border-white/[0.06] rounded-lg p-2.5 max-h-[120px] overflow-y-auto whitespace-pre-wrap font-mono">
+          <pre className="text-[13px] text-gray-400 bg-white/[0.02] border border-white/[0.06] rounded-lg p-2.5 max-h-[120px] overflow-y-auto whitespace-pre-wrap font-mono">
             {selectedTemplate.content.slice(0, 500)}
           </pre>
         </div>
       )}
 
       {templates.length === 0 && (
-        <p className="text-[11px] text-gray-500">No command templates yet. Create them via the Commands button in the header.</p>
+        <p className="text-[13px] text-gray-500">No command templates yet. Create them via the Commands button in the header.</p>
       )}
     </>
   );
@@ -1589,8 +1653,8 @@ function QualityGateConfig({
                     : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
                 }`}
               >
-                <div className="text-[11px] font-medium leading-tight">{preset.label}</div>
-                <div className="text-[9px] leading-snug mt-0.5 opacity-60">{preset.description}</div>
+                <div className="text-[13px] font-medium leading-tight">{preset.label}</div>
+                <div className="text-[13px] leading-snug mt-0.5 opacity-60">{preset.description}</div>
               </button>
             );
           })}
@@ -1611,7 +1675,7 @@ function QualityGateConfig({
             <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        <p className="text-[10px] text-gray-600 mt-1">Cartridge runs the quality check on its own codebase</p>
+        <p className="text-[13px] text-gray-600 mt-1">Cartridge runs the quality check on its own codebase</p>
       </div>
 
       {/* Custom prompt (only for 'custom' gate type) */}
@@ -1651,7 +1715,7 @@ function QualityGateConfig({
           disabled={isExecuting}
           className="w-20 text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
         />
-        <p className="text-[10px] text-gray-600 mt-1">
+        <p className="text-[13px] text-gray-600 mt-1">
           If FAIL, resets upstream steps with feedback and re-runs (up to {maxRetries} time(s))
         </p>
       </div>
@@ -1771,8 +1835,8 @@ function SidePanel({
                           : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
                       }`}
                     >
-                      <div className="text-[11px] font-medium leading-tight">{role.name}</div>
-                      <div className="text-[9px] leading-snug mt-0.5 opacity-60">{role.description}</div>
+                      <div className="text-[13px] font-medium leading-tight">{role.name}</div>
+                      <div className="text-[13px] leading-snug mt-0.5 opacity-60">{role.description}</div>
                     </button>
                   );
                 })}
@@ -1794,7 +1858,7 @@ function SidePanel({
                 ))}
               </select>
               {agentOptions.length === 0 && (
-                <p className="text-[10px] text-gray-600 mt-1 italic">No online cartridges</p>
+                <p className="text-[13px] text-gray-600 mt-1 italic">No online cartridges</p>
               )}
             </div>
 
@@ -1884,7 +1948,7 @@ function SidePanel({
               Wait for external webhook
             </label>
             {!!step.executorConfig.waitForWebhook && (
-              <div className="text-[10px] text-gray-500 bg-black/20 rounded-md px-3 py-2 font-mono break-all select-all">
+              <div className="text-[13px] text-gray-500 bg-black/20 rounded-md px-3 py-2 font-mono break-all select-all">
                 <div className="text-amber-400/70 mb-1 font-sans">
                   Step won't auto-complete. Call this when done:
                 </div>
@@ -1902,7 +1966,7 @@ function SidePanel({
               {step.dependsOn.map((depId) => (
                 <span
                   key={depId}
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono"
+                  className="text-[13px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono"
                 >
                   {depId.slice(0, 8)}
                 </span>

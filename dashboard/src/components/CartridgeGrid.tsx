@@ -93,6 +93,25 @@ export function CartridgeGrid({
     (a.repoName || a.name).localeCompare(b.repoName || b.name)
   );
 
+  // Build sibling lookup: for agents sharing the same machine + repoName, collect all sibling IDs
+  const siblingMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const groups = new Map<string, string[]>();
+    for (const a of agents) {
+      if (a.status === 'offline') continue;
+      const key = `${a.machine}:${a.repoName}`;
+      const list = groups.get(key) || [];
+      list.push(a.id);
+      groups.set(key, list);
+    }
+    for (const a of agents) {
+      const key = `${a.machine}:${a.repoName}`;
+      const siblings = (groups.get(key) || []).filter((id) => id !== a.id);
+      if (siblings.length > 0) map.set(a.id, siblings);
+    }
+    return map;
+  }, [agents]);
+
   // Count online agents per status for filter badges
   const onlineAgents = agents.filter((a) => agentStatuses.get(a.id) !== 'offline');
   const counts = {
@@ -151,7 +170,7 @@ export function CartridgeGrid({
           >
             {label}
             {counts[key] > 0 && (
-              <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
+              <span className={`ml-1.5 text-[13px] px-1.5 py-0.5 rounded-full ${
                 statusFilter === key ? 'bg-gl-purple/30 text-gl-purple' : 'bg-white/[0.06] text-gray-500'
               }`}>
                 {counts[key]}
@@ -172,6 +191,7 @@ export function CartridgeGrid({
             <CartridgeCard
               key={agent.id}
               agent={agent}
+              siblingAgents={siblingMap.get(agent.id)?.map((id) => agents.find((a) => a.id === id)!).filter(Boolean)}
               activities={activitiesByAgent[agent.id] || []}
               permissions={pendingPermissions.filter((p) => p.agentId === agent.id)}
               stuckAlert={stuckByAgent.get(agent.id)}

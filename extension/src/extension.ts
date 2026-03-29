@@ -120,9 +120,17 @@ async function focusAgentPanel(): Promise<void> {
   // Type-specific fallbacks
   if (agentType === 'gridlight') {
     try {
-      await vscode.commands.executeCommand('workbench.action.focusSideBar');
+      await vscode.commands.executeCommand('gridlight.focusInput');
     } catch {
-      // ignore
+      try {
+        await vscode.commands.executeCommand('gridlight.open');
+      } catch {
+        try {
+          await vscode.commands.executeCommand('workbench.action.focusSideBar');
+        } catch {
+          // ignore
+        }
+      }
     }
   } else {
     try {
@@ -360,7 +368,7 @@ function registerWithOrchestrator() {
         socket.emit('join_agent_room', { agentId: agent.id });
         log(`Joined agent room agent:${agent.id}`);
       }
-      // Auto-focus Claude sidebar so it's ready for commands
+      // Auto-focus the correct agent sidebar so it's ready for commands
       focusAgentPanel();
       // Drain any commands queued while we were offline
       drainPendingCommands(url, agent.id);

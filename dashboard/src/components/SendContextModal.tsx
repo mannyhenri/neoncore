@@ -102,7 +102,7 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
           <div>
             <h2 className="text-sm font-semibold text-white">Send Context</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5">{project}</p>
+            <p className="text-[13px] text-gray-500 mt-0.5">{project}</p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">&times;</button>
         </div>
@@ -115,7 +115,7 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
             <>
               {/* Knowledge Files */}
               <div className="space-y-2">
-                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Knowledge Files</span>
+                <span className="text-[13px] text-gray-500 uppercase tracking-wider">Knowledge Files</span>
                 <label className={`flex items-center gap-2 text-xs ${hasProgress ? 'text-gray-300' : 'text-gray-600'}`}>
                   <input type="checkbox" checked={includeProgress} onChange={() => setIncludeProgress(!includeProgress)} disabled={!hasProgress}
                     className="rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
@@ -142,10 +142,10 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
               {sessions.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">Sessions</span>
+                    <span className="text-[13px] text-gray-500 uppercase tracking-wider">Sessions</span>
                     <div className="flex gap-2">
-                      <button onClick={selectAllSessions} className="text-[10px] text-gray-500 hover:text-white">All</button>
-                      <button onClick={selectNoneSessions} className="text-[10px] text-gray-500 hover:text-white">None</button>
+                      <button onClick={selectAllSessions} className="text-[13px] text-gray-500 hover:text-white">All</button>
+                      <button onClick={selectNoneSessions} className="text-[13px] text-gray-500 hover:text-white">None</button>
                     </div>
                   </div>
                   <div className="space-y-1 max-h-[200px] overflow-y-auto">
@@ -156,9 +156,9 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400">{formatDate(s.startedAt)}</span>
-                            {s.branch && <span className="text-[10px] text-purple-400/60">{s.branch}</span>}
+                            {s.branch && <span className="text-[13px] text-purple-400/60">{s.branch}</span>}
                           </div>
-                          <p className="text-[11px] text-gray-500 truncate mt-0.5">{s.summary}</p>
+                          <p className="text-[13px] text-gray-500 truncate mt-0.5">{s.summary}</p>
                         </div>
                       </label>
                     ))}

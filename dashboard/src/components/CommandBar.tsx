@@ -68,7 +68,7 @@ function GlassSelect({
           {groups.map((g) => (
             <div key={g.group}>
               {g.group && (
-                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                <div className="px-3 py-1 text-[13px] uppercase tracking-wider text-gray-500 font-semibold">
                   {g.group}
                 </div>
               )}

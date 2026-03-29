@@ -486,6 +486,38 @@ router.post('/v2/:id/start', (req, res) => {
     }
   }
 
+  // Apply deferred prompt overrides (empty prompt fields filled at runtime)
+  const promptOverrides = req.body?.promptOverrides as Record<string, Record<string, string>> | undefined;
+  if (promptOverrides && Object.keys(promptOverrides).length > 0) {
+    console.log(`[workflow] Applying prompt overrides for ${Object.keys(promptOverrides).length} steps`);
+    for (const [stepId, fields] of Object.entries(promptOverrides)) {
+      const step = db.prepare('SELECT executor_config, description FROM workflow_steps WHERE id = ? AND workflow_id = ?')
+        .get(stepId, req.params.id) as { executor_config: string; description: string } | undefined;
+      if (!step) continue;
+
+      const config = JSON.parse(step.executor_config || '{}');
+      // Track which fields were deferred for restoration after completion
+      config._deferredPrompts = Object.keys(fields);
+
+      let description = step.description;
+      for (const [field, value] of Object.entries(fields)) {
+        if (field === 'intent.objective') {
+          // Nested in intent object
+          if (!config.intent) config.intent = {};
+          config.intent.objective = value;
+        } else if (field === 'prompt') {
+          config.prompt = value;
+          description = value;
+        } else {
+          config[field] = value;
+        }
+      }
+
+      db.prepare('UPDATE workflow_steps SET executor_config = ?, description = ? WHERE id = ? AND workflow_id = ?')
+        .run(JSON.stringify(config), description, stepId, req.params.id);
+    }
+  }
+
   emitWorkflowUpdate(req.params.id);
 
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;

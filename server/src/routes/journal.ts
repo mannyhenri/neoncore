@@ -96,4 +96,68 @@ router.put('/projects/:project/knowledge/:filename', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Project-scoped notes ──
+
+interface NoteRow {
+  id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+router.get('/projects/:project/notes', (req, res) => {
+  const rows = db.prepare(
+    "SELECT id, content, created_at, updated_at FROM notes WHERE project = ? ORDER BY updated_at DESC"
+  ).all(req.params.project) as NoteRow[];
+
+  res.json(rows.map((r) => ({
+    id: r.id,
+    content: r.content,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  })));
+});
+
+router.post('/projects/:project/notes', (req, res) => {
+  const { content } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+
+  // Find any agent for this project to satisfy the foreign key
+  const agent = db.prepare("SELECT id FROM agents WHERE repo_name = ? LIMIT 1").get(req.params.project) as { id: string } | undefined;
+  const agentId = agent?.id || '';
+
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  if (agentId) {
+    db.prepare(
+      "INSERT INTO notes (id, agent_id, project, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(id, agentId, req.params.project, content.trim(), now, now);
+  } else {
+    // No agent exists yet — insert without FK (SQLite only enforces FK if PRAGMA foreign_keys=ON)
+    db.prepare(
+      "INSERT INTO notes (id, agent_id, project, content, created_at, updated_at) VALUES (?, '__project__', ?, ?, ?, ?)"
+    ).run(id, req.params.project, content.trim(), now, now);
+  }
+
+  res.status(201).json({ id, content: content.trim(), createdAt: now, updatedAt: now });
+});
+
+router.put('/projects/:project/notes/:noteId', (req, res) => {
+  const { content } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND project = ?')
+    .run(content.trim(), now, req.params.noteId, req.params.project);
+
+  res.json({ id: req.params.noteId, content: content.trim(), updatedAt: now });
+});
+
+router.delete('/projects/:project/notes/:noteId', (req, res) => {
+  db.prepare('DELETE FROM notes WHERE id = ? AND project = ?')
+    .run(req.params.noteId, req.params.project);
+  res.status(204).send();
+});
+
 export default router;

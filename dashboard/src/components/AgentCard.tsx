@@ -160,7 +160,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
         const sel = selections[key];
         return (
           <div key={qi}>
-            {q.header && <div className="text-[10px] text-gray-500 uppercase mb-1">{q.header}</div>}
+            {q.header && <div className="text-[13px] text-gray-500 uppercase mb-1">{q.header}</div>}
             <p className="text-sm text-gray-300 mb-2">{q.question}</p>
             {q.options && q.options.length > 0 && !showCustom[key] && (
               <div className="flex flex-wrap gap-1.5">
@@ -251,7 +251,7 @@ function PlanApprovalCard({ permission, onDecide }: {
       </div>
       {allowedPrompts.length > 0 && (
         <div className="mb-2 space-y-1">
-          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
+          <span className="text-[13px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
           {allowedPrompts.map((p, i) => (
             <div key={i} className="text-sm text-gray-400 font-mono pl-2 border-l border-violet-800">
               {p.tool}: {p.prompt}
@@ -355,7 +355,7 @@ const CATEGORY_OPTIONS = [
 
 function categoryBadge(category: string) {
   const cls = CATEGORY_COLORS[category] || 'bg-gray-800 text-gray-400';
-  return `text-[10px] px-1.5 py-0.5 rounded ${cls}`;
+  return `text-[13px] px-1.5 py-0.5 rounded ${cls}`;
 }
 
 export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, onSetMode, onSendCommand, onDelete, onDismissStuck }: Props) {
@@ -420,7 +420,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             )}
           </div>
           <h3 className="text-gl-purple font-bold text-lg md:text-xl font-mono">{agent.repoName || 'unknown'}</h3>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
+          <span className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
             agent.agentType === 'gridlight'
               ? 'bg-pink-900/50 text-pink-400'
               : 'bg-blue-900/50 text-blue-400'
@@ -548,7 +548,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
       <div className="mb-2">
         <button
           onClick={() => setMemoryOpen(!memoryOpen)}
-          className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors uppercase tracking-wider"
+          className="text-[13px] text-gray-500 hover:text-gray-300 transition-colors uppercase tracking-wider"
         >
           {memoryOpen ? '- ' : '+ '}Memory{memories.length > 0 ? ` (${memories.filter(m => m.active).length}/${memories.length})` : ''}
         </button>
@@ -571,7 +571,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
                 />
                 <span className={categoryBadge(m.category)}>{m.category}</span>
                 <span className="text-xs text-gray-400 flex-1 break-words">{m.content}</span>
-                <span className="text-[9px] text-gray-600">{m.source === 'auto' ? 'auto' : ''}</span>
+                <span className="text-[13px] text-gray-600">{m.source === 'auto' ? 'auto' : ''}</span>
                 <button
                   onClick={() => handleDeleteMemory(m.id)}
                   className="text-gray-700 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
@@ -617,7 +617,7 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             ) : (
               <button
                 onClick={() => setAddingMemory(true)}
-                className="text-[10px] text-gray-600 hover:text-gl-purple transition-colors"
+                className="text-[13px] text-gray-600 hover:text-gl-purple transition-colors"
               >
                 + Add memory
               </button>
