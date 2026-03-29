@@ -25,10 +25,11 @@ export function initWebSocket(server: HTTPServer) {
 
     // VS Code extensions register with machine+repoPath+agentType (known immediately, no HTTP needed)
     socket.on('register_extension', ({ machine, repoPath, agentType }) => {
-      // Always join the path-based room (for backwards compat, but commands only use agent rooms)
-      const pathRoom = `ext:${machine}:${repoPath}`;
+      // Join type-specific path room so upgradeSocketsToAgentRoom doesn't cross-contaminate
+      const resolvedType = agentType || 'claude';
+      const pathRoom = `ext:${machine}:${repoPath}:${resolvedType}`;
       socket.join(pathRoom);
-      console.log(`[ws] Socket ${socket.id} joined path room ${pathRoom} (${agentType || 'claude'})`);
+      console.log(`[ws] Socket ${socket.id} joined path room ${pathRoom}`);
 
       // Resolve to agent ID — require exact match on machine + path + type to prevent misrouting
       if (agentType) {
@@ -107,8 +108,9 @@ export function hasActiveSocket(agentId: string): boolean {
 }
 
 /** Upgrade sockets in a path room to also join an agent room (handles race condition) */
-export function upgradeSocketsToAgentRoom(machine: string, repoPath: string, agentId: string) {
-  const pathRoom = `ext:${machine}:${repoPath}`;
+export function upgradeSocketsToAgentRoom(machine: string, repoPath: string, agentId: string, agentType?: string) {
+  const resolvedType = agentType || 'claude';
+  const pathRoom = `ext:${machine}:${repoPath}:${resolvedType}`;
   const agentRoom = `agent:${agentId}`;
   const socketsInRoom = io.sockets.adapter.rooms.get(pathRoom);
   if (socketsInRoom && socketsInRoom.size > 0) {

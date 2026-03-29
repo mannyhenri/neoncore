@@ -45,6 +45,7 @@ interface CartridgeGridProps {
 // ---------------------------------------------------------------------------
 
 type StatusFilter = 'all' | 'working' | 'waiting' | 'idle';
+const STATUS_PRIORITY: Record<string, number> = { working: 0, waiting: 1, idle: 2, offline: 3 };
 
 // ---------------------------------------------------------------------------
 // CartridgeGrid
@@ -93,33 +94,48 @@ export function CartridgeGrid({
     (a.repoName || a.name).localeCompare(b.repoName || b.name)
   );
 
-  // Build sibling lookup: for agents sharing the same machine + repoName, collect all sibling IDs
-  const siblingMap = useMemo(() => {
-    const map = new Map<string, string[]>();
-    const groups = new Map<string, string[]>();
-    for (const a of agents) {
-      if (a.status === 'offline') continue;
+  // Group agents by machine:repoName → one cartridge per group.
+  // Pick the agent with the best status as the primary; the rest are siblings.
+  const { dedupedSorted, siblingMap } = useMemo(() => {
+    // Group visible agents by machine:repoName
+    const groups = new Map<string, Agent[]>();
+    for (const a of sorted) {
       const key = `${a.machine}:${a.repoName}`;
       const list = groups.get(key) || [];
-      list.push(a.id);
+      list.push(a);
       groups.set(key, list);
     }
-    for (const a of agents) {
-      const key = `${a.machine}:${a.repoName}`;
-      const siblings = (groups.get(key) || []).filter((id) => id !== a.id);
-      if (siblings.length > 0) map.set(a.id, siblings);
-    }
-    return map;
-  }, [agents]);
 
-  // Count online agents per status for filter badges
-  const onlineAgents = agents.filter((a) => agentStatuses.get(a.id) !== 'offline');
+    const primaries: Agent[] = [];
+    const siblings = new Map<string, string[]>();
+
+    for (const [, group] of groups) {
+      // Sort by status priority — best status becomes primary
+      group.sort((a, b) => {
+        const aPri = STATUS_PRIORITY[agentStatuses.get(a.id) || 'offline'] ?? 3;
+        const bPri = STATUS_PRIORITY[agentStatuses.get(b.id) || 'offline'] ?? 3;
+        return aPri - bPri;
+      });
+      const primary = group[0];
+      primaries.push(primary);
+      const siblingIds = group.slice(1).map((a) => a.id);
+      if (siblingIds.length > 0) siblings.set(primary.id, siblingIds);
+    }
+
+    // Re-sort primaries alphabetically
+    primaries.sort((a, b) => (a.repoName || a.name).localeCompare(b.repoName || b.name));
+
+    return { dedupedSorted: primaries, siblingMap: siblings };
+  }, [sorted, agentStatuses]);
+
+  // Count deduplicated cartridges (groups) per status for filter badges
   const counts = {
-    all: onlineAgents.length,
-    working: onlineAgents.filter((a) => agentStatuses.get(a.id) === 'working').length,
-    waiting: onlineAgents.filter((a) => agentStatuses.get(a.id) === 'waiting').length,
-    idle: onlineAgents.filter((a) => agentStatuses.get(a.id) === 'idle').length,
+    all: dedupedSorted.length,
+    working: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'working').length,
+    waiting: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'waiting').length,
+    idle: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'idle').length,
   };
+  const onlineAgents = agents.filter((a) => agentStatuses.get(a.id) !== 'offline');
 
   // Build a lookup for stuck alerts by agentId
   const stuckByAgent = new Map<string, StuckAlert>();
@@ -181,28 +197,42 @@ export function CartridgeGrid({
       </div>
 
       {/* Grid */}
-      {sorted.length === 0 ? (
+      {dedupedSorted.length === 0 ? (
         <div className="text-center py-12 text-gray-500 text-sm">
           No {statusFilter} cartridges
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-          {sorted.map((agent) => (
-            <CartridgeCard
-              key={agent.id}
-              agent={agent}
-              siblingAgents={siblingMap.get(agent.id)?.map((id) => agents.find((a) => a.id === id)!).filter(Boolean)}
-              activities={activitiesByAgent[agent.id] || []}
-              permissions={pendingPermissions.filter((p) => p.agentId === agent.id)}
-              stuckAlert={stuckByAgent.get(agent.id)}
-              onDecidePermission={onDecidePermission}
-              onSetMode={onSetMode}
-              onSendCommand={onSendCommand}
-              onDelete={onDelete}
-              onDismissStuck={onDismissStuck}
-              onActivityClick={onActivityClick}
-            />
-          ))}
+          {dedupedSorted.map((agent) => {
+            const siblingIds = siblingMap.get(agent.id) || [];
+            const allIds = [agent.id, ...siblingIds];
+
+            // Merge activities from all agents in this group
+            const mergedActivities = allIds
+              .flatMap((id) => activitiesByAgent[id] || [])
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+            // Merge permissions and stuck alerts from all agents in this group
+            const mergedPermissions = pendingPermissions.filter((p) => allIds.includes(p.agentId));
+            const mergedStuck = allIds.map((id) => stuckByAgent.get(id)).find(Boolean);
+
+            return (
+              <CartridgeCard
+                key={agent.id}
+                agent={agent}
+                siblingAgents={siblingIds.map((id) => agents.find((a) => a.id === id)!).filter(Boolean)}
+                activities={mergedActivities}
+                permissions={mergedPermissions}
+                stuckAlert={mergedStuck}
+                onDecidePermission={onDecidePermission}
+                onSetMode={onSetMode}
+                onSendCommand={onSendCommand}
+                onDelete={onDelete}
+                onDismissStuck={onDismissStuck}
+                onActivityClick={onActivityClick}
+              />
+            );
+          })}
         </div>
       )}
     </div>

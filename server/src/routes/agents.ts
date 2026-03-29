@@ -49,13 +49,9 @@ router.post('/register', (req, res) => {
         && (a.agent_type as string) === resolvedType
     );
 
-    // Fuzzy match: same normalized path, any agentType (hooks default to 'claude'
-    // but should find an extension-registered 'gridlight' agent)
-    if (!existing) {
-      existing = candidates.find(
-        (a) => normalizeRepoPath(a.repo_path as string) === normalizedIncoming
-      );
-    }
+    // No fuzzy match across agent types — each type (claude, gridlight) gets its
+    // own DB record.  Hooks that omit agentType default to resolvedType='claude'
+    // and will exact-match or create a new Claude agent, never hijack a Gridlight one.
   }
 
   // Fallback: find by sessionId (for backward compat)
@@ -120,8 +116,9 @@ router.post('/register', (req, res) => {
     // Upgrade any extension sockets in the path room to the agent room (closes race condition)
     const agentMachine = (agent.machine as string) || '';
     const agentRepoPath = (agent.repo_path as string) || '';
+    const agentTypeStr = (agent.agent_type as string) || 'claude';
     if (agentMachine && agentRepoPath) {
-      upgradeSocketsToAgentRoom(agentMachine, agentRepoPath, existing.id as string);
+      upgradeSocketsToAgentRoom(agentMachine, agentRepoPath, existing.id as string, agentTypeStr);
     }
 
     getIO().emit('agent_updated', normalized);
@@ -157,7 +154,7 @@ router.post('/register', (req, res) => {
 
   // Upgrade any extension sockets in the path room to the agent room (closes race condition)
   if (machine && repoPath) {
-    upgradeSocketsToAgentRoom(machine, repoPath, id);
+    upgradeSocketsToAgentRoom(machine, repoPath, id, resolvedType);
   }
 
   // Start initial session for the new agent
