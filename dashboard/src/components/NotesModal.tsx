@@ -111,7 +111,7 @@ export function NotesModal({ agent, onClose }: Props) {
                   <textarea
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
-                    className="w-full glass-input text-gray-200 text-base rounded-md px-3 py-2.5 focus:outline-none resize-none"
+                    className="w-full glass-input text-gray-200 text-base rounded-md px-3 py-2.5 focus:outline-none resize-y"
                     rows={5}
                     autoFocus
                   />
@@ -182,7 +182,7 @@ export function NotesModal({ agent, onClose }: Props) {
                 value={newContent}
                 onChange={(e) => setNewContent(e.target.value)}
                 placeholder="Write your note..."
-                className="w-full glass-input text-gray-200 text-base rounded-md px-3 py-2.5 focus:outline-none resize-none placeholder-gray-600"
+                className="w-full glass-input text-gray-200 text-base rounded-md px-3 py-2.5 focus:outline-none resize-y placeholder-gray-600"
                 rows={5}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreate();

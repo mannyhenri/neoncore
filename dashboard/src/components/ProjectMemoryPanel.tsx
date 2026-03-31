@@ -258,8 +258,8 @@ function NotesEditor({ project }: { project: string }) {
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
           placeholder="Add a note..."
-          rows={2}
-          className="flex-1 text-sm font-mono glass-input text-gray-300 rounded-lg px-3 py-2 placeholder-gray-600 focus:outline-none resize-none"
+          rows={4}
+          className="flex-1 text-base font-mono glass-input text-gray-300 rounded-lg px-3 py-2.5 placeholder-gray-600 focus:outline-none resize-y min-h-[80px]"
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreate(); }}
         />
         <button
@@ -282,8 +282,8 @@ function NotesEditor({ project }: { project: string }) {
               <textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                rows={3}
-                className="w-full text-sm font-mono glass-input text-gray-300 rounded-lg px-3 py-2 focus:outline-none resize-none"
+                rows={5}
+                className="w-full text-base font-mono glass-input text-gray-300 rounded-lg px-3 py-2.5 focus:outline-none resize-y min-h-[100px]"
               />
               <div className="flex gap-2">
                 <button onClick={() => handleUpdate(note.id)} className="text-[13px] px-2 py-1 bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">Save</button>
@@ -292,9 +292,9 @@ function NotesEditor({ project }: { project: string }) {
             </div>
           ) : (
             <>
-              <pre className="text-[13px] text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">{note.content}</pre>
+              <pre className="text-base text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">{note.content}</pre>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-[13px] text-gray-600">{formatDate(note.updatedAt)}</span>
+                <span className="text-sm text-gray-600">{formatDate(note.updatedAt)}</span>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => { setEditingId(note.id); setEditContent(note.content); }}
