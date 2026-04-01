@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { getIO } from '../ws.js';
+import { getIO, hasActiveSocket } from '../ws.js';
 import type { Activity, Agent, Command } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 
@@ -29,6 +29,7 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
       branch: (updated.branch ?? '') as string,
       currentTask: (updated.current_task ?? '') as string,
       status: (updated.status ?? 'idle') as Agent['status'],
+      connected: hasActiveSocket(agentId),
       trustMode: mode === 'trust',
       mode,
       agentType: (updated.agent_type ?? 'claude') as Agent['agentType'],

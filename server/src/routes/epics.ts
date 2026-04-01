@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import db from '../db.js';
-import { getIO } from '../ws.js';
+import { getIO, hasActiveSocket } from '../ws.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import type { AgentMode, EpicRun, EpicRunConfig, EpicTaskState } from '../types.js';
 
@@ -547,6 +547,7 @@ function emitAgentUpdate(agentId: string) {
     branch: (row.branch as string) ?? '',
     currentTask: (row.current_task as string) ?? '',
     status: (row.status as string ?? 'idle') as 'working' | 'idle' | 'waiting' | 'offline',
+    connected: hasActiveSocket(row.id as string),
     trustMode: mode === 'trust',
     mode,
     agentType: ((row.agent_type as string) ?? 'claude') as 'claude' | 'gridlight',
