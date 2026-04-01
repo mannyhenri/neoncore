@@ -10,7 +10,6 @@ export interface Agent {
   branch: string;
   currentTask: string;
   status: 'working' | 'idle' | 'waiting' | 'offline';
-  connected: boolean;
   trustMode: boolean;
   mode: AgentMode;
   agentType: AgentType;

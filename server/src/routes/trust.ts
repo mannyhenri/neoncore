@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import db from '../db.js';
-import { getIO, hasActiveSocket } from '../ws.js';
+import { getIO } from '../ws.js';
 import { resolvePendingPoll } from './permissions.js';
 import type { Agent, AgentMode, AgentType } from '../types.js';
 
@@ -96,7 +96,6 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     branch: (row.branch ?? '') as string,
     currentTask: (row.current_task ?? row.currentTask ?? '') as string,
     status: (row.status ?? 'idle') as Agent['status'],
-    connected: hasActiveSocket(row.id as string),
     trustMode: mode === 'trust',
     mode,
     agentType: ((row.agent_type ?? row.agentType ?? 'claude') as AgentType),

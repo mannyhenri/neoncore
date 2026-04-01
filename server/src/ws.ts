@@ -40,7 +40,6 @@ export function initWebSocket(server: HTTPServer) {
           const agentRoom = `agent:${agent.id}`;
           socket.join(agentRoom);
           socketToAgent.set(socket.id, agent.id);
-          emitAgentUpdate(agent.id, { connected: true });
           console.log(`[ws] Socket ${socket.id} also joined agent room ${agentRoom}`);
         } else {
           console.log(`[ws] No agent found for ${machine}:${repoPath} (type=${agentType}) — path room only`);
@@ -55,7 +54,6 @@ export function initWebSocket(server: HTTPServer) {
       const agentRoom = `agent:${agentId}`;
       socket.join(agentRoom);
       socketToAgent.set(socket.id, agentId);
-      emitAgentUpdate(agentId, { connected: true });
       console.log(`[ws] Socket ${socket.id} joined agent room ${agentRoom} (post-registration)`);
     });
 
@@ -73,52 +71,32 @@ export function initWebSocket(server: HTTPServer) {
 }
 
 function markAgentOffline(agentId: string) {
-  if (hasActiveSocket(agentId)) {
-    emitAgentUpdate(agentId, { connected: true });
-    return;
-  }
-
   endSession(agentId);
   const now = new Date().toISOString();
   db.prepare("UPDATE agents SET status = 'offline', last_seen = ? WHERE id = ?").run(now, agentId);
 
-  if (emitAgentUpdate(agentId, { status: 'offline', lastSeen: now, connected: false })) {
+  const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+  if (row) {
+    const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
+    io.emit('agent_updated', {
+      id: row.id as string,
+      name: row.name as string,
+      machine: row.machine as string,
+      repoPath: (row.repo_path as string) ?? '',
+      repoName: (row.repo_name as string) ?? '',
+      branch: (row.branch as string) ?? '',
+      currentTask: (row.current_task as string) ?? '',
+      status: 'offline',
+      trustMode: mode === 'trust',
+      mode,
+      agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,
+      lastSeen: now,
+      sessionId: (row.session_id as string) ?? '',
+      lastMessage: (row.last_message as string) ?? '',
+      pendingQuestion: (row.pending_question as string) ?? '',
+    });
     console.log(`[ws] Agent ${agentId} marked offline (extension disconnected)`);
   }
-}
-
-function emitAgentUpdate(
-  agentId: string,
-  overrides: Partial<{
-    status: import('./types.js').Agent['status'];
-    lastSeen: string;
-    pendingQuestion: string;
-    connected: boolean;
-  }> = {},
-) {
-  const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
-  if (!row) return false;
-
-  const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
-  io.emit('agent_updated', {
-    id: row.id as string,
-    name: row.name as string,
-    machine: row.machine as string,
-    repoPath: (row.repo_path as string) ?? '',
-    repoName: (row.repo_name as string) ?? '',
-    branch: (row.branch as string) ?? '',
-    currentTask: (row.current_task as string) ?? '',
-    status: overrides.status ?? ((row.status as string) ?? 'idle') as import('./types.js').Agent['status'],
-    connected: overrides.connected ?? hasActiveSocket(agentId),
-    trustMode: mode === 'trust',
-    mode,
-    agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,
-    lastSeen: overrides.lastSeen ?? ((row.last_seen as string) ?? ''),
-    sessionId: (row.session_id as string) ?? '',
-    lastMessage: (row.last_message as string) ?? '',
-    pendingQuestion: overrides.pendingQuestion ?? ((row.pending_question as string) ?? ''),
-  });
-  return true;
 }
 
 /** Check if an agent has a live extension socket connected */
