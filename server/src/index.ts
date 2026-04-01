@@ -112,6 +112,7 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     branch: (row.branch as string) ?? '',
     currentTask: (row.current_task as string) ?? '',
     status: (row.status as string ?? 'idle') as import('./types.js').Agent['status'],
+    connected: hasActiveSocket(row.id as string),
     trustMode: mode === 'trust',
     mode,
     agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,

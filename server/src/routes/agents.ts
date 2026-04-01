@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
+import { getIO, hasActiveSocket, upgradeSocketsToAgentRoom } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
@@ -111,7 +111,6 @@ router.post('/register', (req, res) => {
     }
 
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(existing.id) as Record<string, unknown>;
-    const normalized = normalizeAgent(agent);
 
     // Upgrade any extension sockets in the path room to the agent room (closes race condition)
     const agentMachine = (agent.machine as string) || '';
@@ -121,6 +120,7 @@ router.post('/register', (req, res) => {
       upgradeSocketsToAgentRoom(agentMachine, agentRepoPath, existing.id as string, agentTypeStr);
     }
 
+    const normalized = normalizeAgent(agent);
     getIO().emit('agent_updated', normalized);
     return res.json(normalized);
   }
@@ -150,7 +150,6 @@ router.post('/register', (req, res) => {
   );
 
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
-  const normalized = normalizeAgent(agent);
 
   // Upgrade any extension sockets in the path room to the agent room (closes race condition)
   if (machine && repoPath) {
@@ -162,6 +161,7 @@ router.post('/register', (req, res) => {
     startSession(id, sessionId, repoName || '', repoPath || '', machine || '', branch || '');
   }
 
+  const normalized = normalizeAgent(agent);
   getIO().emit('agent_registered', normalized);
   res.status(201).json(normalized);
 });
@@ -392,6 +392,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     branch: (row.branch ?? '') as string,
     currentTask: (row.current_task ?? row.currentTask ?? '') as string,
     status: (row.status ?? 'idle') as Agent['status'],
+    connected: hasActiveSocket(row.id as string),
     trustMode: mode === 'trust',
     mode,
     agentType: ((row.agent_type ?? row.agentType ?? 'claude') as AgentType),
