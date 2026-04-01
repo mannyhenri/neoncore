@@ -333,6 +333,57 @@ if (mcpCount.count === 0) {
   console.log(`[db] Seeded ${registry.length} pre-configured MCP servers`);
 }
 
+// Virtual Cartridges table — local folder workspaces with MCP-powered actions
+db.exec(`
+  CREATE TABLE IF NOT EXISTS virtual_cartridges (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    directory_path TEXT NOT NULL UNIQUE,
+    icon_index INTEGER NOT NULL DEFAULT 0,
+    color TEXT NOT NULL DEFAULT '#a855f7',
+    mcp_server_ids TEXT NOT NULL DEFAULT '[]',
+    pinned_tools TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_virtual_cartridges_path ON virtual_cartridges(directory_path);
+`);
+
+// MCP Macros table — reusable multi-step MCP tool chains
+db.exec(`
+  CREATE TABLE IF NOT EXISTS mcp_macros (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'Custom',
+    steps TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_mcp_macros_category ON mcp_macros(category);
+`);
+
+// MCP Macro Runs table — execution history
+db.exec(`
+  CREATE TABLE IF NOT EXISTS mcp_macro_runs (
+    id TEXT PRIMARY KEY,
+    macro_id TEXT NOT NULL,
+    cartridge_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'running',
+    current_step INTEGER NOT NULL DEFAULT 0,
+    step_results TEXT NOT NULL DEFAULT '[]',
+    input_params TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    error TEXT NOT NULL DEFAULT ''
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_macro_runs_status ON mcp_macro_runs(status);
+  CREATE INDEX IF NOT EXISTS idx_macro_runs_macro ON mcp_macro_runs(macro_id);
+`);
+
 // Cleanup: expire stale pending permissions from past sessions
 const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 const expired = db.prepare(

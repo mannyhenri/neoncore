@@ -8,7 +8,10 @@ import {
   listMcpTools,
   getAllServers,
 } from '../lib/mcp-manager.js';
-import type { McpServer, McpTool } from '../types.js';
+import type { McpServer, McpTool, McpRegistryEntry } from '../types.js';
+import registryData from '../data/mcp-registry.json' with { type: 'json' };
+
+const registry = registryData as McpRegistryEntry[];
 
 const router = Router();
 
@@ -31,17 +34,33 @@ function normalizeServer(row: Record<string, unknown>): McpServer {
   };
 }
 
+// MCP Server Registry / Marketplace
+router.get('/registry', (_req, res) => {
+  const installedRows = db.prepare('SELECT slug FROM mcp_servers').all() as { slug: string }[];
+  const installedSlugs = installedRows.map((r) => r.slug);
+  const categories = [...new Set(registry.map((s) => s.category))].sort();
+  res.json({ servers: registry, categories, installed: installedSlugs });
+});
+
 // List all MCP servers
 router.get('/servers', (_req, res) => {
   res.json(getAllServers());
 });
 
-// Add a custom MCP server
+// Add a custom MCP server (also used by marketplace one-click install)
 router.post('/servers', (req, res) => {
-  const { command, name, args, env } = req.body;
+  const { command, name, args, env, slug: requestedSlug, description } = req.body;
 
   if (!command) {
     return res.status(400).json({ error: 'command is required' });
+  }
+
+  // If slug already exists, return the existing server (idempotent marketplace install)
+  if (requestedSlug) {
+    const existing = db.prepare('SELECT * FROM mcp_servers WHERE slug = ?').get(requestedSlug) as Record<string, unknown> | undefined;
+    if (existing) {
+      return res.json(normalizeServer(existing));
+    }
   }
 
   // Parse an npx command string like "npx @some/package --flag"
@@ -53,14 +72,14 @@ router.post('/servers', (req, res) => {
     resolvedArgs = parts.slice(1);
   }
 
-  const slug = `custom-${Date.now()}`;
-  const id = uuid();
+  const slug = requestedSlug || `custom-${Date.now()}`;
+  const id = requestedSlug ? `mcp-${requestedSlug}` : uuid();
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO mcp_servers (id, name, slug, command, args, env, is_preconfigured, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 0, 'stopped', ?, ?)
-  `).run(id, name || slug, slug, resolvedCommand, JSON.stringify(resolvedArgs), JSON.stringify(env || {}), now, now);
+    INSERT INTO mcp_servers (id, name, slug, command, args, env, is_preconfigured, status, description, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, 'stopped', ?, ?, ?)
+  `).run(id, name || slug, slug, resolvedCommand, JSON.stringify(resolvedArgs), JSON.stringify(env || {}), description || '', now, now);
 
   const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as Record<string, unknown>;
   res.status(201).json(normalizeServer(row));

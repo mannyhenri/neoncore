@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, McpServer } from '../types';
 import { CartridgeCard } from './CartridgeCard';
+import { VirtualCartridgeCard } from './VirtualCartridgeCard';
 
 const ACTIVE_WINDOW_MS = 120_000; // 2 minutes
 
@@ -38,6 +39,10 @@ interface CartridgeGridProps {
   onDelete: (agentId: string) => void;
   onDismissStuck: (agentId: string) => void;
   onActivityClick?: (activity: Activity) => void;
+  virtualCartridges?: VirtualCartridge[];
+  mcpServers?: McpServer[];
+  onVirtualCartridgeUpdate?: (vc: VirtualCartridge) => void;
+  onVirtualCartridgeDelete?: (id: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +65,10 @@ export function CartridgeGrid({
   onSetMode,
   onSendCommand,
   onDelete,
+  virtualCartridges = [],
+  mcpServers = [],
+  onVirtualCartridgeUpdate,
+  onVirtualCartridgeDelete,
   onDismissStuck,
   onActivityClick,
 }: CartridgeGridProps) {
@@ -233,6 +242,17 @@ export function CartridgeGrid({
               />
             );
           })}
+
+          {/* Virtual Cartridges */}
+          {virtualCartridges.map((vc) => (
+            <VirtualCartridgeCard
+              key={vc.id}
+              cartridge={vc}
+              mcpServers={mcpServers}
+              onUpdate={onVirtualCartridgeUpdate || (() => {})}
+              onDelete={onVirtualCartridgeDelete || (() => {})}
+            />
+          ))}
         </div>
       )}
     </div>

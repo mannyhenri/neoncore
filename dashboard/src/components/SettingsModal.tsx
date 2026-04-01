@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { friendlyTool, getServerCapabilityPreview } from '../lib/mcp-tools';
+import { McpMarketplace } from './McpMarketplace';
 import type { McpServer } from '../types';
 
 interface Props {
@@ -31,6 +32,7 @@ export function SettingsModal({ onClose }: Props) {
   // MCP servers
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpLoading, setMcpLoading] = useState(false);
+  const [showMarketplace, setShowMarketplace] = useState(false);
   const [mcpEditing, setMcpEditing] = useState<Record<string, Record<string, string>>>({});
   const [customCommand, setCustomCommand] = useState('');
   const [customName, setCustomName] = useState('');
@@ -295,13 +297,26 @@ export function SettingsModal({ onClose }: Props) {
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-3 md:px-6 md:py-4 border-t border-white/[0.06] flex items-center gap-3">
+            <div className="px-4 py-3 md:px-6 md:py-4 border-t border-white/[0.06] flex items-center gap-3 flex-wrap">
               <button
                 onClick={handleAddDir}
                 disabled={saving || !currentPath || isAlreadyAdded}
                 className="text-sm px-4 py-2 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-colors"
               >
                 {saving ? 'Saving...' : isAlreadyAdded ? 'Already Added' : 'Add This Directory'}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!currentPath) return;
+                  try {
+                    await api.createVirtualCartridge({ directoryPath: currentPath });
+                    onClose();
+                  } catch { /* ignore */ }
+                }}
+                disabled={!currentPath}
+                className="text-sm px-4 py-2 rounded-md bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 border border-teal-500/30 disabled:opacity-30 transition-colors"
+              >
+                Add as Virtual Cartridge
               </button>
               {saved && <span className="text-xs text-green-400">Added</span>}
             </div>
@@ -381,10 +396,25 @@ export function SettingsModal({ onClose }: Props) {
           <>
             {/* MCP Servers tab */}
             <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-4">
-              {mcpLoading ? (
+              {showMarketplace ? (
+                <McpMarketplace
+                  onBack={() => setShowMarketplace(false)}
+                  onServerAdded={() => {
+                    api.getMcpServers().then(setMcpServers).catch(() => {});
+                  }}
+                />
+              ) : mcpLoading ? (
                 <div className="text-sm text-gray-500 text-center py-6">Loading MCP servers...</div>
               ) : (
                 <>
+                  {/* Browse marketplace button */}
+                  <button
+                    onClick={() => setShowMarketplace(true)}
+                    className="w-full text-sm px-4 py-2.5 rounded-lg border border-gl-purple/30 bg-gl-purple/10 text-gl-purple hover:bg-gl-purple/20 transition-colors font-medium"
+                  >
+                    Browse Marketplace — Discover &amp; add MCP servers
+                  </button>
+
                   {/* Pre-configured servers */}
                   <div className="space-y-2">
                     {mcpServers.filter((s) => s.isPreconfigured).map((server) => {
