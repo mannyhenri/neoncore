@@ -224,6 +224,78 @@ export interface McpServer {
   updatedAt: string;
 }
 
+// MCP Registry (marketplace)
+export interface McpRegistryEnvField {
+  required: boolean;
+  label: string;
+  placeholder: string;
+}
+
+export interface McpRegistryEntry {
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  command: string;
+  args: string[];
+  env: Record<string, McpRegistryEnvField>;
+  homepage: string;
+  tags: string[];
+  featured: boolean;
+}
+
+// Virtual Cartridges
+export interface PinnedTool {
+  serverId: string;
+  toolName: string;
+  label?: string;
+}
+
+export interface VirtualCartridge {
+  id: string;
+  name: string;
+  directoryPath: string;
+  iconIndex: number;
+  color: string;
+  mcpServerIds: string[];
+  pinnedTools: PinnedTool[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// MCP Macros
+export interface MacroStep {
+  id: string;
+  serverId: string;
+  toolName: string;
+  args: Record<string, string>;
+  label?: string;
+  continueOnError?: boolean;
+}
+
+export interface McpMacro {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  steps: MacroStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpMacroRun {
+  id: string;
+  macroId: string;
+  cartridgeId: string;
+  status: 'running' | 'completed' | 'failed';
+  currentStep: number;
+  stepResults: { stepId: string; result: unknown; error?: string; completedAt: string }[];
+  inputParams: Record<string, string>;
+  startedAt: string;
+  completedAt: string | null;
+  error: string;
+}
+
 // Command templates
 export interface CommandTemplate {
   id: string;

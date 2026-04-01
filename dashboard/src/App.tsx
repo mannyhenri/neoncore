@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAgents } from './hooks/useAgents';
 import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
@@ -7,7 +7,8 @@ import CommandTemplatesModal from './components/CommandTemplatesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
-import type { Agent, AgentType, Activity } from './types';
+import { api } from './lib/api';
+import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
 
 export default function App() {
   const {
@@ -23,6 +24,19 @@ export default function App() {
     deleteAgent,
     dismissStuckAlert,
   } = useAgents();
+
+  // Virtual cartridges & MCP servers
+  const [virtualCartridges, setVirtualCartridges] = useState<VirtualCartridge[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+
+  const refreshVirtualCartridges = useCallback(() => {
+    api.getVirtualCartridges().then(setVirtualCartridges).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshVirtualCartridges();
+    api.getMcpServers().then(setMcpServers).catch(() => {});
+  }, [refreshVirtualCartridges]);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -138,6 +152,16 @@ export default function App() {
             onDelete={deleteAgent}
             onDismissStuck={dismissStuckAlert}
             onActivityClick={setSelectedActivity}
+            virtualCartridges={virtualCartridges}
+            mcpServers={mcpServers}
+            onVirtualCartridgeUpdate={(vc) => {
+              setVirtualCartridges((prev) => prev.map((c) => (c.id === vc.id ? vc : c)));
+            }}
+            onVirtualCartridgeDelete={(id) => {
+              api.deleteVirtualCartridge(id).then(() => {
+                setVirtualCartridges((prev) => prev.filter((c) => c.id !== id));
+              }).catch(() => {});
+            }}
           />
         </section>
       </main>
@@ -151,6 +175,7 @@ export default function App() {
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />
       )}
+
 
       {/* Activity Detail Modal */}
       {selectedActivity && (

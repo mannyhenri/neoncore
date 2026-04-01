@@ -214,10 +214,14 @@ export const api = {
   getAvailableModels: () =>
     request<{ openai: string[]; gridlight: string[] }>('/workflows/models'),
 
+  // MCP Registry (marketplace)
+  getMcpRegistry: () =>
+    request<{ servers: import('../types').McpRegistryEntry[]; categories: string[]; installed: string[] }>('/mcp/registry'),
+
   // MCP Servers
   getMcpServers: () =>
     request<import('../types').McpServer[]>('/mcp/servers'),
-  addMcpServer: (data: { command: string; name?: string }) =>
+  addMcpServer: (data: { command: string; name?: string; args?: string[]; env?: Record<string, string>; slug?: string; description?: string }) =>
     request<import('../types').McpServer>('/mcp/servers', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -235,6 +239,29 @@ export const api = {
     request<import('../types').McpServer>(`/mcp/servers/${id}/stop`, { method: 'POST' }),
   getMcpTools: (id: string) =>
     request<import('../types').McpTool[]>(`/mcp/servers/${id}/tools`),
+
+  // Virtual Cartridges
+  getVirtualCartridges: () =>
+    request<import('../types').VirtualCartridge[]>('/virtual-cartridges'),
+  createVirtualCartridge: (data: { name?: string; directoryPath: string; mcpServerIds?: string[] }) =>
+    request<import('../types').VirtualCartridge>('/virtual-cartridges', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateVirtualCartridge: (id: string, data: Record<string, unknown>) =>
+    request<import('../types').VirtualCartridge>(`/virtual-cartridges/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteVirtualCartridge: (id: string) =>
+    request<void>(`/virtual-cartridges/${id}`, { method: 'DELETE' }),
+  getVirtualCartridgeTools: (id: string) =>
+    request<(import('../types').McpTool & { serverId: string; serverName: string })[]>(`/virtual-cartridges/${id}/tools`),
+  executeVirtualCartridgeTool: (id: string, serverId: string, toolName: string, args: Record<string, unknown>) =>
+    request<{ result: unknown }>(`/virtual-cartridges/${id}/execute`, {
+      method: 'POST',
+      body: JSON.stringify({ serverId, toolName, args }),
+    }),
 
   // Workflow V2 (Canvas)
   createWorkflowV2: (data: {
