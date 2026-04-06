@@ -14,8 +14,13 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
   type Node,
   type Edge,
+  type EdgeTypes,
+  type EdgeProps,
   type Connection,
   type NodeTypes,
   type NodeProps,
@@ -324,6 +329,92 @@ const nodeTypes: NodeTypes = {
   stepNode: StepNode,
 };
 
+// ─── Custom edge with delete button ────────────────
+
+function DeletableEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  animated,
+  selected,
+}: EdgeProps) {
+  const [hovered, setHovered] = useState(false);
+  const { deleteElements } = useReactFlow();
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const onDelete = useCallback(
+    (e: ReactMouseEvent) => {
+      e.stopPropagation();
+      deleteElements({ edges: [{ id }] });
+    },
+    [id, deleteElements],
+  );
+
+  return (
+    <>
+      {/* Invisible wider hit area for hover detection */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke: selected ? '#c084fc' : '#a855f7',
+          strokeWidth: selected || hovered ? 3 : 2,
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan"
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+            opacity: hovered || selected ? 1 : 0,
+            transition: 'opacity 150ms',
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          <button
+            onClick={onDelete}
+            className="flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 border border-red-500/60 text-red-400 hover:bg-red-900 hover:text-red-200 hover:border-red-400 transition-colors text-xs leading-none cursor-pointer"
+            title="Delete connection"
+          >
+            &times;
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes: EdgeTypes = {
+  deletable: DeletableEdge,
+};
+
 // ─── Inner canvas (needs ReactFlowProvider) ─────────
 
 function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
@@ -356,6 +447,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
+
+  // Run mode: if this workflow is a run (has templateId), it's read-only
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [runNumber, setRunNumber] = useState(0);
+  const isRunView = !!templateId;
 
   // Execution log
   const [executionLogs, setExecutionLogs] = useState<WorkflowStepLog[]>([]);
@@ -420,6 +516,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       setWorkflowDescription(workflow.description);
       setWorkflowStatus(workflow.status);
       setSavedWorkflowId(workflow.id);
+      setTemplateId(workflow.templateId);
+      setRunNumber(workflow.runNumber);
 
       const localSteps: LocalStep[] = fetchedSteps.map((s) => ({
         id: s.id,
@@ -816,9 +914,22 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         return;
       }
 
-      const wf = await api.startWorkflowV2(id);
-      setWorkflowStatus(wf.status);
-      showToast('Workflow saved & started — watching step progress below');
+      const result = await api.startWorkflowV2(id);
+      // If a new run was created (clone), switch to viewing it
+      if (result.workflow.id !== id) {
+        setSavedWorkflowId(result.workflow.id);
+        setTemplateId(result.workflow.templateId);
+        setRunNumber(result.workflow.runNumber);
+        setSteps(result.steps.map((s) => ({
+          id: s.id, name: s.name, description: s.description,
+          positionX: s.positionX, positionY: s.positionY,
+          executorType: s.executorType, executorId: s.executorId,
+          executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
+          status: s.status, dependsOn: s.dependsOn,
+        })));
+      }
+      setWorkflowStatus(result.workflow.status);
+      showToast(`Run #${result.workflow.runNumber || ''} started — watching step progress below`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start workflow');
     } finally {
@@ -837,13 +948,25 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     setRunning(true);
     setDeferredPopup(null);
     try {
-      const wf = await api.startWorkflowV2(
+      const result = await api.startWorkflowV2(
         deferredPopup.workflowId,
         deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
       );
-      setWorkflowStatus(wf.status);
-      showToast('Workflow started');
+      if (result.workflow.id !== deferredPopup.workflowId) {
+        setSavedWorkflowId(result.workflow.id);
+        setTemplateId(result.workflow.templateId);
+        setRunNumber(result.workflow.runNumber);
+        setSteps(result.steps.map((s) => ({
+          id: s.id, name: s.name, description: s.description,
+          positionX: s.positionX, positionY: s.positionY,
+          executorType: s.executorType, executorId: s.executorId,
+          executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
+          status: s.status, dependsOn: s.dependsOn,
+        })));
+      }
+      setWorkflowStatus(result.workflow.status);
+      showToast(`Run #${result.workflow.runNumber || ''} started`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start workflow');
     } finally {
@@ -892,26 +1015,38 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         {/* ── Toolbar ─────────────────────────── */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] shrink-0">
           {/* Name — stop key propagation so React Flow / parent handlers don't intercept typing */}
-          <input
-            type="text"
-            value={workflowName}
-            onChange={(e) => setWorkflowName(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-            placeholder="Workflow name"
-            className="text-sm font-semibold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 w-48 transition-colors"
-          />
-
-          {/* Description */}
-          <input
-            type="text"
-            value={workflowDescription}
-            onChange={(e) => setWorkflowDescription(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-            placeholder="Description (optional)"
-            className="text-xs text-gray-400 bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 flex-1 max-w-sm transition-colors"
-          />
+          {isRunView ? (
+            <>
+              <span className="text-sm font-semibold text-white px-1">{workflowName}</span>
+              <span className="text-xs text-gl-purple font-medium px-2 py-0.5 rounded-full bg-gl-purple/15">
+                Run #{runNumber}
+              </span>
+              {workflowDescription && (
+                <span className="text-xs text-gray-500 truncate max-w-xs">{workflowDescription}</span>
+              )}
+            </>
+          ) : (
+            <>
+              <input
+                type="text"
+                value={workflowName}
+                onChange={(e) => setWorkflowName(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onFocus={(e) => e.stopPropagation()}
+                placeholder="Workflow name"
+                className="text-sm font-semibold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 w-48 transition-colors"
+              />
+              <input
+                type="text"
+                value={workflowDescription}
+                onChange={(e) => setWorkflowDescription(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onFocus={(e) => e.stopPropagation()}
+                placeholder="Description (optional)"
+                className="text-xs text-gray-400 bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 flex-1 max-w-sm transition-colors"
+              />
+            </>
+          )}
 
           <div className="flex-1" />
 
@@ -920,32 +1055,38 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             <span className="text-xs text-red-400 max-w-xs truncate">{error}</span>
           )}
 
-          {/* Add Step */}
-          <button
-            onClick={addStep}
-            disabled={isExecuting}
-            className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            + Add Step
-          </button>
+          {/* Add Step — templates only */}
+          {!isRunView && (
+            <button
+              onClick={addStep}
+              disabled={isExecuting}
+              className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              + Add Step
+            </button>
+          )}
 
-          {/* Save */}
-          <button
-            onClick={handleSave}
-            disabled={saving || isExecuting}
-            className="text-xs px-4 py-1.5 rounded-md gl-gradient text-white font-medium hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          {/* Save — templates only */}
+          {!isRunView && (
+            <button
+              onClick={handleSave}
+              disabled={saving || isExecuting}
+              className="text-xs px-4 py-1.5 rounded-md gl-gradient text-white font-medium hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          )}
 
-          {/* Run */}
-          <button
-            onClick={handleRun}
-            disabled={running || steps.length === 0 || !savedWorkflowId || isExecuting}
-            className="text-xs px-4 py-1.5 rounded-md font-medium text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-500"
-          >
-            {running ? 'Starting...' : 'Run'}
-          </button>
+          {/* Run — templates only (runs already started) */}
+          {!isRunView && (
+            <button
+              onClick={handleRun}
+              disabled={running || steps.length === 0 || !savedWorkflowId || isExecuting}
+              className="text-xs px-4 py-1.5 rounded-md font-medium text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-500"
+            >
+              {running ? 'Starting...' : 'Run'}
+            </button>
+          )}
 
           {/* Execution controls — visible only while running */}
           {isExecuting && (
@@ -984,6 +1125,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               onConnect={onConnect}
               onPaneClick={onPaneClick}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               fitView
               fitViewOptions={{ padding: 0.3 }}
               deleteKeyCode="Delete"
@@ -991,6 +1133,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               snapGrid={[16, 16]}
               proOptions={{ hideAttribution: true }}
               defaultEdgeOptions={{
+                type: 'deletable',
                 animated: isExecuting,
                 style: { stroke: '#a855f7', strokeWidth: 2 },
               }}

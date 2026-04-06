@@ -188,6 +188,8 @@ export interface Workflow {
   startedAt: string;
   completedAt: string | null;
   error: string;
+  templateId: string | null;
+  runNumber: number;
   stepSummary?: {
     total: number;
     completed: number;
@@ -356,6 +358,7 @@ export type ServerToClientEvents = {
   permissions_expired: (data: { count: number }) => void;
   epic_updated: (run: EpicRun) => void;
   workflow_updated: (workflow: Workflow) => void;
+  workflow_deleted: (data: { id: string }) => void;
   workflow_step_updated: (step: WorkflowStep) => void;
   workflow_step_log: (log: WorkflowStepLog) => void;
   mcp_server_updated: (server: McpServer) => void;

@@ -84,6 +84,9 @@ export function WorkflowPanel({ agents }: Props) {
         return [wf, ...prev];
       });
     },
+    onWorkflowDeleted: ({ id }) => {
+      setWorkflows((prev) => prev.filter((w) => w.id !== id));
+    },
     onWorkflowStepUpdated: (step: WorkflowStep) => {
       // Refresh workflow list to update step summary counters
       debouncedReload();
@@ -117,8 +120,24 @@ export function WorkflowPanel({ agents }: Props) {
     onReconnect: loadWorkflows,
   });
 
-  const activeWorkflows = workflows.filter((w) => ['running', 'paused'].includes(w.status));
-  const recentWorkflows = workflows.filter((w) => !['running', 'paused'].includes(w.status)).slice(0, 5);
+  // Split workflows into templates and runs
+  const templates = workflows.filter((w) => !w.templateId);
+  const runs = workflows.filter((w) => !!w.templateId);
+  const activeRuns = runs.filter((w) => ['running', 'paused'].includes(w.status));
+  const recentRuns = runs.filter((w) => !['running', 'paused'].includes(w.status)).slice(0, 10);
+  // Also include V1 workflows (no steps, no templateId) that are running
+  const activeV1 = templates.filter((w) => ['running', 'paused'].includes(w.status) && !w.stepSummary);
+
+  const totalActive = activeRuns.length + activeV1.length;
+
+  // Helper to open a run in the canvas (view-only) or template (edit)
+  const openWorkflow = (id: string) => { setEditingWorkflowId(id); setCanvasOpen(true); };
+
+  // After starting a run from a template, open the new run in the canvas
+  const handleRunCreated = (runId: string) => {
+    loadWorkflows();
+    openWorkflow(runId);
+  };
 
   return (
     <div>
@@ -130,9 +149,9 @@ export function WorkflowPanel({ agents }: Props) {
         <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide group-hover:text-gray-300 transition-colors">
           Workflows
         </h2>
-        {activeWorkflows.length > 0 && (
+        {totalActive > 0 && (
           <span className="bg-gl-blue/20 text-gl-blue px-2 py-0.5 rounded-full text-xs font-medium">
-            {activeWorkflows.length} active
+            {totalActive} active
           </span>
         )}
       </button>
@@ -148,16 +167,40 @@ export function WorkflowPanel({ agents }: Props) {
           </button>
 
           {/* Active runs */}
-          {activeWorkflows.map((wf) => (
-            <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={(id) => { setEditingWorkflowId(id); setCanvasOpen(true); }} agents={agents} />
+          {activeRuns.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Active Runs</div>
+              {activeRuns.map((wf) => (
+                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
+                  templateName={templates.find((t) => t.id === wf.templateId)?.name} />
+              ))}
+            </div>
+          )}
+
+          {/* Active V1 workflows */}
+          {activeV1.map((wf) => (
+            <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents} />
           ))}
 
-          {/* Recent (collapsed) */}
-          {recentWorkflows.length > 0 && (
+          {/* Templates */}
+          {templates.filter((t) => t.stepSummary).length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider">Recent</div>
-              {recentWorkflows.map((wf) => (
-                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={(id) => { setEditingWorkflowId(id); setCanvasOpen(true); }} compact agents={agents} />
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Templates</div>
+              {templates.filter((t) => t.stepSummary).map((wf) => (
+                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
+                  onRunCreated={handleRunCreated}
+                  runCount={runs.filter((r) => r.templateId === wf.id).length} />
+              ))}
+            </div>
+          )}
+
+          {/* Recent runs */}
+          {recentRuns.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Recent Runs</div>
+              {recentRuns.map((wf) => (
+                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} compact agents={agents}
+                  templateName={templates.find((t) => t.id === wf.templateId)?.name} />
               ))}
             </div>
           )}
@@ -446,12 +489,15 @@ function PlayerRow({ name, badge, badgeColor, selected, roles, onToggle, onToggl
 
 // ─── WorkflowRunCard ────────────────────────────────
 
-function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
+function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, templateName, onRunCreated, runCount }: {
   workflow: Workflow;
   onAction: () => void;
   onOpen?: (id: string) => void;
   compact?: boolean;
   agents?: Agent[];
+  templateName?: string;
+  onRunCreated?: (runId: string) => void;
+  runCount?: number;
 }) {
   const [showContext, setShowContext] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -507,8 +553,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
         return;
       }
 
-      await api.startWorkflowV2(wf.id);
-      onAction();
+      const result = await api.startWorkflowV2(wf.id);
+      if (result?.workflow?.id && result.workflow.id !== wf.id && onRunCreated) {
+        onRunCreated(result.workflow.id);
+      } else {
+        onAction();
+      }
     } catch { /* silent */ }
     finally { setStarting(false); }
   }
@@ -522,12 +572,16 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
     setStarting(true);
     setDeferredPopup(null);
     try {
-      await api.startWorkflowV2(
+      const result = await api.startWorkflowV2(
         wf.id,
         deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
       );
-      onAction();
+      if (result?.workflow?.id && result.workflow.id !== wf.id && onRunCreated) {
+        onRunCreated(result.workflow.id);
+      } else {
+        onAction();
+      }
     } catch { /* silent */ }
     finally { setStarting(false); }
   }
@@ -556,7 +610,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
 
   // Deferred popup (shared between compact and full card views)
   const deferredPopupEl = deferredPopup && (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
           <div>
@@ -628,6 +682,10 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
     </div>
   );
 
+  const displayName = wf.runNumber > 0
+    ? `${templateName || wf.name} — Run #${wf.runNumber}`
+    : wf.name || 'Untitled';
+
   if (compact) {
     return (
       <>
@@ -637,7 +695,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
             onClick={() => onOpen?.(wf.id)}
             className="text-gray-400 truncate flex-1 text-left hover:text-white transition-colors"
           >
-            {wf.name || 'Untitled'}
+            {displayName}
           </button>
           {wf.stepSummary && (
             <>
@@ -645,7 +703,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
                 {wf.stepSummary.stepNames?.join(' → ')}
               </span>
               <span className="text-gray-600 shrink-0">
-                {wf.stepSummary.completed}/{wf.stepSummary.total}
+                {wf.templateId
+                  ? `${wf.stepSummary.completed}/${wf.stepSummary.total}`
+                  : `${wf.stepSummary.total} steps`}
               </span>
             </>
           )}
@@ -690,8 +750,11 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
             onClick={() => onOpen?.(wf.id)}
             className="text-sm text-gray-300 truncate hover:text-white transition-colors"
           >
-            {wf.name || 'Untitled'}
+            {displayName}
           </button>
+          {typeof runCount === 'number' && runCount > 0 && (
+            <span className="text-xs text-gray-600 shrink-0">{runCount} run{runCount !== 1 ? 's' : ''}</span>
+          )}
           {wf.jiraTaskId && <span className="text-xs text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -729,8 +792,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents }: {
         </div>
       </div>
 
-      {/* Step progress (V2 canvas) or Phase progress (V1) */}
-      {wf.stepSummary ? (
+      {/* Step progress (V2 canvas) or Phase progress (V1) — templates don't show progress */}
+      {wf.stepSummary && wf.templateId ? (
         <StepProgress summary={wf.stepSummary} />
       ) : wf.phases.length > 0 ? (
         <>

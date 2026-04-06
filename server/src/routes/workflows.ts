@@ -25,6 +25,8 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
     error: (row.error ?? '') as string,
+    templateId: (row.template_id as string) || null,
+    runNumber: (row.run_number as number) || 0,
   };
 }
 
@@ -127,9 +129,16 @@ router.post('/start', (req, res) => {
 });
 
 // List workflows (includes step summary for V2 workflows)
-router.get('/', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM workflows ORDER BY created_at DESC LIMIT 50')
-    .all() as Record<string, unknown>[];
+// ?templates=true returns only templates, ?runs=true returns only runs
+router.get('/', (req, res) => {
+  let sql = 'SELECT * FROM workflows';
+  if (req.query.templates === 'true') {
+    sql += ' WHERE template_id IS NULL';
+  } else if (req.query.runs === 'true') {
+    sql += ' WHERE template_id IS NOT NULL';
+  }
+  sql += ' ORDER BY created_at DESC LIMIT 50';
+  const rows = db.prepare(sql).all() as Record<string, unknown>[];
   const workflows = rows.map((row) => {
     const wf: Record<string, unknown> = { ...normalizeWorkflow(row) };
     // Attach step summary for V2 canvas workflows
@@ -379,6 +388,29 @@ router.get('/v2/:id', (req, res) => {
   res.json({ workflow: normalizeWorkflow(row), steps: stepRows.map(normalizeStep) });
 });
 
+// List all runs for a template
+router.get('/v2/:id/runs', (req, res) => {
+  const rows = db.prepare('SELECT * FROM workflows WHERE template_id = ? ORDER BY run_number DESC')
+    .all(req.params.id) as Record<string, unknown>[];
+  const runs = rows.map((row) => {
+    const wf: Record<string, unknown> = { ...normalizeWorkflow(row) };
+    const stepRows = db.prepare('SELECT name, status FROM workflow_steps WHERE workflow_id = ? ORDER BY created_at')
+      .all(wf.id as string) as { name: string; status: string }[];
+    if (stepRows.length > 0) {
+      wf.stepSummary = {
+        total: stepRows.length,
+        completed: stepRows.filter((s) => s.status === 'completed').length,
+        running: stepRows.filter((s) => s.status === 'running').length,
+        failed: stepRows.filter((s) => s.status === 'failed').length,
+        pending: stepRows.filter((s) => s.status === 'pending').length,
+        stepNames: stepRows.map((s) => s.name),
+      };
+    }
+    return wf;
+  });
+  res.json(runs);
+});
+
 // Bulk update step positions
 router.put('/v2/:id/steps', (req, res) => {
   const { steps } = req.body;
@@ -456,63 +488,139 @@ router.delete('/v2/:id/steps/:stepId', (req, res) => {
 });
 
 // Start V2 workflow
+// If the target is a template (template_id IS NULL), clone it into a new run.
+// If the target is already a run, reset its steps and re-run in place.
 router.post('/v2/:id/start', (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
 
   const now = new Date().toISOString();
-  db.prepare("UPDATE workflows SET status = 'running', started_at = ?, completed_at = NULL WHERE id = ?").run(now, req.params.id);
+  const isTemplate = !row.template_id;
 
-  // Reset all step statuses so the workflow runs from scratch
-  db.prepare(`
-    UPDATE workflow_steps
-    SET status = 'pending', result = '', error = '', started_at = NULL, completed_at = NULL
-    WHERE workflow_id = ?
-  `).run(req.params.id);
+  // Determine the workflow ID that will actually run
+  let runId: string;
 
-  // Reset loop counters on steps that use loops
-  const loopSteps = db.prepare(
-    "SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ? AND executor_config LIKE '%_currentLoop%'"
-  ).all(req.params.id) as { id: string; executor_config: string }[];
-  for (const ls of loopSteps) {
-    const config = JSON.parse(ls.executor_config);
-    delete config._currentLoop;
-    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(config), ls.id);
-  }
+  if (isTemplate) {
+    // ── Clone template into a new run ──────────────────
+    const templateId = req.params.id;
+    const runNum = (db.prepare('SELECT COALESCE(MAX(run_number), 0) + 1 AS next FROM workflows WHERE template_id = ?')
+      .get(templateId) as { next: number }).next;
+    runId = uuid();
 
-  // Apply deferred agent overrides (steps that had "Choose when running")
-  // Store overrides in executor_config so we can restore __deferred__ after completion
-  const agentOverrides = req.body?.agentOverrides as Record<string, string> | undefined;
-  if (agentOverrides && Object.keys(agentOverrides).length > 0) {
-    console.log(`[workflow] Applying ${Object.keys(agentOverrides).length} agent overrides for workflow ${req.params.id}`);
-    for (const [stepId, agentId] of Object.entries(agentOverrides)) {
-      console.log(`[workflow]   Step ${stepId} -> agent ${agentId}`);
-      // Mark as originally deferred in executor_config
-      const step = db.prepare('SELECT executor_config FROM workflow_steps WHERE id = ?').get(stepId) as { executor_config: string } | undefined;
-      const config = JSON.parse(step?.executor_config || '{}');
-      config._wasDeferred = true;
-      db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ? AND workflow_id = ?')
-        .run(agentId, JSON.stringify(config), stepId, req.params.id);
+    db.prepare(`
+      INSERT INTO workflows (id, name, jira_task_id, description, players, phases, status,
+        current_phase, iteration, max_iterations, shared_context, created_at, started_at, completed_at, error,
+        target_repos, template_id, run_number)
+      VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, NULL, '',
+        ?, ?, ?)
+    `).run(
+      runId,
+      row.name, row.jira_task_id, row.description, row.players, row.phases,
+      row.current_phase, row.iteration, row.max_iterations, row.shared_context,
+      now, now,
+      row.target_repos, templateId, runNum,
+    );
+
+    // Clone steps with new IDs, remapping depends_on references
+    const templateSteps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
+      .all(templateId) as Record<string, unknown>[];
+    const oldToNew = new Map<string, string>();
+    for (const s of templateSteps) {
+      oldToNew.set(s.id as string, uuid());
+    }
+
+    const insertStep = db.prepare(`
+      INSERT INTO workflow_steps (id, workflow_id, name, description, position_x, position_y,
+        executor_type, executor_id, executor_config, auto_advance, depends_on, created_at,
+        status, result, error, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', NULL, NULL)
+    `);
+
+    for (const s of templateSteps) {
+      const newStepId = oldToNew.get(s.id as string)!;
+      const oldDeps: string[] = JSON.parse((s.depends_on as string) || '[]');
+      const remappedDeps = oldDeps.map((d) => oldToNew.get(d)).filter(Boolean);
+      insertStep.run(
+        newStepId, runId,
+        s.name, s.description, s.position_x, s.position_y,
+        s.executor_type, s.executor_id, s.executor_config, s.auto_advance,
+        JSON.stringify(remappedDeps), now,
+      );
+    }
+
+    console.log(`[workflow] Cloned template ${templateId} → run ${runId} (#${runNum}, ${templateSteps.length} steps)`);
+
+    // Remap overrides from template step IDs to cloned step IDs
+    const agentOverrides = req.body?.agentOverrides as Record<string, string> | undefined;
+    if (agentOverrides) {
+      const remapped: Record<string, string> = {};
+      for (const [oldStepId, agentId] of Object.entries(agentOverrides)) {
+        const newId = oldToNew.get(oldStepId);
+        if (newId) remapped[newId] = agentId;
+      }
+      req.body.agentOverrides = remapped;
+    }
+    const promptOverrides = req.body?.promptOverrides as Record<string, Record<string, string>> | undefined;
+    if (promptOverrides) {
+      const remapped: Record<string, Record<string, string>> = {};
+      for (const [oldStepId, fields] of Object.entries(promptOverrides)) {
+        const newId = oldToNew.get(oldStepId);
+        if (newId) remapped[newId] = fields;
+      }
+      req.body.promptOverrides = remapped;
+    }
+  } else {
+    // ── Re-run an existing run in place ───────────────
+    runId = req.params.id;
+    db.prepare("UPDATE workflows SET status = 'running', started_at = ?, completed_at = NULL, error = '' WHERE id = ?").run(now, runId);
+
+    db.prepare(`
+      UPDATE workflow_steps
+      SET status = 'pending', result = '', error = '', started_at = NULL, completed_at = NULL
+      WHERE workflow_id = ?
+    `).run(runId);
+
+    // Reset loop counters
+    const loopSteps = db.prepare(
+      "SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ? AND executor_config LIKE '%_currentLoop%'"
+    ).all(runId) as { id: string; executor_config: string }[];
+    for (const ls of loopSteps) {
+      const config = JSON.parse(ls.executor_config);
+      delete config._currentLoop;
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(config), ls.id);
     }
   }
 
-  // Apply deferred prompt overrides (empty prompt fields filled at runtime)
+  // Apply deferred agent overrides to the run's steps
+  const agentOverrides = req.body?.agentOverrides as Record<string, string> | undefined;
+  if (agentOverrides && Object.keys(agentOverrides).length > 0) {
+    console.log(`[workflow] Applying ${Object.keys(agentOverrides).length} agent overrides for run ${runId}`);
+    for (const [stepId, agentId] of Object.entries(agentOverrides)) {
+      const step = db.prepare('SELECT executor_config FROM workflow_steps WHERE id = ? AND workflow_id = ?')
+        .get(stepId, runId) as { executor_config: string } | undefined;
+      if (!step) continue;
+      const config = JSON.parse(step.executor_config || '{}');
+      config._wasDeferred = true;
+      db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ? AND workflow_id = ?')
+        .run(agentId, JSON.stringify(config), stepId, runId);
+    }
+  }
+
+  // Apply deferred prompt overrides
   const promptOverrides = req.body?.promptOverrides as Record<string, Record<string, string>> | undefined;
   if (promptOverrides && Object.keys(promptOverrides).length > 0) {
     console.log(`[workflow] Applying prompt overrides for ${Object.keys(promptOverrides).length} steps`);
     for (const [stepId, fields] of Object.entries(promptOverrides)) {
       const step = db.prepare('SELECT executor_config, description FROM workflow_steps WHERE id = ? AND workflow_id = ?')
-        .get(stepId, req.params.id) as { executor_config: string; description: string } | undefined;
+        .get(stepId, runId) as { executor_config: string; description: string } | undefined;
       if (!step) continue;
 
       const config = JSON.parse(step.executor_config || '{}');
-      // Track which fields were deferred for restoration after completion
       config._deferredPrompts = Object.keys(fields);
 
       let description = step.description;
       for (const [field, value] of Object.entries(fields)) {
         if (field === 'intent.objective') {
-          // Nested in intent object
           if (!config.intent) config.intent = {};
           config.intent.objective = value;
         } else if (field === 'prompt') {
@@ -524,14 +632,14 @@ router.post('/v2/:id/start', (req, res) => {
       }
 
       db.prepare('UPDATE workflow_steps SET executor_config = ?, description = ? WHERE id = ? AND workflow_id = ?')
-        .run(JSON.stringify(config), description, stepId, req.params.id);
+        .run(JSON.stringify(config), description, stepId, runId);
     }
   }
 
-  emitWorkflowUpdate(req.params.id);
+  emitWorkflowUpdate(runId);
 
-  const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;
-  const stepRows = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(req.params.id) as Record<string, unknown>[];
+  const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(runId) as Record<string, unknown>;
+  const stepRows = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(runId) as Record<string, unknown>[];
   res.json({ workflow: normalizeWorkflow(updated), steps: stepRows.map(normalizeStep) });
 });
 

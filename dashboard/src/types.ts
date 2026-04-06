@@ -197,6 +197,8 @@ export interface Workflow {
   startedAt: string;
   completedAt: string | null;
   error: string;
+  templateId: string | null;
+  runNumber: number;
   stepSummary?: StepSummary;
 }
 

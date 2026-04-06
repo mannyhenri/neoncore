@@ -202,6 +202,15 @@ try {
   db.exec(`ALTER TABLE workflows ADD COLUMN target_repos TEXT NOT NULL DEFAULT '[]'`);
 }
 
+// Migration: add template_id and run_number to workflows (multi-run support)
+try {
+  db.prepare('SELECT template_id FROM workflows LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflows ADD COLUMN template_id TEXT DEFAULT NULL`);
+  db.exec(`ALTER TABLE workflows ADD COLUMN run_number INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_template ON workflows(template_id)`);
+}
+
 // MCP Servers table
 db.exec(`
   CREATE TABLE IF NOT EXISTS mcp_servers (
