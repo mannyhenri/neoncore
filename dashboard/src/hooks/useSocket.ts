@@ -15,6 +15,7 @@ interface SocketHandlers {
   onPermissionsExpired?: (data: { count: number }) => void;
   onEpicUpdated?: (run: EpicRun) => void;
   onWorkflowUpdated?: (workflow: Workflow) => void;
+  onWorkflowDeleted?: (data: { id: string }) => void;
   onWorkflowStepUpdated?: (step: WorkflowStep) => void;
   onWorkflowStepLog?: (log: WorkflowStepLog) => void;
   onMcpServerUpdated?: (server: McpServer) => void;
@@ -101,6 +102,10 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('workflow_updated' as any, (workflow: Workflow) => {
       handlersRef.current.onWorkflowUpdated?.(workflow);
+    });
+
+    socket.on('workflow_deleted' as any, (data: { id: string }) => {
+      handlersRef.current.onWorkflowDeleted?.(data);
     });
 
     socket.on('workflow_step_updated' as any, (step: WorkflowStep) => {

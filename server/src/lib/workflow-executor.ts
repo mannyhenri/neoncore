@@ -488,5 +488,7 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
     error: (row.error ?? '') as string,
+    templateId: (row.template_id as string) || null,
+    runNumber: (row.run_number as number) || 0,
   };
 }

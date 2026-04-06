@@ -82,6 +82,8 @@ function emitWorkflowUpdate(workflowId: string) {
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
     error: (row.error ?? '') as string,
+    templateId: (row.template_id as string) || null,
+    runNumber: (row.run_number as number) || 0,
     stepSummary,
   });
 }
@@ -172,20 +174,11 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
 
   const rolePrefix = ROLE_PROMPTS[role] ?? '';
 
-  // If the step waits for a webhook, append instructions so the agent calls it when done
-  let webhookSuffix = '';
-  if (step.executorConfig.waitForWebhook) {
-    const port = process.env.PORT || '4040';
-    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
-  }
+  // Always append webhook instructions so the agent provides a structured summary on completion
+  const port = process.env.PORT || '4040';
+  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
-  // Handoff suffix for non-webhook steps — helps downstream steps get useful context
-  let handoffSuffix = '';
-  if (!step.executorConfig.waitForWebhook && step.dependsOn.length >= 0) {
-    handoffSuffix = '\n\nWhen you are done, end your response with a brief summary under "## Handoff" describing what you did and what the next step should focus on.';
-  }
-
-  const finalPrompt = context + rolePrefix + prompt + webhookSuffix + handoffSuffix;
+  const finalPrompt = context + rolePrefix + prompt + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
@@ -201,13 +194,11 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   if (includeMemory) parts.push('agent memory');
 
   emitStepLog(step.workflowId, step.id, step.name, `Prompt composed: ${parts.join(' + ')} (${finalPrompt.length} chars)`, 'info');
-  console.log(`[workflow-v2] Step "${step.name}" prompt (${finalPrompt.length} chars): role=${role}, webhook=${!!step.executorConfig.waitForWebhook}, memory=${includeMemory}, deps=${step.dependsOn.length}`);
+  console.log(`[workflow-v2] Step "${step.name}" prompt (${finalPrompt.length} chars): role=${role}, webhook=true, memory=${includeMemory}, deps=${step.dependsOn.length}`);
 
   sendCommandToAgent(step.executorId, finalPrompt, includeMemory);
 
-  if (step.executorConfig.waitForWebhook) {
-    emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
-  }
+  emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
 }
 
 /** Command template step — looks up a saved command template and sends its content */
@@ -222,18 +213,10 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
 
   const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
 
-  let webhookSuffix = '';
-  if (step.executorConfig.waitForWebhook) {
-    const port = process.env.PORT || '4040';
-    webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
-  }
+  const port = process.env.PORT || '4040';
+  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
-  let handoffSuffix = '';
-  if (!step.executorConfig.waitForWebhook) {
-    handoffSuffix = '\n\nWhen you are done, end your response with a brief summary under "## Handoff" describing what you did and what the next step should focus on.';
-  }
-
-  const finalPrompt = context + template.content + webhookSuffix + handoffSuffix;
+  const finalPrompt = context + template.content + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   emitStepLog(step.workflowId, step.id, step.name,
@@ -242,9 +225,7 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
   const includeMemory = isMemoryEnabled(step.executorId);
   sendCommandToAgent(step.executorId, finalPrompt, includeMemory);
 
-  if (step.executorConfig.waitForWebhook) {
-    emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step`, 'warn');
-  }
+  emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step`, 'warn');
 }
 
 /** Review gate step — dispatches a critic prompt to evaluate dependency outputs */
@@ -858,8 +839,10 @@ function processWorkflow(workflowId: string) {
   for (const step of steps) {
     if (step.status !== 'running') continue;
 
-    // If the step is waiting for an external webhook, don't auto-complete on agent idle
+    // Standard and command steps always use webhooks for completion — skip idle-based auto-complete.
+    // Only review-gate, quality-gate, and deliberation use idle detection (they have their own completion logic).
     if (step.executorConfig.waitForWebhook) continue;
+    if (step.executorType === 'claude-code' || step.executorType === 'command' || !step.executorType) continue;
 
     // Don't auto-complete steps that just started — the agent may not have picked up
     // the command yet. Wait at least MIN_RUNNING_BEFORE_COMPLETE_MS before checking idle.
@@ -885,7 +868,13 @@ function processWorkflow(workflowId: string) {
 
     if (agent && agent.status === 'idle') {
       const now = new Date().toISOString();
-      const result = agent.last_message || 'Step completed (agent idle)';
+
+      // Read the most recent assistant_message activity for this agent to get
+      // the full output (agent.last_message is truncated to 500 chars for display).
+      const recentActivity = db.prepare(
+        "SELECT tool_input FROM activity WHERE agent_id = ? AND event_type = 'assistant_message' ORDER BY timestamp DESC LIMIT 1"
+      ).get(checkAgentId) as { tool_input: string } | undefined;
+      const result = recentActivity?.tool_input || agent.last_message || 'Step completed (agent idle)';
 
       // ── Review gate: check PASS/FAIL and handle retries ──
       if (step.executorType === 'review-gate') {
@@ -982,8 +971,12 @@ function processWorkflow(workflowId: string) {
     db.prepare('UPDATE workflows SET status = ?, completed_at = ? WHERE id = ?')
       .run(finalStatus, now, workflowId);
 
-    // Restore deferred values on steps that were temporarily overridden for this run
+    // Restore deferred values on template workflows only (not on runs — runs are
+    // disposable clones and the template already has the originals intact)
+    const wfRow = db.prepare('SELECT template_id FROM workflows WHERE id = ?').get(workflowId) as { template_id: string | null } | undefined;
+    const isRun = !!wfRow?.template_id;
     for (const step of currentSteps) {
+      if (isRun) continue; // Skip restoration for runs — preserve resolved values for history
       const config = { ...step.executorConfig };
       let needsUpdate = false;
       let executorId = step.executorId;
@@ -1027,6 +1020,16 @@ function processWorkflow(workflowId: string) {
     emitWorkflowUpdate(workflowId);
     emitStepLog(workflowId, '', 'Workflow', `Workflow ${finalStatus}`, finalStatus === 'completed' ? 'success' : 'error');
     console.log(`[workflow-v2] Workflow ${workflowId} ${finalStatus}`);
+
+    // Auto-delete completed/failed runs after 30 seconds (templates are kept forever)
+    if (isRun) {
+      setTimeout(() => {
+        db.prepare('DELETE FROM workflow_steps WHERE workflow_id = ?').run(workflowId);
+        db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
+        getIO().emit('workflow_deleted', { id: workflowId });
+        console.log(`[workflow-v2] Auto-deleted completed run ${workflowId}`);
+      }, 30_000);
+    }
   } else {
     // Log pending steps summary for debugging
     const pending = currentSteps.filter((s) => s.status === 'pending');
