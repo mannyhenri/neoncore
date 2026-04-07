@@ -182,6 +182,7 @@ export default function App() {
         <ActivityDetailModal
           activity={selectedActivity}
           agent={agents.find((a) => a.id === selectedActivity.agentId)}
+          agents={agents}
           onClose={() => setSelectedActivity(null)}
         />
       )}

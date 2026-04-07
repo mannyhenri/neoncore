@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Activity, Agent } from '../types';
+import SendToCartridgeModal from './SendToCartridgeModal';
 
 const proseClass = `prose prose-invert prose-sm max-w-none
   prose-p:my-1 prose-p:text-gray-300 prose-p:leading-relaxed
@@ -22,6 +23,7 @@ const proseClass = `prose prose-invert prose-sm max-w-none
 interface ActivityDetailModalProps {
   activity: Activity;
   agent?: Agent;
+  agents?: Agent[];
   onClose: () => void;
 }
 
@@ -321,8 +323,9 @@ function ToolResultSection({ rawResult, renderMarkdown }: { rawResult: string; r
 // ActivityDetailModal
 // ---------------------------------------------------------------------------
 
-export function ActivityDetailModal({ activity, agent, onClose }: ActivityDetailModalProps) {
+export function ActivityDetailModal({ activity, agent, agents, onClose }: ActivityDetailModalProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
+  const [sendModalOpen, setSendModalOpen] = useState(false);
 
   // ESC key handler
   useEffect(() => {
@@ -424,14 +427,55 @@ export function ActivityDetailModal({ activity, agent, onClose }: ActivityDetail
           <span className="text-[13px] text-gray-600 font-mono">
             ID: {activity.id}
           </span>
-          <button
-            onClick={onClose}
-            className="text-xs px-3 py-1.5 text-gray-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] rounded-md transition-colors"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {agents && agents.length > 0 && (
+              <button
+                onClick={() => setSendModalOpen(true)}
+                className="text-xs px-3 py-1.5 text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md transition-colors flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                </svg>
+                Send to Cartridge
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-xs px-3 py-1.5 text-gray-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] rounded-md transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
+
+      {sendModalOpen && agents && (
+        <SendToCartridgeModal
+          initialText={buildSendText(activity)}
+          sourceLabel={`${activity.toolName || activity.eventType} — ${agent?.repoName || 'unknown'}`}
+          excludeAgentId={activity.agentId}
+          agents={agents}
+          onClose={() => setSendModalOpen(false)}
+        />
+      )}
     </div>
   );
+}
+
+function buildSendText(activity: Activity): string {
+  const parts: string[] = [];
+  if (activity.eventType === 'assistant_message') {
+    parts.push(activity.toolInput || '');
+  } else {
+    if (activity.toolName) parts.push(`[${activity.toolName}]`);
+    if (activity.toolInput) {
+      const input = typeof activity.toolInput === 'string' ? activity.toolInput : JSON.stringify(activity.toolInput, null, 2);
+      parts.push(input);
+    }
+    if (activity.toolResult && activity.toolResult !== '{}') {
+      const result = typeof activity.toolResult === 'string' ? activity.toolResult : JSON.stringify(activity.toolResult, null, 2);
+      parts.push('\n--- Result ---\n' + result);
+    }
+  }
+  return parts.join('\n').trim();
 }

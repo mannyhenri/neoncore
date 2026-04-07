@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { Session, ProjectKnowledge } from '../types';
+import type { Agent, Session, ProjectKnowledge } from '../types';
+import SendToCartridgeModal from './SendToCartridgeModal';
 
 interface Props {
   project: string;
+  agents?: Agent[];
   onClose: () => void;
 }
 
@@ -11,7 +13,8 @@ const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md', 'details.m
 
 type TabKey = 'sessions' | 'notes' | typeof KNOWLEDGE_FILES[number];
 
-export default function ProjectMemoryPanel({ project, onClose }: Props) {
+export default function ProjectMemoryPanel({ project, agents, onClose }: Props) {
+  const [sendModal, setSendModal] = useState<{ text: string; label: string } | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('sessions');
@@ -109,9 +112,13 @@ export default function ProjectMemoryPanel({ project, onClose }: Props) {
               onToggle={(id) => setExpandedSession(expandedSession === id ? null : id)}
               formatDate={formatDate}
               formatDuration={formatDuration}
+              onShare={agents?.length ? (text, label) => setSendModal({ text, label }) : undefined}
             />
           ) : activeTab === 'notes' ? (
-            <NotesEditor project={project} />
+            <NotesEditor
+              project={project}
+              onShare={agents?.length ? (text, label) => setSendModal({ text, label }) : undefined}
+            />
           ) : (
             <KnowledgeEditor
               content={fileContent}
@@ -119,10 +126,20 @@ export default function ProjectMemoryPanel({ project, onClose }: Props) {
               dirty={fileDirty}
               saving={saving}
               onSave={handleSaveFile}
+              onShare={agents?.length ? () => setSendModal({ text: fileContent, label: `${activeTab} — ${project}` }) : undefined}
             />
           )}
         </div>
       </div>
+
+      {sendModal && agents && (
+        <SendToCartridgeModal
+          initialText={sendModal.text}
+          sourceLabel={sendModal.label}
+          agents={agents}
+          onClose={() => setSendModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -144,18 +161,35 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
+function ShareButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="text-[13px] text-emerald-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1"
+      title="Send to another cartridge"
+    >
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+      </svg>
+      Share
+    </button>
+  );
+}
+
 function SessionTimeline({
   sessions,
   expandedSession,
   onToggle,
   formatDate,
   formatDuration,
+  onShare,
 }: {
   sessions: Session[];
   expandedSession: string | null;
   onToggle: (id: string) => void;
   formatDate: (iso: string) => string;
   formatDuration: (start: string, end: string | null) => string;
+  onShare?: (text: string, label: string) => void;
 }) {
   if (sessions.length === 0) {
     return <p className="text-sm text-gray-600 italic text-center py-8">No sessions recorded yet</p>;
@@ -199,10 +233,15 @@ function SessionTimeline({
             </button>
 
             {isExpanded && s.summary && (
-              <div className="px-4 pb-3 pt-1 border-t border-white/[0.04]">
+              <div className="px-4 pb-3 pt-1 border-t border-white/[0.04] group">
                 <pre className="text-[13px] text-gray-400 whitespace-pre-wrap font-sans leading-relaxed">
                   {s.summary}
                 </pre>
+                {onShare && (
+                  <div className="mt-2 flex justify-end">
+                    <ShareButton onClick={() => onShare(s.summary, `Session ${formatDate(s.startedAt)}`)} />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -212,7 +251,7 @@ function SessionTimeline({
   );
 }
 
-function NotesEditor({ project }: { project: string }) {
+function NotesEditor({ project, onShare }: { project: string; onShare?: (text: string, label: string) => void }) {
   const [notes, setNotes] = useState<{ id: string; content: string; createdAt: string; updatedAt: string }[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -296,6 +335,9 @@ function NotesEditor({ project }: { project: string }) {
               <div className="flex items-center justify-between mt-2">
                 <span className="text-sm text-gray-600">{formatDate(note.updatedAt)}</span>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {onShare && (
+                    <ShareButton onClick={() => onShare(note.content, `Note — ${formatDate(note.updatedAt)}`)} />
+                  )}
                   <button
                     onClick={() => { setEditingId(note.id); setEditContent(note.content); }}
                     className="text-[13px] text-gray-500 hover:text-white"
@@ -324,12 +366,14 @@ function KnowledgeEditor({
   dirty,
   saving,
   onSave,
+  onShare,
 }: {
   content: string;
   onChange: (v: string) => void;
   dirty: boolean;
   saving: boolean;
   onSave: () => void;
+  onShare?: () => void;
 }) {
   return (
     <div className="flex flex-col h-full gap-2">
@@ -343,13 +387,26 @@ function KnowledgeEditor({
         <span className="text-[13px] text-gray-600">
           {dirty ? 'Unsaved changes' : 'Saved'}
         </span>
-        <button
-          onClick={onSave}
-          disabled={!dirty || saving}
-          className="text-sm px-4 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          {saving ? 'Saving...' : 'Save'}
-        </button>
+        <div className="flex items-center gap-2">
+          {onShare && content.trim() && (
+            <button
+              onClick={onShare}
+              className="text-sm px-3 py-1.5 rounded-md text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-colors flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+              </svg>
+              Share
+            </button>
+          )}
+          <button
+            onClick={onSave}
+            disabled={!dirty || saving}
+            className="text-sm px-4 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
       </div>
     </div>
   );

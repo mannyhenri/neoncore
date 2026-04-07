@@ -230,6 +230,7 @@ export function CartridgeGrid({
                 key={agent.id}
                 agent={agent}
                 siblingAgents={siblingIds.map((id) => agents.find((a) => a.id === id)!).filter(Boolean)}
+                allAgents={agents}
                 activities={mergedActivities}
                 permissions={mergedPermissions}
                 stuckAlert={mergedStuck}

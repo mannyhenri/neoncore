@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
@@ -608,8 +609,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     cancelled: 'text-gray-500',
   }[wf.status] || 'text-gray-400';
 
-  // Deferred popup (shared between compact and full card views)
-  const deferredPopupEl = deferredPopup && (
+  // Deferred popup — rendered via portal to escape any parent stacking context
+  const deferredPopupEl = deferredPopup && createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
@@ -679,7 +680,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 
   const displayName = wf.runNumber > 0
@@ -690,7 +692,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     return (
       <>
         <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs group">
-          <span className={`font-medium ${statusColor}`}>{wf.status}</span>
+          {wf.templateId && (
+            <span className={`font-medium ${statusColor}`}>{wf.status}</span>
+          )}
           <button
             onClick={() => onOpen?.(wf.id)}
             className="text-gray-400 truncate flex-1 text-left hover:text-white transition-colors"
@@ -745,7 +749,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
-          <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
+          {wf.templateId && (
+            <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
+          )}
           <button
             onClick={() => onOpen?.(wf.id)}
             className="text-sm text-gray-300 truncate hover:text-white transition-colors"
