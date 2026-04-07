@@ -15,6 +15,7 @@ import { SPRITES, SPRITE_COLORS, hashStr, spriteToSvg, generateFrame2, generateP
 interface CartridgeCardProps {
   agent: Agent;
   siblingAgents?: Agent[];
+  allAgents?: Agent[];
   activities: Activity[];
   permissions: PermissionRequest[];
   stuckAlert?: StuckAlert;
@@ -387,6 +388,7 @@ function InlinePermission({ permission, onAllow, onDeny }: {
 export function CartridgeCard({
   agent,
   siblingAgents,
+  allAgents,
   activities,
   permissions,
   stuckAlert,
@@ -728,7 +730,7 @@ export function CartridgeCard({
 
       {/* Journal / Session Memory Modal */}
       {journalOpen && agent.repoName && (
-        <ProjectMemoryPanel project={agent.repoName} onClose={() => setJournalOpen(false)} />
+        <ProjectMemoryPanel project={agent.repoName} agents={allAgents} onClose={() => setJournalOpen(false)} />
       )}
 
       {/* Send Context Modal */}
