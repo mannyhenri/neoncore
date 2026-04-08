@@ -1,3 +1,5 @@
+import type { AgentType } from '../types';
+
 const BASE_URL = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -129,7 +131,7 @@ export const api = {
       `/repos/browse${dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''}`
     ),
   getRepos: () => request<{ repos: { name: string; path: string; source: string }[]; projectsDirs: string[] }>('/repos'),
-  openRepo: (repoPath: string, agentType: 'claude' | 'gridlight' = 'claude') =>
+  openRepo: (repoPath: string, agentType: AgentType = 'claude') =>
     request<{ ok: boolean }>('/repos/open', {
       method: 'POST',
       body: JSON.stringify({ path: repoPath, agentType }),

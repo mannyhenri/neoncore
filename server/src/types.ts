@@ -1,5 +1,5 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
-export type AgentType = 'claude' | 'gridlight';
+export type AgentType = 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor';
 
 export interface Agent {
   id: string;

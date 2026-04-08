@@ -40,6 +40,7 @@ import { useSocket } from '../hooks/useSocket';
 import { WorkflowExecutionLog } from './WorkflowExecutionLog';
 import type {
   Agent,
+  AgentType,
   WorkflowStep,
   WorkflowStepLog,
   StepExecutorType,
@@ -70,7 +71,7 @@ interface StepNodeData {
   executorType: StepExecutorType;
   executorId: string;
   agentName: string;
-  agentType: 'claude' | 'gridlight' | '';
+  agentType: AgentType | '';
   prompt: string;
   autoAdvance: boolean;
   waitForWebhook: boolean;
@@ -689,7 +690,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
   // Build agent lookup: id -> { name, type }
   const agentMap = useMemo(() => {
-    const map = new Map<string, { name: string; type: 'claude' | 'gridlight' }>();
+    const map = new Map<string, { name: string; type: AgentType }>();
     for (const a of agents) {
       map.set(a.id, { name: a.repoName || a.name, type: a.agentType });
     }
