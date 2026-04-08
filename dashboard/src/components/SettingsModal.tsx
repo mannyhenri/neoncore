@@ -8,7 +8,32 @@ interface Props {
   onClose: () => void;
 }
 
-type SettingsTab = 'projects' | 'api-keys' | 'mcp-servers';
+const TOOL_ORDER = ['claude', 'gemini', 'amazonq', 'codex', 'cursor'] as const;
+
+const TOOL_META: Record<string, { color: string; badge: string }> = {
+  claude:  { color: 'blue',   badge: 'Claude CC' },
+  gemini:  { color: 'teal',   badge: 'Gemini CLI' },
+  amazonq: { color: 'orange', badge: 'Amazon Q' },
+  codex:   { color: 'green',  badge: 'Codex CLI' },
+  cursor:  { color: 'violet', badge: 'Cursor' },
+};
+
+const BADGE_STYLES: Record<string, string> = {
+  blue:   'bg-blue-900/60 text-blue-300',
+  teal:   'bg-teal-900/60 text-teal-300',
+  orange: 'bg-orange-900/60 text-orange-300',
+  green:  'bg-green-900/60 text-green-300',
+  violet: 'bg-violet-900/60 text-violet-300',
+};
+
+type SettingsTab = 'projects' | 'api-keys' | 'mcp-servers' | 'tools';
+
+interface ToolStatus {
+  label: string;
+  installed: boolean;
+  configFile: string;
+  hooksExist: boolean;
+}
 
 export function SettingsModal({ onClose }: Props) {
   const [tab, setTab] = useState<SettingsTab>('projects');
@@ -28,6 +53,11 @@ export function SettingsModal({ onClose }: Props) {
   const [gridlightModels, setGridlightModels] = useState('');
   const [apiSaving, setApiSaving] = useState(false);
   const [apiSaved, setApiSaved] = useState(false);
+
+  // Tool integrations
+  const [toolsStatus, setToolsStatus] = useState<Record<string, ToolStatus>>({});
+  const [toolsBusy, setToolsBusy] = useState<Set<string>>(new Set());
+  const [toolsMsg, setToolsMsg] = useState<Record<string, { type: 'ok' | 'err'; text: string }>>({});
 
   // MCP servers
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -106,6 +136,44 @@ export function SettingsModal({ onClose }: Props) {
   };
 
   const isAlreadyAdded = savedDirs.includes(currentPath);
+
+  // Load tools status when tab opens
+  useEffect(() => {
+    if (tab !== 'tools') return;
+    api.getToolsStatus().then(setToolsStatus).catch(() => {});
+  }, [tab]);
+
+  const handleInstallTool = async (tool: string) => {
+    setToolsBusy((prev) => new Set(prev).add(tool));
+    setToolsMsg((prev) => { const n = { ...prev }; delete n[tool]; return n; });
+    try {
+      const res = await api.installTool(tool);
+      setToolsMsg((prev) => ({ ...prev, [tool]: { type: 'ok', text: res.note } }));
+      const updated = await api.getToolsStatus();
+      setToolsStatus(updated);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Install failed';
+      setToolsMsg((prev) => ({ ...prev, [tool]: { type: 'err', text: msg } }));
+    } finally {
+      setToolsBusy((prev) => { const n = new Set(prev); n.delete(tool); return n; });
+    }
+  };
+
+  const handleUninstallTool = async (tool: string) => {
+    setToolsBusy((prev) => new Set(prev).add(tool));
+    setToolsMsg((prev) => { const n = { ...prev }; delete n[tool]; return n; });
+    try {
+      await api.uninstallTool(tool);
+      setToolsMsg((prev) => ({ ...prev, [tool]: { type: 'ok', text: 'Hooks removed' } }));
+      const updated = await api.getToolsStatus();
+      setToolsStatus(updated);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Uninstall failed';
+      setToolsMsg((prev) => ({ ...prev, [tool]: { type: 'err', text: msg } }));
+    } finally {
+      setToolsBusy((prev) => { const n = new Set(prev); n.delete(tool); return n; });
+    }
+  };
 
   // Load MCP servers when tab opens
   useEffect(() => {
@@ -230,6 +298,7 @@ export function SettingsModal({ onClose }: Props) {
               <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
               <button onClick={() => setTab('api-keys')} className={tabClass('api-keys')}>API Keys</button>
               <button onClick={() => setTab('mcp-servers')} className={tabClass('mcp-servers')}>MCP Servers</button>
+              <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
@@ -682,6 +751,90 @@ export function SettingsModal({ onClose }: Props) {
               )}
             </div>
           </>
+        ) : tab === 'tools' ? (
+          <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-3">
+            <p className="text-xs text-gray-500 leading-relaxed">
+              One-click hook installation for each AI coding tool. NeonCore writes the hook config
+              files directly so the tool reports to the dashboard automatically.
+            </p>
+
+            {Object.keys(toolsStatus).length === 0 ? (
+              <div className="text-sm text-gray-500 text-center py-6">Loading...</div>
+            ) : (
+              TOOL_ORDER.map((key) => {
+                const info = toolsStatus[key];
+                if (!info) return null;
+                const busy = toolsBusy.has(key);
+                const msg = toolsMsg[key];
+                const { color, badge } = TOOL_META[key] ?? { color: 'blue', badge: key };
+
+                return (
+                  <div key={key} className="glass-light rounded-lg p-3 space-y-2">
+                    {/* Header row */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0 ${BADGE_STYLES[color]}`}>
+                          {badge}
+                        </span>
+                        <span className="text-sm font-medium text-white truncate">{info.label}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Installed indicator */}
+                        <span className={`text-[11px] font-mono ${info.installed ? 'text-green-400' : 'text-gray-600'}`}>
+                          {info.installed ? '● installed' : '○ not installed'}
+                        </span>
+                        {info.installed ? (
+                          <button
+                            onClick={() => handleUninstallTool(key)}
+                            disabled={busy || !info.hooksExist}
+                            className="text-xs px-2.5 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-30 transition-colors"
+                          >
+                            {busy ? '...' : 'Remove'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleInstallTool(key)}
+                            disabled={busy || !info.hooksExist}
+                            className="text-xs px-2.5 py-1 rounded gl-gradient text-white hover:opacity-90 disabled:opacity-30 transition-colors font-medium"
+                            title={!info.hooksExist ? 'Hook scripts not found' : ''}
+                          >
+                            {busy ? 'Installing...' : 'Install Hooks'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Config file path */}
+                    <div className="text-[11px] text-gray-600 font-mono truncate" title={info.configFile}>
+                      {info.configFile}
+                    </div>
+
+                    {/* Missing scripts warning */}
+                    {!info.hooksExist && (
+                      <div className="text-[11px] text-amber-500/80">
+                        Hook scripts not found — make sure NeonCore is fully cloned
+                      </div>
+                    )}
+
+                    {/* Result message */}
+                    {msg && (
+                      <div className={`text-[11px] rounded px-2 py-1 ${
+                        msg.type === 'ok'
+                          ? 'text-green-400 bg-green-500/10'
+                          : 'text-red-400 bg-red-500/10'
+                      }`}>
+                        {msg.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+
+            <p className="text-[11px] text-gray-600 pt-1">
+              Set <span className="font-mono">NEONCORE_URL</span> in your shell if NeonCore isn&apos;t on localhost:4040.
+            </p>
+          </div>
         ) : null}
       </div>
     </div>

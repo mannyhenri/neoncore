@@ -398,4 +398,12 @@ export const api = {
     request<{ sessions: { id: string; project: string; summary: string; startedAt: string }[]; knowledge: { project: string; filename: string; snippet: string }[] }>(
       `/journal/search?q=${encodeURIComponent(query)}${project ? `&project=${encodeURIComponent(project)}` : ''}`
     ),
+
+  // Tool integrations
+  getToolsStatus: () =>
+    request<Record<string, { label: string; installed: boolean; configFile: string; hooksExist: boolean }>>('/tools/status'),
+  installTool: (tool: string) =>
+    request<{ ok: boolean; tool: string; configFile: string; note: string }>(`/tools/install/${tool}`, { method: 'POST' }),
+  uninstallTool: (tool: string) =>
+    request<{ ok: boolean; note?: string }>(`/tools/uninstall/${tool}`, { method: 'POST' }),
 };

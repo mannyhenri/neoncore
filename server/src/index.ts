@@ -22,6 +22,7 @@ import mcpRouter from './routes/mcp.js';
 import journalRouter from './routes/journal.js';
 import commandTemplatesRouter from './routes/command-templates.js';
 import virtualCartridgesRouter from './routes/virtual-cartridges.js';
+import toolsRouter from './routes/tools.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startEpicExecutor } from './routes/epics.js';
@@ -64,6 +65,7 @@ app.use('/api/mcp', mcpRouter);
 app.use('/api/journal', journalRouter);
 app.use('/api/command-templates', commandTemplatesRouter);
 app.use('/api/virtual-cartridges', virtualCartridgesRouter);
+app.use('/api/tools', toolsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
