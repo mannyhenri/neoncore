@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 # NeonCore Activity Reporter Hook — Gemini CLI variant
-# Fires on postToolCall — reports completed tool actions to the orchestrator.
+# Fires on AfterTool — reports completed tool actions to the orchestrator.
 #
-# Setup in ~/.gemini/settings.json:
+# Setup in ~/.gemini/settings.json (written by NeonCore installer):
 #   {
 #     "hooks": {
-#       "postToolCall": [{ "command": "/path/to/neoncore/agent/hooks/gemini-reporter.sh" }]
+#       "AfterTool": [{ "matcher": ".*", "hooks": [{ "name": "neoncore-reporter", "type": "command", "command": "/path/to/gemini-reporter.sh" }] }]
 #     }
 #   }
 #
-# Gemini CLI postToolCall payload:
-#   {
-#     "tool_call": { "tool_name": "...", "tool_input": {...} },
-#     "tool_result": { ... },
-#     "session_id": "...",
-#     "cwd": "..."
-#   }
+# Gemini CLI AfterTool payload:
+#   { "session_id": "...", "hook_event_name": "AfterTool", "cwd": "...", "tool_name": "...", "tool_input": {...}, "tool_response": {...}, "timestamp": "..." }
 #
 # Always exits 0 — never blocks Gemini CLI.
 
@@ -40,15 +35,14 @@ import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
 
-# Gemini CLI wraps tool info under 'tool_call'
-tool_call   = d.get('tool_call', {})
-tool_name   = tool_call.get('tool_name', '') or d.get('tool_name', '')
-tool_input  = tool_call.get('tool_input', {}) or d.get('tool_input', {})
-tool_result = d.get('tool_result', {})
-session_id  = d.get('session_id', '') or d.get('sessionId', '')
-cwd         = d.get('cwd', '')
-hook_event  = d.get('hook_event_name', 'postToolCall')
-machine     = os.uname().nodename
+# Gemini CLI AfterTool sends fields at top level; result is under 'tool_response'
+tool_name     = d.get('tool_name', '')
+tool_input    = d.get('tool_input', {})
+tool_response = d.get('tool_response', {})
+session_id    = d.get('session_id', '') or d.get('sessionId', '')
+cwd           = d.get('cwd', '')
+hook_event    = d.get('hook_event_name', 'AfterTool')
+machine       = os.uname().nodename
 
 # Resolve cwd to git repo root
 try:
@@ -61,10 +55,10 @@ try:
 except Exception:
     repo_name = os.path.basename(cwd) if cwd else ''
 
-# Truncate large tool results
-result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
+# Truncate large tool responses
+result_str = json.dumps(tool_response) if isinstance(tool_response, dict) else str(tool_response)
 if len(result_str) > 8000:
-    tool_result = {'result': result_str[:8000] + '...truncated'}
+    tool_response = {'result': result_str[:8000] + '...truncated'}
 
 register = json.dumps({
     'sessionId': session_id,
@@ -81,7 +75,7 @@ activity = json.dumps({
     'eventType': hook_event,
     'toolName': tool_name,
     'toolInput': tool_input,
-    'toolResult': tool_result,
+    'toolResult': tool_response,
     'agentType': 'gemini',
 })
 

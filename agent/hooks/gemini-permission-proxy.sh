@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # NeonCore Permission Proxy Hook — Gemini CLI variant
-# Fires on preToolCall — intercepts permission requests and queries the orchestrator.
+# Fires on BeforeTool — intercepts permission requests and queries the orchestrator.
 #
-# Setup in ~/.gemini/settings.json:
+# Setup in ~/.gemini/settings.json (written by NeonCore installer):
 #   {
 #     "hooks": {
-#       "preToolCall": [{ "command": "/path/to/neoncore/agent/hooks/gemini-permission-proxy.sh" }]
+#       "BeforeTool": [{ "matcher": ".*", "hooks": [{ "name": "neoncore-proxy", "type": "command", "command": "/path/to/gemini-permission-proxy.sh" }] }]
 #     }
 #   }
 #
-# Gemini CLI payload differs from Claude Code:
-#   - Tool info is nested under "tool_call.tool_name" / "tool_call.tool_input"
-#   - Block response: { "decision": "block", "reason": "..." }
-#   - Allow response: { "decision": "approve" }  (or just exit 0 with no output)
+# Gemini CLI BeforeTool payload:
+#   { "session_id": "...", "hook_event_name": "BeforeTool", "cwd": "...", "tool_name": "...", "tool_input": {...}, "timestamp": "..." }
+#
+# Response format:
+#   Allow: { "decision": "allow" }           (or exit 0 with no output)
+#   Deny:  { "decision": "deny", "reason": "..." }
 #
 # Flow:
 #   1. Parse Gemini CLI hook payload
 #   2. POST tool info + register agent to orchestrator
-#   3. If trust mode ON → return immediate approve
+#   3. If trust mode ON → return immediate allow
 #   4. If trust mode OFF → long-poll orchestrator until user decides on dashboard
 #   5. Return decision JSON to Gemini CLI
 #   6. On error/timeout → exit 0 (fall back to normal Gemini CLI behavior)
@@ -33,10 +35,9 @@ import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
 
-# Gemini CLI wraps tool info under 'tool_call'
-tool_call = d.get('tool_call', {})
-tool_name  = tool_call.get('tool_name', '') or d.get('tool_name', '')
-tool_input = tool_call.get('tool_input', {}) or d.get('tool_input', {})
+# Gemini CLI BeforeTool sends fields at top level
+tool_name  = d.get('tool_name', '')
+tool_input = d.get('tool_input', {})
 session_id = d.get('session_id', '') or d.get('sessionId', '')
 cwd        = d.get('cwd', '')
 
@@ -120,7 +121,7 @@ import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))
 " 2>/dev/null)
 
 if [ "$TRUST_MODE" = "True" ]; then
-  echo '{"decision":"approve"}'
+  echo '{"decision":"allow"}'
   exit 0
 fi
 
@@ -158,7 +159,7 @@ decision = poll.get('decision', '')
 response_str = poll.get('response', '')
 
 if decision == 'allowed':
-    print(json.dumps({'decision': 'approve'}))
+    print(json.dumps({'decision': 'allow'}))
 elif decision == 'denied':
     reason = 'Denied via NeonCore dashboard'
     if response_str:
@@ -169,7 +170,7 @@ elif decision == 'denied':
                 reason = 'Denied via NeonCore: ' + feedback
         except Exception:
             pass
-    print(json.dumps({'decision': 'block', 'reason': reason}))
+    print(json.dumps({'decision': 'deny', 'reason': reason}))
 " 2>/dev/null)
 
   if [ -n "$HOOK_OUTPUT" ]; then
