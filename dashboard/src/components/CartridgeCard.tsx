@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
@@ -447,9 +447,25 @@ export function CartridgeCard({
   const [journalOpen, setJournalOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
 
+  // Token usage — fetched from server, refreshed when agent status changes
+  const [tokenTotal, setTokenTotal] = useState<number | null>(null);
+  useEffect(() => {
+    api.getAgentTokenUsage(agent.id).then((u) => setTokenTotal(u.total)).catch(() => {});
+  }, [agent.id, effectiveStatus]);
 
-  // Take last 8 activities for the terminal
+
+  // Terminal tab state
+  const [terminalTab, setTerminalTab] = useState<'activity' | 'log'>('activity');
   const terminalActivities = activities.slice(0, 8);
+  const logScrollRef = useRef<HTMLDivElement>(null);
+  const logHoveredRef = useRef(false);
+
+  // Auto-scroll live log when new activities arrive
+  useEffect(() => {
+    if (terminalTab === 'log' && !logHoveredRef.current && logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [activities, terminalTab]);
 
   // Cartridge border highlight for special states
   const borderHighlight = stuckAlert
@@ -575,6 +591,11 @@ export function CartridgeCard({
             />
             <span className="text-[13px] text-gray-200">{status.label}</span>
             <span className="text-[13px] text-gray-500">{timeAgo(agent.lastSeen)}</span>
+            {tokenTotal !== null && tokenTotal > 0 && (
+              <span className="text-[11px] text-gray-600 font-mono ml-auto" title="Total tokens consumed">
+                ~{tokenTotal >= 1000 ? `${(tokenTotal / 1000).toFixed(1)}k` : tokenTotal} tok
+              </span>
+            )}
           </div>
 
           {/* Agent type badges + machine — Gridlight first, then Claude */}
@@ -686,7 +707,7 @@ export function CartridgeCard({
           }} />
         </div>
 
-        {/* ── Terminal: recent activity ── */}
+        {/* ── Terminal: recent activity + live log ── */}
         <div
           className="mx-3 mb-3 rounded overflow-hidden"
           style={{
@@ -694,34 +715,78 @@ export function CartridgeCard({
             border: '1px solid rgba(255,255,255,0.06)',
           }}
         >
-          <div className="px-2 py-1 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <span className="text-[13px] text-gray-500 uppercase tracking-wider font-mono">Activity</span>
-            <span className="text-[13px] text-gray-600 font-mono">{activities.length} events</span>
+          {/* Tab bar */}
+          <div className="px-2 py-1 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <button
+              onClick={() => setTerminalTab('activity')}
+              className={`text-[13px] font-mono transition-colors ${terminalTab === 'activity' ? 'text-green-400' : 'text-gray-600 hover:text-gray-400'}`}
+            >
+              Activity
+            </button>
+            <button
+              onClick={() => setTerminalTab('log')}
+              className={`text-[13px] font-mono transition-colors ${terminalTab === 'log' ? 'text-green-400' : 'text-gray-600 hover:text-gray-400'}`}
+            >
+              Live Log
+              {terminalTab !== 'log' && effectiveStatus === 'working' && (
+                <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse align-middle" />
+              )}
+            </button>
+            <span className="text-[13px] text-gray-700 font-mono ml-auto">{activities.length}</span>
           </div>
-          <div
-            className="overflow-y-auto font-mono text-[13px] leading-relaxed"
-            style={{ maxHeight: '120px' }}
-          >
-            {terminalActivities.length === 0 ? (
-              <div className="px-2 py-3 text-gray-600 text-center text-[13px]">
-                No activity yet
-              </div>
-            ) : (
-              terminalActivities.map((act) => (
-                <div
-                  key={act.id}
-                  onClick={() => onActivityClick?.(act)}
-                  className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors text-green-400"
-                  title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
-                >
-                  <span className="text-green-600 select-none">&gt; </span>
-                  <span className="text-green-500">{act.toolName || act.eventType}</span>
-                  {' '}
-                  <span className="text-green-400/60">{briefSummary(act)}</span>
-                </div>
-              ))
-            )}
-          </div>
+
+          {terminalTab === 'activity' ? (
+            <div className="overflow-y-auto font-mono text-[13px] leading-relaxed" style={{ maxHeight: '120px' }}>
+              {terminalActivities.length === 0 ? (
+                <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
+              ) : (
+                terminalActivities.map((act) => (
+                  <div
+                    key={act.id}
+                    onClick={() => onActivityClick?.(act)}
+                    className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
+                    title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
+                  >
+                    <span className="text-green-600 select-none">&gt; </span>
+                    <span className="text-green-500">{act.toolName || act.eventType}</span>
+                    {' '}
+                    <span className="text-green-400/60">{briefSummary(act)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div
+              ref={logScrollRef}
+              className="overflow-y-auto font-mono text-[13px] leading-relaxed"
+              style={{ maxHeight: '180px' }}
+              onMouseEnter={() => { logHoveredRef.current = true; }}
+              onMouseLeave={() => {
+                logHoveredRef.current = false;
+                if (logScrollRef.current) logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+              }}
+            >
+              {activities.length === 0 ? (
+                <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
+              ) : (
+                [...activities].reverse().map((act) => (
+                  <div
+                    key={act.id}
+                    onClick={() => onActivityClick?.(act)}
+                    className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
+                    title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
+                  >
+                    <span className="text-gray-600 select-none text-[11px]">
+                      {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{' '}
+                    </span>
+                    <span className="text-green-500">{act.toolName || act.eventType}</span>
+                    {' '}
+                    <span className="text-green-400/60">{briefSummary(act)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
 

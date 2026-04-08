@@ -384,4 +384,16 @@ export const api = {
     ),
   deleteProjectNote: (project: string, noteId: string) =>
     request<void>(`/journal/projects/${encodeURIComponent(project)}/notes/${noteId}`, { method: 'DELETE' }),
+
+  // Token usage
+  getAgentTokenUsage: (agentId: string, since?: string) =>
+    request<{ agentId: string; totalInput: number; totalOutput: number; total: number; latestModel: string; sessions: number }>(
+      `/activity/usage/${agentId}${since ? `?since=${encodeURIComponent(since)}` : ''}`
+    ),
+
+  // Journal search
+  searchJournal: (query: string, project?: string) =>
+    request<{ sessions: { id: string; project: string; summary: string; startedAt: string }[]; knowledge: { project: string; filename: string; snippet: string }[] }>(
+      `/journal/search?q=${encodeURIComponent(query)}${project ? `&project=${encodeURIComponent(project)}` : ''}`
+    ),
 };

@@ -411,8 +411,96 @@ function DeletableEdge({
   );
 }
 
+// ─── Routing edge (dashed amber, for conditional routing rules) ─────────────
+
+interface RoutingRule {
+  id: string;
+  condition: 'contains' | 'not_contains' | 'starts_with' | 'matches_regex';
+  value: string;
+  nextStepId: string;
+}
+
+function RoutingEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+  selected,
+  data,
+}: EdgeProps & { data?: { label?: string; onDelete?: (id: string) => void } }) {
+  const [hovered, setHovered] = useState(false);
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  return (
+    <>
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          stroke: selected ? '#fbbf24' : '#f59e0b',
+          strokeWidth: selected || hovered ? 3 : 2,
+          strokeDasharray: '6 3',
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan"
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+            opacity: hovered || selected ? 1 : 0,
+            transition: 'opacity 150ms',
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          <div className="flex items-center gap-1.5">
+            {data?.label && (
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-900/80 text-amber-300 border border-amber-500/30 whitespace-nowrap">
+                {data.label}
+              </span>
+            )}
+            {data?.onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); data.onDelete!(id); }}
+                className="flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 border border-amber-500/60 text-amber-400 hover:bg-amber-900 hover:text-amber-200 hover:border-amber-400 transition-colors text-xs leading-none cursor-pointer"
+                title="Remove routing rule"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
 const edgeTypes: EdgeTypes = {
   deletable: DeletableEdge,
+  routing: RoutingEdge,
 };
 
 // ─── Inner canvas (needs ReactFlowProvider) ─────────
@@ -653,7 +741,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       });
     });
 
-    // Build edges from dependsOn
+    // Build edges from dependsOn + routing rules
     const newEdges: Edge[] = [];
     for (const step of steps) {
       for (const depId of step.dependsOn) {
@@ -663,6 +751,34 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           target: step.id,
           animated: isExecuting,
           style: { stroke: '#a855f7', strokeWidth: 2 },
+        });
+      }
+      // Routing rule edges (dashed amber)
+      const routingRules = (step.executorConfig.routingRules as RoutingRule[]) || [];
+      for (const rule of routingRules) {
+        if (!rule.nextStepId) continue;
+        const condLabel = `if ${rule.condition.replace(/_/g, ' ')} "${rule.value.slice(0, 20)}${rule.value.length > 20 ? '…' : ''}"`;
+        newEdges.push({
+          id: `r-${step.id}-${rule.id}`,
+          source: step.id,
+          target: rule.nextStepId,
+          type: 'routing',
+          animated: false,
+          data: {
+            label: condLabel,
+            onDelete: (edgeId: string) => {
+              // edgeId format: r-{sourceStepId}-{ruleId}
+              const parts = edgeId.split('-');
+              if (parts.length < 3) return;
+              const sourceId = parts[1];
+              const ruleId = parts.slice(2).join('-');
+              setSteps((prev) => prev.map((s) => {
+                if (s.id !== sourceId) return s;
+                const rules = (s.executorConfig.routingRules as RoutingRule[]) || [];
+                return { ...s, executorConfig: { ...s.executorConfig, routingRules: rules.filter((r) => r.id !== ruleId) } };
+              }));
+            },
+          },
         });
       }
     }
@@ -697,7 +813,9 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       for (const change of changes) {
         if (change.type === 'remove') {
           const edgeId = change.id;
-          // Edge id format: e-{sourceId}-{targetId}
+          // Routing edges (r-*) are managed via their onDelete data callback — skip here
+          if (edgeId.startsWith('r-')) continue;
+          // Dependency edge id format: e-{sourceId}-{targetId}
           const parts = edgeId.split('-');
           if (parts.length >= 3) {
             setEdges((currentEdges) => {
@@ -1163,6 +1281,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             {selectedStep && (
               <SidePanel
                 step={selectedStep}
+                steps={steps}
                 agentOptions={agentOptions}
                 isExecuting={isExecuting}
                 onUpdate={(patch) => updateStep(selectedStep.id, patch)}
@@ -1866,10 +1985,453 @@ function QualityGateConfig({
   );
 }
 
+// ─── Routing Rules Editor ───────────────────────────
+
+const CONDITION_LABELS: Record<string, string> = {
+  contains: 'contains',
+  not_contains: 'does not contain',
+  starts_with: 'starts with',
+  matches_regex: 'matches regex',
+};
+
+function RoutingRulesEditor({
+  step,
+  steps,
+  onUpdate,
+  isExecuting,
+}: {
+  step: LocalStep;
+  steps: LocalStep[];
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+}) {
+  const [addingRule, setAddingRule] = useState(false);
+  const [newCondition, setNewCondition] = useState<RoutingRule['condition']>('contains');
+  const [newValue, setNewValue] = useState('STATUS: FAIL');
+  const [newTarget, setNewTarget] = useState('');
+
+  const rules = (step.executorConfig.routingRules as RoutingRule[]) || [];
+  const maxCycles = (step.executorConfig.maxCycles as number) || 5;
+  const otherSteps = steps.filter((s) => s.id !== step.id);
+
+  const saveRule = () => {
+    if (!newTarget || !newValue.trim()) return;
+    const rule: RoutingRule = {
+      id: crypto.randomUUID(),
+      condition: newCondition,
+      value: newValue.trim(),
+      nextStepId: newTarget,
+    };
+    onUpdate({ executorConfig: { ...step.executorConfig, routingRules: [...rules, rule] } });
+    setAddingRule(false);
+    setNewValue('STATUS: FAIL');
+    setNewTarget('');
+  };
+
+  const deleteRule = (ruleId: string) => {
+    onUpdate({ executorConfig: { ...step.executorConfig, routingRules: rules.filter((r) => r.id !== ruleId) } });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs text-gray-500">Routing Rules</label>
+        <span className="text-[11px] text-amber-400/60">dashed edges</span>
+      </div>
+
+      {rules.length === 0 && !addingRule && (
+        <p className="text-[13px] text-gray-600 italic">No routing rules — step always advances normally.</p>
+      )}
+
+      {rules.map((rule) => {
+        const target = steps.find((s) => s.id === rule.nextStepId);
+        return (
+          <div key={rule.id} className="flex items-start gap-2 p-2 rounded-md bg-amber-500/5 border border-amber-500/20">
+            <div className="flex-1 min-w-0">
+              <span className="text-[13px] text-amber-300">
+                if {CONDITION_LABELS[rule.condition]} <span className="font-mono bg-black/20 px-1 rounded">{rule.value}</span>
+              </span>
+              <div className="text-[13px] text-gray-400 mt-0.5">
+                → reset <span className="text-amber-200">{target?.name || rule.nextStepId.slice(0, 8)}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => deleteRule(rule.id)}
+              disabled={isExecuting}
+              className="text-gray-600 hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+            >
+              ✕
+            </button>
+          </div>
+        );
+      })}
+
+      {addingRule && (
+        <div className="p-2 rounded-md bg-white/[0.03] border border-white/[0.08] space-y-2">
+          <select
+            value={newCondition}
+            onChange={(e) => setNewCondition(e.target.value as RoutingRule['condition'])}
+            className="w-full text-sm glass-input text-gray-300 rounded-md px-2 py-1.5 focus:outline-none"
+          >
+            {Object.entries(CONDITION_LABELS).map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder='e.g. STATUS: FAIL'
+            className="w-full text-sm glass-input text-gray-300 rounded-md px-2 py-1.5 focus:outline-none"
+          />
+          <select
+            value={newTarget}
+            onChange={(e) => setNewTarget(e.target.value)}
+            className="w-full text-sm glass-input text-gray-300 rounded-md px-2 py-1.5 focus:outline-none"
+          >
+            <option value="">→ Reset step to pending…</option>
+            {otherSteps.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <button
+              onClick={saveRule}
+              disabled={!newTarget || !newValue.trim()}
+              className="flex-1 text-xs px-2 py-1.5 rounded-md bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors disabled:opacity-40"
+            >
+              Add Rule
+            </button>
+            <button
+              onClick={() => setAddingRule(false)}
+              className="text-xs px-2 py-1.5 rounded-md text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!addingRule && (
+        <button
+          onClick={() => setAddingRule(true)}
+          disabled={isExecuting}
+          className="text-xs text-amber-400/60 hover:text-amber-400 transition-colors disabled:opacity-30"
+        >
+          + Add routing rule
+        </button>
+      )}
+
+      {rules.length > 0 && (
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500 whitespace-nowrap">Max cycles</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={maxCycles}
+            onChange={(e) =>
+              onUpdate({ executorConfig: { ...step.executorConfig, maxCycles: parseInt(e.target.value) || 5 } })
+            }
+            disabled={isExecuting}
+            className="w-16 text-sm glass-input text-gray-300 rounded-md px-2 py-1 focus:outline-none disabled:opacity-50"
+          />
+          <span className="text-[13px] text-gray-600">before normal flow resumes</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Connector Step Config ───────────────────────────
+
+const CONNECTOR_TEMPLATE_VARS = '{{result}} {{stepName}} {{workflowName}} {{agentName}} {{timestamp}}';
+
+function ConnectorStepConfig({
+  step,
+  onUpdate,
+  isExecuting,
+}: {
+  step: LocalStep;
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+}) {
+  const cfg = step.executorConfig;
+  const connectorType = (cfg.connectorType as string) || 'slack';
+
+  const update = (patch: Record<string, unknown>) =>
+    onUpdate({ executorConfig: { ...cfg, ...patch } });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Connector Type</label>
+        <select
+          value={connectorType}
+          onChange={(e) => update({ connectorType: e.target.value })}
+          disabled={isExecuting}
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+        >
+          <option value="slack">Slack</option>
+          <option value="discord">Discord</option>
+          <option value="github">GitHub</option>
+          <option value="linear">Linear</option>
+          <option value="http">Generic HTTP</option>
+        </select>
+      </div>
+
+      <div className="text-[11px] text-gray-600">
+        Available: <span className="font-mono text-gray-500">{CONNECTOR_TEMPLATE_VARS}</span>
+      </div>
+
+      {(connectorType === 'slack' || connectorType === 'discord') && (
+        <>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Incoming Webhook URL</label>
+            <input
+              type="text"
+              value={(cfg.webhookUrl as string) || ''}
+              onChange={(e) => update({ webhookUrl: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="https://hooks.slack.com/..."
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Message Template</label>
+            <textarea
+              value={(cfg.messageTemplate as string) || '{{workflowName}} — {{stepName}} completed:\n{{result}}'}
+              onChange={(e) => update({ messageTemplate: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              rows={3}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+            />
+          </div>
+        </>
+      )}
+
+      {connectorType === 'github' && (
+        <>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">GitHub Token</label>
+            <input
+              type="password"
+              value={(cfg.githubToken as string) || ''}
+              onChange={(e) => update({ githubToken: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="ghp_..."
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Repository (owner/repo)</label>
+            <input
+              type="text"
+              value={(cfg.githubRepo as string) || ''}
+              onChange={(e) => update({ githubRepo: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="owner/repo"
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Action</label>
+            <select
+              value={(cfg.githubAction as string) || 'create_issue'}
+              onChange={(e) => update({ githubAction: e.target.value })}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            >
+              <option value="create_issue">Create Issue</option>
+              <option value="comment_pr">Comment on PR</option>
+              <option value="trigger_workflow">Trigger Workflow</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Title Template</label>
+            <input
+              type="text"
+              value={(cfg.githubTitle as string) || '{{workflowName}}: {{stepName}}'}
+              onChange={(e) => update({ githubTitle: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Body Template</label>
+            <textarea
+              value={(cfg.githubBody as string) || '{{result}}'}
+              onChange={(e) => update({ githubBody: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              rows={3}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+            />
+          </div>
+          {(cfg.githubAction as string) === 'comment_pr' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">PR Number</label>
+              <input
+                type="text"
+                value={(cfg.githubPrNumber as string) || ''}
+                onChange={(e) => update({ githubPrNumber: e.target.value })}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="123"
+                disabled={isExecuting}
+                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          )}
+          {(cfg.githubAction as string) === 'trigger_workflow' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Workflow ID / filename</label>
+              <input
+                type="text"
+                value={(cfg.githubWorkflowId as string) || ''}
+                onChange={(e) => update({ githubWorkflowId: e.target.value })}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="ci.yml"
+                disabled={isExecuting}
+                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {connectorType === 'linear' && (
+        <>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Linear API Key</label>
+            <input
+              type="password"
+              value={(cfg.linearApiKey as string) || ''}
+              onChange={(e) => update({ linearApiKey: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="lin_api_..."
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Team ID</label>
+            <input
+              type="text"
+              value={(cfg.linearTeamId as string) || ''}
+              onChange={(e) => update({ linearTeamId: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="TEAM-ID"
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Action</label>
+            <select
+              value={(cfg.linearAction as string) || 'create_issue'}
+              onChange={(e) => update({ linearAction: e.target.value })}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            >
+              <option value="create_issue">Create Issue</option>
+              <option value="update_issue">Update Issue</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Title Template</label>
+            <input
+              type="text"
+              value={(cfg.linearTitle as string) || '{{workflowName}}: {{stepName}}'}
+              onChange={(e) => update({ linearTitle: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Description Template</label>
+            <textarea
+              value={(cfg.linearDescription as string) || '{{result}}'}
+              onChange={(e) => update({ linearDescription: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              rows={3}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+            />
+          </div>
+          {(cfg.linearAction as string) === 'update_issue' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Issue ID</label>
+              <input
+                type="text"
+                value={(cfg.linearIssueId as string) || ''}
+                onChange={(e) => update({ linearIssueId: e.target.value })}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="TEAM-123"
+                disabled={isExecuting}
+                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {connectorType === 'http' && (
+        <>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">URL</label>
+            <input
+              type="text"
+              value={(cfg.httpUrl as string) || ''}
+              onChange={(e) => update({ httpUrl: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="https://api.example.com/webhook"
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Method</label>
+            <select
+              value={(cfg.httpMethod as string) || 'POST'}
+              onChange={(e) => update({ httpMethod: e.target.value })}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            >
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="GET">GET</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Body Template (JSON)</label>
+            <textarea
+              value={(cfg.httpBodyTemplate as string) || '{"message": "{{result}}"}'}
+              onChange={(e) => update({ httpBodyTemplate: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              rows={4}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono text-[13px] disabled:opacity-50"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Side Panel Component ───────────────────────────
 
 function SidePanel({
   step,
+  steps,
   agentOptions,
   isExecuting,
   onUpdate,
@@ -1880,6 +2442,7 @@ function SidePanel({
   onSkip,
 }: {
   step: LocalStep;
+  steps: LocalStep[];
   agentOptions: { id: string; label: string }[];
   isExecuting: boolean;
   onUpdate: (patch: Partial<LocalStep>) => void;
@@ -1945,6 +2508,7 @@ function SidePanel({
             <option value="quality-gate">Quality Gate (Test / Lint / Security)</option>
             <option value="review-gate">Critic / Review Gate</option>
             <option value="deliberation">Multi-Cartridge Deliberation</option>
+            <option value="connector">External Connector (Slack / GitHub / Linear / HTTP)</option>
           </select>
         </div>
 
@@ -1954,7 +2518,7 @@ function SidePanel({
         )}
 
         {/* ── Standard step config ── */}
-        {step.executorType !== 'review-gate' && step.executorType !== 'deliberation' && step.executorType !== 'quality-gate' && step.executorType !== 'command' && (
+        {step.executorType !== 'review-gate' && step.executorType !== 'deliberation' && step.executorType !== 'quality-gate' && step.executorType !== 'command' && step.executorType !== 'connector' && (
           <>
             {/* Expert role selector */}
             <div>
@@ -2156,6 +2720,16 @@ function SidePanel({
               </div>
             )}
           </>
+        )}
+
+        {/* Connector config */}
+        {step.executorType === 'connector' && (
+          <ConnectorStepConfig step={step} onUpdate={onUpdate} isExecuting={isExecuting} />
+        )}
+
+        {/* Routing rules (for standard + command steps) */}
+        {(step.executorType === 'claude-code' || step.executorType === 'command' || !step.executorType) && (
+          <RoutingRulesEditor step={step} steps={steps} onUpdate={onUpdate} isExecuting={isExecuting} />
         )}
 
         {/* Dependencies display */}

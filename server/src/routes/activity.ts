@@ -95,4 +95,53 @@ function normalizeActivity(row: Record<string, unknown>): Activity {
   };
 }
 
+// ── Token usage endpoints ──────────────────────────────────────────────────
+
+// Report session token usage (called from Stop/SubagentStop hook)
+router.post('/usage', (req, res) => {
+  const { sessionId, machine, repoPath, inputTokens, outputTokens, model } = req.body;
+
+  // Resolve agent
+  let resolvedAgentId: string | undefined;
+  if (machine && repoPath) {
+    const normalizedIncoming = normalizeRepoPath(repoPath);
+    const candidates = db.prepare('SELECT id, repo_path FROM agents WHERE machine = ?').all(machine) as { id: string; repo_path: string }[];
+    const match = candidates.find((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
+    resolvedAgentId = match?.id;
+  }
+  if (!resolvedAgentId && sessionId) {
+    const agent = db.prepare('SELECT id FROM agents WHERE session_id = ?').get(sessionId) as { id: string } | undefined;
+    resolvedAgentId = agent?.id;
+  }
+
+  if (!resolvedAgentId) {
+    return res.status(400).json({ error: 'Could not resolve agent' });
+  }
+
+  const id = uuid();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO session_usage (id, session_id, agent_id, input_tokens, output_tokens, model, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, sessionId || '', resolvedAgentId, inputTokens || 0, outputTokens || 0, model || '', now);
+
+  res.status(201).json({ id });
+});
+
+// Get aggregate token usage for an agent (optionally since a timestamp)
+router.get('/usage/:agentId', (req, res) => {
+  const { agentId } = req.params;
+  const since = req.query.since as string | undefined;
+
+  const rows = since
+    ? db.prepare('SELECT input_tokens, output_tokens, model, recorded_at FROM session_usage WHERE agent_id = ? AND recorded_at >= ? ORDER BY recorded_at DESC').all(agentId, since) as { input_tokens: number; output_tokens: number; model: string; recorded_at: string }[]
+    : db.prepare('SELECT input_tokens, output_tokens, model, recorded_at FROM session_usage WHERE agent_id = ? ORDER BY recorded_at DESC LIMIT 50').all(agentId) as { input_tokens: number; output_tokens: number; model: string; recorded_at: string }[];
+
+  const totalInput = rows.reduce((sum, r) => sum + r.input_tokens, 0);
+  const totalOutput = rows.reduce((sum, r) => sum + r.output_tokens, 0);
+  const latestModel = rows[0]?.model || '';
+
+  res.json({ agentId, totalInput, totalOutput, total: totalInput + totalOutput, latestModel, sessions: rows.length });
+});
+
 export default router;
