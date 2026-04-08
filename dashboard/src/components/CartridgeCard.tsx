@@ -455,17 +455,15 @@ export function CartridgeCard({
 
 
   // Terminal tab state
-  const [terminalTab, setTerminalTab] = useState<'activity' | 'log'>('activity');
-  const terminalActivities = activities.slice(0, 8);
   const logScrollRef = useRef<HTMLDivElement>(null);
   const logHoveredRef = useRef(false);
 
-  // Auto-scroll live log when new activities arrive
+  // Auto-scroll live log to top when new activities arrive (newest is at top)
   useEffect(() => {
-    if (terminalTab === 'log' && !logHoveredRef.current && logScrollRef.current) {
-      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    if (!logHoveredRef.current && logScrollRef.current) {
+      logScrollRef.current.scrollTop = 0;
     }
-  }, [activities, terminalTab]);
+  }, [activities]);
 
   // Cartridge border highlight for special states
   const borderHighlight = stuckAlert
@@ -598,19 +596,31 @@ export function CartridgeCard({
             )}
           </div>
 
-          {/* Agent type badges + machine — Gridlight first, then Claude */}
+          {/* Agent type badges + machine — Gridlight first, then others */}
           <div className="flex items-center gap-2">
             {[agent, ...(siblingAgents || [])]
               .sort((a, b) => (a.agentType === 'gridlight' ? -1 : 1) - (b.agentType === 'gridlight' ? -1 : 1))
-              .map((a) => (
-              <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
-                a.agentType === 'gridlight'
-                  ? 'bg-pink-900/60 text-pink-300'
-                  : 'bg-blue-900/60 text-blue-300'
-              }`}>
-                {a.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
-              </span>
-            ))}
+              .map((a) => {
+                const badgeStyle =
+                  a.agentType === 'gridlight' ? 'bg-pink-900/60 text-pink-300' :
+                  a.agentType === 'gemini'    ? 'bg-teal-900/60 text-teal-300' :
+                  a.agentType === 'amazonq'   ? 'bg-orange-900/60 text-orange-300' :
+                  a.agentType === 'codex'     ? 'bg-green-900/60 text-green-300' :
+                  a.agentType === 'cursor'    ? 'bg-violet-900/60 text-violet-300' :
+                                               'bg-blue-900/60 text-blue-300';
+                const badgeLabel =
+                  a.agentType === 'gridlight' ? 'Gridlight' :
+                  a.agentType === 'gemini'    ? 'Gemini CLI' :
+                  a.agentType === 'amazonq'   ? 'Amazon Q' :
+                  a.agentType === 'codex'     ? 'Codex CLI' :
+                  a.agentType === 'cursor'    ? 'Cursor' :
+                                               'Claude CC';
+                return (
+                  <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${badgeStyle}`}>
+                    {badgeLabel}
+                  </span>
+                );
+              })}
             <span className="text-[13px] text-gray-500 font-mono truncate">
               {shortMachine(agent.machine)}
             </span>
@@ -715,78 +725,45 @@ export function CartridgeCard({
             border: '1px solid rgba(255,255,255,0.06)',
           }}
         >
-          {/* Tab bar */}
-          <div className="px-2 py-1 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <button
-              onClick={() => setTerminalTab('activity')}
-              className={`text-[13px] font-mono transition-colors ${terminalTab === 'activity' ? 'text-green-400' : 'text-gray-600 hover:text-gray-400'}`}
-            >
-              Activity
-            </button>
-            <button
-              onClick={() => setTerminalTab('log')}
-              className={`text-[13px] font-mono transition-colors ${terminalTab === 'log' ? 'text-green-400' : 'text-gray-600 hover:text-gray-400'}`}
-            >
-              Live Log
-              {terminalTab !== 'log' && effectiveStatus === 'working' && (
-                <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse align-middle" />
-              )}
-            </button>
+          {/* Header */}
+          <div className="px-2 py-1 flex items-center" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <span className="text-[13px] font-mono text-green-400">Live Log</span>
+            {effectiveStatus === 'working' && (
+              <span className="ml-2 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            )}
             <span className="text-[13px] text-gray-700 font-mono ml-auto">{activities.length}</span>
           </div>
 
-          {terminalTab === 'activity' ? (
-            <div className="overflow-y-auto font-mono text-[13px] leading-relaxed" style={{ maxHeight: '120px' }}>
-              {terminalActivities.length === 0 ? (
-                <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
-              ) : (
-                terminalActivities.map((act) => (
-                  <div
-                    key={act.id}
-                    onClick={() => onActivityClick?.(act)}
-                    className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
-                    title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
-                  >
-                    <span className="text-green-600 select-none">&gt; </span>
-                    <span className="text-green-500">{act.toolName || act.eventType}</span>
-                    {' '}
-                    <span className="text-green-400/60">{briefSummary(act)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          ) : (
-            <div
-              ref={logScrollRef}
-              className="overflow-y-auto font-mono text-[13px] leading-relaxed"
-              style={{ maxHeight: '180px' }}
-              onMouseEnter={() => { logHoveredRef.current = true; }}
-              onMouseLeave={() => {
-                logHoveredRef.current = false;
-                if (logScrollRef.current) logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
-              }}
-            >
-              {activities.length === 0 ? (
-                <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
-              ) : (
-                [...activities].reverse().map((act) => (
-                  <div
-                    key={act.id}
-                    onClick={() => onActivityClick?.(act)}
-                    className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
-                    title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
-                  >
-                    <span className="text-gray-600 select-none text-[11px]">
-                      {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{' '}
-                    </span>
-                    <span className="text-green-500">{act.toolName || act.eventType}</span>
-                    {' '}
-                    <span className="text-green-400/60">{briefSummary(act)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+          <div
+            ref={logScrollRef}
+            className="overflow-y-auto font-mono text-[13px] leading-relaxed"
+            style={{ maxHeight: '160px' }}
+            onMouseEnter={() => { logHoveredRef.current = true; }}
+            onMouseLeave={() => {
+              logHoveredRef.current = false;
+              if (logScrollRef.current) logScrollRef.current.scrollTop = 0;
+            }}
+          >
+            {activities.length === 0 ? (
+              <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
+            ) : (
+              [...activities].reverse().map((act) => (
+                <div
+                  key={act.id}
+                  onClick={() => onActivityClick?.(act)}
+                  className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
+                  title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
+                >
+                  <span className="text-gray-600 select-none text-[11px]">
+                    {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{' '}
+                  </span>
+                  <span className="text-green-500">{act.toolName || act.eventType}</span>
+                  {' '}
+                  <span className="text-green-400/60">{briefSummary(act)}</span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 

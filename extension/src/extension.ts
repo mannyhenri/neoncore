@@ -25,8 +25,8 @@ let socket: Socket | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 
-// Agent type (claude or gridlight) — read from config (used for command handling)
-let agentType: 'claude' | 'gridlight' = 'claude';
+// Agent type — read from config (or auto-detected from host app name)
+let agentType: 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor' = 'claude';
 let registeredAgentId: string | null = null;
 
 // All discovered agent-related commands
@@ -59,9 +59,17 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('neoncore.disconnect', () => disconnectFromOrchestrator()),
   );
 
-  // Read agent type from config (determines which commands this extension handles)
+  // Read agent type from config, with auto-detection fallback based on host app name.
+  // Cursor returns vscode.env.appName === "Cursor"; VS Code returns "Visual Studio Code".
   const config = vscode.workspace.getConfiguration('neoncore');
-  agentType = config.get('agentType', 'claude') as 'claude' | 'gridlight';
+  const configuredType = config.get<string>('agentType', '');
+  if (configuredType) {
+    agentType = configuredType as typeof agentType;
+  } else {
+    const appName = vscode.env.appName.toLowerCase();
+    if (appName.includes('cursor')) agentType = 'cursor';
+    else agentType = 'claude';
+  }
 
   // Discover agent extension commands (for command injection)
   discoverAgentCommands();
@@ -330,12 +338,21 @@ function disconnectFromOrchestrator() {
 
 function detectActiveAIExtensions(): Set<string> {
   const active = new Set<string>();
+
+  // Detect host app (Cursor is a VS Code fork — check app name first)
+  const appName = vscode.env.appName.toLowerCase();
+  if (appName.includes('cursor')) active.add('cursor');
+
+  // Detect active AI extensions by extension ID
   for (const ext of vscode.extensions.all) {
     const id = ext.id.toLowerCase();
     if (id.includes('neoncore')) continue; // skip ourselves
     if (ext.isActive) {
       if (id.includes('gridlight')) active.add('gridlight');
       if (id.includes('claude') || id.includes('anthropic')) active.add('claude');
+      if (id.includes('github.copilot')) active.add('copilot');
+      if (id.includes('amazonwebservices.amazon-q') || id.includes('amazon-q')) active.add('amazonq');
+      if (id.includes('google.gemini') || id.includes('gemini-code')) active.add('gemini');
     }
   }
   return active;
