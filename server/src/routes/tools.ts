@@ -76,28 +76,81 @@ const CLI_INFO: Record<string, { bin: string; npmPkg: string | null; authCmd: st
   cursor:  { bin: 'cursor',  npmPkg: null,                      authCmd: null },
 };
 
+/** Resolve npm's global bin directory at runtime */
+function getNpmGlobalBin(): string | null {
+  try {
+    // Try login shell first (picks up nvm/fnm/volta shims)
+    const result = execSync('bash -lc "npm bin -g 2>/dev/null || npm root -g | xargs dirname"', {
+      timeout: 5000,
+    }).toString().trim().split('\n')[0];
+    if (result && fs.existsSync(result)) return result;
+  } catch { /* ignore */ }
+  try {
+    const result = execSync('npm bin -g', { timeout: 3000 }).toString().trim();
+    if (result && fs.existsSync(result)) return result;
+  } catch { /* ignore */ }
+  return null;
+}
+
+let _npmGlobalBin: string | null | undefined;
+function npmGlobalBin(): string | null {
+  if (_npmGlobalBin === undefined) _npmGlobalBin = getNpmGlobalBin();
+  return _npmGlobalBin;
+}
+
 /** Check if a CLI binary is available via PATH or common install locations */
 function findCli(binName: string): string | null {
   const home = os.homedir();
-  const extraPaths = [
+
+  // Build candidate directories — broad sweep across all common install locations
+  const dirs = [
     '/usr/local/bin',
+    '/usr/bin',
     '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
     path.join(home, '.local', 'bin'),
     path.join(home, '.npm-global', 'bin'),
+    path.join(home, '.npm', 'bin'),
     path.join(home, 'node_modules', '.bin'),
-    // Cursor-specific
+    // nvm default locations
+    ...(() => {
+      try {
+        const nvmDir = process.env.NVM_DIR || path.join(home, '.nvm');
+        const versionsDir = path.join(nvmDir, 'versions', 'node');
+        if (!fs.existsSync(versionsDir)) return [];
+        return fs.readdirSync(versionsDir)
+          .map((v) => path.join(versionsDir, v, 'bin'))
+          .filter(fs.existsSync);
+      } catch { return []; }
+    })(),
+    // fnm
+    path.join(home, '.fnm', 'aliases', 'default', 'bin'),
+    // volta
+    path.join(home, '.volta', 'bin'),
+    // Cursor binary
     '/Applications/Cursor.app/Contents/Resources/app/bin',
-    path.join(home, 'Applications/Cursor.app/Contents/Resources/app/bin'),
-  ];
-  for (const dir of extraPaths) {
+    path.join(home, 'Applications', 'Cursor.app', 'Contents', 'Resources', 'app', 'bin'),
+    // npm global bin (resolved at runtime)
+    npmGlobalBin(),
+  ].filter((d): d is string => typeof d === 'string' && d.length > 0);
+
+  for (const dir of dirs) {
     const full = path.join(dir, binName);
-    if (fs.existsSync(full)) return full;
+    try { if (fs.existsSync(full)) return full; } catch { /* skip */ }
   }
-  try {
-    const cmd = process.platform === 'win32' ? `where ${binName}` : `bash -lc "which ${binName}"`;
-    const result = execSync(cmd, { timeout: 3000 }).toString().trim().split('\n')[0];
-    if (result && fs.existsSync(result)) return result;
-  } catch { /* not found */ }
+
+  // Fall back to shell resolution (login shell loads full profile)
+  for (const shellCmd of [
+    `bash -lc "which ${binName} 2>/dev/null"`,
+    `zsh -lc "which ${binName} 2>/dev/null"`,
+    process.platform === 'win32' ? `where ${binName}` : null,
+  ].filter(Boolean) as string[]) {
+    try {
+      const result = execSync(shellCmd, { timeout: 4000 }).toString().trim().split('\n')[0];
+      if (result && !result.includes('not found') && fs.existsSync(result)) return result;
+    } catch { /* try next */ }
+  }
+
   return null;
 }
 
@@ -162,6 +215,8 @@ function reporterPath(tool: ToolKey): string {
 // GET /api/tools/status
 // ---------------------------------------------------------------------------
 router.get('/status', (_req, res) => {
+  // Reset npm bin cache so a freshly installed CLI is detected without server restart
+  _npmGlobalBin = undefined;
   const status: Record<string, {
     installed: boolean;
     configFile: string;
