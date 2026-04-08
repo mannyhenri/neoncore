@@ -33,6 +33,10 @@ interface ToolStatus {
   installed: boolean;
   configFile: string;
   hooksExist: boolean;
+  cliInstalled: boolean;
+  cliPath: string | null;
+  npmPkg: string | null;
+  authCmd: string | null;
 }
 
 export function SettingsModal({ onClose }: Props) {
@@ -804,15 +808,27 @@ export function SettingsModal({ onClose }: Props) {
                       </div>
                     </div>
 
-                    {/* Config file path */}
-                    <div className="text-[11px] text-gray-600 font-mono truncate" title={info.configFile}>
-                      {info.configFile}
+                    {/* CLI + config status row */}
+                    <div className="flex items-center gap-3 text-[11px]">
+                      <span className={info.cliInstalled ? 'text-green-500/70' : 'text-gray-600'}>
+                        {info.cliInstalled ? '● CLI ready' : info.npmPkg ? '○ CLI not installed' : '○ CLI not detected'}
+                      </span>
+                      <span className="text-gray-700 font-mono truncate" title={info.configFile}>
+                        {info.configFile.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')}
+                      </span>
                     </div>
 
                     {/* Missing scripts warning */}
                     {!info.hooksExist && (
                       <div className="text-[11px] text-amber-500/80">
                         Hook scripts not found — make sure NeonCore is fully cloned
+                      </div>
+                    )}
+
+                    {/* Auth hint — shown after successful install if tool needs auth */}
+                    {msg?.type === 'ok' && info.authCmd && (
+                      <div className="text-[11px] text-yellow-400/80 bg-yellow-500/10 rounded px-2 py-1">
+                        Run <span className="font-mono">{info.authCmd}</span> to authenticate
                       </div>
                     )}
 

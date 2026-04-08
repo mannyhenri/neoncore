@@ -401,7 +401,7 @@ export const api = {
 
   // Tool integrations
   getToolsStatus: () =>
-    request<Record<string, { label: string; installed: boolean; configFile: string; hooksExist: boolean }>>('/tools/status'),
+    request<Record<string, { label: string; installed: boolean; configFile: string; hooksExist: boolean; cliInstalled: boolean; cliPath: string | null; npmPkg: string | null; authCmd: string | null }>>('/tools/status'),
   installTool: (tool: string) =>
     request<{ ok: boolean; tool: string; configFile: string; note: string }>(`/tools/install/${tool}`, { method: 'POST' }),
   uninstallTool: (tool: string) =>
