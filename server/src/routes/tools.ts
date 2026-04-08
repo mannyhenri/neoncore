@@ -285,8 +285,8 @@ router.post('/install/:tool', (req, res) => {
     if (tool === 'gemini') {
       mergeJsonFile(TOOL_CONFIGS.gemini.configFile, {
         hooks: {
-          preToolCall: [{ command: proxy }],
-          postToolCall: [{ command: reporter }],
+          BeforeTool: [{ matcher: '.*', hooks: [{ name: 'neoncore-proxy', type: 'command', command: proxy }] }],
+          AfterTool:  [{ matcher: '.*', hooks: [{ name: 'neoncore-reporter', type: 'command', command: reporter }] }],
         },
       });
 
