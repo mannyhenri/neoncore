@@ -160,8 +160,21 @@ function findCliBinary(name: string): string | null {
  * Using a script file avoids all shell-quoting hell with paths/commands.
  * Returns an error string on failure, null on success.
  */
-function openInTerminal(repoPath: string, command: string): string | null {
+function openInTerminal(repoPath: string, command: string, agentType?: string): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+  const repoName = path.basename(repoPath);
+
+  // Pre-registration block — registers cartridge immediately on launch before CLI starts
+  const preRegister = agentType ? [
+    '# Register with NeonCore immediately so cartridge appears on launch',
+    '_NC_SESSION="neoncore-launch-$$-$RANDOM"',
+    `_NC_MACHINE="$(hostname 2>/dev/null || echo unknown)"`,
+    `curl -sf -X POST "${neonUrl}/api/agents/register" \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -d "{\\"sessionId\\":\\"$_NC_SESSION\\",\\"machine\\":\\"$_NC_MACHINE\\",\\"repoPath\\":${JSON.stringify(repoPath)},\\"repoName\\":${JSON.stringify(repoName)},\\"agentType\\":${JSON.stringify(agentType)},\\"status\\":\\"idle\\"}" \\`,
+    `  >/dev/null 2>&1 || true`,
+    `export NEONCORE_SESSION_ID="$_NC_SESSION"`,
+  ] : [];
 
   // Write a self-cleaning launch script
   const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
@@ -173,6 +186,7 @@ function openInTerminal(repoPath: string, command: string): string | null {
     '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
     '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
     '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
+    ...preRegister,
     command,
   ].join('\n') + '\n');
   fs.chmodSync(scriptPath, '755');
@@ -269,7 +283,7 @@ router.post('/open', (req, res) => {
   };
 
   if (agentType in CLI_COMMANDS) {
-    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType]);
+    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType], agentType);
     if (err) return res.status(500).json({ error: err });
     res.json({ ok: true });
     return;
