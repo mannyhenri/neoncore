@@ -36,9 +36,18 @@
         },
         "neoncore.agentType": {
           "type": "string",
-          "enum": ["claude", "gridlight"],
-          "default": "claude",
-          "description": "Type of AI agent in this VS Code workspace (claude or gridlight)"
+          "enum": ["", "claude", "gridlight", "gemini", "amazonq", "codex", "cursor"],
+          "enumDescriptions": [
+            "Auto-detect (uses app name — Cursor is detected automatically)",
+            "Claude Code (Anthropic)",
+            "Gridlight",
+            "Gemini CLI (Google)",
+            "Amazon Q Developer CLI",
+            "Codex CLI (OpenAI)",
+            "Cursor (auto-detected, but can be forced here)"
+          ],
+          "default": "",
+          "description": "AI agent type for this VS Code workspace. Leave blank to auto-detect."
         }
       }
     }
