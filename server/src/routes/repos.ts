@@ -2,7 +2,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import db from '../db.js';
 
 const router = Router();
@@ -89,17 +89,28 @@ router.get('/', (_req, res) => {
   res.json({ repos, projectsDirs });
 });
 
-// Find the `code` CLI binary — the server's shell may not have it in PATH
+// ---------------------------------------------------------------------------
+// Binary finders
+// ---------------------------------------------------------------------------
+
+function findBinary(candidates: string[], shellCmd: string): string | null {
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  try {
+    const resolved = execSync(shellCmd, { timeout: 3000 }).toString().trim().split('\n')[0];
+    if (resolved && fs.existsSync(resolved)) return resolved;
+  } catch { /* ignore */ }
+  return null;
+}
+
 function findCodeBinary(): string {
   const isWin = process.platform === 'win32';
   const home = os.homedir();
-
   const candidates = isWin
     ? [
         path.join(home, 'AppData', 'Local', 'Programs', 'Microsoft VS Code', 'bin', 'code.cmd'),
         path.join('C:', 'Program Files', 'Microsoft VS Code', 'bin', 'code.cmd'),
-        path.join(home, 'AppData', 'Local', 'Programs', 'Microsoft VS Code', 'Code.exe'),
-        path.join('C:', 'Program Files', 'Microsoft VS Code', 'Code.exe'),
       ]
     : [
         '/usr/local/bin/code',
@@ -107,65 +118,152 @@ function findCodeBinary(): string {
         path.join(home, '.local', 'bin', 'code'),
         '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
       ];
+  return findBinary(candidates, process.platform === 'win32' ? 'where code' : 'bash -lc "which code"')
+    ?? (isWin ? 'code.cmd' : 'code');
+}
 
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
+function findCursorBinary(): string | null {
+  const home = os.homedir();
+  const candidates = process.platform === 'win32'
+    ? [
+        path.join(home, 'AppData', 'Local', 'Programs', 'cursor', 'Cursor.exe'),
+        path.join('C:', 'Program Files', 'Cursor', 'Cursor.exe'),
+      ]
+    : [
+        '/usr/local/bin/cursor',
+        '/opt/homebrew/bin/cursor',
+        '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
+        path.join(home, 'Applications', 'Cursor.app', 'Contents', 'Resources', 'app', 'bin', 'cursor'),
+      ];
+  return findBinary(candidates, process.platform === 'win32' ? 'where cursor' : 'bash -lc "which cursor"');
+}
+
+function findCliBinary(name: string): string | null {
+  const home = os.homedir();
+  const candidates = [
+    `/usr/local/bin/${name}`,
+    `/opt/homebrew/bin/${name}`,
+    path.join(home, '.local', 'bin', name),
+    path.join(home, '.npm-global', 'bin', name),
+    path.join(home, 'node_modules', '.bin', name),
+  ];
+  const shellCmd = process.platform === 'win32' ? `where ${name}` : `bash -lc "which ${name}"`;
+  return findBinary(candidates, shellCmd);
+}
+
+// ---------------------------------------------------------------------------
+// Terminal launcher — opens a terminal window running a command at a path
+// ---------------------------------------------------------------------------
+
+function openInTerminal(repoPath: string, command: string): void {
+  const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+
+  if (process.platform === 'darwin') {
+    // Try iTerm2 first, fall back to Terminal.app
+    const script = `
+      set cmd to "cd ${repoPath.replace(/"/g, '\\"')} && NEONCORE_URL=${neonUrl} ${command}"
+      if application "iTerm2" is running then
+        tell application "iTerm2"
+          create window with default profile command ("bash -lc \\"" & cmd & "\\"")
+        end tell
+      else
+        tell application "Terminal"
+          do script cmd
+          activate
+        end tell
+      end if
+    `;
+    spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' }).unref();
+
+  } else if (process.platform === 'linux') {
+    // Try common terminal emulators
+    const terminals = ['gnome-terminal', 'xterm', 'konsole', 'xfce4-terminal'];
+    const env = { ...process.env, NEONCORE_URL: neonUrl };
+    for (const term of terminals) {
+      try {
+        if (term === 'gnome-terminal') {
+          spawn(term, ['--working-directory', repoPath, '--', 'bash', '-lc', command], {
+            detached: true, stdio: 'ignore', env,
+          }).unref();
+        } else {
+          spawn(term, ['-e', `bash -lc "cd '${repoPath}' && NEONCORE_URL=${neonUrl} ${command}"`], {
+            detached: true, stdio: 'ignore', env,
+          }).unref();
+        }
+        return;
+      } catch { /* try next */ }
+    }
+
+  } else if (process.platform === 'win32') {
+    const cmd = `cd /d "${repoPath}" && set NEONCORE_URL=${neonUrl} && ${command}`;
+    spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', cmd], {
+      detached: true, stdio: 'ignore',
+    }).unref();
   }
-
-  // Try the user's login shell to resolve it
-  try {
-    const cmd = isWin ? 'where code' : 'bash -lc "which code"';
-    const resolved = execSync(cmd, { timeout: 3000 }).toString().trim().split('\n')[0];
-    if (resolved && fs.existsSync(resolved)) return resolved;
-  } catch { /* ignore */ }
-
-  return isWin ? 'code.cmd' : 'code';
 }
 
 let codeBin: string | null = null;
 
-// POST /api/repos/open - open a repo in VS Code with the chosen agent extension
+// ---------------------------------------------------------------------------
+// POST /api/repos/open - open a repo with the chosen agent tool
+// ---------------------------------------------------------------------------
 router.post('/open', (req, res) => {
   const { path: repoPath, agentType } = req.body;
   if (!repoPath || typeof repoPath !== 'string') {
     return res.status(400).json({ error: 'path required' });
   }
-
   if (!fs.existsSync(repoPath)) {
     return res.status(400).json({ error: 'Path does not exist' });
   }
 
-  // Set the NeonCore extension's agentType in the workspace settings
+  // ── CLI tools: open a terminal window running the CLI at the project path ──
+  const CLI_COMMANDS: Record<string, string> = {
+    gemini:  'gemini',
+    amazonq: 'q chat',
+    codex:   'codex',
+  };
+
+  if (agentType in CLI_COMMANDS) {
+    const cliName = agentType === 'amazonq' ? 'q' : agentType;
+    const cliBin = findCliBinary(cliName);
+    if (!cliBin && agentType !== 'amazonq') {
+      // Amazon Q install path is non-standard; still try running it by name
+      return res.status(400).json({
+        error: `${agentType} CLI not found. Install it first via the Tools tab.`,
+      });
+    }
+    openInTerminal(repoPath, CLI_COMMANDS[agentType]);
+    res.json({ ok: true });
+    return;
+  }
+
+  // ── Cursor: open with cursor binary ──
+  if (agentType === 'cursor') {
+    const cursorBin = findCursorBinary();
+    if (!cursorBin) {
+      return res.status(400).json({ error: 'Cursor not found. Is Cursor installed?' });
+    }
+    // Write workspace setting so NeonCore extension registers as cursor
+    writeVscodeSettings(repoPath, 'cursor');
+    try {
+      execSync(`"${cursorBin}" "${repoPath}"`, { timeout: 5000 });
+      res.json({ ok: true });
+    } catch {
+      res.status(500).json({ error: 'Failed to open Cursor' });
+    }
+    return;
+  }
+
+  // ── VS Code-based tools (claude, gridlight) ──
   const resolvedType = agentType === 'gridlight' ? 'gridlight' : 'claude';
-  const vscodeDir = path.join(repoPath, '.vscode');
-  const settingsPath = path.join(vscodeDir, 'settings.json');
-  try {
-    if (!fs.existsSync(vscodeDir)) fs.mkdirSync(vscodeDir, { recursive: true });
-    let settings: Record<string, unknown> = {};
-    if (fs.existsSync(settingsPath)) {
-      const raw = fs.readFileSync(settingsPath, 'utf-8');
-      try { settings = JSON.parse(raw); } catch { /* overwrite broken JSON */ }
-    }
-    settings['neoncore.agentType'] = resolvedType;
+  writeVscodeSettings(repoPath, resolvedType);
 
-    // When Gridlight is selected, enable its built-in NeonCore client
-    // so it auto-connects and opens the Gridlight panel on launch
-    if (resolvedType === 'gridlight') {
-      settings['gridlight.neoncore.enabled'] = true;
-      settings['gridlight.neoncore.serverUrl'] = `http://localhost:${process.env.PORT || 4040}`;
-    }
-
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-  } catch { /* best-effort — extension falls back to 'claude' */ }
-
-  // Cache the resolved binary path
   if (!codeBin) codeBin = findCodeBinary();
 
   try {
     execSync(`"${codeBin}" "${repoPath}"`, { timeout: 5000 });
     res.json({ ok: true });
   } catch {
-    // Platform-specific fallbacks
     if (process.platform === 'darwin') {
       try {
         execSync(`open -a "Visual Studio Code" "${repoPath}"`, { timeout: 5000 });
@@ -182,5 +280,23 @@ router.post('/open', (req, res) => {
     res.status(500).json({ error: 'Failed to open VS Code. Is the "code" CLI installed?' });
   }
 });
+
+function writeVscodeSettings(repoPath: string, agentType: string): void {
+  const vscodeDir = path.join(repoPath, '.vscode');
+  const settingsPath = path.join(vscodeDir, 'settings.json');
+  try {
+    if (!fs.existsSync(vscodeDir)) fs.mkdirSync(vscodeDir, { recursive: true });
+    let settings: Record<string, unknown> = {};
+    if (fs.existsSync(settingsPath)) {
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch { /* overwrite */ }
+    }
+    settings['neoncore.agentType'] = agentType;
+    if (agentType === 'gridlight') {
+      settings['gridlight.neoncore.enabled'] = true;
+      settings['gridlight.neoncore.serverUrl'] = `http://localhost:${process.env.PORT || 4040}`;
+    }
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  } catch { /* best-effort */ }
+}
 
 export default router;

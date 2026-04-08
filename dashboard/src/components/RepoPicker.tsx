@@ -8,11 +8,39 @@ interface Repo {
   source: string;
 }
 
+interface ToolInfo {
+  label: string;
+  installed: boolean;
+  cliInstalled: boolean;
+  hooksExist: boolean;
+  configFile: string;
+  cliPath: string | null;
+  npmPkg: string | null;
+  authCmd: string | null;
+}
+
+// Display config for each tool button
+const TOOL_DISPLAY: Record<string, { label: string; color: string }> = {
+  claude:  { label: 'Claude',    color: 'text-blue-400 hover:text-blue-300' },
+  gridlight:{ label: 'Gridlight', color: 'text-gl-purple hover:text-purple-300' },
+  gemini:  { label: 'Gemini',    color: 'text-teal-400 hover:text-teal-300' },
+  amazonq: { label: 'Amazon Q',  color: 'text-orange-400 hover:text-orange-300' },
+  codex:   { label: 'Codex',     color: 'text-green-400 hover:text-green-300' },
+  cursor:  { label: 'Cursor',    color: 'text-violet-400 hover:text-violet-300' },
+};
+
+// Tools always shown regardless of install state
+const ALWAYS_SHOW = new Set(['claude', 'gridlight']);
+
+// Preferred display order
+const TOOL_ORDER = ['gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
+
 export function RepoPicker() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const [toolsStatus, setToolsStatus] = useState<Record<string, ToolInfo>>({});
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -28,20 +56,29 @@ export function RepoPicker() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  // Fetch repos when dropdown opens + auto-refresh every 30s while open
+  // Fetch repos + tool status when dropdown opens
   useEffect(() => {
     if (!open) return;
-    const fetch = () => {
+
+    const fetchAll = () => {
       setLoading((prev) => repos.length === 0 ? true : prev);
-      api.getRepos()
-        .then(({ repos }) => setRepos(repos))
-        .catch(() => setRepos([]))
-        .finally(() => setLoading(false));
+      Promise.all([
+        api.getRepos().then(({ repos }) => setRepos(repos)).catch(() => setRepos([])),
+        api.getToolsStatus().then(setToolsStatus).catch(() => {}),
+      ]).finally(() => setLoading(false));
     };
-    fetch();
-    const interval = setInterval(fetch, 30000);
+
+    fetchAll();
+    const interval = setInterval(fetchAll, 30000);
     return () => clearInterval(interval);
   }, [open]);
+
+  // Tools to show: always-shown + any tool with hooks installed or CLI installed
+  const visibleTools = TOOL_ORDER.filter((key) => {
+    if (ALWAYS_SHOW.has(key)) return true;
+    const info = toolsStatus[key];
+    return info && (info.installed || info.cliInstalled);
+  });
 
   const handleOpen = async (repoPath: string, agentType: AgentType) => {
     setOpen(false);
@@ -61,6 +98,7 @@ export function RepoPicker() {
       >
         Cartridges
       </button>
+
       {open && (
         <div className="absolute right-0 top-full mt-1.5 z-50 glass rounded-xl shadow-2xl py-1.5 min-w-[220px] max-h-[400px] overflow-y-auto">
           {loading ? (
@@ -80,20 +118,22 @@ export function RepoPicker() {
                   <span className="flex-1 truncate">{repo.name}</span>
                   <span className={`text-gray-600 text-[13px] transition-transform ${selectedRepo === repo.path ? 'rotate-90' : ''}`}>▶</span>
                 </button>
+
                 {selectedRepo === repo.path && (
-                  <div className="flex gap-1 px-3 pb-1.5 pl-7">
-                    <button
-                      onClick={() => handleOpen(repo.path, 'gridlight')}
-                      className="text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gl-purple hover:text-purple-300 transition-colors"
-                    >
-                      Gridlight
-                    </button>
-                    <button
-                      onClick={() => handleOpen(repo.path, 'claude')}
-                      className="text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      Claude
-                    </button>
+                  <div className="flex flex-wrap gap-1 px-3 pb-1.5 pl-7">
+                    {visibleTools.map((key) => {
+                      const display = TOOL_DISPLAY[key];
+                      if (!display) return null;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => handleOpen(repo.path, key as AgentType)}
+                          className={`text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors ${display.color}`}
+                        >
+                          {display.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

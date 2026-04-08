@@ -10,6 +10,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { execSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const router = Router();
@@ -65,6 +66,40 @@ const TOOL_CONFIGS = {
 } as const;
 
 type ToolKey = keyof typeof TOOL_CONFIGS;
+
+// CLI binary names + npm package to install them (null = not npm-installable)
+const CLI_INFO: Record<string, { bin: string; npmPkg: string | null; authCmd: string | null }> = {
+  claude:  { bin: 'claude',  npmPkg: null,                      authCmd: null },
+  gemini:  { bin: 'gemini',  npmPkg: '@google/gemini-cli',      authCmd: 'gemini auth' },
+  amazonq: { bin: 'q',       npmPkg: null,                      authCmd: null },
+  codex:   { bin: 'codex',   npmPkg: '@openai/codex',           authCmd: null },
+  cursor:  { bin: 'cursor',  npmPkg: null,                      authCmd: null },
+};
+
+/** Check if a CLI binary is available via PATH or common install locations */
+function findCli(binName: string): string | null {
+  const home = os.homedir();
+  const extraPaths = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.npm-global', 'bin'),
+    path.join(home, 'node_modules', '.bin'),
+    // Cursor-specific
+    '/Applications/Cursor.app/Contents/Resources/app/bin',
+    path.join(home, 'Applications/Cursor.app/Contents/Resources/app/bin'),
+  ];
+  for (const dir of extraPaths) {
+    const full = path.join(dir, binName);
+    if (fs.existsSync(full)) return full;
+  }
+  try {
+    const cmd = process.platform === 'win32' ? `where ${binName}` : `bash -lc "which ${binName}"`;
+    const result = execSync(cmd, { timeout: 3000 }).toString().trim().split('\n')[0];
+    if (result && fs.existsSync(result)) return result;
+  } catch { /* not found */ }
+  return null;
+}
 
 /** Check if a config file already contains our hook scripts */
 function isInstalled(tool: ToolKey): boolean {
@@ -132,15 +167,25 @@ router.get('/status', (_req, res) => {
     configFile: string;
     label: string;
     hooksExist: boolean;
+    cliInstalled: boolean;
+    cliPath: string | null;
+    npmPkg: string | null;
+    authCmd: string | null;
   }> = {};
 
   for (const [key, cfg] of Object.entries(TOOL_CONFIGS)) {
     const tool = key as ToolKey;
+    const cliInfo = CLI_INFO[key];
+    const cliPath = cliInfo ? findCli(cliInfo.bin) : null;
     status[key] = {
       label: cfg.label,
       installed: isInstalled(tool),
       configFile: cfg.configFile,
       hooksExist: fs.existsSync(proxyPath(tool)) && fs.existsSync(reporterPath(tool)),
+      cliInstalled: cliPath !== null,
+      cliPath,
+      npmPkg: cliInfo?.npmPkg ?? null,
+      authCmd: cliInfo?.authCmd ?? null,
     };
   }
 
@@ -164,6 +209,21 @@ router.post('/install/:tool', (req, res) => {
   if (!fs.existsSync(proxy) || !fs.existsSync(reporter)) {
     res.status(500).json({ error: `Hook scripts not found at ${HOOKS_DIR}` });
     return;
+  }
+
+  // Install CLI via npm if available and not yet installed
+  const cliInfo = CLI_INFO[tool];
+  if (cliInfo?.npmPkg && !findCli(cliInfo.bin)) {
+    try {
+      execFileSync('bash', ['-lc', `npm install -g ${cliInfo.npmPkg}`], {
+        timeout: 120_000,
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: `Failed to install ${cliInfo.npmPkg}: ${msg}` });
+      return;
+    }
   }
 
   try {
@@ -226,11 +286,14 @@ router.post('/install/:tool', (req, res) => {
       });
     }
 
+    const cliWasInstalled = cliInfo?.npmPkg && findCli(cliInfo.bin);
     res.json({
       ok: true,
       tool,
       configFile: TOOL_CONFIGS[tool].configFile,
       note: TOOL_CONFIGS[tool].installNote,
+      cliInstalled: !!findCli(cliInfo?.bin ?? ''),
+      authCmd: cliWasInstalled ? cliInfo?.authCmd ?? null : null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
