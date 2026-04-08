@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import fs from 'fs';
+import http from 'http';
 import os from 'os';
 import path from 'path';
 import { execSync, spawn } from 'child_process';
@@ -160,21 +161,8 @@ function findCliBinary(name: string): string | null {
  * Using a script file avoids all shell-quoting hell with paths/commands.
  * Returns an error string on failure, null on success.
  */
-function openInTerminal(repoPath: string, command: string, agentType?: string): string | null {
+function openInTerminal(repoPath: string, command: string): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
-  const repoName = path.basename(repoPath);
-
-  // Pre-registration block — registers cartridge immediately on launch before CLI starts
-  const preRegister = agentType ? [
-    '# Register with NeonCore immediately so cartridge appears on launch',
-    '_NC_SESSION="neoncore-launch-$$-$RANDOM"',
-    `_NC_MACHINE="$(hostname 2>/dev/null || echo unknown)"`,
-    `curl -sf -X POST "${neonUrl}/api/agents/register" \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -d "{\\"sessionId\\":\\"$_NC_SESSION\\",\\"machine\\":\\"$_NC_MACHINE\\",\\"repoPath\\":${JSON.stringify(repoPath)},\\"repoName\\":${JSON.stringify(repoName)},\\"agentType\\":${JSON.stringify(agentType)},\\"status\\":\\"idle\\"}" \\`,
-    `  >/dev/null 2>&1 || true`,
-    `export NEONCORE_SESSION_ID="$_NC_SESSION"`,
-  ] : [];
 
   // Write a self-cleaning launch script
   const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
@@ -186,7 +174,6 @@ function openInTerminal(repoPath: string, command: string, agentType?: string): 
     '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
     '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
     '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
-    ...preRegister,
     command,
   ].join('\n') + '\n');
   fs.chmodSync(scriptPath, '755');
@@ -261,6 +248,34 @@ function openInTerminal(repoPath: string, command: string, agentType?: string): 
   return 'Unsupported platform';
 }
 
+/**
+ * Register a CLI agent directly via the local API so the cartridge appears
+ * in NeonCore immediately when the terminal opens, without waiting for a hook.
+ */
+function registerCliAgent(repoPath: string, agentType: string): void {
+  const port = process.env.PORT || 4040;
+  const body = JSON.stringify({
+    machine: os.hostname(),
+    repoPath,
+    repoName: path.basename(repoPath),
+    agentType,
+    status: 'idle',
+    sessionId: `neoncore-launch-${Date.now()}`,
+  });
+  try {
+    const req = http.request({
+      hostname: 'localhost',
+      port: Number(port),
+      path: '/api/agents/register',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    });
+    req.on('error', () => { /* fire-and-forget */ });
+    req.write(body);
+    req.end();
+  } catch { /* ignore */ }
+}
+
 let codeBin: string | null = null;
 
 // ---------------------------------------------------------------------------
@@ -283,8 +298,9 @@ router.post('/open', (req, res) => {
   };
 
   if (agentType in CLI_COMMANDS) {
-    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType], agentType);
+    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType]);
     if (err) return res.status(500).json({ error: err });
+    registerCliAgent(repoPath, agentType);
     res.json({ ok: true });
     return;
   }
