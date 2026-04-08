@@ -41,6 +41,7 @@ export function RepoPicker() {
   const [loading, setLoading] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [toolsStatus, setToolsStatus] = useState<Record<string, ToolInfo>>({});
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -83,10 +84,13 @@ export function RepoPicker() {
   const handleOpen = async (repoPath: string, agentType: AgentType) => {
     setOpen(false);
     setSelectedRepo(null);
+    setLaunchError(null);
     try {
       await api.openRepo(repoPath, agentType);
-    } catch {
-      // ignore
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to launch';
+      setLaunchError(msg);
+      setTimeout(() => setLaunchError(null), 6000);
     }
   };
 
@@ -98,6 +102,11 @@ export function RepoPicker() {
       >
         Cartridges
       </button>
+      {launchError && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 bg-red-900/90 border border-red-700 text-red-300 text-xs rounded-lg px-3 py-2 max-w-xs">
+          {launchError}
+        </div>
+      )}
 
       {open && (
         <div className="absolute right-0 top-full mt-1.5 z-50 glass rounded-xl shadow-2xl py-1.5 min-w-[220px] max-h-[400px] overflow-y-auto">
