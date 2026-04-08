@@ -211,6 +211,77 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_template ON workflows(template_id)`);
 }
 
+// FTS5 full-text search over session summaries and project knowledge
+try {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
+      summary,
+      project,
+      content='sessions',
+      content_rowid='rowid'
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+      content,
+      project,
+      filename,
+      content='project_knowledge',
+      content_rowid='rowid'
+    );
+  `);
+
+  // Populate FTS with existing data (safe to run multiple times; duplicates avoided by DELETE first)
+  db.exec(`
+    DELETE FROM sessions_fts;
+    INSERT INTO sessions_fts(rowid, summary, project) SELECT rowid, summary, project FROM sessions WHERE summary != '';
+
+    DELETE FROM knowledge_fts;
+    INSERT INTO knowledge_fts(rowid, content, project, filename) SELECT rowid, content, project, filename FROM project_knowledge WHERE content != '';
+  `);
+
+  // Triggers to keep FTS in sync for future inserts/updates/deletes on sessions
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS sessions_ai AFTER INSERT ON sessions BEGIN
+      INSERT INTO sessions_fts(rowid, summary, project) VALUES (new.rowid, new.summary, new.project);
+    END;
+    CREATE TRIGGER IF NOT EXISTS sessions_au AFTER UPDATE OF summary ON sessions BEGIN
+      DELETE FROM sessions_fts WHERE rowid = old.rowid;
+      INSERT INTO sessions_fts(rowid, summary, project) VALUES (new.rowid, new.summary, new.project);
+    END;
+    CREATE TRIGGER IF NOT EXISTS sessions_ad AFTER DELETE ON sessions BEGIN
+      DELETE FROM sessions_fts WHERE rowid = old.rowid;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON project_knowledge BEGIN
+      INSERT INTO knowledge_fts(rowid, content, project, filename) VALUES (new.rowid, new.content, new.project, new.filename);
+    END;
+    CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE OF content ON project_knowledge BEGIN
+      DELETE FROM knowledge_fts WHERE rowid = old.rowid;
+      INSERT INTO knowledge_fts(rowid, content, project, filename) VALUES (new.rowid, new.content, new.project, new.filename);
+    END;
+    CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON project_knowledge BEGIN
+      DELETE FROM knowledge_fts WHERE rowid = old.rowid;
+    END;
+  `);
+} catch {
+  // FTS5 not available or already exists — skip
+}
+
+// Session token usage table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS session_usage (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    model TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_usage_session ON session_usage(session_id);
+  CREATE INDEX IF NOT EXISTS idx_usage_agent ON session_usage(agent_id);
+`);
+
 // MCP Servers table
 db.exec(`
   CREATE TABLE IF NOT EXISTS mcp_servers (

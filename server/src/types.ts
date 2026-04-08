@@ -309,7 +309,7 @@ export interface CommandTemplate {
 }
 
 // Workflow Step types (V2 canvas workflows)
-export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate' | 'command';
+export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate' | 'command' | 'connector';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface WorkflowStep {

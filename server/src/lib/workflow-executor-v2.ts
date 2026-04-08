@@ -600,6 +600,232 @@ function processQualityGateResult(
 }
 
 /** Main step dispatcher — routes to the appropriate execution function */
+// ─── Conditional Routing ─────────────────────────────────────────────────────
+
+/** Evaluate a single routing condition against the step result */
+function evaluateRoutingCondition(condition: string, value: string, result: string): boolean {
+  switch (condition) {
+    case 'contains': return result.includes(value);
+    case 'not_contains': return !result.includes(value);
+    case 'starts_with': return result.trimStart().startsWith(value);
+    case 'matches_regex': {
+      try { return new RegExp(value, 'i').test(result); } catch { return false; }
+    }
+    default: return false;
+  }
+}
+
+/** Apply routing rules for a just-completed step. Returns the nextStepId that fired, or null. */
+function applyRoutingRules(step: WorkflowStep, allSteps: WorkflowStep[]): string | null {
+  const config = step.executorConfig;
+  const routingRules = (config.routingRules as Array<{ id: string; condition: string; value: string; nextStepId: string }>) || [];
+  if (routingRules.length === 0) return null;
+
+  const maxCycles = (config.maxCycles as number) || 5;
+  const cycleCount = (config.cycleCount as number) || 0;
+
+  if (cycleCount >= maxCycles) {
+    emitStepLog(step.workflowId, step.id, step.name, `Routing rules exhausted (max cycles ${maxCycles} reached) — normal flow proceeds`, 'warn');
+    return null;
+  }
+
+  for (const rule of routingRules) {
+    if (!evaluateRoutingCondition(rule.condition, rule.value, step.result)) continue;
+
+    const targetStep = allSteps.find((s) => s.id === rule.nextStepId);
+    if (!targetStep) continue;
+
+    // Clear runtime flags on target step when resetting it
+    const targetConfig = { ...targetStep.executorConfig };
+    for (const key of Object.keys(targetConfig)) {
+      if (key.startsWith('_')) delete targetConfig[key];
+    }
+
+    // Reset target step to pending
+    db.prepare(
+      'UPDATE workflow_steps SET status = ?, result = \'\', error = \'\', started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?'
+    ).run('pending', JSON.stringify(targetConfig), rule.nextStepId);
+
+    // Increment cycle count on the routing source step
+    const updatedConfig = { ...config, cycleCount: cycleCount + 1, _routingAppliedAt: step.completedAt };
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+      .run(JSON.stringify(updatedConfig), step.id);
+
+    emitStepUpdate(rule.nextStepId);
+    emitStepUpdate(step.id);
+    emitStepLog(
+      step.workflowId, step.id, step.name,
+      `Routing: condition "${rule.condition} '${rule.value}'" matched — resetting "${targetStep.name}" to pending (cycle ${cycleCount + 1}/${maxCycles})`,
+      'info',
+    );
+    console.log(`[workflow-v2] Routing fired on "${step.name}" → target "${targetStep.name}" (cycle ${cycleCount + 1}/${maxCycles})`);
+    return rule.nextStepId;
+  }
+  return null;
+}
+
+// ─── External Connector Step ─────────────────────────────────────────────────
+
+/** Substitute {{variable}} placeholders in a template string */
+function substituteVars(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '');
+}
+
+/** Execute an external connector step (Slack, GitHub, Linear, or generic HTTP) */
+async function executeConnectorStep(step: WorkflowStep): Promise<void> {
+  const config = step.executorConfig;
+  const connectorType = config.connectorType as string;
+  if (!connectorType) throw new Error('Connector step requires connectorType in executorConfig');
+
+  const depContext = config.includeDepOutput ? gatherDependencyContext(step) : '';
+  const agentName = step.executorId ? getAgentName(step.executorId) : 'NeonCore';
+  const wfRow = db.prepare('SELECT name FROM workflows WHERE id = ?').get(step.workflowId) as { name: string } | undefined;
+  const workflowName = wfRow?.name || step.workflowId.slice(0, 8);
+
+  const vars: Record<string, string> = {
+    result: depContext,
+    stepName: step.name,
+    workflowName,
+    agentName,
+    timestamp: new Date().toISOString(),
+  };
+
+  emitStepLog(step.workflowId, step.id, step.name, `Executing connector: ${connectorType}`, 'info');
+
+  switch (connectorType) {
+    case 'slack':
+    case 'discord': {
+      const webhookUrl = config.webhookUrl as string;
+      if (!webhookUrl) throw new Error(`${connectorType} connector requires webhookUrl`);
+      const text = substituteVars(
+        (config.messageTemplate as string) || '{{workflowName}} — {{stepName}} completed:\n{{result}}',
+        vars,
+      );
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(`${connectorType} webhook returned ${res.status}: ${res.statusText}`);
+      break;
+    }
+
+    case 'github': {
+      const token = config.githubToken as string;
+      const repo = config.githubRepo as string;
+      const action = (config.githubAction as string) || 'create_issue';
+      if (!token) throw new Error('GitHub connector requires githubToken');
+      if (!repo) throw new Error('GitHub connector requires githubRepo');
+      const headers = {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+      };
+      if (action === 'create_issue') {
+        const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            title: substituteVars((config.githubTitle as string) || '{{workflowName}}: {{stepName}}', vars),
+            body: substituteVars((config.githubBody as string) || '{{result}}', vars),
+          }),
+        });
+        if (!res.ok) throw new Error(`GitHub create_issue returned ${res.status}`);
+      } else if (action === 'comment_pr') {
+        const prNumber = config.githubPrNumber as string;
+        if (!prNumber) throw new Error('GitHub comment_pr requires githubPrNumber');
+        const res = await fetch(`https://api.github.com/repos/${repo}/issues/${prNumber}/comments`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ body: substituteVars((config.githubBody as string) || '{{result}}', vars) }),
+        });
+        if (!res.ok) throw new Error(`GitHub comment_pr returned ${res.status}`);
+      } else if (action === 'trigger_workflow') {
+        const workflowId = config.githubWorkflowId as string;
+        if (!workflowId) throw new Error('GitHub trigger_workflow requires githubWorkflowId');
+        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflowId}/dispatches`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ ref: 'main' }),
+        });
+        if (!res.ok) throw new Error(`GitHub trigger_workflow returned ${res.status}`);
+      } else {
+        throw new Error(`Unknown GitHub action: ${action}`);
+      }
+      break;
+    }
+
+    case 'linear': {
+      const apiKey = config.linearApiKey as string;
+      const teamId = config.linearTeamId as string;
+      const action = (config.linearAction as string) || 'create_issue';
+      if (!apiKey) throw new Error('Linear connector requires linearApiKey');
+      if (!teamId) throw new Error('Linear connector requires linearTeamId');
+      const headers = { 'Authorization': apiKey, 'Content-Type': 'application/json' };
+      if (action === 'create_issue') {
+        const res = await fetch('https://api.linear.app/graphql', {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            query: `mutation CreateIssue($title: String!, $description: String, $teamId: String!) {
+              issueCreate(input: { title: $title, description: $description, teamId: $teamId }) {
+                success issue { id identifier url }
+              }
+            }`,
+            variables: {
+              title: substituteVars((config.linearTitle as string) || '{{workflowName}}: {{stepName}}', vars),
+              description: substituteVars((config.linearDescription as string) || '{{result}}', vars),
+              teamId,
+            },
+          }),
+        });
+        if (!res.ok) throw new Error(`Linear create_issue returned ${res.status}`);
+      } else if (action === 'update_issue') {
+        const issueId = config.linearIssueId as string;
+        if (!issueId) throw new Error('Linear update_issue requires linearIssueId');
+        const res = await fetch('https://api.linear.app/graphql', {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            query: `mutation UpdateIssue($id: String!, $description: String) {
+              issueUpdate(id: $id, input: { description: $description }) { success }
+            }`,
+            variables: {
+              id: issueId,
+              description: substituteVars((config.linearDescription as string) || '{{result}}', vars),
+            },
+          }),
+        });
+        if (!res.ok) throw new Error(`Linear update_issue returned ${res.status}`);
+      } else {
+        throw new Error(`Unknown Linear action: ${action}`);
+      }
+      break;
+    }
+
+    case 'http': {
+      const url = config.httpUrl as string;
+      if (!url) throw new Error('HTTP connector requires httpUrl');
+      const method = (config.httpMethod as string) || 'POST';
+      const customHeaders = (config.httpHeaders as Record<string, string>) || {};
+      const bodyTemplate = (config.httpBodyTemplate as string) || '{"message": "{{result}}"}';
+      const res = await fetch(substituteVars(url, vars), {
+        method,
+        headers: { 'Content-Type': 'application/json', ...customHeaders },
+        body: method !== 'GET' ? substituteVars(bodyTemplate, vars) : undefined,
+      });
+      if (!res.ok) throw new Error(`HTTP connector returned ${res.status}: ${res.statusText}`);
+      break;
+    }
+
+    default:
+      throw new Error(`Unknown connector type: ${connectorType}`);
+  }
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
+    .run('completed', `Connector "${connectorType}" executed successfully`, now, step.id);
+  emitStepUpdate(step.id);
+  emitStepLog(step.workflowId, step.id, step.name, `Connector "${connectorType}" executed successfully`, 'success');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function executeStep(step: WorkflowStep): Promise<void> {
   const now = new Date().toISOString();
   db.prepare('UPDATE workflow_steps SET status = ?, started_at = ? WHERE id = ?')
@@ -616,6 +842,8 @@ async function executeStep(step: WorkflowStep): Promise<void> {
       await executeQualityGate(step);
     } else if (step.executorType === 'command') {
       await executeCommandStep(step);
+    } else if (step.executorType === 'connector') {
+      await executeConnectorStep(step);
     } else {
       if (!step.executorId) throw new Error('Step requires an agent ID');
       await executeStandardStep(step);
@@ -842,7 +1070,7 @@ function processWorkflow(workflowId: string) {
     // Standard and command steps always use webhooks for completion — skip idle-based auto-complete.
     // Only review-gate, quality-gate, and deliberation use idle detection (they have their own completion logic).
     if (step.executorConfig.waitForWebhook) continue;
-    if (step.executorType === 'claude-code' || step.executorType === 'command' || !step.executorType) continue;
+    if (step.executorType === 'claude-code' || step.executorType === 'command' || step.executorType === 'connector' || !step.executorType) continue;
 
     // Don't auto-complete steps that just started — the agent may not have picked up
     // the command yet. Wait at least MIN_RUNNING_BEFORE_COMPLETE_MS before checking idle.
@@ -925,8 +1153,36 @@ function processWorkflow(workflowId: string) {
   }
 
   // Re-read steps after possible completions
-  const currentSteps = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as Record<string, unknown>[])
+  let currentSteps = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as Record<string, unknown>[])
     .map(normalizeStep);
+
+  // ── Evaluate routing rules on completed steps ──
+  // For each completed step that hasn't had routing applied for this completion,
+  // check if any routing rule fires. If one does, reset the target step to pending
+  // and block normal dependent activation for this source step.
+  const routingFiredFor = new Set<string>(); // source step IDs where a routing rule fired
+  for (const step of currentSteps) {
+    if (step.status !== 'completed' || !step.completedAt) continue;
+    // Skip if routing was already applied for this exact completion
+    if ((step.executorConfig._routingAppliedAt as string) === step.completedAt) continue;
+
+    const firedTarget = applyRoutingRules(step, currentSteps);
+
+    if (firedTarget !== null) {
+      routingFiredFor.add(step.id);
+    } else {
+      // No rule fired — mark as applied so we don't re-check on next poll
+      const updatedConfig = { ...step.executorConfig, _routingAppliedAt: step.completedAt };
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+        .run(JSON.stringify(updatedConfig), step.id);
+    }
+  }
+
+  // If routing fired on any step, re-read to get fresh statuses
+  if (routingFiredFor.size > 0) {
+    currentSteps = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as Record<string, unknown>[])
+      .map(normalizeStep);
+  }
 
   // Check for ready steps: all dependencies completed + auto-advanced + step is pending
   const readySteps = currentSteps.filter((step) => {
@@ -945,6 +1201,10 @@ function processWorkflow(workflowId: string) {
       if (dep.status !== 'completed' && dep.status !== 'skipped') {
         return false; // Normal — dep still in progress
       }
+
+      // If routing just fired on this dependency, block normal activation
+      // (wait for the routing cycle to complete first)
+      if (routingFiredFor.has(depId)) return false;
 
       // If the dependency has autoAdvance off, block until manually advanced
       // (skipped steps always allow advancement)

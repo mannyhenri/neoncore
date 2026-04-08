@@ -114,6 +114,22 @@ def main():
             "repoPath": cwd,
         }))
 
+    # Report token usage on session stop
+    if hook_event in ("Stop", "SubagentStop"):
+        usage = d.get("usage", {})
+        input_tokens = usage.get("input_tokens", 0) if isinstance(usage, dict) else 0
+        output_tokens = usage.get("output_tokens", 0) if isinstance(usage, dict) else 0
+        model = d.get("model", "")
+        if input_tokens > 0 or output_tokens > 0:
+            post_json(f"{ORCHESTRATOR_URL}/api/activity/usage", json.dumps({
+                "sessionId": session_id,
+                "machine": machine,
+                "repoPath": cwd,
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "model": model,
+            }))
+
     # Try to extract last assistant text from transcript (deduped)
     if hook_event == "PostToolUse" and transcript_path and os.path.exists(transcript_path):
         try:

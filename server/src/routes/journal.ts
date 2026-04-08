@@ -160,4 +160,80 @@ router.delete('/projects/:project/notes/:noteId', (req, res) => {
   res.status(204).send();
 });
 
+// ── Full-text search over journal sessions and knowledge files ──
+
+router.get('/search', (req, res) => {
+  const q = (req.query.q as string || '').trim();
+  const project = req.query.project as string | undefined;
+
+  if (!q || q.length < 2) {
+    return res.json({ sessions: [], knowledge: [] });
+  }
+
+  // Escape FTS5 special characters
+  const ftsQuery = q.replace(/['"*]/g, ' ').trim();
+  if (!ftsQuery) return res.json({ sessions: [], knowledge: [] });
+
+  try {
+    // Search sessions via FTS5
+    const sessionRows = project
+      ? db.prepare(`
+          SELECT s.id, s.project, s.started_at,
+            snippet(sessions_fts, 0, '<b>', '</b>', '…', 20) as snippet
+          FROM sessions_fts
+          JOIN sessions s ON sessions_fts.rowid = s.rowid
+          WHERE sessions_fts MATCH ? AND sessions_fts.project = ?
+          ORDER BY rank
+          LIMIT 10
+        `).all(ftsQuery, project) as { id: string; project: string; started_at: string; snippet: string }[]
+      : db.prepare(`
+          SELECT s.id, s.project, s.started_at,
+            snippet(sessions_fts, 0, '<b>', '</b>', '…', 20) as snippet
+          FROM sessions_fts
+          JOIN sessions s ON sessions_fts.rowid = s.rowid
+          WHERE sessions_fts MATCH ?
+          ORDER BY rank
+          LIMIT 10
+        `).all(ftsQuery) as { id: string; project: string; started_at: string; snippet: string }[];
+
+    // Search knowledge files
+    const knowledgeRows = project
+      ? db.prepare(`
+          SELECT pk.project, pk.filename,
+            snippet(knowledge_fts, 0, '<b>', '</b>', '…', 20) as snippet
+          FROM knowledge_fts
+          JOIN project_knowledge pk ON knowledge_fts.rowid = pk.rowid
+          WHERE knowledge_fts MATCH ? AND knowledge_fts.project = ?
+          ORDER BY rank
+          LIMIT 10
+        `).all(ftsQuery, project) as { project: string; filename: string; snippet: string }[]
+      : db.prepare(`
+          SELECT pk.project, pk.filename,
+            snippet(knowledge_fts, 0, '<b>', '</b>', '…', 20) as snippet
+          FROM knowledge_fts
+          JOIN project_knowledge pk ON knowledge_fts.rowid = pk.rowid
+          WHERE knowledge_fts MATCH ?
+          ORDER BY rank
+          LIMIT 10
+        `).all(ftsQuery) as { project: string; filename: string; snippet: string }[];
+
+    res.json({
+      sessions: sessionRows.map((r) => ({
+        id: r.id,
+        project: r.project,
+        startedAt: r.started_at,
+        summary: r.snippet,
+      })),
+      knowledge: knowledgeRows.map((r) => ({
+        project: r.project,
+        filename: r.filename,
+        snippet: r.snippet,
+      })),
+    });
+  } catch {
+    // FTS5 not available or query syntax error
+    res.json({ sessions: [], knowledge: [] });
+  }
+});
+
 export default router;
