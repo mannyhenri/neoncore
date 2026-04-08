@@ -2,7 +2,11 @@
 
 ## Overview
 
-NeonCore includes 4 pre-built workflow templates for common development tasks. Each template is a reusable pipeline — you define it once and run it on any project/cartridge as many times as needed.
+NeonCore ships 5 pre-built workflow templates. They are seeded automatically on first server boot and appear in the **Workflows** panel under **Templates**. Each template is reusable — run it as many times as needed on any cartridge or project.
+
+All templates follow a **TDD-first** approach: tests are written after the design/architecture step and before any implementation. Quality gate steps include automatic routing — if a gate returns `STATUS: FAIL`, the preceding implementation step resets and re-runs (up to the configured cycle limit).
+
+---
 
 ## Templates
 
@@ -11,21 +15,23 @@ NeonCore includes 4 pre-built workflow templates for common development tasks. E
 
 **Pipeline:**
 ```
-Performance Audit → Architecture Review → Implement Top Fixes → Full Quality Gate
+Performance Audit → Architecture Review → Write Tests → Implement Fixes → Quality Gate
+                                                                 ↑ (loops back on STATUS: FAIL, max 2×)
 ```
 
 **What you enter at run time:**
-- **Cartridge** for each step (can be the same for all)
-- **Objective** on the first step — describe what area to analyze
+- **Cartridge** for each step
+- **Objective** on the Performance Audit step — describe what area to analyze
 
 **Example objective:**
-> "Analyze the NeonCore workflow executor (server/src/lib/workflow-executor-v2.ts) for performance bottlenecks and architectural improvements. Focus on the polling loop and step dispatch logic."
+> "Analyze the NeonCore workflow executor (server/src/lib/workflow-executor-v2.ts) for performance bottlenecks and architectural improvements."
 
 **How it works:**
-1. Performance expert identifies top 5 bottlenecks ranked by impact
-2. Architect reviews structure and proposes refactoring steps (builds on perf findings)
-3. Backend dev implements the top improvements
-4. Full quality gate (lint + security + tests) verifies nothing broke — retries on failure
+1. Performance expert identifies top bottlenecks ranked by impact
+2. Architect reviews structure and proposes refactoring steps
+3. Test Writer writes failing tests covering the areas to be improved (TDD)
+4. Backend dev implements improvements until tests pass
+5. Full quality gate (lint + test + security) — if it fails, Implement Fixes resets and retries (max 2 cycles)
 
 ---
 
@@ -34,21 +40,22 @@ Performance Audit → Architecture Review → Implement Top Fixes → Full Quali
 
 **Pipeline:**
 ```
-Investigate & Reproduce → Implement Fix → Tests + Security Check (parallel)
+Investigate & Reproduce → Write Regression Test → Implement Fix → Tests + Security (parallel)
+                                                         ↑ (loops back on STATUS: FAIL, max 2×)
 ```
 
 **What you enter at run time:**
 - **Cartridge** for each step
-- **Objective** on the first step — describe the bug
+- **Objective** on the Investigate step — describe the bug
 
 **Example objective:**
 > "The workflow step output is not being passed to the next step even when includeDepOutput is enabled. The downstream step receives empty dependency context."
 
 **How it works:**
 1. Code reviewer traces the bug without touching code — finds root cause with file paths and line numbers
-2. Backend dev implements the minimal fix based on the investigation
-3. Tests and Security run **in parallel** after the fix
-4. If either gate fails, the fix step is re-run with feedback (up to 2 retries)
+2. Test Writer writes a **failing regression test** that reproduces the exact bug (TDD)
+3. Backend dev implements the minimal fix until the regression test passes
+4. Tests and Security run **in parallel** — if tests fail, Implement Fix resets and retries (max 2 cycles)
 
 ---
 
@@ -57,12 +64,13 @@ Investigate & Reproduce → Implement Fix → Tests + Security Check (parallel)
 
 **Pipeline:**
 ```
-Diagnose Issue → Plan the Fix → Implement Fix → Test & Verify
+Diagnose Issue → Plan the Fix → Write Tests → Implement Fix → Verify
+                                                      ↑ (loops back on STATUS: FAIL, max 2×)
 ```
 
 **What you enter at run time:**
 - **Cartridge** for each step
-- **Objective** on the first step — describe what's broken
+- **Objective** on the Diagnose step — describe what's broken
 
 **Example objective:**
 > "The Configure & Run popup appears behind the canvas editor when starting a workflow from the template list. It should appear on top of everything."
@@ -70,8 +78,9 @@ Diagnose Issue → Plan the Fix → Implement Fix → Test & Verify
 **How it works:**
 1. Code reviewer diagnoses exactly where behavior diverges from intent
 2. Architect designs the minimal fix with exact file paths and edge case analysis
-3. Backend dev implements the fix following the plan precisely
-4. Test gate verifies the fix — retries on failure
+3. Test Writer writes tests that capture the expected (fixed) behavior (TDD)
+4. Backend dev implements the fix until tests pass
+5. Verify gate runs full lint + test suite — if it fails, Implement Fix resets and retries (max 2 cycles)
 
 ---
 
@@ -80,8 +89,10 @@ Diagnose Issue → Plan the Fix → Implement Fix → Test & Verify
 
 **Pipeline:**
 ```
-Research → Architect (manual advance) → Develop → Test (2 loops) → Summary
+Research → Architect* → Write Tests → Develop → Quality Gate → Notify (connector) + Summary (parallel)
+                                          ↑ (loops back on STATUS: FAIL, max 3×)
 ```
+*\* Manual advance — review the architecture before tests are written*
 
 **What you enter at run time:**
 - **Cartridge** for each step
@@ -91,58 +102,125 @@ Research → Architect (manual advance) → Develop → Test (2 loops) → Summa
 > "We need to allow users to delete connections between workflow steps in the canvas to reorganize or make new connections if a step was not connected properly."
 
 **How it works:**
-1. Researcher searches online for the latest approaches and patterns
-2. Architect designs the implementation plan with file paths and interfaces — **manual advance** so you can review the plan before proceeding
-3. Developer builds the feature based on research + architecture
-4. Tester writes and runs comprehensive tests (runs **twice** for thorough coverage)
-5. Summary documents all changes, test results, and manual testing instructions
+1. Researcher searches for the latest approaches and patterns
+2. Architect designs the implementation plan — **manual advance** so you can review before writing tests
+3. Test Writer writes failing tests that define the acceptance criteria (TDD)
+4. Developer builds the feature until all tests pass
+5. Full quality gate — if it fails, Develop resets and retries (max 3 cycles)
+6. On success, **Notify** (HTTP connector) and **Summary** run in parallel
+   - Configure the Notify step's webhook URL in the step settings to send a completion ping
+   - Summary documents all changes and manual testing instructions
+
+---
+
+### 5. CI/CD Pipeline *(new)*
+**Purpose:** Full automated pipeline — review, test, secure, notify.
+
+**Pipeline:**
+```
+Code Review → Unit Tests  ──┐
+           → Integration  ──┴→ Security Scan → Slack Notify (connector)
+              Tests
+```
+
+**What you enter at run time:**
+- **Cartridge** for each step
+- Configure the **Notify** step's Slack webhook URL in step settings
+
+**How it works:**
+1. Quality gate reviews code quality, patterns, and edge cases
+2. Unit Tests and Integration Tests run **in parallel** after the review passes
+3. Security scan audits for OWASP issues and auth flaws
+4. Slack Notify sends the pipeline result to your configured webhook
+
+**Setup:** Open the Notify step in the canvas editor and enter your Slack Incoming Webhook URL. The message uses `{{workflowName}}` and `{{result}}` substitution.
 
 ---
 
 ## How to Run a Workflow
 
-1. Open the NeonCore dashboard (http://localhost:4040)
+1. Open the NeonCore dashboard (`http://localhost:4040`)
 2. Scroll to the **Workflows** section
 3. Find your template under **Templates**
 4. Click the **Run** button (▶)
 5. The **Configure & Run** popup appears:
-   - **Select a cartridge** for each step — pick which VS Code agent (project) runs it
-   - **Enter the objective** for the first step — this is your task description
+   - Select a **cartridge** for each step — pick which VS Code agent runs it
+   - Enter the **objective** for the first step — your task description
 6. Click **Run Workflow**
-7. A new run is created — watch steps execute in real time
-8. Each step passes its result summary to the next step automatically
+7. Watch steps execute in real time on the canvas
 
 ## Running on Multiple Projects
 
-You can run the same template on different projects simultaneously:
+Click ▶ on the same template multiple times to run it on different projects simultaneously. Each run is independent with its own step progress.
 
-1. Click ▶ on a template → assign cartridges for **Project A** → Run
-2. While it's running, click ▶ on the same template → assign cartridges for **Project B** → Run
-3. Both runs execute independently with their own step progress
-4. Completed runs auto-delete after 30 seconds
+---
 
 ## Key Behaviors
 
 | Behavior | Description |
 |----------|-------------|
-| **Context flow** | Each step receives the result summary from its dependencies when "Include output from previous step" is enabled |
-| **Webhook completion** | Every step includes a webhook URL — the agent calls it with a structured summary when done |
-| **Auto-advance** | Most steps auto-start when dependencies complete. The Architect step in "New Feature" requires manual advance so you can review the plan |
-| **Quality gate retries** | If a quality gate fails, it resets dependency steps with feedback and re-runs them automatically |
+| **TDD ordering** | Tests are written after design and before implementation in all templates |
+| **Conditional routing** | Quality gate steps loop back to the implementation step on `STATUS: FAIL` (up to configured max cycles) |
+| **Context flow** | Each step receives its dependency results when "Include output from previous step" is enabled |
+| **Webhook completion** | Agents call their step's webhook URL with a result when done |
+| **Auto-advance** | Most steps start automatically when dependencies complete. The Architect step in New Feature requires manual advance |
 | **Parallel steps** | Steps with the same dependencies run simultaneously (e.g., Tests + Security in Bug Hunter) |
-| **Deferred cartridges** | All steps use deferred agent selection — you pick the cartridge at run time for maximum flexibility |
+| **External connectors** | Connector steps (Notify steps) call external APIs — Slack, Discord, GitHub, Linear, or any HTTP endpoint |
+| **Deferred cartridges** | All steps use deferred agent selection — pick the cartridge at run time |
+
+---
+
+## Routing Rules (Cyclic Graphs)
+
+Routing rules let steps loop back to earlier steps based on the result string. This is how quality gates retry on failure:
+
+- The gate step includes a rule: **`contains` → `STATUS: FAIL` → reset Implement step**
+- When the gate's webhook fires with `STATUS: FAIL` in the result, the Implement step resets to pending and re-runs
+- A `maxCycles` limit prevents infinite loops (default: 2–3 depending on template)
+- After exhausting cycles, normal downstream activation resumes
+
+Routing edges appear as **dashed amber lines** on the canvas.
+
+**Agents signal status** by including a prefix in their webhook result:
+```
+STATUS: PASS — All tests green, deployed to staging.
+STATUS: FAIL — Unit tests failed in auth module. See test output above.
+```
+
+---
+
+## External Connectors
+
+Connector steps execute immediately (no cartridge needed) and call external APIs. Configure them in the canvas sidebar under **Connector Settings**.
+
+| Connector | Config needed | Use case |
+|-----------|--------------|----------|
+| **Slack** | Incoming Webhook URL | Notify a channel when a workflow completes |
+| **Discord** | Incoming Webhook URL | Same as Slack |
+| **GitHub** | PAT token, repo, action | Create issues, comment on PRs, trigger workflows |
+| **Linear** | API key, team ID, action | Create or update Linear issues |
+| **HTTP** | URL, method, body template | Generic webhook — RequestBin, Zapier, Make, etc. |
+
+**Template variables** available in message/body templates:
+`{{result}}`, `{{stepName}}`, `{{workflowName}}`, `{{agentName}}`, `{{timestamp}}`
+
+---
 
 ## Customizing Templates
 
-Open any template by clicking its name in the dashboard. The canvas editor lets you:
+Open any template by clicking its name. The canvas editor lets you:
 
 - **Add/remove steps** — click "+ Add Step" and drag connections between handles
-- **Delete connections** — hover over an edge and click the red X button
-- **Change expert roles** — pick from: general, architect, backend, frontend, reviewer, security, tester, performance, researcher, planner
-- **Switch prompt mode** — toggle between free-text prompt and structured intent (objective + acceptance criteria + constraints)
-- **Add quality gates** — choose from: test, lint, security, build, full-review, or custom
-- **Set loop counts** — make a step repeat 2-10 times for iterative refinement
-- **Toggle auto-advance** — turn off for steps where you want to review before proceeding
+- **Delete connections** — hover an edge and click the red X button
+- **Add routing rules** — select a step → "Routing Rules" section in the sidebar
+- **Add connector steps** — choose "External Connector" from the step type selector
+- **Change expert roles** — general, architect, backend, frontend, reviewer, security, tester, performance, researcher, planner
+- **Switch prompt mode** — free-text or structured (objective + acceptance criteria + constraints)
+- **Add quality gates** — test, lint, security, build, full-review, or custom
+- **Set loop counts** — repeat a step 2–10× for iterative refinement
+- **Toggle auto-advance** — pause before a step proceeds for manual review
+
+---
 
 ## Expert Roles Reference
 
