@@ -231,8 +231,33 @@ router.get('/search', (req, res) => {
       })),
     });
   } catch {
-    // FTS5 not available or query syntax error
-    res.json({ sessions: [], knowledge: [] });
+    // FTS5 not available or query syntax error — fall back to LIKE
+    const likePattern = `%${q.replace(/[%_]/g, '\\$&')}%`;
+    const sessionRows = project
+      ? db.prepare(`SELECT id, project, started_at, summary FROM sessions WHERE project = ? AND summary LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT 10`)
+          .all(project, likePattern) as { id: string; project: string; started_at: string; summary: string }[]
+      : db.prepare(`SELECT id, project, started_at, summary FROM sessions WHERE summary LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT 10`)
+          .all(likePattern) as { id: string; project: string; started_at: string; summary: string }[];
+
+    const knowledgeRows = project
+      ? db.prepare(`SELECT project, filename, content FROM project_knowledge WHERE project = ? AND content LIKE ? ESCAPE '\\' LIMIT 10`)
+          .all(project, likePattern) as { project: string; filename: string; content: string }[]
+      : db.prepare(`SELECT project, filename, content FROM project_knowledge WHERE content LIKE ? ESCAPE '\\' LIMIT 10`)
+          .all(likePattern) as { project: string; filename: string; content: string }[];
+
+    function likeSnippet(text: string, term: string): string {
+      const idx = text.toLowerCase().indexOf(term.toLowerCase());
+      if (idx === -1) return text.slice(0, 150) + '…';
+      const start = Math.max(0, idx - 50);
+      const end = Math.min(text.length, idx + term.length + 50);
+      const snip = (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
+      return snip.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<b>$&</b>');
+    }
+
+    res.json({
+      sessions: sessionRows.map((r) => ({ id: r.id, project: r.project, startedAt: r.started_at, summary: likeSnippet(r.summary, q) })),
+      knowledge: knowledgeRows.map((r) => ({ project: r.project, filename: r.filename, snippet: likeSnippet(r.content, q) })),
+    });
   }
 });
 

@@ -1,6 +1,7 @@
 import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'neoncore.db');
@@ -211,7 +212,21 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_template ON workflows(template_id)`);
 }
 
-// FTS5 full-text search over session summaries and project knowledge
+// FTS5 full-text search over session summaries and project knowledge.
+// Drop triggers and tables first so we always start from a consistent schema.
+try {
+  db.exec(`
+    DROP TRIGGER IF EXISTS sessions_ai;
+    DROP TRIGGER IF EXISTS sessions_au;
+    DROP TRIGGER IF EXISTS sessions_ad;
+    DROP TRIGGER IF EXISTS knowledge_ai;
+    DROP TRIGGER IF EXISTS knowledge_au;
+    DROP TRIGGER IF EXISTS knowledge_ad;
+    DROP TABLE IF EXISTS sessions_fts;
+    DROP TABLE IF EXISTS knowledge_fts;
+  `);
+} catch { /* ignore */ }
+
 try {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
@@ -230,7 +245,7 @@ try {
     );
   `);
 
-  // Populate FTS with existing data (safe to run multiple times; duplicates avoided by DELETE first)
+  // Populate FTS with existing data
   db.exec(`
     DELETE FROM sessions_fts;
     INSERT INTO sessions_fts(rowid, summary, project) SELECT rowid, summary, project FROM sessions WHERE summary != '';
@@ -239,7 +254,7 @@ try {
     INSERT INTO knowledge_fts(rowid, content, project, filename) SELECT rowid, content, project, filename FROM project_knowledge WHERE content != '';
   `);
 
-  // Triggers to keep FTS in sync for future inserts/updates/deletes on sessions
+  // Triggers to keep FTS in sync
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS sessions_ai AFTER INSERT ON sessions BEGIN
       INSERT INTO sessions_fts(rowid, summary, project) VALUES (new.rowid, new.summary, new.project);
@@ -545,5 +560,174 @@ if (orphanNotes.length > 0) {
   }
   console.log(`[db] Migrated ${orphanNotes.length} notes to project-scoped`);
 }
+
+// ── Seed default workflow templates ──────────────────────────────────────────
+// Creates 5 starter templates if none exist yet. Safe to run on every boot —
+// skips seeding if any pending templates are already present.
+
+function seedDefaultTemplates() {
+  // Always replace the 5 standard templates by name so schema changes take effect.
+  // User-created templates with other names are left untouched.
+  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline'];
+  for (const name of standardNames) {
+    const row = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").get(name) as { id: string } | undefined;
+    if (row) {
+      db.prepare("DELETE FROM workflow_steps WHERE workflow_id = ?").run(row.id);
+      db.prepare("DELETE FROM workflows WHERE id = ?").run(row.id);
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  const insertWorkflow = db.prepare(`
+    INSERT INTO workflows (id, name, description, status, target_repos, created_at, started_at)
+    VALUES (?, ?, ?, 'pending', '[]', ?, '')
+  `);
+
+  const insertStep = db.prepare(`
+    INSERT INTO workflow_steps
+      (id, workflow_id, name, description, position_x, position_y,
+       executor_type, executor_id, executor_config, auto_advance, depends_on, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)
+  `);
+
+  function step(
+    wfId: string,
+    id: string,
+    name: string,
+    desc: string,
+    x: number,
+    y: number,
+    type: string,
+    config: Record<string, unknown>,
+    deps: string[],
+    auto = true,
+  ) {
+    insertStep.run(id, wfId, name, desc, x, y, type, JSON.stringify(config), auto ? 1 : 0, JSON.stringify(deps), now);
+  }
+
+  const cc = (role: string, extra: Record<string, unknown> = {}) => ({
+    role,
+    includeDepOutput: true,
+    systemPromptMode: 'free',
+    systemPrompt: '',
+    loopCount: 1,
+    ...extra,
+  });
+
+  const gate = (gateType: string) => ({ gateType, includeDepOutput: true });
+
+  // ── 1. Code Improvement ───────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    insertWorkflow.run(wfId, 'Code Improvement',
+      'Audit → architect → define tests → implement → run tests.', now);
+    step(wfId, s1, 'Performance Audit', 'Identify top bottlenecks ranked by impact. No code changes.', 50, 200, 'claude-code',
+      cc('performance'), []);
+    step(wfId, s2, 'Architecture Review', 'Propose refactoring steps with exact file paths and interfaces.', 350, 200, 'claude-code',
+      cc('architect'), [s1]);
+    step(wfId, s3, 'Define Tests', 'Define the test cases and expected outcomes that will prove the improvements worked. List what each test verifies. Do not write implementation code.', 650, 200, 'claude-code',
+      cc('tester'), [s2]);
+    step(wfId, s4, 'Implement Fixes', 'Apply the improvements following the architecture plan.', 950, 200, 'claude-code',
+      cc('backend'), [s3]);
+    step(wfId, s5, 'Run Tests', 'Execute the tests defined in the Define Tests step. Verify all pass.', 1250, 100, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 },
+      [s4]);
+    step(wfId, s6, 'Security & Lint', 'Verify lint and security pass after the changes.', 1250, 350, 'quality-gate',
+      gate('security'), [s4]);
+  }
+
+  // ── 2. Bug Hunter ─────────────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'Bug Hunter',
+      'Investigate → define regression test → fix → run tests + security.', now);
+    step(wfId, s1, 'Investigate & Reproduce', 'Trace root cause, find exact files and line numbers. No code changes.', 50, 200, 'claude-code',
+      cc('reviewer'), []);
+    step(wfId, s2, 'Define Regression Test', 'Define a test case that reproduces the bug. Describe exactly what inputs trigger it and what the correct output should be. Do not write the fix yet.', 350, 200, 'claude-code',
+      cc('tester'), [s1]);
+    step(wfId, s3, 'Implement Fix', 'Write the minimal fix based on the investigation.', 650, 200, 'claude-code',
+      cc('backend'), [s2]);
+    step(wfId, s4, 'Run Tests', 'Execute the regression test and full test suite. All must pass.', 950, 100, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s3 }], maxCycles: 2 },
+      [s3]);
+    step(wfId, s5, 'Security Check', 'Verify no security issues were introduced by the fix.', 950, 350, 'quality-gate',
+      gate('security'), [s3]);
+  }
+
+  // ── 3. Feature Fix ────────────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    insertWorkflow.run(wfId, 'Feature Fix',
+      'Diagnose → plan → define tests → implement → run tests.', now);
+    step(wfId, s1, 'Diagnose Issue', 'Find exactly where behavior diverges from intent. No code changes.', 50, 200, 'claude-code',
+      cc('reviewer'), []);
+    step(wfId, s2, 'Plan the Fix', 'Design the minimal fix with exact file paths and edge case analysis.', 350, 200, 'claude-code',
+      cc('architect'), [s1]);
+    step(wfId, s3, 'Define Tests', 'Define the test cases that describe the correct behavior. List what each test verifies and what inputs/outputs prove the feature works. Do not write the fix yet.', 650, 200, 'claude-code',
+      cc('tester'), [s2]);
+    step(wfId, s4, 'Implement Fix', 'Implement the fix following the plan.', 950, 200, 'claude-code',
+      cc('backend'), [s3]);
+    step(wfId, s5, 'Run Tests', 'Execute all tests defined in Define Tests. Verify the feature behaves as expected.', 1250, 100, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 },
+      [s4]);
+    step(wfId, s6, 'Security & Lint', 'Confirm lint and security pass after the fix.', 1250, 350, 'quality-gate',
+      gate('security'), [s4]);
+  }
+
+  // ── 4. New Feature ────────────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
+    insertWorkflow.run(wfId, 'New Feature',
+      'Research → architect → define tests → develop → run tests → notify + document.', now);
+    step(wfId, s1, 'Research', 'Investigate existing approaches, patterns, and trade-offs.', 50, 200, 'claude-code',
+      cc('researcher'), []);
+    step(wfId, s2, 'Architecture', 'Design implementation plan with file paths and interfaces. Manual advance — review before tests are written.', 350, 200, 'claude-code',
+      cc('architect'), [s1], false);
+    step(wfId, s3, 'Define Tests', 'Define all test cases and acceptance criteria. For each test: describe the scenario, inputs, expected output, and what failure means. Do not write any implementation code.', 650, 200, 'claude-code',
+      cc('tester'), [s2]);
+    step(wfId, s4, 'Develop', 'Build the feature following the architecture plan.', 950, 200, 'claude-code',
+      cc('backend'), [s3]);
+    step(wfId, s5, 'Run Tests', 'Execute the tests defined in Define Tests. All acceptance criteria must pass.', 1250, 100, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 3 },
+      [s4]);
+    step(wfId, s6, 'Security & Lint', 'Full lint + security check.', 1250, 350, 'quality-gate',
+      gate('security'), [s4]);
+    step(wfId, s7, 'Notify', 'Send completion notification. Configure your webhook URL in step settings.', 1550, 100, 'connector',
+      { connectorType: 'http', httpUrl: '', httpMethod: 'POST', httpBodyTemplate: '{"workflow":"{{workflowName}}","status":"complete","result":"{{result}}"}' },
+      [s5, s6]);
+    step(wfId, s8, 'Summary', 'Document all changes, test results, and manual testing instructions.', 1550, 350, 'claude-code',
+      cc('planner'), [s5, s6]);
+  }
+
+  // ── 5. CI/CD Pipeline ─────────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CI/CD Pipeline',
+      'Code review → parallel unit + integration tests → security → notify.', now);
+    step(wfId, s1, 'Code Review', 'Review code quality, patterns, and edge cases.', 50, 200, 'quality-gate',
+      gate('full-review'), []);
+    step(wfId, s2, 'Run Unit Tests', 'Execute full unit test suite.', 350, 100, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s1 }], maxCycles: 1 },
+      [s1]);
+    step(wfId, s3, 'Run Integration Tests', 'Execute integration and end-to-end tests.', 350, 350, 'claude-code',
+      cc('tester', { systemPrompt: 'Run all integration and e2e tests. Report STATUS: PASS or STATUS: FAIL in your result.' }),
+      [s1]);
+    step(wfId, s4, 'Security Scan', 'Audit for OWASP issues, auth flaws, and credential exposure.', 650, 200, 'quality-gate',
+      gate('security'), [s2, s3]);
+    step(wfId, s5, 'Notify', 'Send pipeline result to Slack. Configure your webhook URL in step settings.', 950, 200, 'connector',
+      { connectorType: 'slack', webhookUrl: '', messageTemplate: '{{workflowName}} pipeline completed: {{result}} at {{timestamp}}' },
+      [s4]);
+  }
+
+  console.log('[db] Seeded 5 default workflow templates');
+}
+
+seedDefaultTemplates();
 
 export default db;
