@@ -155,51 +155,96 @@ function findCliBinary(name: string): string | null {
 // Terminal launcher — opens a terminal window running a command at a path
 // ---------------------------------------------------------------------------
 
-function openInTerminal(repoPath: string, command: string): void {
+/**
+ * Write a temporary shell script and open it in a terminal window.
+ * Using a script file avoids all shell-quoting hell with paths/commands.
+ * Returns an error string on failure, null on success.
+ */
+function openInTerminal(repoPath: string, command: string): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
 
-  if (process.platform === 'darwin') {
-    // Try iTerm2 first, fall back to Terminal.app
-    const script = `
-      set cmd to "cd ${repoPath.replace(/"/g, '\\"')} && NEONCORE_URL=${neonUrl} ${command}"
-      if application "iTerm2" is running then
-        tell application "iTerm2"
-          create window with default profile command ("bash -lc \\"" & cmd & "\\"")
-        end tell
-      else
-        tell application "Terminal"
-          do script cmd
-          activate
-        end tell
-      end if
-    `;
-    spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' }).unref();
+  // Write a self-cleaning launch script
+  const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
+  fs.writeFileSync(scriptPath, [
+    '#!/usr/bin/env bash',
+    `cd ${JSON.stringify(repoPath)}`,        // JSON.stringify gives us proper shell quoting
+    `export NEONCORE_URL=${JSON.stringify(neonUrl)}`,
+    // Load user's shell profile so nvm/fnm paths are available
+    '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
+    '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
+    '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
+    command,
+  ].join('\n') + '\n');
+  fs.chmodSync(scriptPath, '755');
 
-  } else if (process.platform === 'linux') {
-    // Try common terminal emulators
-    const terminals = ['gnome-terminal', 'xterm', 'konsole', 'xfce4-terminal'];
-    const env = { ...process.env, NEONCORE_URL: neonUrl };
-    for (const term of terminals) {
+  // Clean up after 60s regardless of outcome
+  setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
+
+  if (process.platform === 'darwin') {
+    // Check if iTerm2 is running (pgrep is reliable)
+    let iterm2Running = false;
+    try { execSync('pgrep -x iTerm2', { stdio: 'ignore', timeout: 1000 }); iterm2Running = true; } catch { /* no */ }
+
+    if (iterm2Running) {
       try {
-        if (term === 'gnome-terminal') {
-          spawn(term, ['--working-directory', repoPath, '--', 'bash', '-lc', command], {
-            detached: true, stdio: 'ignore', env,
-          }).unref();
-        } else {
-          spawn(term, ['-e', `bash -lc "cd '${repoPath}' && NEONCORE_URL=${neonUrl} ${command}"`], {
-            detached: true, stdio: 'ignore', env,
-          }).unref();
-        }
-        return;
-      } catch { /* try next */ }
+        // iTerm2 AppleScript — each -e is one line, scriptPath has no special chars
+        execSync(
+          `osascript` +
+          ` -e 'tell application "iTerm2"'` +
+          ` -e 'set w to (create window with default profile)'` +
+          ` -e 'tell current session of w'` +
+          ` -e 'write text ${JSON.stringify(scriptPath)}'` +
+          ` -e 'end tell'` +
+          ` -e 'end tell'`,
+          { timeout: 8000 }
+        );
+        return null;
+      } catch { /* fall through to Terminal.app */ }
     }
 
+    // Terminal.app — simplest reliable approach
+    try {
+      execSync(
+        `osascript` +
+        ` -e 'tell application "Terminal"'` +
+        ` -e 'do script ${JSON.stringify(scriptPath)}'` +
+        ` -e 'activate'` +
+        ` -e 'end tell'`,
+        { timeout: 8000 }
+      );
+      return null;
+    } catch (err) {
+      return `Failed to open Terminal.app: ${err instanceof Error ? err.message : String(err)}`;
+    }
+
+  } else if (process.platform === 'linux') {
+    const terminals: [string, string[]][] = [
+      ['gnome-terminal', ['--', 'bash', scriptPath]],
+      ['xfce4-terminal', ['--command', `bash ${scriptPath}`]],
+      ['konsole', ['--noclose', '-e', `bash ${scriptPath}`]],
+      ['xterm', ['-e', `bash ${scriptPath}`]],
+    ];
+    for (const [term, args] of terminals) {
+      try {
+        execSync(`which ${term}`, { stdio: 'ignore', timeout: 1000 });
+        spawn(term, args, { detached: true, stdio: 'ignore' }).unref();
+        return null;
+      } catch { /* try next */ }
+    }
+    return 'No terminal emulator found (tried gnome-terminal, xfce4-terminal, konsole, xterm)';
+
   } else if (process.platform === 'win32') {
-    const cmd = `cd /d "${repoPath}" && set NEONCORE_URL=${neonUrl} && ${command}`;
-    spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', cmd], {
-      detached: true, stdio: 'ignore',
-    }).unref();
+    try {
+      spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', scriptPath], {
+        detached: true, stdio: 'ignore',
+      }).unref();
+      return null;
+    } catch (err) {
+      return `Failed to open terminal: ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
+
+  return 'Unsupported platform';
 }
 
 let codeBin: string | null = null;
@@ -224,15 +269,8 @@ router.post('/open', (req, res) => {
   };
 
   if (agentType in CLI_COMMANDS) {
-    const cliName = agentType === 'amazonq' ? 'q' : agentType;
-    const cliBin = findCliBinary(cliName);
-    if (!cliBin && agentType !== 'amazonq') {
-      // Amazon Q install path is non-standard; still try running it by name
-      return res.status(400).json({
-        error: `${agentType} CLI not found. Install it first via the Tools tab.`,
-      });
-    }
-    openInTerminal(repoPath, CLI_COMMANDS[agentType]);
+    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType]);
+    if (err) return res.status(500).json({ error: err });
     res.json({ ok: true });
     return;
   }
