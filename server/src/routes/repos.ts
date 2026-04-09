@@ -161,20 +161,28 @@ function findCliBinary(name: string): string | null {
  * Using a script file avoids all shell-quoting hell with paths/commands.
  * Returns an error string on failure, null on success.
  */
-function openInTerminal(repoPath: string, command: string): string | null {
+function openInTerminal(repoPath: string, command: string, sessionId: string): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+  const fifoPath = `/tmp/neoncore-in-${sessionId}`;
 
   // Write a self-cleaning launch script
   const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
   fs.writeFileSync(scriptPath, [
     '#!/usr/bin/env bash',
-    `cd ${JSON.stringify(repoPath)}`,        // JSON.stringify gives us proper shell quoting
+    `cd ${JSON.stringify(repoPath)}`,
     `export NEONCORE_URL=${JSON.stringify(neonUrl)}`,
+    `export NEONCORE_SESSION_ID=${JSON.stringify(sessionId)}`,
     // Load user's shell profile so nvm/fnm paths are available
     '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
     '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
     '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
-    command,
+    // Create FIFO pipe for receiving commands from the dashboard
+    `FIFO=${JSON.stringify(fifoPath)}`,
+    'rm -f "$FIFO" 2>/dev/null',
+    'mkfifo "$FIFO"',
+    // Tail the FIFO and pipe to the CLI stdin; clean up FIFO on exit
+    `trap 'rm -f "$FIFO"' EXIT`,
+    `tail -f "$FIFO" | ${command}`,
   ].join('\n') + '\n');
   fs.chmodSync(scriptPath, '755');
 
@@ -252,7 +260,7 @@ function openInTerminal(repoPath: string, command: string): string | null {
  * Register a CLI agent directly via the local API so the cartridge appears
  * in NeonCore immediately when the terminal opens, without waiting for a hook.
  */
-function registerCliAgent(repoPath: string, agentType: string): void {
+function registerCliAgent(repoPath: string, agentType: string, sessionId: string): void {
   const port = process.env.PORT || 4040;
   const body = JSON.stringify({
     machine: os.hostname(),
@@ -260,7 +268,7 @@ function registerCliAgent(repoPath: string, agentType: string): void {
     repoName: path.basename(repoPath),
     agentType,
     status: 'idle',
-    sessionId: `neoncore-launch-${Date.now()}`,
+    sessionId,
   });
   try {
     const req = http.request({
@@ -298,9 +306,10 @@ router.post('/open', (req, res) => {
   };
 
   if (agentType in CLI_COMMANDS) {
-    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType]);
+    const sessionId = `neoncore-${agentType}-${Date.now()}`;
+    const err = openInTerminal(repoPath, CLI_COMMANDS[agentType], sessionId);
     if (err) return res.status(500).json({ error: err });
-    registerCliAgent(repoPath, agentType);
+    registerCliAgent(repoPath, agentType, sessionId);
     res.json({ ok: true });
     return;
   }
