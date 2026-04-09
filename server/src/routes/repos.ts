@@ -163,7 +163,6 @@ function findCliBinary(name: string): string | null {
  */
 function openInTerminal(repoPath: string, command: string, sessionId: string): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
-  const fifoPath = `/tmp/neoncore-in-${sessionId}`;
 
   // Write a self-cleaning launch script
   const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
@@ -176,13 +175,7 @@ function openInTerminal(repoPath: string, command: string, sessionId: string): s
     '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
     '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
     '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
-    // Create FIFO pipe for receiving commands from the dashboard
-    `FIFO=${JSON.stringify(fifoPath)}`,
-    'rm -f "$FIFO" 2>/dev/null',
-    'mkfifo "$FIFO"',
-    // Tail the FIFO and pipe to the CLI stdin; clean up FIFO on exit
-    `trap 'rm -f "$FIFO"' EXIT`,
-    `tail -f "$FIFO" | ${command}`,
+    command,
   ].join('\n') + '\n');
   fs.chmodSync(scriptPath, '755');
 
