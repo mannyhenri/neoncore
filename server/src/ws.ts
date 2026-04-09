@@ -88,6 +88,7 @@ function markAgentOffline(agentId: string) {
       currentTask: (row.current_task as string) ?? '',
       status: 'offline',
       trustMode: mode === 'trust',
+      plansIncluded: Boolean(row.plans_included),
       mode,
       agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,
       lastSeen: now,

@@ -162,7 +162,7 @@ line = sys.stdin.readline()  # line 2 (permission body)
 d = json.loads(line)
 print(d.get('toolName', ''))
 " 2>/dev/null)
-if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "ExitPlanMode" ] && [ "$TOOL_NAME" != "AskUserQuestion" ]; then
+if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "AskUserQuestion" ]; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Auto-approved by NeonCore trust mode"}}'
   exit 0
 fi

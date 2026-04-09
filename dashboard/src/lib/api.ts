@@ -66,6 +66,12 @@ export const api = {
       body: JSON.stringify({ mode }),
     }),
 
+  setPlansIncluded: (agentId: string, plansIncluded: boolean) =>
+    request<import('../types').Agent>(`/trust/${agentId}/plans-included`, {
+      method: 'PUT',
+      body: JSON.stringify({ plansIncluded }),
+    }),
+
   // Commands
   sendCommand: (agentId: string, text: string, includeMemory = true) =>
     request<import('../types').Command>('/commands/send', {

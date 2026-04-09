@@ -115,6 +115,7 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     currentTask: (row.current_task as string) ?? '',
     status: (row.status as string ?? 'idle') as import('./types.js').Agent['status'],
     trustMode: mode === 'trust',
+    plansIncluded: Boolean((row as Record<string,unknown>).plans_included),
     mode,
     agentType: ((row.agent_type as string) ?? 'claude') as import('./types.js').AgentType,
     lastSeen: (row.last_seen as string) ?? '',

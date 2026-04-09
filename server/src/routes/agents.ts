@@ -393,6 +393,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     currentTask: (row.current_task ?? row.currentTask ?? '') as string,
     status: (row.status ?? 'idle') as Agent['status'],
     trustMode: mode === 'trust',
+    plansIncluded: Boolean(row.plans_included),
     mode,
     agentType: ((row.agent_type ?? row.agentType ?? 'claude') as AgentType),
     lastSeen: (row.last_seen ?? row.lastSeen ?? '') as string,

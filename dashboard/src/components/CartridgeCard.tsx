@@ -709,12 +709,26 @@ export function CartridgeCard({
         </div>
 
 
-        {/* ── Mode selector ── */}
-        <div className="mx-3 mb-2 flex items-center justify-between">
+        {/* ── Mode selector + Plans toggle ── */}
+        <div className="mx-3 mb-2 flex items-center justify-between gap-2">
           <AgentModeSelector mode={agent.mode} onSetMode={(mode) => {
             onSetMode(agent.id, mode);
             siblingAgents?.forEach((s) => { if (s.status !== 'offline') onSetMode(s.id, mode); });
           }} />
+          {agent.mode === 'trust' && (
+            <button
+              onClick={() => api.setPlansIncluded(agent.id, !agent.plansIncluded)}
+              title={agent.plansIncluded ? 'Plans auto-approved (click to require review)' : 'Plans require review (click to auto-approve)'}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                agent.plansIncluded
+                  ? 'bg-violet-900/60 border-violet-600/60 text-violet-300 hover:bg-violet-800/60'
+                  : 'bg-gray-800/60 border-gray-600/40 text-gray-500 hover:bg-gray-700/60'
+              }`}
+            >
+              <span>{agent.plansIncluded ? '✓' : '○'}</span>
+              <span>Plans</span>
+            </button>
+          )}
         </div>
 
         {/* ── Terminal: recent activity + live log ── */}
