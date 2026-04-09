@@ -747,7 +747,7 @@ export function CartridgeCard({
             {activities.length === 0 ? (
               <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
             ) : (
-              [...activities].reverse().map((act) => (
+              activities.map((act) => (
                 <div
                   key={act.id}
                   onClick={() => onActivityClick?.(act)}
