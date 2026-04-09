@@ -31,6 +31,7 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
     currentTask: '',
     status: 'idle',
     trustMode: false,
+    plansIncluded: false,
     mode: 'manual',
     agentType: 'claude',
     lastSeen: new Date().toISOString(),

@@ -152,6 +152,20 @@ try {
   db.exec(`ALTER TABLE permissions ADD COLUMN response TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add plans_included column to agents
+try {
+  db.prepare('SELECT plans_included FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN plans_included INTEGER NOT NULL DEFAULT 0`);
+}
+
+// Migration: add plan_content column to workflow_steps (stores plan captured from ExitPlanMode)
+try {
+  db.prepare('SELECT plan_content FROM workflow_steps LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN plan_content TEXT NOT NULL DEFAULT ''`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (

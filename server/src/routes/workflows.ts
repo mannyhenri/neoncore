@@ -762,8 +762,13 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   }
 
   const now = new Date().toISOString();
+  // Prepend captured plan content (from ExitPlanMode with plansIncluded) if present
+  const planContent = (row.plan_content as string) || '';
+  const finalResult = planContent
+    ? `[Plan]\n${planContent}\n\n[Implementation Summary]\n${result || 'Completed via webhook'}`
+    : (result || 'Completed via webhook');
   db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
-    .run('completed', result || 'Completed via webhook', now, step.id);
+    .run('completed', finalResult, now, step.id);
 
   const updated = normalizeStep(
     db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>

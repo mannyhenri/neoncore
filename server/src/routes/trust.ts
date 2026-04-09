@@ -61,6 +61,24 @@ router.put('/:agentId', (req, res) => {
   res.json(normalized);
 });
 
+// Toggle plans_included for an agent
+router.put('/:agentId/plans-included', (req, res) => {
+  const { agentId } = req.params;
+  const { plansIncluded } = req.body as { plansIncluded: boolean };
+
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const newVal = plansIncluded !== undefined ? (plansIncluded ? 1 : 0) : (agent.plans_included ? 0 : 1);
+  const now = new Date().toISOString();
+  db.prepare('UPDATE agents SET plans_included = ?, last_seen = ? WHERE id = ?').run(newVal, now, agentId);
+
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
+  const normalized = normalizeAgent(updated);
+  getIO().emit('agent_updated', normalized);
+  res.json(normalized);
+});
+
 // Get trust mode for an agent
 router.get('/:agentId', (req, res) => {
   const agent = db.prepare('SELECT id, trust_mode, agent_mode FROM agents WHERE id = ?')
@@ -97,6 +115,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     currentTask: (row.current_task ?? row.currentTask ?? '') as string,
     status: (row.status ?? 'idle') as Agent['status'],
     trustMode: mode === 'trust',
+    plansIncluded: Boolean(row.plans_included),
     mode,
     agentType: ((row.agent_type ?? row.agentType ?? 'claude') as AgentType),
     lastSeen: (row.last_seen ?? row.lastSeen ?? '') as string,

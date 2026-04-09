@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
@@ -5,6 +7,34 @@ import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
 
 const router = Router();
+
+/** Read the most recent plan file from ~/.claude/plans/ */
+function readLatestPlan(): string {
+  try {
+    const plansDir = path.join(process.env.HOME || '~', '.claude', 'plans');
+    if (!fs.existsSync(plansDir)) return '';
+    const files = fs.readdirSync(plansDir)
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => ({ f, mtime: fs.statSync(path.join(plansDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length === 0) return '';
+    const content = fs.readFileSync(path.join(plansDir, files[0].f), 'utf8');
+    return content.length > 12000 ? content.slice(0, 12000) + '\n\n...(truncated)' : content;
+  } catch { return ''; }
+}
+
+/** When ExitPlanMode fires with plansIncluded, store plan content in any running workflow step for this agent */
+function capturePlanForWorkflow(agentId: string): void {
+  const plan = readLatestPlan();
+  if (!plan) return;
+  const runningStep = db.prepare(
+    "SELECT id FROM workflow_steps WHERE executor_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1"
+  ).get(agentId) as { id: string } | undefined;
+  if (runningStep) {
+    db.prepare('UPDATE workflow_steps SET plan_content = ? WHERE id = ?').run(plan, runningStep.id);
+    console.log(`[permissions] Captured plan content (${plan.length} chars) for workflow step ${runningStep.id}`);
+  }
+}
 
 // Pending permission decisions waiting for long-poll responses
 const pendingPolls = new Map<string, {
@@ -35,19 +65,23 @@ router.post('/request', (req, res) => {
   let trustMode = false;
   let resolvedBySession = false;
 
+  let plansIncluded = false;
+
   if (sessionId) {
-    const agent = db.prepare('SELECT id, trust_mode, agent_mode FROM agents WHERE session_id = ?').get(sessionId) as { id: string; trust_mode: number; agent_mode: string } | undefined;
+    const agent = db.prepare('SELECT id, trust_mode, agent_mode, plans_included FROM agents WHERE session_id = ?').get(sessionId) as { id: string; trust_mode: number; agent_mode: string; plans_included: number } | undefined;
     if (agent) {
       resolvedAgentId = agent.id;
       trustMode = agent.agent_mode === 'trust';
+      plansIncluded = Boolean(agent.plans_included);
       resolvedBySession = true;
     }
   }
 
   // Fallback: if sessionId didn't find the agent, try by agentId
   if (!resolvedBySession && resolvedAgentId) {
-    const agent = db.prepare('SELECT trust_mode, agent_mode FROM agents WHERE id = ?').get(resolvedAgentId) as { trust_mode: number; agent_mode: string } | undefined;
+    const agent = db.prepare('SELECT trust_mode, agent_mode, plans_included FROM agents WHERE id = ?').get(resolvedAgentId) as { trust_mode: number; agent_mode: string; plans_included: number } | undefined;
     trustMode = agent?.agent_mode === 'trust';
+    plansIncluded = Boolean(agent?.plans_included);
   }
 
   if (!resolvedAgentId) {
@@ -55,10 +89,16 @@ router.post('/request', (req, res) => {
     return res.status(400).json({ error: 'agentId or valid sessionId required' });
   }
 
-  // If trust mode is ON, immediately allow — EXCEPT ExitPlanMode and
-  // AskUserQuestion, which must go through the dashboard for human review/answers.
-  if (trustMode && toolName !== 'ExitPlanMode' && toolName !== 'AskUserQuestion') {
-    return res.json({ decision: 'allowed', trustMode: true });
+  // If trust mode is ON, immediately allow — EXCEPT AskUserQuestion (always needs human answer)
+  // and ExitPlanMode (needs human review UNLESS plansIncluded is also enabled).
+  if (trustMode && toolName !== 'AskUserQuestion') {
+    if (toolName !== 'ExitPlanMode' || plansIncluded) {
+      // For ExitPlanMode with plansIncluded: capture plan content and store in any running workflow step
+      if (toolName === 'ExitPlanMode' && plansIncluded && resolvedAgentId) {
+        capturePlanForWorkflow(resolvedAgentId);
+      }
+      return res.json({ decision: 'allowed', trustMode: true });
+    }
   }
 
   const id = uuid();

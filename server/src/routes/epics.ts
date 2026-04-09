@@ -548,6 +548,7 @@ function emitAgentUpdate(agentId: string) {
     currentTask: (row.current_task as string) ?? '',
     status: (row.status as string ?? 'idle') as 'working' | 'idle' | 'waiting' | 'offline',
     trustMode: mode === 'trust',
+    plansIncluded: Boolean((row as Record<string, unknown>).plans_included),
     mode,
     agentType: ((row.agent_type as string) ?? 'claude') as 'claude' | 'gridlight',
     lastSeen: (row.last_seen as string) ?? '',

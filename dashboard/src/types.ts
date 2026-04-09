@@ -11,6 +11,7 @@ export interface Agent {
   currentTask: string;
   status: 'working' | 'idle' | 'waiting' | 'offline';
   trustMode: boolean;
+  plansIncluded: boolean;
   mode: AgentMode;
   agentType: AgentType;
   lastSeen: string;

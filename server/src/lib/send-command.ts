@@ -33,6 +33,7 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
       currentTask: (updated.current_task ?? '') as string,
       status: (updated.status ?? 'idle') as Agent['status'],
       trustMode: mode === 'trust',
+      plansIncluded: Boolean(updated.plans_included),
       mode,
       agentType: (updated.agent_type ?? 'claude') as Agent['agentType'],
       lastSeen: (updated.last_seen ?? '') as string,
