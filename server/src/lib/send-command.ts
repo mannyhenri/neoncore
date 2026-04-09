@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { execSync } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
@@ -103,17 +103,46 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
   };
   getIO().emit('activity_logged', activity);
 
-  // ── CLI tools (gemini / codex / amazonq): write directly to the FIFO pipe ──
-  if (CLI_AGENT_TYPES.has(agentCheck.agent_type) && agentCheck.session_id) {
-    const fifoPath = `/tmp/neoncore-in-${agentCheck.session_id}`;
-    try {
-      // Open non-blocking so we don't hang if FIFO reader is gone
-      const fd = fs.openSync(fifoPath, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
-      fs.writeSync(fd, finalText + '\n');
-      fs.closeSync(fd);
-      console.log(`[cmd] Wrote to CLI FIFO ${fifoPath}: ${finalText.slice(0, 80)}`);
-    } catch (err) {
-      console.warn(`[cmd] Could not write to CLI FIFO ${fifoPath}:`, err instanceof Error ? err.message : err);
+  // ── CLI tools (gemini / codex / amazonq): type into the terminal via AppleScript ──
+  if (CLI_AGENT_TYPES.has(agentCheck.agent_type)) {
+    if (process.platform === 'darwin') {
+      // Escape for AppleScript string: backslash and double-quote
+      const escaped = finalText.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      let sent = false;
+
+      // Try iTerm2 first
+      try {
+        execSync(
+          `osascript` +
+          ` -e 'tell application "iTerm2"'` +
+          ` -e 'tell current session of current window'` +
+          ` -e 'write text "${escaped}"'` +
+          ` -e 'end tell'` +
+          ` -e 'end tell'`,
+          { timeout: 5000 }
+        );
+        sent = true;
+      } catch { /* fall through */ }
+
+      // Try Terminal.app
+      if (!sent) {
+        try {
+          execSync(
+            `osascript` +
+            ` -e 'tell application "Terminal"'` +
+            ` -e 'do script "${escaped}" in front window'` +
+            ` -e 'end tell'`,
+            { timeout: 5000 }
+          );
+          sent = true;
+        } catch { /* ignore */ }
+      }
+
+      if (sent) {
+        console.log(`[cmd] Typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
+      } else {
+        console.warn(`[cmd] Could not send command to terminal — no supported terminal found`);
+      }
     }
     return command;
   }
