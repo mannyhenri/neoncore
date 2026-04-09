@@ -170,95 +170,66 @@ router.get('/search', (req, res) => {
     return res.json({ sessions: [], knowledge: [] });
   }
 
-  // Escape FTS5 special characters
-  const ftsQuery = q.replace(/['"*]/g, ' ').trim();
-  if (!ftsQuery) return res.json({ sessions: [], knowledge: [] });
+  const likePattern = `%${q.replace(/[%_]/g, '\\$&')}%`;
 
-  try {
-    // Search sessions via FTS5
-    const sessionRows = project
-      ? db.prepare(`
-          SELECT s.id, s.project, s.started_at,
-            snippet(sessions_fts, 0, '<b>', '</b>', '…', 20) as snippet
-          FROM sessions_fts
-          JOIN sessions s ON sessions_fts.rowid = s.rowid
-          WHERE sessions_fts MATCH ? AND sessions_fts.project = ?
-          ORDER BY rank
-          LIMIT 10
-        `).all(ftsQuery, project) as { id: string; project: string; started_at: string; snippet: string }[]
-      : db.prepare(`
-          SELECT s.id, s.project, s.started_at,
-            snippet(sessions_fts, 0, '<b>', '</b>', '…', 20) as snippet
-          FROM sessions_fts
-          JOIN sessions s ON sessions_fts.rowid = s.rowid
-          WHERE sessions_fts MATCH ?
-          ORDER BY rank
-          LIMIT 10
-        `).all(ftsQuery) as { id: string; project: string; started_at: string; snippet: string }[];
-
-    // Search knowledge files
-    const knowledgeRows = project
-      ? db.prepare(`
-          SELECT pk.project, pk.filename,
-            snippet(knowledge_fts, 0, '<b>', '</b>', '…', 20) as snippet
-          FROM knowledge_fts
-          JOIN project_knowledge pk ON knowledge_fts.rowid = pk.rowid
-          WHERE knowledge_fts MATCH ? AND knowledge_fts.project = ?
-          ORDER BY rank
-          LIMIT 10
-        `).all(ftsQuery, project) as { project: string; filename: string; snippet: string }[]
-      : db.prepare(`
-          SELECT pk.project, pk.filename,
-            snippet(knowledge_fts, 0, '<b>', '</b>', '…', 20) as snippet
-          FROM knowledge_fts
-          JOIN project_knowledge pk ON knowledge_fts.rowid = pk.rowid
-          WHERE knowledge_fts MATCH ?
-          ORDER BY rank
-          LIMIT 10
-        `).all(ftsQuery) as { project: string; filename: string; snippet: string }[];
-
-    res.json({
-      sessions: sessionRows.map((r) => ({
-        id: r.id,
-        project: r.project,
-        startedAt: r.started_at,
-        summary: r.snippet,
-      })),
-      knowledge: knowledgeRows.map((r) => ({
-        project: r.project,
-        filename: r.filename,
-        snippet: r.snippet,
-      })),
-    });
-  } catch {
-    // FTS5 not available or query syntax error — fall back to LIKE
-    const likePattern = `%${q.replace(/[%_]/g, '\\$&')}%`;
-    const sessionRows = project
-      ? db.prepare(`SELECT id, project, started_at, summary FROM sessions WHERE project = ? AND summary LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT 10`)
-          .all(project, likePattern) as { id: string; project: string; started_at: string; summary: string }[]
-      : db.prepare(`SELECT id, project, started_at, summary FROM sessions WHERE summary LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT 10`)
-          .all(likePattern) as { id: string; project: string; started_at: string; summary: string }[];
-
-    const knowledgeRows = project
-      ? db.prepare(`SELECT project, filename, content FROM project_knowledge WHERE project = ? AND content LIKE ? ESCAPE '\\' LIMIT 10`)
-          .all(project, likePattern) as { project: string; filename: string; content: string }[]
-      : db.prepare(`SELECT project, filename, content FROM project_knowledge WHERE content LIKE ? ESCAPE '\\' LIMIT 10`)
-          .all(likePattern) as { project: string; filename: string; content: string }[];
-
-    function likeSnippet(text: string, term: string): string {
-      const idx = text.toLowerCase().indexOf(term.toLowerCase());
-      if (idx === -1) return text.slice(0, 150) + '…';
-      const start = Math.max(0, idx - 50);
-      const end = Math.min(text.length, idx + term.length + 50);
-      const snip = (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
-      return snip.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<b>$&</b>');
-    }
-
-    res.json({
-      sessions: sessionRows.map((r) => ({ id: r.id, project: r.project, startedAt: r.started_at, summary: likeSnippet(r.summary, q) })),
-      knowledge: knowledgeRows.map((r) => ({ project: r.project, filename: r.filename, snippet: likeSnippet(r.content, q) })),
-    });
+  function likeSnippet(text: string, term: string): string {
+    const idx = text.toLowerCase().indexOf(term.toLowerCase());
+    if (idx === -1) return text.slice(0, 150) + '…';
+    const start = Math.max(0, idx - 50);
+    const end = Math.min(text.length, idx + term.length + 50);
+    const snip = (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
+    return snip.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<b>$&</b>');
   }
+
+  // Search session summaries
+  const summaryRows = project
+    ? db.prepare(`SELECT id, project, started_at, summary FROM sessions WHERE project = ? AND summary LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT 10`)
+        .all(project, likePattern) as { id: string; project: string; started_at: string; summary: string }[]
+    : db.prepare(`SELECT id, project, started_at, summary FROM sessions WHERE summary LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT 10`)
+        .all(likePattern) as { id: string; project: string; started_at: string; summary: string }[];
+
+  // Search activity logs (tool_input contains file paths, commands, outputs)
+  // Join agents to get project, join sessions to get session metadata
+  const activityRows = project
+    ? db.prepare(`
+        SELECT DISTINCT s.id, s.project, s.started_at, a.tool_input as match_text
+        FROM activity a
+        JOIN agents ag ON a.agent_id = ag.id
+        JOIN sessions s ON s.session_id = ag.session_id AND s.project = ag.repo_name
+        WHERE ag.repo_name = ? AND a.tool_input LIKE ? ESCAPE '\\'
+        ORDER BY s.started_at DESC
+        LIMIT 10
+      `).all(project, likePattern) as { id: string; project: string; started_at: string; match_text: string }[]
+    : db.prepare(`
+        SELECT DISTINCT s.id, s.project, s.started_at, a.tool_input as match_text
+        FROM activity a
+        JOIN agents ag ON a.agent_id = ag.id
+        JOIN sessions s ON s.session_id = ag.session_id AND s.project = ag.repo_name
+        WHERE a.tool_input LIKE ? ESCAPE '\\'
+        ORDER BY s.started_at DESC
+        LIMIT 10
+      `).all(likePattern) as { id: string; project: string; started_at: string; match_text: string }[];
+
+  // Merge: summary matches first, then activity matches not already included
+  const seen = new Set(summaryRows.map((r) => r.id));
+  const sessionRows = [
+    ...summaryRows.map((r) => ({ id: r.id, project: r.project, startedAt: r.started_at, summary: likeSnippet(r.summary, q) })),
+    ...activityRows
+      .filter((r) => !seen.has(r.id))
+      .map((r) => ({ id: r.id, project: r.project, startedAt: r.started_at, summary: `[activity log] ${likeSnippet(r.match_text, q)}` })),
+  ].slice(0, 10);
+
+  // Search knowledge files
+  const knowledgeRows = project
+    ? db.prepare(`SELECT project, filename, content FROM project_knowledge WHERE project = ? AND content LIKE ? ESCAPE '\\' LIMIT 10`)
+        .all(project, likePattern) as { project: string; filename: string; content: string }[]
+    : db.prepare(`SELECT project, filename, content FROM project_knowledge WHERE content LIKE ? ESCAPE '\\' LIMIT 10`)
+        .all(likePattern) as { project: string; filename: string; content: string }[];
+
+  res.json({
+    sessions: sessionRows,
+    knowledge: knowledgeRows.map((r) => ({ project: r.project, filename: r.filename, snippet: likeSnippet(r.content, q) })),
+  });
 });
 
 export default router;
