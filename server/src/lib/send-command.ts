@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
@@ -8,9 +9,11 @@ import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from 
  * Shared command dispatch — used by the commands route.
  * Handles memory injection, activity logging, and socket emission.
  */
+const CLI_AGENT_TYPES = new Set(['gemini', 'amazonq', 'codex']);
+
 export function sendCommandToAgent(agentId: string, text: string, includeMemory = false): Command | null {
-  const agentCheck = db.prepare('SELECT id, repo_name, status FROM agents WHERE id = ?')
-    .get(agentId) as { id: string; repo_name: string; status: string } | undefined;
+  const agentCheck = db.prepare('SELECT id, repo_name, status, agent_type, session_id FROM agents WHERE id = ?')
+    .get(agentId) as { id: string; repo_name: string; status: string; agent_type: string; session_id: string } | undefined;
   if (!agentCheck) return null;
 
   // Clear 'waiting' status when user responds from dashboard
@@ -99,6 +102,21 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
     timestamp: now,
   };
   getIO().emit('activity_logged', activity);
+
+  // ── CLI tools (gemini / codex / amazonq): write directly to the FIFO pipe ──
+  if (CLI_AGENT_TYPES.has(agentCheck.agent_type) && agentCheck.session_id) {
+    const fifoPath = `/tmp/neoncore-in-${agentCheck.session_id}`;
+    try {
+      // Open non-blocking so we don't hang if FIFO reader is gone
+      const fd = fs.openSync(fifoPath, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
+      fs.writeSync(fd, finalText + '\n');
+      fs.closeSync(fd);
+      console.log(`[cmd] Wrote to CLI FIFO ${fifoPath}: ${finalText.slice(0, 80)}`);
+    } catch (err) {
+      console.warn(`[cmd] Could not write to CLI FIFO ${fifoPath}:`, err instanceof Error ? err.message : err);
+    }
+    return command;
+  }
 
   // Emit to the agent-specific room only — no fallback to path room to prevent misdelivery
   const agentRoom = `agent:${agentId}`;
