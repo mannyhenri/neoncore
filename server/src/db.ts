@@ -582,7 +582,7 @@ if (orphanNotes.length > 0) {
 function seedDefaultTemplates() {
   // Always replace the 5 standard templates by name so schema changes take effect.
   // User-created templates with other names are left untouched.
-  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline'];
+  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline', 'Feature Validation'];
   for (const name of standardNames) {
     const row = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").get(name) as { id: string } | undefined;
     if (row) {
@@ -739,7 +739,61 @@ function seedDefaultTemplates() {
       [s4]);
   }
 
-  console.log('[db] Seeded 5 default workflow templates');
+  // ── 6. Feature Validation ─────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'Feature Validation',
+      'Set the workflow description to what the feature is supposed to do — that spec is automatically passed to every step.', now);
+
+    // Step 1: Feature Mapping — reads workflow description via workflowContext: true
+    step(wfId, s1, 'Feature Mapping',
+      'Map all files, components, routes, DB tables, hooks, and UI elements involved in this feature.',
+      50, 200, 'claude-code',
+      {
+        ...cc('researcher'),
+        workflowContext: true,
+        prompt: 'Using the feature specification above, identify every part of the codebase involved: files, functions, API routes, DB tables/queries, React components, hooks, and event handlers. Trace the complete data flow from user action to response. Do not make any code changes. Output a structured map of what you found.',
+      }, []);
+
+    // Step 2: Wiring Check — parallel with step 3
+    step(wfId, s2, 'Wiring Check',
+      'Verify all components are correctly connected — imports, routes, DB queries, hooks, API calls, UI bindings.',
+      350, 75, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Using the feature map from the previous step, verify that every connection is correctly wired: imports resolve, routes are registered in the correct router, DB queries match the schema, hooks fire at the right lifecycle stage, API calls use the correct endpoints and method, and UI state binds to the right variables. List each issue as: WIRING ISSUE: <file>:<line> — <description>. If everything is wired correctly, say WIRING: ALL CLEAR.',
+      }, [s1]);
+
+    // Step 3: Bug Scan — parallel with step 2
+    step(wfId, s3, 'Bug Scan',
+      'Scan for logical bugs, null access, missing error handling, race conditions, and edge cases.',
+      350, 325, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Using the feature map from the previous step, scan the relevant code for: null/undefined access without guards, missing error handling on async calls, race conditions, incorrect data transformations, off-by-one errors, missing input validation, and edge cases that would cause failures or bad UX. List each finding as: BUG: <file>:<line> — <description> [SEVERITY: low/medium/high]. If no bugs are found, say BUGS: NONE FOUND.',
+      }, [s1]);
+
+    // Step 4: Functional Test Execution
+    step(wfId, s4, 'Functional Testing',
+      'Execute tests simulating a real user validating the feature — happy path, edge cases, error states.',
+      650, 200, 'claude-code',
+      {
+        ...cc('tester'),
+        prompt: 'Based on the wiring check and bug scan results, now validate the feature works as intended by testing it as a user would. For each scenario below, run the code/commands needed to verify it:\n\n1. Happy path — trigger the feature with valid inputs and confirm the expected output\n2. Edge cases — empty inputs, boundary values, concurrent actions\n3. Error states — invalid inputs, missing data, network/DB failures\n\nFor each test report: TEST: <scenario name> | RESULT: PASS or FAIL | DETAIL: <what happened>.\nEnd with a summary line: TESTS: X passed, Y failed.',
+      }, [s2, s3]);
+
+    // Step 5: Final Report — manual advance so the user reads it before moving on
+    step(wfId, s5, 'Validation Report',
+      'Compile the complete pass/fail report with action items.',
+      950, 200, 'claude-code',
+      {
+        ...cc('general'),
+        prompt: 'Compile the final feature validation report using all findings from the previous steps. Structure it as:\n\n## Feature Validation Report\n\n### Wiring\n[List each WIRING ISSUE or "✅ All clear"]\n\n### Bugs\n[List each BUG with severity or "✅ None found"]\n\n### Functional Tests\n[List each TEST with PASS/FAIL and detail]\n\n### Summary\n- Wiring: ✅ PASS / ❌ FAIL (N issues)\n- Bugs: ✅ PASS / ⚠️ N warnings / ❌ N critical\n- Tests: ✅ N passed / ❌ N failed\n\n### Overall Status\n**STATUS: PASS** or **STATUS: FAIL**\n\n### Action Items\n[Numbered list of issues to fix, highest severity first. If none: "No action required."]',
+      }, [s4], false);
+  }
+
+  console.log('[db] Seeded 6 default workflow templates');
 }
 
 seedDefaultTemplates();

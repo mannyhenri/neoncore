@@ -174,11 +174,22 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
 
   const rolePrefix = ROLE_PROMPTS[role] ?? '';
 
+  // If workflowContext: true, prepend the workflow name + description so the agent
+  // knows what feature/task it is validating (set on first steps with no deps).
+  let workflowCtx = '';
+  if (step.executorConfig.workflowContext) {
+    const wf = db.prepare('SELECT name, description FROM workflows WHERE id = ?')
+      .get(step.workflowId) as { name: string; description: string } | undefined;
+    if (wf?.description) {
+      workflowCtx = `## Feature Under Validation\n**${wf.name}**\n\n${wf.description}\n\n`;
+    }
+  }
+
   // Always append webhook instructions so the agent provides a structured summary on completion
   const port = process.env.PORT || '4040';
   const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
-  const finalPrompt = context + rolePrefix + prompt + webhookSuffix;
+  const finalPrompt = workflowCtx + context + rolePrefix + prompt + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
