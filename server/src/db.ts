@@ -638,22 +638,21 @@ function seedDefaultTemplates() {
 
   const gate = (gateType: string) => ({ gateType, includeDepOutput: true });
 
-  // Layout constants: top-to-bottom flow
-  // Single steps: x=300. Parallel pairs: x=100 (left) and x=500 (right). y increments by 175.
+  // Layout constants: all steps x=300, y increments by 175 (fully linear/sequential).
 
   // ── 1. Code Improvement ───────────────────────────────────────────────────
   {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'Code Improvement',
-      'Audit → architect → define tests → implement → run tests.', now);
+      'Audit → architect → define tests → implement → run tests → security.', now);
     step(wfId, s1, 'Performance Audit',   'Identify top bottlenecks ranked by impact. No code changes.',                                                                                                                      300,  50, 'claude-code', cc('performance'), []);
     step(wfId, s2, 'Architecture Review', 'Propose refactoring steps with exact file paths and interfaces.',                                                                                                                  300, 225, 'claude-code', cc('architect'),   [s1]);
     step(wfId, s3, 'Define Tests',        'Define the test cases and expected outcomes that will prove the improvements worked. List what each test verifies. Do not write implementation code.',                              300, 400, 'claude-code', cc('tester'),     [s2]);
     step(wfId, s4, 'Implement Fixes',     'Apply the improvements following the architecture plan.',                                                                                                                          300, 575, 'claude-code', cc('backend'),    [s3]);
-    step(wfId, s5, 'Run Tests',           'Execute the tests defined in the Define Tests step. Verify all pass.',                                                                                                             100, 750, 'quality-gate',
+    step(wfId, s5, 'Run Tests',           'Execute the tests defined in the Define Tests step. Verify all pass.',                                                                                                             300, 750, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 }, [s4]);
-    step(wfId, s6, 'Security & Lint',     'Verify lint and security pass after the changes.',                                                                                                                                 500, 750, 'quality-gate', gate('security'), [s4]);
+    step(wfId, s6, 'Security & Lint',     'Verify lint and security pass after the changes.',                                                                                                                                 300, 925, 'quality-gate', gate('security'), [s5]);
   }
 
   // ── 2. Bug Hunter ─────────────────────────────────────────────────────────
@@ -661,13 +660,13 @@ function seedDefaultTemplates() {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'Bug Hunter',
-      'Investigate → define regression test → fix → run tests + security.', now);
+      'Investigate → define regression test → fix → run tests → security.', now);
     step(wfId, s1, 'Investigate & Reproduce', 'Trace root cause, find exact files and line numbers. No code changes.',                                                                                                        300,  50, 'claude-code', cc('reviewer'), []);
     step(wfId, s2, 'Define Regression Test',  'Define a test case that reproduces the bug. Describe exactly what inputs trigger it and what the correct output should be. Do not write the fix yet.',                         300, 225, 'claude-code', cc('tester'),   [s1]);
     step(wfId, s3, 'Implement Fix',           'Write the minimal fix based on the investigation.',                                                                                                                            300, 400, 'claude-code', cc('backend'),  [s2]);
-    step(wfId, s4, 'Run Tests',               'Execute the regression test and full test suite. All must pass.',                                                                                                              100, 575, 'quality-gate',
+    step(wfId, s4, 'Run Tests',               'Execute the regression test and full test suite. All must pass.',                                                                                                              300, 575, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s3 }], maxCycles: 2 }, [s3]);
-    step(wfId, s5, 'Security Check',          'Verify no security issues were introduced by the fix.',                                                                                                                        500, 575, 'quality-gate', gate('security'), [s3]);
+    step(wfId, s5, 'Security Check',          'Verify no security issues were introduced by the fix.',                                                                                                                        300, 750, 'quality-gate', gate('security'), [s4]);
   }
 
   // ── 3. Feature Fix ────────────────────────────────────────────────────────
@@ -675,14 +674,14 @@ function seedDefaultTemplates() {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'Feature Fix',
-      'Diagnose → plan → define tests → implement → run tests.', now);
+      'Diagnose → plan → define tests → implement → run tests → security.', now);
     step(wfId, s1, 'Diagnose Issue',  'Find exactly where behavior diverges from intent. No code changes.',                                                                                                                    300,  50, 'claude-code', cc('reviewer'),  []);
     step(wfId, s2, 'Plan the Fix',    'Design the minimal fix with exact file paths and edge case analysis.',                                                                                                                  300, 225, 'claude-code', cc('architect'), [s1]);
     step(wfId, s3, 'Define Tests',    'Define the test cases that describe the correct behavior. List what each test verifies and what inputs/outputs prove the feature works. Do not write the fix yet.',                     300, 400, 'claude-code', cc('tester'),    [s2]);
     step(wfId, s4, 'Implement Fix',   'Implement the fix following the plan.',                                                                                                                                                300, 575, 'claude-code', cc('backend'),   [s3]);
-    step(wfId, s5, 'Run Tests',       'Execute all tests defined in Define Tests. Verify the feature behaves as expected.',                                                                                                   100, 750, 'quality-gate',
+    step(wfId, s5, 'Run Tests',       'Execute all tests defined in Define Tests. Verify the feature behaves as expected.',                                                                                                   300, 750, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 }, [s4]);
-    step(wfId, s6, 'Security & Lint', 'Confirm lint and security pass after the fix.',                                                                                                                                        500, 750, 'quality-gate', gate('security'), [s4]);
+    step(wfId, s6, 'Security & Lint', 'Confirm lint and security pass after the fix.',                                                                                                                                        300, 925, 'quality-gate', gate('security'), [s5]);
   }
 
   // ── 4. New Feature ────────────────────────────────────────────────────────
@@ -690,17 +689,17 @@ function seedDefaultTemplates() {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
     insertWorkflow.run(wfId, 'New Feature',
-      'Research → architect → define tests → develop → run tests → notify + document.', now);
-    step(wfId, s1, 'Research',        'Investigate existing approaches, patterns, and trade-offs.',                                                                                                                           300,  50, 'claude-code', cc('researcher'), []);
-    step(wfId, s2, 'Architecture',    'Design implementation plan with file paths and interfaces. Manual advance — review before tests are written.',                                                                         300, 225, 'claude-code', cc('architect'),  [s1], false);
-    step(wfId, s3, 'Define Tests',    'Define all test cases and acceptance criteria. For each test: describe the scenario, inputs, expected output, and what failure means. Do not write any implementation code.',          300, 400, 'claude-code', cc('tester'),     [s2]);
-    step(wfId, s4, 'Develop',         'Build the feature following the architecture plan.',                                                                                                                                   300, 575, 'claude-code', cc('backend'),    [s3]);
-    step(wfId, s5, 'Run Tests',       'Execute the tests defined in Define Tests. All acceptance criteria must pass.',                                                                                                        100, 750, 'quality-gate',
+      'Research → architect → define tests → develop → run tests → security → summary → notify.', now);
+    step(wfId, s1, 'Research',        'Investigate existing approaches, patterns, and trade-offs.',                                                                                                                           300,   50, 'claude-code', cc('researcher'), []);
+    step(wfId, s2, 'Architecture',    'Design implementation plan with file paths and interfaces. Manual advance — review before tests are written.',                                                                         300,  225, 'claude-code', cc('architect'),  [s1], false);
+    step(wfId, s3, 'Define Tests',    'Define all test cases and acceptance criteria. For each test: describe the scenario, inputs, expected output, and what failure means. Do not write any implementation code.',          300,  400, 'claude-code', cc('tester'),     [s2]);
+    step(wfId, s4, 'Develop',         'Build the feature following the architecture plan.',                                                                                                                                   300,  575, 'claude-code', cc('backend'),    [s3]);
+    step(wfId, s5, 'Run Tests',       'Execute the tests defined in Define Tests. All acceptance criteria must pass.',                                                                                                        300,  750, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 3 }, [s4]);
-    step(wfId, s6, 'Security & Lint', 'Full lint + security check.',                                                                                                                                                          500, 750, 'quality-gate', gate('security'), [s4]);
-    step(wfId, s7, 'Notify',          'Send completion notification. Configure your webhook URL in step settings.',                                                                                                           100, 925, 'connector',
-      { connectorType: 'http', httpUrl: '', httpMethod: 'POST', httpBodyTemplate: '{"workflow":"{{workflowName}}","status":"complete","result":"{{result}}"}' }, [s5, s6]);
-    step(wfId, s8, 'Summary',         'Document all changes, test results, and manual testing instructions.',                                                                                                                 500, 925, 'claude-code', cc('planner'), [s5, s6]);
+    step(wfId, s6, 'Security & Lint', 'Full lint + security check.',                                                                                                                                                          300,  925, 'quality-gate', gate('security'), [s5]);
+    step(wfId, s7, 'Summary',         'Document all changes, test results, and manual testing instructions.',                                                                                                                 300, 1100, 'claude-code', cc('planner'), [s6]);
+    step(wfId, s8, 'Notify',          'Send completion notification. Configure your webhook URL in step settings.',                                                                                                           300, 1275, 'connector',
+      { connectorType: 'http', httpUrl: '', httpMethod: 'POST', httpBodyTemplate: '{"workflow":"{{workflowName}}","status":"complete","result":"{{result}}"}' }, [s7]);
   }
 
   // ── 5. CI/CD Pipeline ─────────────────────────────────────────────────────
@@ -708,14 +707,14 @@ function seedDefaultTemplates() {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CI/CD Pipeline',
-      'Code review → parallel unit + integration tests → security → notify.', now);
-    step(wfId, s1, 'Code Review',             'Review code quality, patterns, and edge cases.',                                                                                                                               300,  50, 'quality-gate', gate('full-review'), []);
-    step(wfId, s2, 'Run Unit Tests',          'Execute full unit test suite.',                                                                                                                                                100, 225, 'quality-gate',
+      'Code review → unit tests → integration tests → security → notify.', now);
+    step(wfId, s1, 'Code Review',           'Review code quality, patterns, and edge cases.',                                                                                                                                 300,  50, 'quality-gate', gate('full-review'), []);
+    step(wfId, s2, 'Run Unit Tests',        'Execute full unit test suite.',                                                                                                                                                  300, 225, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s1 }], maxCycles: 1 }, [s1]);
-    step(wfId, s3, 'Run Integration Tests',   'Execute integration and end-to-end tests.',                                                                                                                                    500, 225, 'claude-code',
-      cc('tester', { systemPrompt: 'Run all integration and e2e tests. Report STATUS: PASS or STATUS: FAIL in your result.' }), [s1]);
-    step(wfId, s4, 'Security Scan',           'Audit for OWASP issues, auth flaws, and credential exposure.',                                                                                                                 300, 400, 'quality-gate', gate('security'), [s2, s3]);
-    step(wfId, s5, 'Notify',                  'Send pipeline result to Slack. Configure your webhook URL in step settings.',                                                                                                  300, 575, 'connector',
+    step(wfId, s3, 'Run Integration Tests', 'Execute integration and end-to-end tests.',                                                                                                                                      300, 400, 'claude-code',
+      cc('tester', { systemPrompt: 'Run all integration and e2e tests. Report STATUS: PASS or STATUS: FAIL in your result.' }), [s2]);
+    step(wfId, s4, 'Security Scan',         'Audit for OWASP issues, auth flaws, and credential exposure.',                                                                                                                   300, 575, 'quality-gate', gate('security'), [s3]);
+    step(wfId, s5, 'Notify',                'Send pipeline result to Slack. Configure your webhook URL in step settings.',                                                                                                    300, 750, 'connector',
       { connectorType: 'slack', webhookUrl: '', messageTemplate: '{{workflowName}} pipeline completed: {{result}} at {{timestamp}}' }, [s4]);
   }
 
@@ -728,16 +727,16 @@ function seedDefaultTemplates() {
     step(wfId, s1, 'Feature Mapping',   'Map all files, components, routes, DB tables, hooks, and UI elements involved in this feature.',                           300,  50, 'claude-code',
       { ...cc('researcher'), workflowContext: true, prompt: 'Using the feature specification above, identify every part of the codebase involved: files, functions, API routes, DB tables/queries, React components, hooks, and event handlers. Trace the complete data flow from user action to response. Do not make any code changes. Output a structured map of what you found.' },
       []);
-    step(wfId, s2, 'Wiring Check',      'Verify all components are correctly connected — imports, routes, DB queries, hooks, API calls, UI bindings.',              100, 225, 'claude-code',
+    step(wfId, s2, 'Wiring Check',      'Verify all components are correctly connected — imports, routes, DB queries, hooks, API calls, UI bindings.',              300, 225, 'claude-code',
       { ...cc('reviewer'), prompt: 'Using the feature map from the previous step, verify that every connection is correctly wired: imports resolve, routes are registered in the correct router, DB queries match the schema, hooks fire at the right lifecycle stage, API calls use the correct endpoints and method, and UI state binds to the right variables. List each issue as: WIRING ISSUE: <file>:<line> — <description>. If everything is wired correctly, say WIRING: ALL CLEAR.' },
       [s1]);
-    step(wfId, s3, 'Bug Scan',          'Scan for logical bugs, null access, missing error handling, race conditions, and edge cases.',                             500, 225, 'claude-code',
-      { ...cc('reviewer'), prompt: 'Using the feature map from the previous step, scan the relevant code for: null/undefined access without guards, missing error handling on async calls, race conditions, incorrect data transformations, off-by-one errors, missing input validation, and edge cases that would cause failures or bad UX. List each finding as: BUG: <file>:<line> — <description> [SEVERITY: low/medium/high]. If no bugs are found, say BUGS: NONE FOUND.' },
-      [s1]);
-    step(wfId, s4, 'Functional Testing','Execute tests simulating a real user validating the feature — happy path, edge cases, error states.',                      300, 400, 'claude-code',
+    step(wfId, s3, 'Bug Scan',          'Scan for logical bugs, null access, missing error handling, race conditions, and edge cases.',                             300, 400, 'claude-code',
+      { ...cc('reviewer'), prompt: 'Using the wiring check results from the previous step, scan the relevant code for: null/undefined access without guards, missing error handling on async calls, race conditions, incorrect data transformations, off-by-one errors, missing input validation, and edge cases that would cause failures or bad UX. List each finding as: BUG: <file>:<line> — <description> [SEVERITY: low/medium/high]. If no bugs are found, say BUGS: NONE FOUND.' },
+      [s2]);
+    step(wfId, s4, 'Functional Testing','Execute tests simulating a real user validating the feature — happy path, edge cases, error states.',                      300, 575, 'claude-code',
       { ...cc('tester'), prompt: 'Based on the wiring check and bug scan results, now validate the feature works as intended by testing it as a user would. For each scenario below, run the code/commands needed to verify it:\n\n1. Happy path — trigger the feature with valid inputs and confirm the expected output\n2. Edge cases — empty inputs, boundary values, concurrent actions\n3. Error states — invalid inputs, missing data, network/DB failures\n\nFor each test report: TEST: <scenario name> | RESULT: PASS or FAIL | DETAIL: <what happened>.\nEnd with a summary line: TESTS: X passed, Y failed.' },
-      [s2, s3]);
-    step(wfId, s5, 'Validation Report', 'Compile the complete pass/fail report with action items.',                                                                 300, 575, 'claude-code',
+      [s3]);
+    step(wfId, s5, 'Validation Report', 'Compile the complete pass/fail report with action items.',                                                                 300, 750, 'claude-code',
       { ...cc('general'), prompt: 'Compile the final feature validation report using all findings from the previous steps. Structure it as:\n\n## Feature Validation Report\n\n### Wiring\n[List each WIRING ISSUE or "✅ All clear"]\n\n### Bugs\n[List each BUG with severity or "✅ None found"]\n\n### Functional Tests\n[List each TEST with PASS/FAIL and detail]\n\n### Summary\n- Wiring: ✅ PASS / ❌ FAIL (N issues)\n- Bugs: ✅ PASS / ⚠️ N warnings / ❌ N critical\n- Tests: ✅ N passed / ❌ N failed\n\n### Overall Status\n**STATUS: PASS** or **STATUS: FAIL**\n\n### Action Items\n[Numbered list of issues to fix, highest severity first. If none: "No action required."]' },
       [s4], false);
   }
