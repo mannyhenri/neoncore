@@ -194,6 +194,7 @@ export interface Workflow {
   iteration: number;
   maxIterations: number;
   sharedContext: string;
+  initialContext: string;
   createdAt: string;
   startedAt: string;
   completedAt: string | null;

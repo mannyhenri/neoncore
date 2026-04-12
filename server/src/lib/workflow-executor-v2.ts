@@ -78,6 +78,7 @@ function emitWorkflowUpdate(workflowId: string) {
     iteration: (row.iteration ?? 1) as number,
     maxIterations: (row.max_iterations ?? 3) as number,
     sharedContext: (row.shared_context ?? '') as string,
+    initialContext: (row.initial_context ?? '') as string,
     createdAt: (row.created_at ?? '') as string,
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
@@ -185,11 +186,22 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     }
   }
 
+  // For first steps (no dependencies), prepend the user-supplied initial context if present.
+  let initialCtxPrefix = '';
+  if (step.dependsOn.length === 0) {
+    const wfRow = db.prepare('SELECT initial_context FROM workflows WHERE id = ?')
+      .get(step.workflowId) as { initial_context: string } | undefined;
+    const ic = wfRow?.initial_context?.trim();
+    if (ic) {
+      initialCtxPrefix = `## Context\n${ic}\n\n`;
+    }
+  }
+
   // Always append webhook instructions so the agent provides a structured summary on completion
   const port = process.env.PORT || '4040';
   const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
-  const finalPrompt = workflowCtx + context + rolePrefix + prompt + webhookSuffix;
+  const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
