@@ -11,20 +11,6 @@ import { api } from './lib/api';
 import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
 
 export default function App() {
-  const {
-    agents,
-    activitiesByAgent,
-    pendingPermissions,
-    loading,
-    connected,
-    stuckAlertsArray,
-    decidePermission,
-    setMode,
-    sendCommand,
-    deleteAgent,
-    dismissStuckAlert,
-  } = useAgents();
-
   // Virtual cartridges & MCP servers
   const [virtualCartridges, setVirtualCartridges] = useState<VirtualCartridge[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -37,6 +23,27 @@ export default function App() {
     refreshVirtualCartridges();
     api.getMcpServers().then(setMcpServers).catch(() => {});
   }, [refreshVirtualCartridges]);
+
+  const handleVirtualCartridgeUpdated = useCallback((vc: VirtualCartridge) => {
+    setVirtualCartridges((prev) => {
+      const exists = prev.some((c) => c.id === vc.id);
+      return exists ? prev.map((c) => (c.id === vc.id ? vc : c)) : [...prev, vc];
+    });
+  }, []);
+
+  const {
+    agents,
+    activitiesByAgent,
+    pendingPermissions,
+    loading,
+    connected,
+    stuckAlertsArray,
+    decidePermission,
+    setMode,
+    sendCommand,
+    deleteAgent,
+    dismissStuckAlert,
+  } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -154,9 +161,7 @@ export default function App() {
             onActivityClick={setSelectedActivity}
             virtualCartridges={virtualCartridges}
             mcpServers={mcpServers}
-            onVirtualCartridgeUpdate={(vc) => {
-              setVirtualCartridges((prev) => prev.map((c) => (c.id === vc.id ? vc : c)));
-            }}
+            onVirtualCartridgeUpdate={handleVirtualCartridgeUpdated}
             onVirtualCartridgeDelete={(id) => {
               api.deleteVirtualCartridge(id).then(() => {
                 setVirtualCartridges((prev) => prev.filter((c) => c.id !== id));

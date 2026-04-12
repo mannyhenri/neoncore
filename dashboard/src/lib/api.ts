@@ -270,6 +270,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ serverId, toolName, args }),
     }),
+  launchVirtualCartridge: (id: string, agentType: string) =>
+    request<{ ok: boolean }>(`/virtual-cartridges/${id}/launch`, {
+      method: 'POST',
+      body: JSON.stringify({ agentType }),
+    }),
 
   // Workflow V2 (Canvas)
   createWorkflowV2: (data: {

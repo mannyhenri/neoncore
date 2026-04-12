@@ -364,6 +364,7 @@ export type ServerToClientEvents = {
   workflow_step_updated: (step: WorkflowStep) => void;
   workflow_step_log: (log: WorkflowStepLog) => void;
   mcp_server_updated: (server: McpServer) => void;
+  virtual_cartridge_updated: (vc: VirtualCartridge) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
   plan_executed: (data: { agentId: string }) => void;
   session_started: (data: { agentId: string; project: string; sessionId: string }) => void;
