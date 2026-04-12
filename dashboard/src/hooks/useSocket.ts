@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, McpServer, WorkflowStepLog } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, McpServer, WorkflowStepLog, VirtualCartridge } from '../types';
 
 interface SocketHandlers {
   onAgentRegistered?: (agent: Agent) => void;
@@ -19,6 +19,7 @@ interface SocketHandlers {
   onWorkflowStepUpdated?: (step: WorkflowStep) => void;
   onWorkflowStepLog?: (log: WorkflowStepLog) => void;
   onMcpServerUpdated?: (server: McpServer) => void;
+  onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => void;
   onReconnect?: () => void;
 }
 
@@ -118,6 +119,10 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('mcp_server_updated' as any, (server: McpServer) => {
       handlersRef.current.onMcpServerUpdated?.(server);
+    });
+
+    socket.on('virtual_cartridge_updated' as any, (vc: VirtualCartridge) => {
+      handlersRef.current.onVirtualCartridgeUpdated?.(vc);
     });
 
     // Mobile: refresh data when tab becomes visible again

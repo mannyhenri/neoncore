@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import fs from 'fs';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { startMcpServer, callMcpTool, listMcpTools } from '../lib/mcp-manager.js';
+import { openDirectory } from '../lib/open-directory.js';
 import { getIO } from '../ws.js';
 import type { VirtualCartridge, McpTool } from '../types.js';
 
@@ -59,7 +61,7 @@ router.post('/', (req, res) => {
   const row = db.prepare('SELECT * FROM virtual_cartridges WHERE id = ?').get(id) as Record<string, unknown>;
   const cartridge = normalizeCartridge(row);
 
-  getIO().emit('virtual_cartridge_updated' as any, cartridge);
+  getIO().emit('virtual_cartridge_updated', cartridge);
   res.status(201).json(cartridge);
 });
 
@@ -86,7 +88,7 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM virtual_cartridges WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   const cartridge = normalizeCartridge(row);
 
-  getIO().emit('virtual_cartridge_updated' as any, cartridge);
+  getIO().emit('virtual_cartridge_updated', cartridge);
   res.json(cartridge);
 });
 
@@ -97,6 +99,26 @@ router.delete('/:id', (req, res) => {
 
   db.prepare('DELETE FROM virtual_cartridges WHERE id = ?').run(req.params.id);
   res.status(204).send();
+});
+
+// Launch an agent extension (Claude CC, Gridlight, CLI) in the cartridge's directory
+router.post('/:id/launch', (req, res) => {
+  const row = db.prepare('SELECT * FROM virtual_cartridges WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'Virtual cartridge not found' });
+
+  const { agentType } = req.body;
+  if (!agentType || typeof agentType !== 'string') {
+    return res.status(400).json({ error: 'agentType is required' });
+  }
+
+  const dirPath = row.directory_path as string;
+  if (!fs.existsSync(dirPath)) {
+    return res.status(400).json({ error: 'Directory no longer exists on disk' });
+  }
+
+  const err = openDirectory(dirPath, agentType);
+  if (err) return res.status(500).json({ error: err });
+  res.json({ ok: true });
 });
 
 // List aggregated tools from enabled MCP servers

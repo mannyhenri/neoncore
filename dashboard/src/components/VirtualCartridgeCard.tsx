@@ -111,10 +111,20 @@ function ToolExecuteModal({
 // VirtualCartridgeCard — same visual as CartridgeCard (retro cartridge style)
 // ---------------------------------------------------------------------------
 
+const LAUNCH_OPTIONS: { type: string; label: string }[] = [
+  { type: 'claude',    label: 'Claude CC' },
+  { type: 'gridlight', label: 'Gridlight' },
+  { type: 'gemini',   label: 'Gemini CLI' },
+  { type: 'codex',    label: 'Codex' },
+  { type: 'amazonq',  label: 'Amazon Q' },
+];
+
 export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete }: Props) {
   const [showConfig, setShowConfig] = useState(false);
   const [executingTool, setExecutingTool] = useState<(McpTool & { serverId: string; serverName: string }) | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showLauncher, setShowLauncher] = useState(false);
+  const [launching, setLaunching] = useState(false);
 
   const dirName = cartridge.directoryPath.split('/').pop() || cartridge.name;
   const enabledServers = mcpServers.filter((s) => cartridge.mcpServerIds.includes(s.id));
@@ -138,6 +148,15 @@ export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete
     }
     onDelete(cartridge.id);
   }, [confirmDelete, cartridge.id, onDelete]);
+
+  const handleLaunch = useCallback(async (agentType: string) => {
+    setShowLauncher(false);
+    setLaunching(true);
+    try {
+      await api.launchVirtualCartridge(cartridge.id, agentType);
+    } catch { /* silent — extension registration confirms success */ }
+    setTimeout(() => setLaunching(false), 2000);
+  }, [cartridge.id]);
 
   return (
     <>
@@ -196,6 +215,20 @@ export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete
                 {cartridge.name || dirName}
               </h3>
               <div className="flex items-center gap-1.5 shrink-0">
+                {/* Launch button */}
+                <button
+                  onClick={() => setShowLauncher((v) => !v)}
+                  className={`transition-colors ${launching ? 'text-teal-400' : 'text-gray-400 hover:text-teal-400'}`}
+                  title="Launch agent in this directory"
+                >
+                  {launching ? (
+                    <span className="text-[10px] font-mono">…</span>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  )}
+                </button>
                 <button
                   onClick={() => setShowConfig(true)}
                   className="text-gray-400 hover:text-teal-400 transition-colors"
@@ -215,6 +248,21 @@ export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete
                 </button>
               </div>
             </div>
+
+            {/* Launcher picker */}
+            {showLauncher && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {LAUNCH_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.type}
+                    onClick={() => handleLaunch(opt.type)}
+                    className="text-[11px] px-2 py-0.5 rounded bg-teal-900/50 text-teal-300 hover:bg-teal-700/50 border border-teal-600/30 transition-colors"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Directory path */}
             <div className="text-[13px] text-gray-300 mb-1 font-mono truncate">

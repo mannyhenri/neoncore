@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge } from '../types';
 import { api } from '../lib/api';
 import { useSocket } from './useSocket';
 
@@ -12,7 +12,7 @@ function sortAgents(list: Agent[]): Agent[] {
   );
 }
 
-export function useAgents() {
+export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => void) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
@@ -85,6 +85,7 @@ export function useAgents() {
     onPermissionsExpired: () => {
       api.getPendingPermissions().then(setPendingPermissions).catch(() => {});
     },
+    onVirtualCartridgeUpdated,
   });
 
   const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => {
