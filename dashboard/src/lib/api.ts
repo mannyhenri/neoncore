@@ -337,10 +337,10 @@ export const api = {
     }),
   deleteWorkflowStep: (workflowId: string, stepId: string) =>
     request<void>(`/workflows/v2/${workflowId}/steps/${stepId}`, { method: 'DELETE' }),
-  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>) =>
+  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string) =>
     request<{ workflow: import('../types').Workflow; steps: import('../types').WorkflowStep[] }>(`/workflows/v2/${workflowId}/start`, {
       method: 'POST',
-      body: JSON.stringify({ agentOverrides, promptOverrides }),
+      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext }),
     }),
   completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
     request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {

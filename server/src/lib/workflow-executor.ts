@@ -484,6 +484,7 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     iteration: (row.iteration ?? 1) as number,
     maxIterations: (row.max_iterations ?? 3) as number,
     sharedContext: (row.shared_context ?? '') as string,
+    initialContext: (row.initial_context ?? '') as string,
     createdAt: (row.created_at ?? '') as string,
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,

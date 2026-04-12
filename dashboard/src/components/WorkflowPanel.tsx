@@ -509,6 +509,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
+  const [initialContext, setInitialContext] = useState('');
 
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
@@ -546,20 +547,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         }
       }
 
-      if (agentSteps.length > 0 || promptSteps.length > 0) {
-        setDeferredPopup({ agentSteps, promptSteps });
-        setDeferredAssignments({});
-        setDeferredPrompts({});
-        setStarting(false);
-        return;
-      }
-
-      const result = await api.startWorkflowV2(wf.id);
-      if (result?.workflow?.id && result.workflow.id !== wf.id && onRunCreated) {
-        onRunCreated(result.workflow.id);
-      } else {
-        onAction();
-      }
+      // Always show the popup — either for deferred fields or just for the context input
+      setDeferredPopup({ agentSteps, promptSteps });
+      setDeferredAssignments({});
+      setDeferredPrompts({});
+      setInitialContext('');
+      setStarting(false);
     } catch { /* silent */ }
     finally { setStarting(false); }
   }
@@ -577,6 +570,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         wf.id,
         deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
+        initialContext.trim() || undefined,
       );
       if (result?.workflow?.id && result.workflow.id !== wf.id && onRunCreated) {
         onRunCreated(result.workflow.id);
@@ -621,6 +615,17 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="space-y-2">
+            <span className="text-[13px] text-gray-500 uppercase tracking-wider">Initial Context</span>
+            <p className="text-[12px] text-gray-600">Optional — passed to the first step(s) of this workflow run.</p>
+            <textarea
+              value={initialContext}
+              onChange={(e) => setInitialContext(e.target.value)}
+              rows={3}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+              placeholder="Describe what this run should focus on…"
+            />
+          </div>
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
               <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge Selection</span>

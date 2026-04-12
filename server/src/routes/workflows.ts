@@ -21,6 +21,7 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     iteration: (row.iteration ?? 1) as number,
     maxIterations: (row.max_iterations ?? 3) as number,
     sharedContext: (row.shared_context ?? '') as string,
+    initialContext: (row.initial_context ?? '') as string,
     createdAt: (row.created_at ?? '') as string,
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
@@ -507,16 +508,18 @@ router.post('/v2/:id/start', (req, res) => {
       .get(templateId) as { next: number }).next;
     runId = uuid();
 
+    const initialContext = (req.body?.initialContext as string) || '';
+
     db.prepare(`
       INSERT INTO workflows (id, name, jira_task_id, description, players, phases, status,
-        current_phase, iteration, max_iterations, shared_context, created_at, started_at, completed_at, error,
+        current_phase, iteration, max_iterations, shared_context, initial_context, created_at, started_at, completed_at, error,
         target_repos, template_id, run_number)
-      VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, NULL, '',
+      VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, NULL, '',
         ?, ?, ?)
     `).run(
       runId,
       row.name, row.jira_task_id, row.description, row.players, row.phases,
-      row.current_phase, row.iteration, row.max_iterations, row.shared_context,
+      row.current_phase, row.iteration, row.max_iterations, row.shared_context, initialContext,
       now, now,
       row.target_repos, templateId, runNum,
     );
@@ -572,7 +575,8 @@ router.post('/v2/:id/start', (req, res) => {
   } else {
     // ── Re-run an existing run in place ───────────────
     runId = req.params.id;
-    db.prepare("UPDATE workflows SET status = 'running', started_at = ?, completed_at = NULL, error = '' WHERE id = ?").run(now, runId);
+    const reRunCtx = (req.body?.initialContext as string) || '';
+    db.prepare("UPDATE workflows SET status = 'running', started_at = ?, completed_at = NULL, error = '', initial_context = ? WHERE id = ?").run(now, reRunCtx, runId);
 
     db.prepare(`
       UPDATE workflow_steps

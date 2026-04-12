@@ -166,6 +166,13 @@ try {
   db.exec(`ALTER TABLE workflow_steps ADD COLUMN plan_content TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add initial_context column to workflows (user-supplied context passed to first steps)
+try {
+  db.prepare('SELECT initial_context FROM workflows LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflows ADD COLUMN initial_context TEXT NOT NULL DEFAULT ''`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (
