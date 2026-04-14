@@ -7,6 +7,7 @@ import CommandTemplatesModal from './components/CommandTemplatesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
+import { NotificationCenter } from './components/NotificationCenter';
 import { api } from './lib/api';
 import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
 
@@ -38,11 +39,13 @@ export default function App() {
     loading,
     connected,
     stuckAlertsArray,
+    workflowNotifications,
     decidePermission,
     setMode,
     sendCommand,
     deleteAgent,
     dismissStuckAlert,
+    dismissWorkflowNotification,
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
@@ -87,6 +90,16 @@ export default function App() {
             >
               Commands
             </button>
+            {/* Notification center — bell with dropdown */}
+            <NotificationCenter
+              pendingPermissions={pendingPermissions}
+              stuckAlerts={stuckAlertsArray}
+              workflowNotifications={workflowNotifications}
+              agents={agents}
+              onDecide={decidePermission}
+              onDismissStuck={dismissStuckAlert}
+              onDismissWorkflow={dismissWorkflowNotification}
+            />
             {/* Settings gear */}
             <button
               onClick={() => setSettingsOpen(true)}
@@ -101,11 +114,6 @@ export default function App() {
             <span className="text-sm text-gray-500">
               {onlineAgents.length} online
             </span>
-            {pendingPermissions.length > 0 && (
-              <span className="bg-gl-pink/20 text-gl-pink px-2 py-0.5 rounded-full text-xs font-medium animate-pulse">
-                {pendingPermissions.length} pending
-              </span>
-            )}
             <span className={`flex items-center gap-1.5 text-xs ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
               <span className={`w-2 h-2 rounded-full ${connected ? 'bg-[#00ff88] gl-glow-online' : 'bg-red-400 animate-pulse'}`} />
               {connected ? 'Live' : 'Polling'}

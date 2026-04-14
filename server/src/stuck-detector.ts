@@ -1,6 +1,7 @@
 import db from './db.js';
 import { getIO } from './ws.js';
 import crypto from 'crypto';
+import { pushNotify, getCartridgeNtfyUrl } from './lib/push-notify.js';
 
 export interface StuckAlert {
   agentId: string;
@@ -133,6 +134,14 @@ export function startStuckDetector() {
           activeAlerts.set(id, alert.pattern);
           getIO().emit('agent_stuck' as any, alert);
           console.log(`[stuck] Agent ${id}: ${alert.pattern}`);
+          // Fire mobile push so user knows even when away from dashboard
+          const agentRow = db.prepare('SELECT repo_name, name, repo_path FROM agents WHERE id = ?')
+            .get(id) as { repo_name: string; name: string; repo_path: string } | undefined;
+          const label = agentRow?.repo_name || agentRow?.name || id;
+          const ntfyUrl = agentRow?.repo_path ? getCartridgeNtfyUrl(agentRow.repo_path) : undefined;
+          pushNotify(`${label} — Agent Stuck`, alert.pattern, ntfyUrl ?? undefined).catch((err) => {
+            console.warn(`[stuck] pushNotify failed for agent ${id}:`, err);
+          });
         }
       } else if (activeAlerts.has(id)) {
         // Agent unstuck — clear alert

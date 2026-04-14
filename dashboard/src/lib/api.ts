@@ -404,6 +404,28 @@ export const api = {
       `/activity/usage/${agentId}${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
 
+  // Push notifications
+  testPushNotification: () =>
+    request<{ ok: boolean }>('/settings/push-test', { method: 'POST' }),
+
+  // Workflow V2 — Mid-task steering
+  steerWorkflowStep: (workflowId: string, stepId: string, message: string) =>
+    request<{ ok: boolean; commandId: string }>(`/workflows/v2/${workflowId}/steps/${stepId}/steer`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  // Workflow V2 — AI generator
+  generateWorkflow: (description: string) =>
+    request<{ id: string }>('/workflows/v2/generate', {
+      method: 'POST',
+      body: JSON.stringify({ description }),
+    }),
+
+  // Virtual cartridge suggestions
+  getCartridgeSuggestions: (id: string) =>
+    request<{ title: string; prompt: string; toolName: string; serverId: string }[]>(`/virtual-cartridges/${id}/suggestions`),
+
   // Journal search
   searchJournal: (query: string, project?: string) =>
     request<{ sessions: { id: string; project: string; summary: string; startedAt: string }[]; knowledge: { project: string; filename: string; snippet: string }[] }>(

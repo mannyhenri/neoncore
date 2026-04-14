@@ -125,6 +125,7 @@ export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showLauncher, setShowLauncher] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ title: string; prompt: string; toolName: string; serverId: string }[]>([]);
 
   const dirName = cartridge.directoryPath.split('/').pop() || cartridge.name;
   const enabledServers = mcpServers.filter((s) => cartridge.mcpServerIds.includes(s.id));
@@ -137,6 +138,12 @@ export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete
     const id = setInterval(() => setSpriteFrame((f) => (f === 0 ? 1 : 0)), animSpeed);
     return () => clearInterval(id);
   }, [animSpeed]);
+
+  // Load capability suggestions from enabled MCP servers
+  useEffect(() => {
+    if (cartridge.mcpServerIds.length === 0) { setSuggestions([]); return; }
+    api.getCartridgeSuggestions(cartridge.id).then(setSuggestions).catch(() => {});
+  }, [cartridge.id, cartridge.mcpServerIds]);
 
   const pixelBg = spriteFrame === 0 ? frame1 : frame2;
 
@@ -286,6 +293,25 @@ export function VirtualCartridgeCard({ cartridge, mcpServers, onUpdate, onDelete
                 </span>
               ))}
             </div>
+
+            {/* Capability suggestion pills */}
+            {suggestions.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      const tool = { name: s.toolName, description: s.title, inputSchema: {}, serverId: s.serverId, serverName: '' };
+                      setExecutingTool(tool);
+                    }}
+                    title={s.prompt}
+                    className="text-[10px] px-2 py-0.5 rounded-full bg-gl-purple/15 text-gl-purple border border-gl-purple/20 hover:bg-gl-purple/25 transition-colors"
+                  >
+                    {s.title}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ── Pinned tool action buttons ── */}

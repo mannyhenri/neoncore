@@ -1,0 +1,48 @@
+name: Publish VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'ext-v*'   # trigger on tags like ext-v0.5.2
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.5.2)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install root dependencies (builds dashboard → server/public)
+        run: npm install
+
+      - name: Build dashboard (populates server/public/ including logo.png)
+        run: npm run build
+
+      - name: Install extension dependencies
+        working-directory: extension
+        run: npm install
+
+      - name: Compile & package extension
+        working-directory: extension
+        run: npm run package
+
+      - name: Publish to VS Code Marketplace
+        working-directory: extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish --no-dependencies --pat $VSCE_PAT
+
+      - name: Upload VSIX as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neoncore-extension-vsix
+          path: extension/*.vsix

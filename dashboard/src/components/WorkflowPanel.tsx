@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
+import { WorkflowGeneratorModal } from './WorkflowGeneratorModal';
 import type { Agent, Workflow, PlayerRole, PlayerType, StepSummary, WorkflowStep } from '../types';
 
 // ─── Browser notification helper ────────────────────
@@ -48,8 +49,12 @@ export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [expanded, setExpanded] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
+  const [showGenerator, setShowGenerator] = useState(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
+  const [showAllRecent, setShowAllRecent] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showRecentRuns, setShowRecentRuns] = useState(false);
 
   const loadWorkflows = useCallback(async () => {
     try {
@@ -125,7 +130,10 @@ export function WorkflowPanel({ agents }: Props) {
   const templates = workflows.filter((w) => !w.templateId);
   const runs = workflows.filter((w) => !!w.templateId);
   const activeRuns = runs.filter((w) => ['running', 'paused'].includes(w.status));
-  const recentRuns = runs.filter((w) => !['running', 'paused'].includes(w.status)).slice(0, 10);
+  const pendingRuns = runs.filter((w) => w.status === 'pending');
+  const completedRuns = runs.filter((w) => !['running', 'paused', 'pending'].includes(w.status));
+  const recentRunsAll = completedRuns;
+  const recentRuns = showAllRecent ? recentRunsAll : recentRunsAll.slice(0, 5);
   // Also include V1 workflows (no steps, no templateId) that are running
   const activeV1 = templates.filter((w) => ['running', 'paused'].includes(w.status) && !w.stepSummary);
 
@@ -138,6 +146,13 @@ export function WorkflowPanel({ agents }: Props) {
   const handleRunCreated = (runId: string) => {
     loadWorkflows();
     openWorkflow(runId);
+  };
+
+  // After AI generator creates a template, open it in the canvas for review/edit
+  const handleGeneratorCreated = (workflowId: string) => {
+    setShowGenerator(false);
+    loadWorkflows();
+    openWorkflow(workflowId);
   };
 
   return (
@@ -159,13 +174,25 @@ export function WorkflowPanel({ agents }: Props) {
 
       {expanded && (
         <div className="space-y-4">
-          {/* Create button */}
-          <button
-            onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
-            className="text-sm px-4 py-2 rounded-lg gl-gradient text-white hover:opacity-90 transition-opacity font-medium"
-          >
-            + New Workflow
-          </button>
+          {/* Action buttons */}
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
+              className="text-sm px-4 py-2 rounded-lg gl-gradient text-white hover:opacity-90 transition-opacity font-medium"
+            >
+              + New Workflow
+            </button>
+            <button
+              onClick={() => setShowGenerator(true)}
+              className="text-sm px-4 py-2 rounded-lg bg-gl-purple/15 text-gl-purple border border-gl-purple/25 hover:bg-gl-purple/25 transition-colors font-medium flex items-center gap-1.5"
+              title="Generate a workflow from a natural language description"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+              </svg>
+              AI Generate
+            </button>
+          </div>
 
           {/* Active runs */}
           {activeRuns.length > 0 && (
@@ -183,11 +210,38 @@ export function WorkflowPanel({ agents }: Props) {
             <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents} />
           ))}
 
+          {/* Pending runs */}
+          {pendingRuns.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                Pending
+                <span className="bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded text-[10px]">
+                  {pendingRuns.length}
+                </span>
+              </div>
+              {pendingRuns.map((wf) => (
+                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
+                  templateName={templates.find((t) => t.id === wf.templateId)?.name} />
+              ))}
+            </div>
+          )}
+
           {/* Templates */}
           {templates.filter((t) => t.stepSummary).length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider">Templates</div>
-              {templates.filter((t) => t.stepSummary).map((wf) => (
+              <button
+                onClick={() => setShowTemplates((v) => !v)}
+                className="flex items-center gap-1.5 group w-full text-left"
+              >
+                <span className={`text-[10px] text-gray-600 transition-transform ${showTemplates ? 'rotate-90' : ''}`}>&#9654;</span>
+                <span className="text-xs text-gray-500 uppercase tracking-wider group-hover:text-gray-400 transition-colors">
+                  Templates
+                </span>
+                <span className="text-[11px] text-gray-600 ml-1">
+                  {templates.filter((t) => t.stepSummary).length}
+                </span>
+              </button>
+              {showTemplates && templates.filter((t) => t.stepSummary).map((wf) => (
                 <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
                   onRunCreated={handleRunCreated}
                   runCount={runs.filter((r) => r.templateId === wf.id).length} />
@@ -196,13 +250,34 @@ export function WorkflowPanel({ agents }: Props) {
           )}
 
           {/* Recent runs */}
-          {recentRuns.length > 0 && (
+          {recentRunsAll.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider">Recent Runs</div>
-              {recentRuns.map((wf) => (
-                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} compact agents={agents}
-                  templateName={templates.find((t) => t.id === wf.templateId)?.name} />
-              ))}
+              <button
+                onClick={() => setShowRecentRuns((v) => !v)}
+                className="flex items-center gap-1.5 group w-full text-left"
+              >
+                <span className={`text-[10px] text-gray-600 transition-transform ${showRecentRuns ? 'rotate-90' : ''}`}>&#9654;</span>
+                <span className="text-xs text-gray-500 uppercase tracking-wider group-hover:text-gray-400 transition-colors">
+                  Recent Runs
+                </span>
+                <span className="text-[11px] text-gray-600 ml-1">{recentRunsAll.length}</span>
+              </button>
+              {showRecentRuns && (
+                <>
+                  {recentRuns.map((wf) => (
+                    <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} compact agents={agents}
+                      templateName={templates.find((t) => t.id === wf.templateId)?.name} />
+                  ))}
+                  {recentRunsAll.length > 5 && (
+                    <button
+                      onClick={() => setShowAllRecent((v) => !v)}
+                      className="text-[11px] text-gray-600 hover:text-gray-400 transition-colors pl-4"
+                    >
+                      {showAllRecent ? 'Show less' : `Show all ${recentRunsAll.length}`}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -215,6 +290,14 @@ export function WorkflowPanel({ agents }: Props) {
           agents={agents}
           onClose={() => setCanvasOpen(false)}
           onSaved={() => { loadWorkflows(); }}
+        />
+      )}
+
+      {/* AI Workflow Generator */}
+      {showGenerator && (
+        <WorkflowGeneratorModal
+          onClose={() => setShowGenerator(false)}
+          onCreated={handleGeneratorCreated}
         />
       )}
     </div>
@@ -708,9 +791,11 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           </button>
           {wf.stepSummary && (
             <>
-              <span className="text-gray-600 truncate max-w-[200px]" title={wf.stepSummary.stepNames?.join(' → ')}>
-                {wf.stepSummary.stepNames?.join(' → ')}
-              </span>
+              {wf.stepSummary.projects && wf.stepSummary.projects.length > 0 && (
+                <span className="text-gray-500 shrink-0 hidden sm:inline" title={wf.stepSummary.projects.join(', ')}>
+                  {wf.stepSummary.projects.join(', ')}
+                </span>
+              )}
               <span className="text-gray-600 shrink-0">
                 {wf.templateId
                   ? `${wf.stepSummary.completed}/${wf.stepSummary.total}`
@@ -753,7 +838,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     <div className="glass rounded-xl p-4 space-y-3 border border-white/10">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           {wf.templateId && (
             <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
           )}
@@ -767,6 +852,15 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             <span className="text-xs text-gray-600 shrink-0">{runCount} run{runCount !== 1 ? 's' : ''}</span>
           )}
           {wf.jiraTaskId && <span className="text-xs text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
+          {wf.stepSummary?.projects && wf.stepSummary.projects.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              {wf.stepSummary.projects.map((p) => (
+                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.06]">
+                  {p}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {wf.iteration > 1 && (

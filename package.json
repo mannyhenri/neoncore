@@ -13,6 +13,8 @@
     "dev:dashboard": "npm run dev --workspace=dashboard",
     "build": "npm run build --workspace=dashboard && npm run build --workspace=server",
     "start": "npm run start --workspace=server",
-    "install:hooks": "bash agent/install.sh"
+    "install:hooks": "python3 agent/install.py",
+    "extension:package": "cd extension && npm install && npm run package",
+    "extension:publish": "cd extension && npm install && npm run publish:marketplace"
   }
 }

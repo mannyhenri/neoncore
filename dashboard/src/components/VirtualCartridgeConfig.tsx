@@ -14,6 +14,7 @@ export function VirtualCartridgeConfig({ cartridge, mcpServers, onClose, onSave 
   const [enabledIds, setEnabledIds] = useState<Set<string>>(new Set(cartridge.mcpServerIds));
   const [pinnedTools, setPinnedTools] = useState<PinnedTool[]>(cartridge.pinnedTools);
   const [name, setName] = useState(cartridge.name);
+  const [ntfyUrl, setNtfyUrl] = useState(cartridge.ntfyUrl || '');
   const [saving, setSaving] = useState(false);
   const [availableTools, setAvailableTools] = useState<(McpTool & { serverId: string; serverName: string })[]>([]);
   const [loadingTools, setLoadingTools] = useState(false);
@@ -72,6 +73,7 @@ export function VirtualCartridgeConfig({ cartridge, mcpServers, onClose, onSave 
     try {
       const updated = await api.updateVirtualCartridge(cartridge.id, {
         name,
+        ntfyUrl,
         mcpServerIds: [...enabledIds],
         pinnedTools,
       });
@@ -103,6 +105,21 @@ export function VirtualCartridgeConfig({ cartridge, mcpServers, onClose, onSave 
               onChange={(e) => setName(e.target.value)}
               className="w-full glass-input text-sm text-gray-200 rounded-md px-3 py-2 focus:outline-none"
             />
+          </div>
+
+          {/* ntfy URL */}
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Push Notification URL (ntfy)</label>
+            <input
+              type="text"
+              value={ntfyUrl}
+              onChange={(e) => setNtfyUrl(e.target.value)}
+              placeholder="https://ntfy.sh/your-project-topic"
+              className="w-full glass-input text-sm text-gray-200 rounded-md px-3 py-2 focus:outline-none font-mono placeholder-gray-600"
+            />
+            <p className="text-[11px] text-gray-600 mt-1">
+              Overrides the global ntfy URL for this project only.
+            </p>
           </div>
 
           {/* MCP Servers */}

@@ -3,6 +3,8 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
+import { sendCommandToAgent } from '../lib/send-command.js';
+import { generateWorkflow } from '../lib/workflow-generator.js';
 
 const router = Router();
 
@@ -39,6 +41,35 @@ function emitWorkflowUpdate(id: string) {
 function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
   return row?.value ?? null;
+}
+
+function buildStepSummary(workflowId: string): Record<string, unknown> | null {
+  const stepRows = db.prepare(
+    'SELECT name, status, executor_id FROM workflow_steps WHERE workflow_id = ? ORDER BY created_at'
+  ).all(workflowId) as { name: string; status: string; executor_id: string }[];
+  if (stepRows.length === 0) return null;
+
+  const executorIds = [...new Set(
+    stepRows.map((s) => s.executor_id).filter((id) => id && id !== '__deferred__')
+  )];
+  let projects: string[] = [];
+  if (executorIds.length > 0) {
+    const placeholders = executorIds.map(() => '?').join(',');
+    const agentRows = db.prepare(
+      `SELECT repo_name, name FROM agents WHERE id IN (${placeholders})`
+    ).all(...executorIds) as { repo_name: string; name: string }[];
+    projects = [...new Set(agentRows.map((r) => r.repo_name || r.name).filter(Boolean))];
+  }
+
+  return {
+    total: stepRows.length,
+    completed: stepRows.filter((s) => s.status === 'completed').length,
+    running: stepRows.filter((s) => s.status === 'running').length,
+    failed: stepRows.filter((s) => s.status === 'failed').length,
+    pending: stepRows.filter((s) => s.status === 'pending').length,
+    stepNames: stepRows.map((s) => s.name),
+    projects,
+  };
 }
 
 // --- Routes ---
@@ -142,19 +173,8 @@ router.get('/', (req, res) => {
   const rows = db.prepare(sql).all() as Record<string, unknown>[];
   const workflows = rows.map((row) => {
     const wf: Record<string, unknown> = { ...normalizeWorkflow(row) };
-    // Attach step summary for V2 canvas workflows
-    const stepRows = db.prepare('SELECT name, status FROM workflow_steps WHERE workflow_id = ? ORDER BY created_at')
-      .all(wf.id as string) as { name: string; status: string }[];
-    if (stepRows.length > 0) {
-      wf.stepSummary = {
-        total: stepRows.length,
-        completed: stepRows.filter((s) => s.status === 'completed').length,
-        running: stepRows.filter((s) => s.status === 'running').length,
-        failed: stepRows.filter((s) => s.status === 'failed').length,
-        pending: stepRows.filter((s) => s.status === 'pending').length,
-        stepNames: stepRows.map((s) => s.name),
-      };
-    }
+    const summary = buildStepSummary(wf.id as string);
+    if (summary) wf.stepSummary = summary;
     return wf;
   });
   res.json(workflows);
@@ -395,18 +415,8 @@ router.get('/v2/:id/runs', (req, res) => {
     .all(req.params.id) as Record<string, unknown>[];
   const runs = rows.map((row) => {
     const wf: Record<string, unknown> = { ...normalizeWorkflow(row) };
-    const stepRows = db.prepare('SELECT name, status FROM workflow_steps WHERE workflow_id = ? ORDER BY created_at')
-      .all(wf.id as string) as { name: string; status: string }[];
-    if (stepRows.length > 0) {
-      wf.stepSummary = {
-        total: stepRows.length,
-        completed: stepRows.filter((s) => s.status === 'completed').length,
-        running: stepRows.filter((s) => s.status === 'running').length,
-        failed: stepRows.filter((s) => s.status === 'failed').length,
-        pending: stepRows.filter((s) => s.status === 'pending').length,
-        stepNames: stepRows.map((s) => s.name),
-      };
-    }
+    const summary = buildStepSummary(wf.id as string);
+    if (summary) wf.stepSummary = summary;
     return wf;
   });
   res.json(runs);
@@ -486,6 +496,114 @@ router.put('/v2/:id/steps/:stepId', (req, res) => {
 router.delete('/v2/:id/steps/:stepId', (req, res) => {
   db.prepare('DELETE FROM workflow_steps WHERE id = ? AND workflow_id = ?').run(req.params.stepId, req.params.id);
   res.status(204).send();
+});
+
+// Steer a running step — inject a message to the agent currently executing it
+router.post('/v2/:id/steps/:stepId/steer', (req, res) => {
+  const { message } = req.body;
+  if (!message || !String(message).trim()) {
+    return res.status(400).json({ error: 'message is required' });
+  }
+
+  const step = db.prepare(
+    'SELECT * FROM workflow_steps WHERE id = ? AND workflow_id = ?'
+  ).get(req.params.stepId, req.params.id) as Record<string, unknown> | undefined;
+
+  if (!step) return res.status(404).json({ error: 'Step not found' });
+
+  if (step.status !== 'running') {
+    return res.status(400).json({ error: 'Step is not currently running' });
+  }
+
+  const executorType = step.executor_type as string;
+  const executorId = step.executor_id as string;
+
+  if (executorType !== 'claude-code' || !executorId) {
+    return res.status(400).json({ error: 'This step type cannot be steered' });
+  }
+
+  const command = sendCommandToAgent(executorId, String(message).trim(), false);
+  if (!command) return res.status(404).json({ error: 'Agent not found or offline' });
+
+  res.json({ ok: true, commandId: command.id });
+});
+
+// Generate a workflow from a natural language description using an LLM
+router.post('/v2/generate', async (req, res) => {
+  const { description } = req.body;
+  if (!description || !String(description).trim()) {
+    return res.status(400).json({ error: 'description is required' });
+  }
+
+  const gridlightUrl = getSetting('gridlight_gateway_url');
+  const gridlightModels = getSetting('gridlight_models');
+  const anthropicKey = getSetting('anthropic_api_key');
+  const openaiKey = getSetting('openai_api_key');
+
+  // Pick first available model from the gridlight_models comma-separated list
+  const gridlightModel = gridlightModels?.split(',').map((m) => m.trim()).find(Boolean);
+
+  if (!gridlightUrl && !anthropicKey && !openaiKey) {
+    return res.status(400).json({
+      error: 'No AI provider configured — add a Gridlight gateway URL, Anthropic key, or OpenAI key in Settings',
+    });
+  }
+
+  try {
+    // Priority: Gridlight → Anthropic → OpenAI
+    let generated;
+    if (gridlightUrl && gridlightModel) {
+      generated = await generateWorkflow(description.trim(), { provider: 'gridlight', gatewayUrl: gridlightUrl, model: gridlightModel });
+    } else if (anthropicKey) {
+      generated = await generateWorkflow(description.trim(), { provider: 'anthropic', apiKey: anthropicKey });
+    } else {
+      generated = await generateWorkflow(description.trim(), { provider: 'openai', apiKey: openaiKey! });
+    }
+
+    const now = new Date().toISOString();
+    const workflowId = uuid();
+
+    db.prepare(`
+      INSERT INTO workflows (id, name, description, status, target_repos, created_at, started_at)
+      VALUES (?, ?, ?, 'pending', '[]', ?, '')
+    `).run(workflowId, generated.name, generated.description, now);
+
+    // Pre-generate all step IDs so dependsOn indices can be resolved to UUIDs
+    const stepIds = generated.steps.map(() => uuid());
+
+    const insertStep = db.prepare(`
+      INSERT INTO workflow_steps
+        (id, workflow_id, name, description, position_x, position_y,
+         executor_type, executor_id, executor_config, auto_advance, depends_on, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (let i = 0; i < generated.steps.length; i++) {
+      const s = generated.steps[i];
+      const isAgentStep = s.executorType === 'claude-code' || s.executorType === 'quality-gate';
+      const executorId = isAgentStep ? '__deferred__' : '';
+      const resolvedDeps = s.dependsOn.map((idx) => stepIds[idx]).filter(Boolean);
+      insertStep.run(
+        stepIds[i], workflowId,
+        s.name, s.description,
+        300, 50 + i * 175,          // linear layout: all x=300, y increments
+        s.executorType, executorId,
+        JSON.stringify(s.config),
+        s.autoAdvance ? 1 : 0,
+        JSON.stringify(resolvedDeps),
+        now,
+      );
+    }
+
+    const usedProvider = gridlightUrl && gridlightModel ? 'gridlight' : anthropicKey ? 'anthropic' : 'openai';
+    console.log(`[workflow] Generated "${generated.name}" (${generated.steps.length} steps) via ${usedProvider}`);
+    emitWorkflowUpdate(workflowId);
+    res.status(201).json({ id: workflowId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[workflow] Generate error:', msg);
+    res.status(500).json({ error: msg });
+  }
 });
 
 // Start V2 workflow

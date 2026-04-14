@@ -26,7 +26,7 @@ const BADGE_STYLES: Record<string, string> = {
   violet: 'bg-violet-900/60 text-violet-300',
 };
 
-type SettingsTab = 'projects' | 'api-keys' | 'mcp-servers' | 'tools';
+type SettingsTab = 'projects' | 'api-keys' | 'notifications' | 'mcp-servers' | 'tools';
 
 interface ToolStatus {
   label: string;
@@ -62,6 +62,14 @@ export function SettingsModal({ onClose }: Props) {
   const [toolsStatus, setToolsStatus] = useState<Record<string, ToolStatus>>({});
   const [toolsBusy, setToolsBusy] = useState<Set<string>>(new Set());
   const [toolsMsg, setToolsMsg] = useState<Record<string, { type: 'ok' | 'err'; text: string }>>({});
+
+  // Notifications
+  const [ntfyUrl, setNtfyUrl] = useState('');
+  const [ntfyAnthropicKey, setNtfyAnthropicKey] = useState('');
+  const [ntfySaving, setNtfySaving] = useState(false);
+  const [ntfySaved, setNtfySaved] = useState(false);
+  const [ntfyTesting, setNtfyTesting] = useState(false);
+  const [ntfyTestMsg, setNtfyTestMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // MCP servers
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -110,6 +118,8 @@ export function SettingsModal({ onClose }: Props) {
       setGridlightUrl(settings.gridlight_gateway_url || '');
       setOpenaiModels(settings.openai_models || 'gpt-4.1,gpt-4.1-mini');
       setGridlightModels(settings.gridlight_models || '');
+      setNtfyUrl(settings.ntfy_url || '');
+      setNtfyAnthropicKey(settings.anthropic_api_key || '');
     }).catch(() => {
       browse();
     });
@@ -280,6 +290,28 @@ export function SettingsModal({ onClose }: Props) {
     }
   };
 
+  const handleSaveNotifications = async () => {
+    setNtfySaving(true);
+    setNtfyTestMsg(null);
+    try {
+      await api.updateSettings({ ntfy_url: ntfyUrl, anthropic_api_key: ntfyAnthropicKey });
+      setNtfySaved(true);
+      setTimeout(() => setNtfySaved(false), 2000);
+    } catch { /* ignore */ }
+    finally { setNtfySaving(false); }
+  };
+
+  const handleTestPush = async () => {
+    setNtfyTesting(true);
+    setNtfyTestMsg(null);
+    try {
+      await api.testPushNotification();
+      setNtfyTestMsg({ type: 'ok', text: 'Test notification sent!' });
+    } catch (e) {
+      setNtfyTestMsg({ type: 'err', text: e instanceof Error ? e.message : 'Send failed' });
+    } finally { setNtfyTesting(false); }
+  };
+
   const tabClass = (t: SettingsTab) =>
     `px-3 py-1.5 text-xs font-medium transition-colors rounded-md ${
       tab === t
@@ -301,6 +333,7 @@ export function SettingsModal({ onClose }: Props) {
             <div className="flex gap-1">
               <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
               <button onClick={() => setTab('api-keys')} className={tabClass('api-keys')}>API Keys</button>
+              <button onClick={() => setTab('notifications')} className={tabClass('notifications')}>Notifications</button>
               <button onClick={() => setTab('mcp-servers')} className={tabClass('mcp-servers')}>MCP Servers</button>
               <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
             </div>
@@ -463,6 +496,76 @@ export function SettingsModal({ onClose }: Props) {
                 {apiSaving ? 'Saving...' : 'Save'}
               </button>
               {apiSaved && <span className="text-xs text-green-400">Saved</span>}
+            </div>
+          </>
+        ) : tab === 'notifications' ? (
+          <>
+            <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-5">
+              {/* Global ntfy.sh URL */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-1">Mobile Push Notifications</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Receive push notifications on your phone when agents need attention.
+                  Create a free topic at{' '}
+                  <span className="text-teal-400 font-mono">ntfy.sh</span> and paste the URL below.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Global ntfy URL</label>
+                    <input
+                      type="text"
+                      value={ntfyUrl}
+                      onChange={(e) => setNtfyUrl(e.target.value)}
+                      placeholder="https://ntfy.sh/your-topic"
+                      className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+                    />
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Per-project URLs can be set in each cartridge's config — those override this global URL.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Anthropic API Key (for AI workflow generator) */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-1">Anthropic API Key</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Used by the AI Workflow Generator to create workflow graphs from natural language descriptions.
+                </p>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">API Key</label>
+                  <input
+                    type="password"
+                    value={ntfyAnthropicKey}
+                    onChange={(e) => setNtfyAnthropicKey(e.target.value)}
+                    placeholder="sk-ant-..."
+                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 md:px-6 md:py-4 border-t border-white/[0.06] flex items-center gap-3 flex-wrap">
+              <button
+                onClick={handleSaveNotifications}
+                disabled={ntfySaving}
+                className="text-sm px-4 py-2 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-colors"
+              >
+                {ntfySaving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={handleTestPush}
+                disabled={ntfyTesting || !ntfyUrl}
+                className="text-sm px-4 py-2 rounded-md bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 border border-teal-500/30 disabled:opacity-30 transition-colors"
+              >
+                {ntfyTesting ? 'Sending...' : 'Send Test'}
+              </button>
+              {ntfySaved && <span className="text-xs text-green-400">Saved</span>}
+              {ntfyTestMsg && (
+                <span className={`text-xs ${ntfyTestMsg.type === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                  {ntfyTestMsg.text}
+                </span>
+              )}
             </div>
           </>
         ) : tab === 'mcp-servers' ? (

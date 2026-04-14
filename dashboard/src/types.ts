@@ -180,6 +180,8 @@ export interface StepSummary {
   pending: number;
   /** Brief list of step names for at-a-glance identification */
   stepNames?: string[];
+  /** Deduplicated list of project/repo names for assigned executor agents */
+  projects?: string[];
 }
 
 export interface Workflow {
@@ -263,6 +265,7 @@ export interface VirtualCartridge {
   color: string;
   mcpServerIds: string[];
   pinnedTools: PinnedTool[];
+  ntfyUrl: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -343,6 +346,17 @@ export interface WorkflowStepLog {
   stepName: string;
   message: string;
   type: StepLogType;
+  timestamp: string;
+}
+
+// Workflow completion notification (fired by system-notify connector step)
+export interface WorkflowNotification {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  title: string;
+  body: string;
+  projects: string[];
   timestamp: string;
 }
 

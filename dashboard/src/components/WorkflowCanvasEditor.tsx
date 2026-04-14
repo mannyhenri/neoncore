@@ -1117,6 +1117,16 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     ];
   }, [selectedStep, onlineAgents]);
 
+  // ── Assigned projects (agents with real executor IDs) ──
+  const assignedProjects = useMemo(() => {
+    const names = steps
+      .filter((s) => s.executorId && s.executorId !== '__deferred__')
+      .map((s) => agents.find((a) => a.id === s.executorId))
+      .filter(Boolean)
+      .map((a) => a!.repoName || a!.name);
+    return [...new Set(names)].filter(Boolean);
+  }, [steps, agents]);
+
   // ── Render ──────────────────────────────────────
 
   return (
@@ -1140,6 +1150,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               <span className="text-xs text-gl-purple font-medium px-2 py-0.5 rounded-full bg-gl-purple/15">
                 Run #{runNumber}
               </span>
+              {assignedProjects.length > 0 && assignedProjects.map((p) => (
+                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.06]">
+                  {p}
+                </span>
+              ))}
               {workflowDescription && (
                 <span className="text-xs text-gray-500 truncate max-w-xs">{workflowDescription}</span>
               )}
@@ -1164,6 +1179,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 placeholder="Description (optional)"
                 className="text-xs text-gray-400 bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 flex-1 max-w-sm transition-colors"
               />
+              {assignedProjects.length > 0 && assignedProjects.map((p) => (
+                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.06] shrink-0">
+                  {p}
+                </span>
+              ))}
             </>
           )}
 
@@ -1285,6 +1305,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 steps={steps}
                 agentOptions={agentOptions}
                 isExecuting={isExecuting}
+                workflowId={savedWorkflowId}
                 onUpdate={(patch) => updateStep(selectedStep.id, patch)}
                 onDelete={() => deleteStep(selectedStep.id)}
                 onClose={() => setSelectedStepId(null)}
@@ -2435,6 +2456,7 @@ function SidePanel({
   steps,
   agentOptions,
   isExecuting,
+  workflowId,
   onUpdate,
   onDelete,
   onClose,
@@ -2446,6 +2468,7 @@ function SidePanel({
   steps: LocalStep[];
   agentOptions: { id: string; label: string }[];
   isExecuting: boolean;
+  workflowId?: string;
   onUpdate: (patch: Partial<LocalStep>) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -2454,6 +2477,9 @@ function SidePanel({
   onSkip: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [steerMsg, setSteerMsg] = useState('');
+  const [steering, setSteering] = useState(false);
+  const [steerResult, setSteerResult] = useState<'ok' | 'err' | null>(null);
 
   // Reset confirm when step changes
   useEffect(() => {
@@ -2767,20 +2793,72 @@ function SidePanel({
               </button>
             )}
             {step.status === 'running' && (
-              <div className="mt-2 flex gap-2">
-                <button
-                  onClick={onForceComplete}
-                  className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/20 transition-colors"
-                >
-                  Mark complete
-                </button>
-                <button
-                  onClick={onSkip}
-                  className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
-                >
-                  Skip
-                </button>
-              </div>
+              <>
+                {/* Mid-task steering — only for running claude-code steps with an assigned agent */}
+                {step.executorType === 'claude-code' && step.executorId && step.executorId !== '__deferred__' && workflowId && (
+                  <div className="mt-3">
+                    <label className="block text-xs text-gray-500 mb-1">Steer agent</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={steerMsg}
+                        onChange={(e) => setSteerMsg(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && steerMsg.trim() && !steering) {
+                            setSteering(true);
+                            setSteerResult(null);
+                            try {
+                              await api.steerWorkflowStep(workflowId, step.id, steerMsg.trim());
+                              setSteerMsg('');
+                              setSteerResult('ok');
+                              setTimeout(() => setSteerResult(null), 3000);
+                            } catch { setSteerResult('err'); }
+                            finally { setSteering(false); }
+                          }
+                        }}
+                        placeholder="Send a hint or correction…"
+                        className="flex-1 text-xs glass-input text-gray-200 rounded px-2 py-1.5 focus:outline-none placeholder-gray-600"
+                        disabled={steering}
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!steerMsg.trim() || steering) return;
+                          setSteering(true);
+                          setSteerResult(null);
+                          try {
+                            await api.steerWorkflowStep(workflowId, step.id, steerMsg.trim());
+                            setSteerMsg('');
+                            setSteerResult('ok');
+                            setTimeout(() => setSteerResult(null), 3000);
+                          } catch { setSteerResult('err'); }
+                          finally { setSteering(false); }
+                        }}
+                        disabled={!steerMsg.trim() || steering}
+                        className="text-xs px-2.5 py-1.5 rounded bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 border border-teal-500/20 disabled:opacity-40 transition-colors"
+                      >
+                        {steering ? '…' : '↵'}
+                      </button>
+                    </div>
+                    {steerResult === 'ok' && <p className="text-[11px] text-green-400 mt-1">Sent</p>}
+                    {steerResult === 'err' && <p className="text-[11px] text-red-400 mt-1">Failed to send</p>}
+                  </div>
+                )}
+
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={onForceComplete}
+                    className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/20 transition-colors"
+                  >
+                    Mark complete
+                  </button>
+                  <button
+                    onClick={onSkip}
+                    className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </>
             )}
             {step.status === 'pending' && (
               <button

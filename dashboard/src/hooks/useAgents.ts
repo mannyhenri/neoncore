@@ -1,7 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, WorkflowNotification } from '../types';
 import { api } from '../lib/api';
 import { useSocket } from './useSocket';
+
+function browserNotify(title: string, body: string, tag: string) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+    return;
+  }
+  if (Notification.permission !== 'granted') return;
+  const n = new Notification(title, { body, tag, icon: '/favicon.ico', silent: false });
+  setTimeout(() => n.close(), 10000);
+}
 
 const MAX_ACTIVITIES = 100;
 const POLL_INTERVAL_MS = 10_000; // Poll every 10s as fallback for mobile
@@ -18,6 +29,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [stuckAlerts, setStuckAlerts] = useState<Map<string, StuckAlert>>(new Map());
+  const [workflowNotifications, setWorkflowNotifications] = useState<WorkflowNotification[]>([]);
 
   // Fetch all data from server (used on mount and reconnect)
   const refreshData = useCallback(() => {
@@ -68,12 +80,25 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     },
     onPermissionRequested: (request) => {
       setPendingPermissions((prev) => [request, ...prev]);
+      // Fire OS notification so the user knows even when the tab is in the background
+      const isQuestion = request.toolName === 'AskUserQuestion';
+      const isPlan = request.toolName === 'ExitPlanMode';
+      const notifTitle = isQuestion ? 'Agent Question' : isPlan ? 'Plan Ready for Review' : 'Approval Needed';
+      const notifBody = request.description || `${request.toolName} is waiting for your response`;
+      browserNotify(notifTitle, notifBody, `perm-${request.id}`);
     },
     onPermissionDecided: (request) => {
       setPendingPermissions((prev) => prev.filter((p) => p.id !== request.id));
     },
     onAgentStuck: (alert) => {
-      setStuckAlerts((prev) => new Map(prev).set(alert.agentId, alert));
+      setStuckAlerts((prev) => {
+        const existing = prev.get(alert.agentId);
+        // Only fire OS notification if pattern is new (avoid repeated buzzing)
+        if (!existing || existing.pattern !== alert.pattern) {
+          browserNotify('Agent Stuck', alert.pattern, `stuck-${alert.agentId}`);
+        }
+        return new Map(prev).set(alert.agentId, alert);
+      });
     },
     onAgentUnstuck: ({ agentId }) => {
       setStuckAlerts((prev) => {
@@ -86,6 +111,10 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
       api.getPendingPermissions().then(setPendingPermissions).catch(() => {});
     },
     onVirtualCartridgeUpdated,
+    onWorkflowNotification: (n) => {
+      setWorkflowNotifications((prev) => [n, ...prev].slice(0, 20));
+      browserNotify(n.title, n.body, `wf-${n.id}`);
+    },
   });
 
   const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => {
@@ -122,6 +151,10 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     });
   }, []);
 
+  const dismissWorkflowNotification = useCallback((id: string) => {
+    setWorkflowNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
   // Group activities by agent for cartridge terminal display
   const activitiesByAgent = useMemo(() => {
     const grouped: Record<string, Activity[]> = {};
@@ -142,6 +175,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     pendingPermissions,
     stuckAlerts,
     stuckAlertsArray,
+    workflowNotifications,
     loading,
     connected,
     decidePermission,
@@ -149,5 +183,6 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     sendCommand,
     deleteAgent,
     dismissStuckAlert,
+    dismissWorkflowNotification,
   };
 }

@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
+import { pushNotify, getCartridgeNtfyUrl } from '../lib/push-notify.js';
 
 const router = Router();
 
@@ -126,6 +127,29 @@ router.post('/request', (req, res) => {
   };
 
   getIO().emit('permission_requested', request);
+
+  // Fire mobile push notification — agent needs human attention
+  const agentRow = db.prepare('SELECT repo_name, name, repo_path FROM agents WHERE id = ?')
+    .get(resolvedAgentId) as { repo_name: string; name: string; repo_path: string } | undefined;
+  const projectLabel = agentRow?.repo_name || agentRow?.name || 'Agent';
+  const cartridgeNtfyUrl = agentRow?.repo_path ? getCartridgeNtfyUrl(agentRow.repo_path) : undefined;
+
+  let pushTitle: string;
+  let pushBody: string;
+  if (toolName === 'AskUserQuestion') {
+    pushTitle = `${projectLabel} — Question`;
+    pushBody = (description || 'Agent has a question for you').slice(0, 300);
+  } else if (toolName === 'ExitPlanMode') {
+    pushTitle = `${projectLabel} — Plan Ready`;
+    pushBody = 'Agent completed planning and is waiting for your review.';
+  } else {
+    pushTitle = `${projectLabel} — Approval Needed`;
+    pushBody = `${toolName} is waiting for your approval.`;
+  }
+  pushNotify(pushTitle, pushBody, cartridgeNtfyUrl ?? undefined).catch((err) => {
+    console.warn('[permissions] pushNotify failed:', err);
+  });
+
   res.status(201).json({ id, status: 'pending' });
 });
 

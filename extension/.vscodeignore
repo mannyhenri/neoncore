@@ -1,0 +1,17 @@
+# Source files (compiled to dist/)
+src/**
+tsconfig.json
+tsconfig.tsbuildinfo
+
+# Dev tooling
+node_modules/**
+*.vsix
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+
+# Misc
+.gitignore
+.eslintrc*
+.prettier*

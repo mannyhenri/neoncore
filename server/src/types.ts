@@ -199,6 +199,7 @@ export interface Workflow {
     failed: number;
     pending: number;
     stepNames: string[];
+    projects: string[];
   };
 }
 
@@ -263,6 +264,7 @@ export interface VirtualCartridge {
   color: string;
   mcpServerIds: string[];
   pinnedTools: PinnedTool[];
+  ntfyUrl: string;
   createdAt: string;
   updatedAt: string;
 }
