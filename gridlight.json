@@ -13,7 +13,7 @@
   "backend": {
     "command": "npm start",
     "port": 4040,
-    "install": "npm install",
+    "install": "npm install && npm run build",
     "healthCheck": "/api/agents"
   },
   "dependencies": {

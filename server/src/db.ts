@@ -173,6 +173,13 @@ try {
   db.exec(`ALTER TABLE workflows ADD COLUMN initial_context TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add ntfy_url to virtual_cartridges (per-project push notification override)
+try {
+  db.prepare('SELECT ntfy_url FROM virtual_cartridges LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE virtual_cartridges ADD COLUMN ntfy_url TEXT NOT NULL DEFAULT ''`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (
@@ -609,8 +616,12 @@ function seedDefaultTemplates() {
     INSERT INTO workflow_steps
       (id, workflow_id, name, description, position_x, position_y,
        executor_type, executor_id, executor_config, auto_advance, depends_on, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+
+  // Agent-based types need __deferred__ so the user picks a cartridge at run time.
+  // Connector/command steps run without a cartridge.
+  const DEFERRED_TYPES = new Set(['claude-code', 'quality-gate', 'review-gate', 'deliberation']);
 
   function step(
     wfId: string,
@@ -624,7 +635,8 @@ function seedDefaultTemplates() {
     deps: string[],
     auto = true,
   ) {
-    insertStep.run(id, wfId, name, desc, x, y, type, JSON.stringify(config), auto ? 1 : 0, JSON.stringify(deps), now);
+    const executorId = DEFERRED_TYPES.has(type) ? '__deferred__' : '';
+    insertStep.run(id, wfId, name, desc, x, y, type, executorId, JSON.stringify(config), auto ? 1 : 0, JSON.stringify(deps), now);
   }
 
   const cc = (role: string, extra: Record<string, unknown> = {}) => ({
@@ -643,45 +655,51 @@ function seedDefaultTemplates() {
   // ── 1. Code Improvement ───────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Code Improvement',
-      'Audit → architect → define tests → implement → run tests → security.', now);
-    step(wfId, s1, 'Performance Audit',   'Identify top bottlenecks ranked by impact. No code changes.',                                                                                                                      300,  50, 'claude-code', cc('performance'), []);
-    step(wfId, s2, 'Architecture Review', 'Propose refactoring steps with exact file paths and interfaces.',                                                                                                                  300, 225, 'claude-code', cc('architect'),   [s1]);
-    step(wfId, s3, 'Define Tests',        'Define the test cases and expected outcomes that will prove the improvements worked. List what each test verifies. Do not write implementation code.',                              300, 400, 'claude-code', cc('tester'),     [s2]);
-    step(wfId, s4, 'Implement Fixes',     'Apply the improvements following the architecture plan.',                                                                                                                          300, 575, 'claude-code', cc('backend'),    [s3]);
-    step(wfId, s5, 'Run Tests',           'Execute the tests defined in the Define Tests step. Verify all pass.',                                                                                                             300, 750, 'quality-gate',
+      'Audit → architect → define tests → implement → run tests → security → notify.', now);
+    step(wfId, s1, 'Performance Audit',   'Identify top bottlenecks ranked by impact. No code changes.',                                                                                                                      300,   50, 'claude-code', cc('performance'), []);
+    step(wfId, s2, 'Architecture Review', 'Propose refactoring steps with exact file paths and interfaces.',                                                                                                                  300,  225, 'claude-code', cc('architect'),   [s1]);
+    step(wfId, s3, 'Define Tests',        'Define the test cases and expected outcomes that will prove the improvements worked. List what each test verifies. Do not write implementation code.',                              300,  400, 'claude-code', cc('tester'),     [s2]);
+    step(wfId, s4, 'Implement Fixes',     'Apply the improvements following the architecture plan.',                                                                                                                          300,  575, 'claude-code', cc('backend'),    [s3]);
+    step(wfId, s5, 'Run Tests',           'Execute the tests defined in the Define Tests step. Verify all pass.',                                                                                                             300,  750, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 }, [s4]);
-    step(wfId, s6, 'Security & Lint',     'Verify lint and security pass after the changes.',                                                                                                                                 300, 925, 'quality-gate', gate('security'), [s5]);
+    step(wfId, s6, 'Security & Lint',     'Verify lint and security pass after the changes.',                                                                                                                                 300,  925, 'quality-gate', gate('security'), [s5]);
+    step(wfId, s7, 'Notify',              'System notification: Code Improvement workflow complete.',                                                                                                                          300, 1100, 'connector',
+      { connectorType: 'system-notify', title: 'Code Improvement — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s6]);
   }
 
   // ── 2. Bug Hunter ─────────────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'Bug Hunter',
-      'Investigate → define regression test → fix → run tests → security.', now);
+      'Investigate → define regression test → fix → run tests → security → notify.', now);
     step(wfId, s1, 'Investigate & Reproduce', 'Trace root cause, find exact files and line numbers. No code changes.',                                                                                                        300,  50, 'claude-code', cc('reviewer'), []);
     step(wfId, s2, 'Define Regression Test',  'Define a test case that reproduces the bug. Describe exactly what inputs trigger it and what the correct output should be. Do not write the fix yet.',                         300, 225, 'claude-code', cc('tester'),   [s1]);
     step(wfId, s3, 'Implement Fix',           'Write the minimal fix based on the investigation.',                                                                                                                            300, 400, 'claude-code', cc('backend'),  [s2]);
     step(wfId, s4, 'Run Tests',               'Execute the regression test and full test suite. All must pass.',                                                                                                              300, 575, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s3 }], maxCycles: 2 }, [s3]);
     step(wfId, s5, 'Security Check',          'Verify no security issues were introduced by the fix.',                                                                                                                        300, 750, 'quality-gate', gate('security'), [s4]);
+    step(wfId, s6, 'Notify',                  'System notification: Bug Hunter workflow complete.',                                                                                                                            300, 925, 'connector',
+      { connectorType: 'system-notify', title: 'Bug Hunter — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s5]);
   }
 
   // ── 3. Feature Fix ────────────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Feature Fix',
-      'Diagnose → plan → define tests → implement → run tests → security.', now);
-    step(wfId, s1, 'Diagnose Issue',  'Find exactly where behavior diverges from intent. No code changes.',                                                                                                                    300,  50, 'claude-code', cc('reviewer'),  []);
-    step(wfId, s2, 'Plan the Fix',    'Design the minimal fix with exact file paths and edge case analysis.',                                                                                                                  300, 225, 'claude-code', cc('architect'), [s1]);
-    step(wfId, s3, 'Define Tests',    'Define the test cases that describe the correct behavior. List what each test verifies and what inputs/outputs prove the feature works. Do not write the fix yet.',                     300, 400, 'claude-code', cc('tester'),    [s2]);
-    step(wfId, s4, 'Implement Fix',   'Implement the fix following the plan.',                                                                                                                                                300, 575, 'claude-code', cc('backend'),   [s3]);
-    step(wfId, s5, 'Run Tests',       'Execute all tests defined in Define Tests. Verify the feature behaves as expected.',                                                                                                   300, 750, 'quality-gate',
+      'Diagnose → plan → define tests → implement → run tests → security → notify.', now);
+    step(wfId, s1, 'Diagnose Issue',  'Find exactly where behavior diverges from intent. No code changes.',                                                                                                                    300,   50, 'claude-code', cc('reviewer'),  []);
+    step(wfId, s2, 'Plan the Fix',    'Design the minimal fix with exact file paths and edge case analysis.',                                                                                                                  300,  225, 'claude-code', cc('architect'), [s1]);
+    step(wfId, s3, 'Define Tests',    'Define the test cases that describe the correct behavior. List what each test verifies and what inputs/outputs prove the feature works. Do not write the fix yet.',                     300,  400, 'claude-code', cc('tester'),    [s2]);
+    step(wfId, s4, 'Implement Fix',   'Implement the fix following the plan.',                                                                                                                                                300,  575, 'claude-code', cc('backend'),   [s3]);
+    step(wfId, s5, 'Run Tests',       'Execute all tests defined in Define Tests. Verify the feature behaves as expected.',                                                                                                   300,  750, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 }, [s4]);
-    step(wfId, s6, 'Security & Lint', 'Confirm lint and security pass after the fix.',                                                                                                                                        300, 925, 'quality-gate', gate('security'), [s5]);
+    step(wfId, s6, 'Security & Lint', 'Confirm lint and security pass after the fix.',                                                                                                                                        300,  925, 'quality-gate', gate('security'), [s5]);
+    step(wfId, s7, 'Notify',          'System notification: Feature Fix workflow complete.',                                                                                                                                   300, 1100, 'connector',
+      { connectorType: 'system-notify', title: 'Feature Fix — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s6]);
   }
 
   // ── 4. New Feature ────────────────────────────────────────────────────────
@@ -698,8 +716,8 @@ function seedDefaultTemplates() {
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 3 }, [s4]);
     step(wfId, s6, 'Security & Lint', 'Full lint + security check.',                                                                                                                                                          300,  925, 'quality-gate', gate('security'), [s5]);
     step(wfId, s7, 'Summary',         'Document all changes, test results, and manual testing instructions.',                                                                                                                 300, 1100, 'claude-code', cc('planner'), [s6]);
-    step(wfId, s8, 'Notify',          'Send completion notification. Configure your webhook URL in step settings.',                                                                                                           300, 1275, 'connector',
-      { connectorType: 'http', httpUrl: '', httpMethod: 'POST', httpBodyTemplate: '{"workflow":"{{workflowName}}","status":"complete","result":"{{result}}"}' }, [s7]);
+    step(wfId, s8, 'Notify',          'System notification: New Feature workflow complete.',                                                                                                                             300, 1275, 'connector',
+      { connectorType: 'system-notify', title: 'New Feature — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s7]);
   }
 
   // ── 5. CI/CD Pipeline ─────────────────────────────────────────────────────
@@ -714,14 +732,14 @@ function seedDefaultTemplates() {
     step(wfId, s3, 'Run Integration Tests', 'Execute integration and end-to-end tests.',                                                                                                                                      300, 400, 'claude-code',
       cc('tester', { systemPrompt: 'Run all integration and e2e tests. Report STATUS: PASS or STATUS: FAIL in your result.' }), [s2]);
     step(wfId, s4, 'Security Scan',         'Audit for OWASP issues, auth flaws, and credential exposure.',                                                                                                                   300, 575, 'quality-gate', gate('security'), [s3]);
-    step(wfId, s5, 'Notify',                'Send pipeline result to Slack. Configure your webhook URL in step settings.',                                                                                                    300, 750, 'connector',
-      { connectorType: 'slack', webhookUrl: '', messageTemplate: '{{workflowName}} pipeline completed: {{result}} at {{timestamp}}' }, [s4]);
+    step(wfId, s5, 'Notify',                'System notification: CI/CD Pipeline workflow complete.',                                                                                                                  300, 750, 'connector',
+      { connectorType: 'system-notify', title: 'CI/CD Pipeline — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s4]);
   }
 
   // ── 6. Feature Validation ─────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'Feature Validation',
       'Set the workflow description to what the feature is supposed to do — that spec is automatically passed to every step.', now);
     step(wfId, s1, 'Feature Mapping',   'Map all files, components, routes, DB tables, hooks, and UI elements involved in this feature.',                           300,  50, 'claude-code',
@@ -739,12 +757,14 @@ function seedDefaultTemplates() {
     step(wfId, s5, 'Validation Report', 'Compile the complete pass/fail report with action items.',                                                                 300, 750, 'claude-code',
       { ...cc('general'), prompt: 'Compile the final feature validation report using all findings from the previous steps. Structure it as:\n\n## Feature Validation Report\n\n### Wiring\n[List each WIRING ISSUE or "✅ All clear"]\n\n### Bugs\n[List each BUG with severity or "✅ None found"]\n\n### Functional Tests\n[List each TEST with PASS/FAIL and detail]\n\n### Summary\n- Wiring: ✅ PASS / ❌ FAIL (N issues)\n- Bugs: ✅ PASS / ⚠️ N warnings / ❌ N critical\n- Tests: ✅ N passed / ❌ N failed\n\n### Overall Status\n**STATUS: PASS** or **STATUS: FAIL**\n\n### Action Items\n[Numbered list of issues to fix, highest severity first. If none: "No action required."]' },
       [s4], false);
+    step(wfId, s6, 'Notify',            'System notification: Feature Validation workflow complete.',                                                                300, 925, 'connector',
+      { connectorType: 'system-notify', title: 'Feature Validation — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s5]);
   }
 
   // ── 7. Deep Research ──────────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'Deep Research',
       'Set the workflow description to the research subject — it is automatically injected into the first step. Web + local research → synthesis → your review → epic planning → save epic to scoping folder.', now);
 
@@ -787,6 +807,11 @@ function seedDefaultTemplates() {
         ...cc('general'),
         prompt: 'Take the epic document written in the previous step and save it as a file.\n\n1. Derive a short kebab-case slug from the epic subject (e.g. "mcp-integration", "voice-search", "offline-mode").\n\n2. Write the full epic content to:\n/Users/mannyhenri/Documents/Git/gridlight/.claude/scoping/EPIC-[slug].md\n\nUse the Write tool to create the file. Do not modify the epic content — copy it exactly.\n\n3. Confirm with: "✅ Epic saved to /Users/mannyhenri/Documents/Git/gridlight/.claude/scoping/EPIC-[slug].md"',
       }, [s4]);
+
+    // Step 6: Notify — system notification when research is complete
+    step(wfId, s6, 'Notify', 'System notification: Deep Research workflow complete.',
+      300, 925, 'connector',
+      { connectorType: 'system-notify', title: 'Deep Research — Done', message: '{{workflowName}} finished. Your epic is ready in NeonCore.' }, [s5]);
   }
 
   console.log('[db] Seeded 7 default workflow templates');

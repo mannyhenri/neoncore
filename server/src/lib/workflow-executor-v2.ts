@@ -10,6 +10,8 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
+import { execSync, execFileSync } from 'child_process';
+import { pushNotify } from './push-notify.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 
 const POLL_INTERVAL_MS = 12_000;
@@ -57,7 +59,14 @@ function emitWorkflowUpdate(workflowId: string) {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as Record<string, unknown> | undefined;
   if (!row) return;
   // Compute step summary for the dashboard
-  const stepRows = db.prepare('SELECT status, name FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as { status: string; name: string }[];
+  const stepRows = db.prepare('SELECT status, name, executor_id FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as { status: string; name: string; executor_id: string }[];
+  const executorIds = [...new Set(stepRows.map((s) => s.executor_id).filter((id) => id && id !== '__deferred__'))];
+  let projects: string[] = [];
+  if (executorIds.length > 0) {
+    const placeholders = executorIds.map(() => '?').join(',');
+    const agentRows = db.prepare(`SELECT repo_name, name FROM agents WHERE id IN (${placeholders})`).all(...executorIds) as { repo_name: string; name: string }[];
+    projects = [...new Set(agentRows.map((r) => r.repo_name || r.name).filter(Boolean))];
+  }
   const stepSummary = {
     total: stepRows.length,
     completed: stepRows.filter((s) => s.status === 'completed').length,
@@ -65,6 +74,7 @@ function emitWorkflowUpdate(workflowId: string) {
     failed: stepRows.filter((s) => s.status === 'failed').length,
     pending: stepRows.filter((s) => s.status === 'pending').length,
     stepNames: stepRows.map((s) => s.name),
+    projects,
   };
   getIO().emit('workflow_updated', {
     id: row.id as string,
@@ -705,11 +715,22 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
   const wfRow = db.prepare('SELECT name FROM workflows WHERE id = ?').get(step.workflowId) as { name: string } | undefined;
   const workflowName = wfRow?.name || step.workflowId.slice(0, 8);
 
+  // Collect project/cartridge names from assigned steps in this workflow
+  const assignedAgents = db.prepare(
+    `SELECT DISTINCT COALESCE(a.repo_name, a.name) AS label
+     FROM workflow_steps ws
+     JOIN agents a ON a.id = ws.executor_id
+     WHERE ws.workflow_id = ? AND ws.executor_id != '' AND ws.executor_id != '__deferred__'`
+  ).all(step.workflowId) as { label: string }[];
+  const projects = assignedAgents.map((r) => r.label).filter(Boolean);
+  const projectName = projects.join(', ');
+
   const vars: Record<string, string> = {
     result: depContext,
     stepName: step.name,
     workflowName,
     agentName,
+    projectName,
     timestamp: new Date().toISOString(),
   };
 
@@ -833,6 +854,56 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         body: method !== 'GET' ? substituteVars(bodyTemplate, vars) : undefined,
       });
       if (!res.ok) throw new Error(`HTTP connector returned ${res.status}: ${res.statusText}`);
+      break;
+    }
+
+    case 'system-notify': {
+      // Build title — include project name if not already in the custom title
+      const defaultTitle = projectName
+        ? `{{workflowName}} — Done · {{projectName}}`
+        : `{{workflowName}} — Done`;
+      const title = substituteVars((config.title as string) || defaultTitle, vars);
+      const body = substituteVars((config.message as string) || '{{workflowName}} completed.', vars);
+
+      // OS notification
+      try {
+        if (process.platform === 'darwin') {
+          execFileSync('osascript', [
+            '-e',
+            `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`,
+          ], { timeout: 5000 });
+        } else if (process.platform === 'linux') {
+          execFileSync('notify-send', [title, body], { timeout: 5000 });
+        } else if (process.platform === 'win32') {
+          const ps = [
+            `[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null`,
+            `$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)`,
+            `$template.SelectSingleNode('//text[@id=1]').InnerText = ${JSON.stringify(title)}`,
+            `$template.SelectSingleNode('//text[@id=2]').InnerText = ${JSON.stringify(body)}`,
+            `$toast = [Windows.UI.Notifications.ToastNotification]::new($template)`,
+            `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('NeonCore').Show($toast)`,
+          ].join('; ');
+          execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 10000 });
+        }
+      } catch { /* notification failure is non-fatal */ }
+
+      // In-app bell notification
+      getIO().emit('workflow_notification' as any, {
+        id: crypto.randomUUID(),
+        workflowId: step.workflowId,
+        workflowName,
+        title,
+        body,
+        projects,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Phone push (ntfy)
+      await pushNotify(title, body).then(() => {
+        console.log(`[workflow] Push sent: "${title}"`);
+      }).catch((err) => {
+        console.warn('[workflow] pushNotify failed:', err instanceof Error ? err.message : err);
+      });
       break;
     }
 

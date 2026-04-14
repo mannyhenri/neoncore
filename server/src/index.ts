@@ -31,6 +31,7 @@ import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
 import { restoreRunningServers } from './lib/mcp-manager.js';
 import { endSession } from './lib/session-manager.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
+import { runFirstLaunchSetup } from './lib/first-launch.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -222,4 +223,7 @@ server.listen(PORT, '0.0.0.0', () => {
   ║   on your LAN to access the dashboard.       ║
   ╚══════════════════════════════════════════════╝
   `);
+
+  // Install Claude Code hooks on the local machine on first launch
+  runFirstLaunchSetup(PORT);
 });

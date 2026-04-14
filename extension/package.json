@@ -1,13 +1,43 @@
 {
   "name": "neoncore-extension",
   "displayName": "NeonCore Orchestrator",
-  "description": "VS Code companion extension for the NeonCore orchestrator - enables remote command relay to Claude Code",
+  "description": "Multi-agent orchestrator companion for Claude Code — monitor activity, relay commands, manage permissions, and run canvas workflows across VS Code instances.",
   "version": "0.5.1",
   "publisher": "gridlight",
+  "author": {
+    "name": "Gridlight",
+    "url": "https://gridlight.ai"
+  },
+  "license": "MIT",
+  "homepage": "https://gridlight.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gridlight-ai/neoncore"
+  },
+  "bugs": {
+    "url": "https://github.com/gridlight-ai/neoncore/issues"
+  },
+  "icon": "logo.png",
+  "galleryBanner": {
+    "color": "#0d0f12",
+    "theme": "dark"
+  },
+  "keywords": [
+    "orchestrator",
+    "ai",
+    "agents",
+    "claude",
+    "claude-code",
+    "gridlight",
+    "multi-agent",
+    "mcp",
+    "workflow",
+    "automation"
+  ],
+  "categories": ["AI", "Other"],
   "engines": {
     "vscode": "^1.94.0"
   },
-  "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
@@ -27,38 +57,42 @@
         "neoncore.orchestratorUrl": {
           "type": "string",
           "default": "http://localhost:4040",
-          "description": "URL of the NeonCore orchestrator server"
+          "description": "URL of the NeonCore orchestrator server (e.g. http://192.168.1.50:4040 for a remote machine)"
         },
         "neoncore.autoConnect": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically connect to the orchestrator on startup"
+          "description": "Automatically connect to the orchestrator on VS Code startup"
         },
         "neoncore.agentType": {
           "type": "string",
           "enum": ["", "claude", "gridlight", "gemini", "amazonq", "codex", "cursor"],
           "enumDescriptions": [
-            "Auto-detect (uses app name — Cursor is detected automatically)",
+            "Auto-detect (recommended)",
             "Claude Code (Anthropic)",
             "Gridlight",
             "Gemini CLI (Google)",
             "Amazon Q Developer CLI",
             "Codex CLI (OpenAI)",
-            "Cursor (auto-detected, but can be forced here)"
+            "Cursor"
           ],
           "default": "",
-          "description": "AI agent type for this VS Code workspace. Leave blank to auto-detect."
+          "description": "AI agent type for this workspace. Leave blank to auto-detect."
         }
       }
     }
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "prepackage": "node -e \"require('fs').copyFileSync('../server/public/logo.png', 'logo.png')\"",
+    "package": "npm run compile && npm run prepackage && npx @vscode/vsce package --no-dependencies",
+    "publish:marketplace": "npm run package && npx @vscode/vsce publish --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.94.0",
     "@types/node": "^22.0.0",
+    "@vscode/vsce": "^3.0.0",
     "typescript": "^5.6.0"
   },
   "dependencies": {
