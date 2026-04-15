@@ -586,7 +586,7 @@ router.post('/v2/generate', async (req, res) => {
       insertStep.run(
         stepIds[i], workflowId,
         s.name, s.description,
-        300, 50 + i * 175,          // linear layout: all x=300, y increments
+        300, 80 + i * 230,          // linear layout: all x=300, y increments with enough gap to see edges
         s.executorType, executorId,
         JSON.stringify(s.config),
         s.autoAdvance ? 1 : 0,
@@ -657,13 +657,21 @@ router.post('/v2/:id/start', (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', NULL, NULL)
     `);
 
-    for (const s of templateSteps) {
+    // Recompute linear layout for the run — use fixed spacing so edges are always visible,
+    // regardless of how tightly the template steps may have been saved.
+    const STEP_SPACING = 230;
+    const START_Y = 80;
+    const FIXED_X = 300;
+
+    for (let i = 0; i < templateSteps.length; i++) {
+      const s = templateSteps[i];
       const newStepId = oldToNew.get(s.id as string)!;
       const oldDeps: string[] = JSON.parse((s.depends_on as string) || '[]');
       const remappedDeps = oldDeps.map((d) => oldToNew.get(d)).filter(Boolean);
       insertStep.run(
         newStepId, runId,
-        s.name, s.description, s.position_x, s.position_y,
+        s.name, s.description,
+        FIXED_X, START_Y + i * STEP_SPACING,
         s.executor_type, s.executor_id, s.executor_config, s.auto_advance,
         JSON.stringify(remappedDeps), now,
       );
