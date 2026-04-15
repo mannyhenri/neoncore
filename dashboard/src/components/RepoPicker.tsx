@@ -74,11 +74,11 @@ export function RepoPicker() {
     return () => clearInterval(interval);
   }, [open]);
 
-  // Tools to show: always-shown + any tool with hooks installed or CLI installed
+  // Tools to show: always-shown + any tool with NeonCore hooks actually installed
   const visibleTools = TOOL_ORDER.filter((key) => {
     if (ALWAYS_SHOW.has(key)) return true;
     const info = toolsStatus[key];
-    return info && (info.installed || info.cliInstalled);
+    return info && info.installed;
   });
 
   const handleOpen = async (repoPath: string, agentType: AgentType) => {
