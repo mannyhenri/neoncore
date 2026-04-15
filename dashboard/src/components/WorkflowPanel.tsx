@@ -699,14 +699,22 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="space-y-2">
-            <span className="text-[13px] text-gray-500 uppercase tracking-wider">Initial Context</span>
-            <p className="text-[12px] text-gray-600">Optional — passed to the first step(s) of this workflow run.</p>
+            {wf.name === 'Jira Tasks Validation' ? (
+              <span className="text-[13px] text-gray-300 font-medium">Which Jira epic would you like to validate?</span>
+            ) : (
+              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Initial Context</span>
+            )}
+            <p className="text-[12px] text-gray-600">
+              {wf.name === 'Jira Tasks Validation'
+                ? 'Enter the epic name or key (e.g. "Document Generation" or "GRD-1712").'
+                : 'Optional — passed to the first step(s) of this workflow run.'}
+            </p>
             <textarea
               value={initialContext}
               onChange={(e) => setInitialContext(e.target.value)}
               rows={3}
               className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
-              placeholder="Describe what this run should focus on…"
+              placeholder={wf.name === 'Jira Tasks Validation' ? 'e.g. GRD-1712 or Document Generation' : 'Describe what this run should focus on…'}
             />
           </div>
           {deferredPopup.agentSteps.length > 0 && (
