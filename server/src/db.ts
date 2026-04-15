@@ -596,7 +596,7 @@ if (orphanNotes.length > 0) {
 function seedDefaultTemplates() {
   // Always replace the 5 standard templates by name so schema changes take effect.
   // User-created templates with other names are left untouched.
-  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research'];
+  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation'];
   for (const name of standardNames) {
     const row = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").get(name) as { id: string } | undefined;
     if (row) {
@@ -814,7 +814,49 @@ function seedDefaultTemplates() {
       { connectorType: 'system-notify', title: 'Deep Research — Done', message: '{{workflowName}} finished. Your epic is ready in NeonCore.' }, [s5]);
   }
 
-  console.log('[db] Seeded 7 default workflow templates');
+  // ── 8. Jira Tasks Validation ──────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID();
+    insertWorkflow.run(wfId, 'Jira Tasks Validation',
+      'Set the workflow description to the Jira Epic name/key to validate — it is injected into every step automatically.', now);
+
+    // Step 1: Fetch all tasks in the epic, ordered by creation date
+    step(wfId, s1, 'Fetch Epic Tasks',
+      'Discover the Jira CLI available in this project and list all tasks in the epic ordered by creation date.',
+      300, 80, 'claude-code',
+      {
+        ...cc('researcher'), workflowContext: true,
+        prompt: 'You are beginning a Jira epic validation. The epic to validate is described above.\n\nDo the following:\n\n1. DISCOVER JIRA CLI — Check which Jira CLI tool is available in this project by running one of these in order: `jira --version`, `jira-cli --version`, or look for any `jira*` scripts in package.json or Makefile. Identify the exact command syntax for this project.\n\n2. FETCH EPIC ISSUES — Use the CLI to list all issues (tasks/stories/subtasks) that belong to this epic. Fetch them ordered by creation date (oldest first). For each issue retrieve:\n   - Issue key (e.g. PROJ-123)\n   - Summary/title\n   - Current status\n   - Description / acceptance criteria (full text)\n   - Any linked requirements or notes\n\n3. OUTPUT a structured list in this exact format for every issue:\n\n---\n**[ISSUE-KEY]** | Status: [current status] | Created: [date]\n**Title:** [summary]\n**Requirements:**\n[full description / acceptance criteria text]\n---\n\nEnd with a count: "Total tasks found: N"\n\nDo not make any code changes.',
+      }, []);
+
+    // Step 2: Validate each task against the codebase, mark In QA or leave in Todo
+    step(wfId, s2, 'Validate & Update Tasks',
+      'For each task in the epic, check if the codebase meets its requirements. Mark as "In QA" if yes, leave in "Todo" if not.',
+      300, 310, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Using the task list from the previous step, validate each Jira task against the current codebase one by one, in creation order.\n\nFor EACH task:\n\n1. READ the task requirements carefully from the previous step output.\n\n2. INVESTIGATE the codebase — use Read, Grep, and Glob tools to find the relevant code. Check:\n   - Is the feature/fix implemented?\n   - Do the implementation details match the requirements exactly?\n   - Are edge cases and error states handled as specified?\n   - Are tests present if the task required them?\n\n3. DECIDE:\n   - **MEETS REQUIREMENTS** → transition the issue to "In QA" using the Jira CLI (e.g. `jira transition [ISSUE-KEY] "In QA"` or the equivalent for this project\'s CLI)\n   - **DOES NOT MEET REQUIREMENTS** → leave it in its current status, note exactly what is missing\n\n4. LOG your finding in this format:\n```\n[ISSUE-KEY] — [Title]\nVERDICT: ✅ In QA | ❌ Todo\nREASON: [1-2 sentences on why — what was found or what is missing]\n```\n\nWork through every task in the list. Do not skip any.\nDo not make any code changes beyond the Jira status transitions.',
+      }, [s1]);
+
+    // Step 3: Summary report — structured list + paragraph
+    step(wfId, s3, 'Summary Report',
+      'Compile the complete validation results: ✅ tasks moved to In QA, 📋 tasks remaining in Todo, and a summary paragraph of what is left to do.',
+      300, 540, 'claude-code',
+      {
+        ...cc('planner'),
+        prompt: 'Using the validation results from the previous step, compile the final Jira Epic Validation Report.\n\nFormat it exactly as follows:\n\n---\n## Jira Epic Validation Report\n**Epic:** [epic name/key from workflow context]\n**Validated:** [date] | **Total tasks:** N\n\n### ✅ Ready for QA ([count])\n| Issue | Title | Notes |\n|-------|-------|-------|\n| [KEY] | [Title] | [brief note if any] |\n(one row per task moved to In QA)\n\n### 📋 Still To Do ([count])\n| Issue | Title | What\'s Missing |\n|-------|-------|----------------|\n| [KEY] | [Title] | [what exactly is missing or incomplete] |\n(one row per task left in Todo)\n\n### What\'s Left — Summary\n[Write 2-4 sentences as a clear paragraph describing: the overall completion state of the epic, the main areas of remaining work, any patterns in what\'s incomplete, and the recommended next steps for the team.]\n\n---\n\nBe precise and factual — reference the specific issues and findings from the validation step.',
+      }, [s2], false);
+
+    // Step 4: Notify
+    step(wfId, s4, 'Notify',
+      'System notification: Jira Tasks Validation workflow complete.',
+      300, 770, 'connector',
+      { connectorType: 'system-notify', title: 'Jira Validation — Done', message: '{{workflowName}} finished. Check NeonCore for the epic status report.' },
+      [s3]);
+  }
+
+  console.log('[db] Seeded 8 default workflow templates');
 }
 
 seedDefaultTemplates();
