@@ -596,7 +596,7 @@ if (orphanNotes.length > 0) {
 function seedDefaultTemplates() {
   // Always replace the 5 standard templates by name so schema changes take effect.
   // User-created templates with other names are left untouched.
-  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation'];
+  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion'];
   for (const name of standardNames) {
     const row = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").get(name) as { id: string } | undefined;
     if (row) {
@@ -907,7 +907,82 @@ function seedDefaultTemplates() {
       [s3]);
   }
 
-  console.log('[db] Seeded 8 default workflow templates');
+  // ── 9. Jira Tasks Completion ──────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
+    insertWorkflow.run(wfId, 'Jira Tasks Completion',
+      'TDD-driven task-by-task implementation. Each run completes one To Do task from the epic: understand → write failing tests → implement → verify → update Jira + doc → ask to continue.', now);
+
+    // Step 1: Load context — identify next To Do task from results doc + Jira
+    step(wfId, s1, 'Load Context',
+      'Read the Jira epic To Do list and the validation results doc to identify the next task to implement. Output only the task key — full requirements are fetched in the next step.',
+      300, 80, 'claude-code',
+      {
+        ...cc('researcher'), workflowContext: true,
+        prompt: 'The Jira epic to work on is specified above.\n\n**Goal: identify the next To Do task. Output only the task key and title — do not load full details yet.**\n\n1. FIND PROJECT ROOT — Run `git rev-parse --show-toplevel`.\n\n2. DISCOVER JIRA CLI — Try `jira --version`, `jira-cli --version`, or project scripts.\n\n3. DERIVE EPIC SLUG — Convert the epic name to kebab-case (e.g. "Document Generation" → "document-generation").\n\n4. READ THE RESULTS DOC — Read `{project-root}/.claude/jira-validation/{epic-slug}-results.md`. This file was created by the Jira Tasks Validation workflow. Find the first task with `VERDICT: ❌ To Do`.\n\n   If the results doc does not exist, read the tasks doc instead (`{epic-slug}-tasks.md`) and pick the first task.\n\n   If NO results doc exists at all, query Jira directly: list all To Do issues in the epic ordered by creation date and pick the first one.\n\n5. OUTPUT ONLY these lines:\n```\nEpic: [epic name]\nEpic slug: [kebab-slug]\nProject root: [absolute path]\nNext task: [ISSUE-KEY] — [Title]\nResults doc: [absolute path to results file, or "not found"]\n```\n\nNothing else. Full requirements are fetched in the next step.',
+      }, []);
+
+    // Step 2: Understand task — full Jira requirements + codebase exploration
+    step(wfId, s2, 'Understand Task',
+      'Fetch the full Jira requirements for the task identified in step 1, then explore the codebase to understand what is already built and what is missing.',
+      300, 310, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'The previous step identified the task to implement. It output the issue key, epic slug, and project root.\n\n1. FETCH FULL JIRA DETAILS — Use the Jira CLI to fetch the complete details for the identified issue key:\n   - Full description\n   - Acceptance criteria\n   - Technical notes\n   - Any sub-tasks or linked issues\n   - Current status\n\n2. READ THE TASKS FILE — Read `{project-root}/.claude/jira-validation/{epic-slug}-tasks.md` and find the section for this issue key. Read its full requirements as written during validation.\n\n3. READ THE RESULTS DOC — Find this issue\'s REASON line in the results file. This tells you exactly what was found to be missing during the last validation pass.\n\n4. EXPLORE THE CODEBASE — Using the requirements, search for the relevant files, functions, routes, components, and tests. Understand:\n   - What has already been implemented (even partially)\n   - What is completely missing\n   - Where the new code should live\n   - What existing patterns and conventions to follow\n\n5. OUTPUT a concise implementation brief:\n```\n## Task: [ISSUE-KEY] — [Title]\n\n### Requirements\n[bullet list of what must be implemented]\n\n### What Already Exists\n[file paths and function names of relevant existing code]\n\n### What Is Missing\n[specific gaps identified from validation + Jira]\n\n### Where to Implement\n[file paths, function names, and approach for the new code]\n\n### Test Locations\n[where existing tests live; where new tests should go]\n```\n\nDo not write any code yet.',
+      }, [s1]);
+
+    // Step 3: Write tests — real failing tests first (TDD)
+    step(wfId, s3, 'Write Tests',
+      'Write real tests that validate the task requirements. Tests must be based on requirements, not the implementation — they should FAIL before the code is written.',
+      300, 540, 'claude-code',
+      {
+        ...cc('tester'),
+        prompt: 'Using the implementation brief from the previous step, write the tests for this task BEFORE any implementation code is written.\n\n**Critical rules:**\n- Tests must be based on the REQUIREMENTS and acceptance criteria, not on guessing how the implementation will work.\n- Do not write tests that are designed to pass trivially. Each test must assert a real, meaningful behavior.\n- Tests should FAIL when you run them now (before the implementation exists). If they pass before any code is written, the tests are wrong.\n- Cover: the happy path, at least 2 edge cases, and at least 1 error/failure state per requirement.\n\n**For each test write:**\n- What scenario it tests\n- What the input is\n- What the correct output or behavior is\n- Why failure of this test means the requirement is not met\n\n**Steps:**\n1. Find the test file(s) where these tests belong (from the implementation brief).\n2. Write the tests using the project\'s existing test framework and conventions.\n3. Run the tests to confirm they FAIL (since the implementation does not exist yet).\n4. Report:\n```\nTests written: N\nTest file(s): [paths]\nAll failing before implementation: YES / NO (if NO, explain why any pass)\n\nTest coverage:\n- [test name] → verifies: [requirement it checks]\n```',
+      }, [s2]);
+
+    // Step 4: Implement — write the code to make tests pass
+    step(wfId, s4, 'Implement',
+      'Write the implementation code that satisfies the task requirements and makes the tests pass.',
+      300, 770, 'claude-code',
+      {
+        ...cc('backend'),
+        prompt: 'Using the implementation brief (step 2) and the tests just written (step 3), implement the code for this task.\n\n**Rules:**\n- Follow the existing patterns, conventions, and architecture found in the codebase.\n- Implement only what is required for this task — do not add features beyond the acceptance criteria.\n- Do not modify the tests to make them pass — fix the implementation instead.\n- Handle error states and edge cases as specified in the requirements.\n- Add the minimum necessary code — prefer small, focused changes.\n\n**Steps:**\n1. Write the implementation in the files identified in the brief.\n2. Make sure all imports, exports, types, and wiring are correct.\n3. Do not run the tests yet — that is the next step.\n\nAt the end, list every file you modified or created:\n```\nFiles changed:\n- [file path] — [what was added/changed]\n```',
+      }, [s3]);
+
+    // Step 5: Verify — run tests, loop back to Implement on failure
+    step(wfId, s5, 'Verify',
+      'Run the tests written in step 3 plus the full test suite. Loop back to Implement if any fail.',
+      300, 1000, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 3 }, [s4]);
+
+    // Step 6: Finalize — update Jira, update results doc, commit
+    step(wfId, s6, 'Finalize',
+      'Mark the Jira task as Done, update the validation results doc to reflect completion, and commit all changes.',
+      300, 1230, 'claude-code',
+      {
+        ...cc('general'),
+        prompt: 'The implementation is complete and tests pass. Now finalize the task.\n\n1. UPDATE JIRA — Use the Jira CLI to transition the task to "Done".\n\n2. UPDATE THE RESULTS DOC — In `{project-root}/.claude/jira-validation/{epic-slug}-results.md`, find the section for this issue and change:\n   - `VERDICT: ❌ To Do` → `VERDICT: ✅ Done`\n   - Update the REASON line to: `Implemented in this run — [brief 1-sentence description of what was built]`\n\n3. COMMIT ALL CHANGES — Stage and commit:\n   - The new/modified implementation files\n   - The new/modified test files\n   - The updated results doc\n   \n   Use commit message: `[ISSUE-KEY] [Title] — implement per Jira requirements`\n\n4. OUTPUT:\n```\n✅ Jira [ISSUE-KEY] → Done\n✅ Results doc updated\n✅ Committed: [commit hash] "[commit message]"\n```',
+      }, [s5]);
+
+    // Step 7: Continue? — show next task, ask YES/NO
+    step(wfId, s7, 'Continue?',
+      'Show the next To Do task and ask whether to run the workflow again for it.',
+      300, 1460, 'claude-code',
+      {
+        ...cc('general'),
+        prompt: 'The current task is complete. Check if there are more tasks to do.\n\n1. READ THE RESULTS DOC — Find the next task with `VERDICT: ❌ To Do` after the one just completed.\n\n2. If NO more To Do tasks exist:\n   - Output: "🎉 All tasks in the epic are complete!"\n   - Do not use AskUserQuestion — just report completion.\n\n3. If there ARE more To Do tasks:\n   - Use the AskUserQuestion tool with this message:\n     "✅ [ISSUE-KEY] — [just-completed title] is done.\n\n     Next task: [NEXT-KEY] — [next title]\n     [1-line description of what the next task requires]\n\n     Continue to the next task? Run this workflow again and it will automatically pick up [NEXT-KEY].\n\n     (Reply YES to confirm you\'ll run it again, or NO if you\'re done for now.)"\n\n4. After the user responds, output:\n   - If YES: "▶️ Ready — run Jira Tasks Completion again to implement [NEXT-KEY]."\n   - If NO: "⏸️ Paused. The results doc is up to date. Run Jira Tasks Completion anytime to resume."',
+      }, [s6]);
+
+    // Step 8: Notify
+    step(wfId, s8, 'Notify',
+      'System notification: Jira Tasks Completion run finished.',
+      300, 1690, 'connector',
+      { connectorType: 'system-notify', title: 'Task Complete — Jira Tasks Completion', message: '{{workflowName}} finished a task. Check NeonCore to continue.' },
+      [s7]);
+  }
+
+  console.log('[db] Seeded 9 default workflow templates');
 }
 
 seedDefaultTemplates();
