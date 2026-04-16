@@ -672,17 +672,59 @@ function seedDefaultTemplates() {
   // ── 2. Bug Hunter ─────────────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Bug Hunter',
-      'Investigate → define regression test → fix → run tests → security → notify.', now);
-    step(wfId, s1, 'Investigate & Reproduce', 'Trace root cause, find exact files and line numbers. No code changes.',                                                                                                        300,  50, 'claude-code', cc('reviewer'), []);
-    step(wfId, s2, 'Define Regression Test',  'Define a test case that reproduces the bug. Describe exactly what inputs trigger it and what the correct output should be. Do not write the fix yet.',                         300, 225, 'claude-code', cc('tester'),   [s1]);
-    step(wfId, s3, 'Implement Fix',           'Write the minimal fix based on the investigation.',                                                                                                                            300, 400, 'claude-code', cc('backend'),  [s2]);
-    step(wfId, s4, 'Run Tests',               'Execute the regression test and full test suite. All must pass.',                                                                                                              300, 575, 'quality-gate',
-      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s3 }], maxCycles: 2 }, [s3]);
-    step(wfId, s5, 'Security Check',          'Verify no security issues were introduced by the fix.',                                                                                                                        300, 750, 'quality-gate', gate('security'), [s4]);
-    step(wfId, s6, 'Notify',                  'System notification: Bug Hunter workflow complete.',                                                                                                                            300, 925, 'connector',
-      { connectorType: 'system-notify', title: 'Bug Hunter — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s5]);
+      'Proactive bug hunt: static analysis → dead code → bug pattern scan → prioritize & plan → implement fixes → verify → notify.', now);
+
+    step(wfId, s1, 'Static & Lint Analysis',
+      'Run the compiler and linter to surface all type errors, lint violations, and build warnings. No code changes.',
+      300, 80, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Run a full static analysis pass on this codebase. Do NOT make any code changes — only identify and document issues.\n\n1. DETECT LANGUAGE & TOOLS — Check what\'s available: TypeScript (`tsc --noEmit`), ESLint (`npx eslint . --format compact`), Rust (`cargo check`, `cargo clippy`), Python (`ruff check .` or `flake8`), etc. Run whatever applies to this project.\n\n2. RUN EACH TOOL and capture all output.\n\n3. OUTPUT all findings grouped by file in this format:\n```\n## Static Analysis Findings\n\n### [file:line]\nSEVERITY: error | warning | info\nISSUE: [description]\n```\n\nEnd with a count: `Total findings: N (errors: X, warnings: Y)`\n\nIf no issues found, say "STATIC: CLEAN".',
+      }, []);
+
+    step(wfId, s2, 'Dead Code Scan',
+      'Find all unused code: imports, variables, functions, exports, unreachable branches, empty catch blocks, and commented-out code.',
+      300, 310, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Scan the entire codebase for dead code. Do NOT make any changes — only identify and document. Use Read, Grep, and Glob tools extensively.\n\nLook for all of the following:\n\n**Unused imports** — imported but never referenced in the file.\n**Unused variables** — declared but never read after assignment.\n**Unused functions/methods** — defined but never called anywhere in the project.\n**Unreachable code** — code after a `return`, `throw`, or `break`; branches that can never be true.\n**Empty or swallowed catch blocks** — `catch (e) {}` or `catch { /* ignore */ }` with no logging or handling.\n**Dead exports** — symbols exported but never imported by any other file.\n**Commented-out code blocks** — large sections of code left as comments (not doc comments).\n**Redundant conditions** — `if (true)`, `if (false)`, always-truthy/falsy guards.\n\nFor each finding:\n```\n### [file:line]\nTYPE: unused-import | unused-var | unused-function | unreachable | empty-catch | dead-export | commented-code | redundant-condition\nDETAIL: [what it is and why it\'s dead]\n```\n\nEnd with: `Dead code findings: N`',
+      }, [s1]);
+
+    step(wfId, s3, 'Bug Pattern Hunt',
+      'Systematically scan for common bug patterns: null access, missing awaits, race conditions, silent failures, incorrect comparisons, and missing error handling.',
+      300, 540, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Scan the codebase for common bug patterns. Do NOT make any changes — only document findings. Use Read, Grep, and Glob tools.\n\nCheck for each of these patterns:\n\n**Null/undefined access without guards** — `obj.property` or `arr[i]` where the value could be null/undefined/out-of-bounds.\n**Missing await** — async functions called without `await`; promises returned but never resolved or caught.\n**Unhandled promise rejections** — `.then()` chains without `.catch()`; `async` functions whose returned promise is not awaited or caught by the caller.\n**Race conditions** — shared state mutated across async boundaries; multiple concurrent writes without locking.\n**Off-by-one errors** — loop bounds, array slices, index comparisons using `<` vs `<=`.\n**Incorrect equality** — `==` instead of `===` in JS/TS; comparison of different types.\n**Silent failures** — operations that can fail but have no error path (missing `try/catch`, ignoring return codes, swallowing errors).\n**Missing input validation** — user-facing functions or API handlers that don\'t validate/sanitize their inputs.\n**Incorrect state updates** — mutating state directly instead of via setState/reducers; stale closures capturing outdated values.\n**Memory leaks** — event listeners added but never removed; timers/intervals not cleared; large objects held in long-lived scope.\n**Hardcoded values** — URLs, credentials, magic numbers that should be config or constants.\n\nFor each finding:\n```\n### [file:line]\nPATTERN: [pattern name from list above]\nSEVERITY: critical | high | medium | low\nDETAIL: [what the bug is and what could go wrong at runtime]\n```\n\nEnd with: `Bug patterns found: N (critical: X, high: Y, medium: Z, low: W)`',
+      }, [s2]);
+
+    step(wfId, s4, 'Prioritize & Plan Fixes',
+      'Collate all findings from the three scans, rank by severity, and write a concrete fix plan. Manual advance — review before any code changes.',
+      300, 770, 'claude-code',
+      {
+        ...cc('planner'),
+        prompt: 'Using the findings from the three previous steps (Static Analysis, Dead Code Scan, Bug Pattern Hunt), compile a prioritized fix plan.\n\n1. COLLATE ALL FINDINGS — List every unique issue found across all three steps. Deduplicate overlaps.\n\n2. RANK BY PRIORITY:\n   - **P0 — Critical**: crashes, data corruption, security holes, broken core paths\n   - **P1 — High**: wrong behavior under normal conditions, data loss risk, unhandled errors in prod paths\n   - **P2 — Medium**: edge case failures, incorrect logic that usually works, bad UX paths\n   - **P3 — Low**: style, minor inefficiency, non-critical dead code\n\n3. OUTPUT THE PLAN in this format:\n\n```\n## Bug Fix Plan\n\n### P0 — Critical ([count])\n| File:Line | Issue | Fix |\n|-----------|-------|-----|\n| [path:line] | [what the bug is] | [exact change to make] |\n\n### P1 — High ([count])\n[same table]\n\n### P2 — Medium ([count])\n[same table]\n\n### P3 — Low / Dead Code ([count])\n[same table]\n\n## Summary\nTotal issues: N | Estimated risk of fixing: low/medium/high\n```\n\nBe specific about the exact change for each fix — the next step will implement directly from this plan.',
+      }, [s3], false);
+
+    step(wfId, s5, 'Implement Fixes',
+      'Apply all fixes from the plan in priority order (P0 → P1 → P2 → P3). Remove dead code. Document each change.',
+      300, 1000, 'claude-code',
+      {
+        ...cc('backend'),
+        prompt: 'Using the prioritized fix plan from the previous step, implement all fixes.\n\nWork through them in order: P0 first, then P1, P2, and finally P3 (dead code removal).\n\nFor each fix:\n1. Apply the minimal correct change — do not refactor beyond what is needed to fix the issue.\n2. For dead code (unused imports, variables, functions, unreachable branches): remove them entirely.\n3. For empty catch blocks: add at minimum a `console.error` or appropriate error logging.\n4. Log each change in this format:\n```\nFIXED [file:line] — [brief description of what was changed and why]\n```\n\nAfter all fixes are applied, output:\n```\n## Fixes Applied\n[list of all FIXED log lines]\n\nTotal fixed: N\nDead code removed: N items\n```\n\nDo not add new features. Do not refactor code beyond the fix. Do not change tests.',
+      }, [s4]);
+
+    step(wfId, s6, 'Verify',
+      'Run the full test suite to confirm all fixes are correct and nothing was broken.',
+      300, 1230, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s5 }], maxCycles: 2 }, [s5]);
+
+    step(wfId, s7, 'Notify',
+      'System notification: Bug Hunter workflow complete.',
+      300, 1460, 'connector',
+      { connectorType: 'system-notify', title: 'Bug Hunter — Done', message: '{{workflowName}} finished. Check NeonCore for the full bug report.' }, [s6]);
   }
 
   // ── 3. Feature Fix ────────────────────────────────────────────────────────
