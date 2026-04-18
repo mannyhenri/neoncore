@@ -55,6 +55,9 @@ export function SettingsModal({ onClose }: Props) {
   const [gridlightUrl, setGridlightUrl] = useState('');
   const [openaiModels, setOpenaiModels] = useState('');
   const [gridlightModels, setGridlightModels] = useState('');
+  const [jiraUrl, setJiraUrl] = useState('');
+  const [jiraEmail, setJiraEmail] = useState('');
+  const [jiraToken, setJiraToken] = useState('');
   const [apiSaving, setApiSaving] = useState(false);
   const [apiSaved, setApiSaved] = useState(false);
 
@@ -120,6 +123,9 @@ export function SettingsModal({ onClose }: Props) {
       setGridlightModels(settings.gridlight_models || '');
       setNtfyUrl(settings.ntfy_url || '');
       setNtfyAnthropicKey(settings.anthropic_api_key || '');
+      setJiraUrl(settings.jira_url || '');
+      setJiraEmail(settings.jira_email || '');
+      setJiraToken(settings.jira_api_token || '');
     }).catch(() => {
       browse();
     });
@@ -280,6 +286,9 @@ export function SettingsModal({ onClose }: Props) {
         gridlight_gateway_url: gridlightUrl,
         openai_models: openaiModels,
         gridlight_models: gridlightModels,
+        jira_url: jiraUrl,
+        jira_email: jiraEmail,
+        jira_api_token: jiraToken,
       });
       setApiSaved(true);
       setTimeout(() => setApiSaved(false), 2000);
@@ -454,6 +463,46 @@ export function SettingsModal({ onClose }: Props) {
                       placeholder="gpt-4.1, gpt-4.1-mini"
                       className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple"
                     />
+                  </div>
+                </div>
+              </div>
+
+              {/* Jira */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Jira</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Instance URL</label>
+                    <input
+                      type="text"
+                      value={jiraUrl}
+                      onChange={(e) => setJiraUrl(e.target.value)}
+                      placeholder="https://yourteam.atlassian.net"
+                      className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Email</label>
+                    <input
+                      type="text"
+                      value={jiraEmail}
+                      onChange={(e) => setJiraEmail(e.target.value)}
+                      placeholder="you@yourteam.com"
+                      className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">API Token</label>
+                    <input
+                      type="password"
+                      value={jiraToken}
+                      onChange={(e) => setJiraToken(e.target.value)}
+                      placeholder="ATATT3x..."
+                      className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple"
+                    />
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Generate at id.atlassian.com → Security → API tokens. Used by Jira workflow templates.
+                    </p>
                   </div>
                 </div>
               </div>
