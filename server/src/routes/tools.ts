@@ -154,6 +154,60 @@ function findCli(binName: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Codex config.toml — MCP server entry helpers
+// ---------------------------------------------------------------------------
+const CODEX_TOML_PATH = path.join(os.homedir(), '.codex', 'config.toml');
+const NEONCORE_MCP_MARKER = '[mcp_servers.neoncore]';
+
+function mcpServerPath(): string {
+  // Absolute path to the compiled MCP server entry point
+  return path.resolve(__dirname, '../../dist/mcp-server.js');
+}
+
+function buildMcpTomlBlock(): string {
+  const serverPath = mcpServerPath();
+  return (
+    `\n${NEONCORE_MCP_MARKER}\n` +
+    `enabled = true\n` +
+    `required = false\n` +
+    `command = "node"\n` +
+    `args = ["${serverPath}"]\n` +
+    `startup_timeout_sec = 15.0\n` +
+    `tool_timeout_sec = 600.0\n`
+  );
+}
+
+function upsertMcpTomlEntry(): void {
+  fs.mkdirSync(path.dirname(CODEX_TOML_PATH), { recursive: true });
+  let toml = '';
+  try { toml = fs.readFileSync(CODEX_TOML_PATH, 'utf-8'); } catch { /* new file */ }
+  if (toml.includes(NEONCORE_MCP_MARKER)) {
+    // Already present — replace the existing block up to the next section or EOF
+    toml = toml.replace(
+      /\[mcp_servers\.neoncore\][^\[]*/s,
+      buildMcpTomlBlock().trimStart() + '\n',
+    );
+  } else {
+    toml += (toml && !toml.endsWith('\n') ? '\n' : '') + buildMcpTomlBlock();
+  }
+  fs.writeFileSync(CODEX_TOML_PATH, toml, 'utf-8');
+}
+
+function removeMcpTomlEntry(): void {
+  try {
+    let toml = fs.readFileSync(CODEX_TOML_PATH, 'utf-8');
+    toml = toml.replace(/\n?\[mcp_servers\.neoncore\][^\[]*/s, '');
+    fs.writeFileSync(CODEX_TOML_PATH, toml, 'utf-8');
+  } catch { /* file doesn't exist — nothing to remove */ }
+}
+
+function isMcpConfigured(): boolean {
+  try {
+    return fs.readFileSync(CODEX_TOML_PATH, 'utf-8').includes(NEONCORE_MCP_MARKER);
+  } catch { return false; }
+}
+
 /** Check if a config file already contains our hook scripts */
 function isInstalled(tool: ToolKey): boolean {
   const cfg = TOOL_CONFIGS[tool];
@@ -226,6 +280,7 @@ router.get('/status', (_req, res) => {
     cliPath: string | null;
     npmPkg: string | null;
     authCmd: string | null;
+    mcpConfigured?: boolean;
   }> = {};
 
   for (const [key, cfg] of Object.entries(TOOL_CONFIGS)) {
@@ -241,6 +296,7 @@ router.get('/status', (_req, res) => {
       cliPath,
       npmPkg: cliInfo?.npmPkg ?? null,
       authCmd: cliInfo?.authCmd ?? null,
+      ...(key === 'codex' ? { mcpConfigured: isMcpConfigured() } : {}),
     };
   }
 
@@ -309,15 +365,15 @@ router.post('/install/:tool', (req, res) => {
         },
       });
 
-      // Enable feature flag in config.toml
-      const tomlPath = path.join(os.homedir(), '.codex', 'config.toml');
-      fs.mkdirSync(path.dirname(tomlPath), { recursive: true });
+      // Enable feature flag + NeonCore MCP server in config.toml
+      fs.mkdirSync(path.dirname(CODEX_TOML_PATH), { recursive: true });
       let toml = '';
-      try { toml = fs.readFileSync(tomlPath, 'utf-8'); } catch { /* new file */ }
+      try { toml = fs.readFileSync(CODEX_TOML_PATH, 'utf-8'); } catch { /* new file */ }
       if (!toml.includes('codex_hooks')) {
         toml += (toml && !toml.endsWith('\n') ? '\n' : '') + '\n[features]\ncodex_hooks = true\n';
-        fs.writeFileSync(tomlPath, toml, 'utf-8');
+        fs.writeFileSync(CODEX_TOML_PATH, toml, 'utf-8');
       }
+      upsertMcpTomlEntry();
 
     } else if (tool === 'cursor') {
       mergeJsonFile(TOOL_CONFIGS.cursor.configFile, {
@@ -390,6 +446,10 @@ router.post('/uninstall/:tool', (req, res) => {
     }
 
     fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+
+    // For Codex, also remove the MCP server entry from config.toml
+    if (tool === 'codex') removeMcpTomlEntry();
+
     res.json({ ok: true, configFile: cfgFile });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
