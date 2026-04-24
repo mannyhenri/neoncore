@@ -57,6 +57,15 @@ export default function App() {
 
   const filteredAgents = typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter);
 
+  // Gridlight always shown; other types only when at least one online agent uses them
+  const TYPE_ORDER: AgentType[] = ['gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
+  const visibleTypeFilters: (AgentType | 'all')[] = [
+    'all',
+    ...TYPE_ORDER.filter((t) =>
+      t === 'gridlight' || onlineAgents.some((a) => (a.agentType || 'claude') === t)
+    ),
+  ];
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -139,21 +148,34 @@ export default function App() {
               Cartridges
             </h2>
             <div className="flex rounded-lg overflow-hidden border border-white/10">
-              {(['all', 'gridlight', 'claude'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTypeFilter(t)}
-                  className={`px-3 py-1 text-xs font-medium transition-colors ${
-                    typeFilter === t
-                      ? t === 'gridlight' ? 'bg-pink-900/60 text-pink-300'
-                        : t === 'claude' ? 'bg-blue-900/60 text-blue-300'
-                        : 'bg-white/10 text-gray-200'
-                      : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
-                  }`}
-                >
-                  {t === 'all' ? 'All' : t === 'claude' ? 'Claude' : 'Gridlight'}
-                </button>
-              ))}
+              {visibleTypeFilters.map((t) => {
+                const ACTIVE_COLORS: Partial<Record<AgentType | 'all', string>> = {
+                  all:      'bg-white/10 text-gray-200',
+                  gridlight:'bg-pink-900/60 text-pink-300',
+                  claude:   'bg-blue-900/60 text-blue-300',
+                  gemini:   'bg-teal-900/60 text-teal-300',
+                  amazonq:  'bg-orange-900/60 text-orange-300',
+                  codex:    'bg-green-900/60 text-green-300',
+                  cursor:   'bg-violet-900/60 text-violet-300',
+                };
+                const LABELS: Partial<Record<AgentType | 'all', string>> = {
+                  all: 'All', gridlight: 'Gridlight', claude: 'Claude',
+                  gemini: 'Gemini', amazonq: 'Amazon Q', codex: 'Codex', cursor: 'Cursor',
+                };
+                return (
+                  <button
+                    key={t}
+                    onClick={() => setTypeFilter(t)}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      typeFilter === t
+                        ? (ACTIVE_COLORS[t] ?? 'bg-white/10 text-gray-200')
+                        : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    {LABELS[t] ?? t}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <CartridgeGrid

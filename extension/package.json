@@ -2,7 +2,7 @@
   "name": "neoncore-extension",
   "displayName": "NeonCore Orchestrator",
   "description": "Multi-agent orchestrator companion for Claude Code — monitor activity, relay commands, manage permissions, and run canvas workflows across VS Code instances.",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "gridlight",
   "author": {
     "name": "Gridlight",
@@ -34,11 +34,16 @@
     "workflow",
     "automation"
   ],
-  "categories": ["AI", "Other"],
+  "categories": [
+    "AI",
+    "Other"
+  ],
   "engines": {
     "vscode": "^1.94.0"
   },
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -66,7 +71,15 @@
         },
         "neoncore.agentType": {
           "type": "string",
-          "enum": ["", "claude", "gridlight", "gemini", "amazonq", "codex", "cursor"],
+          "enum": [
+            "",
+            "claude",
+            "gridlight",
+            "gemini",
+            "amazonq",
+            "codex",
+            "cursor"
+          ],
           "enumDescriptions": [
             "Auto-detect (recommended)",
             "Claude Code (Anthropic)",
@@ -83,16 +96,18 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "compile": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=dist/extension.js --minify",
+    "watch": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=dist/extension.js --watch",
+    "typecheck": "tsc -p ./ --noEmit",
     "prepackage": "node -e \"require('fs').copyFileSync('../server/public/logo.png', 'logo.png')\"",
-    "package": "npm run compile && npm run prepackage && npx @vscode/vsce package --no-dependencies",
+    "package": "npm run compile && npm run prepackage && npx @vscode/vsce package",
     "publish:marketplace": "npm run package && npx @vscode/vsce publish --no-dependencies"
   },
   "devDependencies": {
-    "@types/vscode": "^1.94.0",
     "@types/node": "^22.0.0",
+    "@types/vscode": "^1.94.0",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.6.0"
   },
   "dependencies": {

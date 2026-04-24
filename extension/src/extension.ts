@@ -139,6 +139,13 @@ async function focusAgentPanel(): Promise<void> {
         }
       }
     }
+  } else if (agentType === 'codex' || agentType === 'gemini' || agentType === 'amazonq') {
+    // Terminal-based agents — focus the integrated terminal
+    try {
+      await vscode.commands.executeCommand('workbench.action.terminal.focus');
+    } catch {
+      // ignore
+    }
   } else {
     try {
       await vscode.commands.executeCommand('claude-vscode.sidebar.open');
@@ -181,6 +188,14 @@ async function runAutoApproveCommands(): Promise<boolean> {
 }
 
 async function pasteAndEnter(text: string): Promise<void> {
+  // Terminal-based agents: send text directly to the active terminal (no clipboard needed)
+  if (agentType === 'codex' || agentType === 'gemini' || agentType === 'amazonq') {
+    await vscode.commands.executeCommand('workbench.action.terminal.focus');
+    await sleep(200);
+    await vscode.commands.executeCommand('workbench.action.terminal.sendSequence', { text: text + '\n' });
+    return;
+  }
+
   await vscode.env.clipboard.writeText(text);
   await focusAgentPanel();
   await sleep(250);
