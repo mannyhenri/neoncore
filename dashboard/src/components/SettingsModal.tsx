@@ -37,6 +37,7 @@ interface ToolStatus {
   cliPath: string | null;
   npmPkg: string | null;
   authCmd: string | null;
+  mcpConfigured?: boolean;
 }
 
 export function SettingsModal({ onClose }: Props) {
@@ -965,6 +966,11 @@ export function SettingsModal({ onClose }: Props) {
                       <span className={info.cliInstalled ? 'text-green-500/70' : 'text-gray-600'}>
                         {info.cliInstalled ? '● CLI ready' : info.npmPkg ? '○ CLI not installed' : '○ CLI not detected'}
                       </span>
+                      {info.mcpConfigured !== undefined && (
+                        <span className={info.mcpConfigured ? 'text-green-500/70' : 'text-gray-600'}>
+                          {info.mcpConfigured ? '● MCP wired' : '○ MCP not configured'}
+                        </span>
+                      )}
                       <span className="text-gray-700 font-mono truncate" title={info.configFile}>
                         {info.configFile.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')}
                       </span>

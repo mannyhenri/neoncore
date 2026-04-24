@@ -569,6 +569,40 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     [steps],
   );
 
+  // ── Auto-zoom to running step ───────────────────
+  const prevRunningIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isExecuting) { prevRunningIdRef.current = null; return; }
+    const runningStep = steps.find((s) => s.status === 'running');
+    if (!runningStep || prevRunningIdRef.current === runningStep.id) return;
+    prevRunningIdRef.current = runningStep.id;
+    const node = nodes.find((n) => n.id === runningStep.id);
+    if (!node) return;
+    reactFlowInstance.setCenter(node.position.x + 150, node.position.y + 110, { zoom: 0.85, duration: 600 });
+  }, [steps, isExecuting, nodes, reactFlowInstance]);
+
+  // ── Auto-layout: spread nodes vertically ───────
+  const autoLayout = useCallback(() => {
+    const stepMap = new Map(steps.map((s) => [s.id, s]));
+    const visited = new Set<string>();
+    const sorted: string[] = [];
+    function visit(id: string) {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const s = stepMap.get(id);
+      if (s) for (const dep of s.dependsOn) visit(dep);
+      sorted.push(id);
+    }
+    for (const s of steps) visit(s.id);
+    const indexMap = new Map(sorted.map((id, i) => [id, i]));
+    setSteps((prev) => prev.map((s) => ({
+      ...s,
+      positionX: 300,
+      positionY: 50 + (indexMap.get(s.id) ?? 0) * 280,
+    })));
+  }, [steps]);
+
   // ── Listen for live execution logs ─────────────
 
   useSocket({
@@ -1193,6 +1227,16 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           {error && (
             <span className="text-xs text-red-400 max-w-xs truncate">{error}</span>
           )}
+
+          {/* Auto-layout */}
+          <button
+            onClick={autoLayout}
+            disabled={steps.length === 0}
+            className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Spread steps evenly (280px apart)"
+          >
+            Auto-layout
+          </button>
 
           {/* Add Step — templates only */}
           {!isRunView && (

@@ -52,15 +52,6 @@ interface CartridgeGridProps {
 type StatusFilter = 'all' | 'working' | 'waiting' | 'idle';
 const STATUS_PRIORITY: Record<string, number> = { working: 0, waiting: 1, idle: 2, offline: 3 };
 
-const AGENT_TYPE_DISPLAY: Record<string, { label: string; active: string; dot: string }> = {
-  gridlight: { label: 'Gridlight', active: 'bg-pink-900/30 text-pink-300 border-pink-500/40',    dot: 'bg-pink-400' },
-  claude:    { label: 'Claude',    active: 'bg-blue-900/30 text-blue-300 border-blue-500/40',     dot: 'bg-blue-400' },
-  gemini:    { label: 'Gemini',    active: 'bg-teal-900/30 text-teal-300 border-teal-500/40',     dot: 'bg-teal-400' },
-  amazonq:   { label: 'Amazon Q',  active: 'bg-orange-900/30 text-orange-300 border-orange-500/40', dot: 'bg-orange-400' },
-  codex:     { label: 'Codex',     active: 'bg-green-900/30 text-green-300 border-green-500/40',  dot: 'bg-green-400' },
-  cursor:    { label: 'Cursor',    active: 'bg-violet-900/30 text-violet-300 border-violet-500/40', dot: 'bg-violet-400' },
-};
-
 // ---------------------------------------------------------------------------
 // CartridgeGrid
 // ---------------------------------------------------------------------------
@@ -82,7 +73,6 @@ export function CartridgeGrid({
   onActivityClick,
 }: CartridgeGridProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [tick, setTick] = useState(Date.now());
 
   // Re-evaluate every 15s (same cadence as CartridgeCard)
@@ -102,17 +92,6 @@ export function CartridgeGrid({
 
   // Only show online agents (filter out offline)
   let visible = agents.filter((a) => agentStatuses.get(a.id) !== 'offline');
-
-  // Derive available agent types from online agents (in preferred display order)
-  const TYPE_ORDER = ['gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
-  const availableTypes = TYPE_ORDER.filter((t) =>
-    visible.some((a) => (a.agentType || 'claude') === t)
-  );
-
-  // Apply type filter
-  if (typeFilter !== 'all') {
-    visible = visible.filter((a) => (a.agentType || 'claude') === typeFilter);
-  }
 
   // Apply status filter
   if (statusFilter !== 'all') {
@@ -201,42 +180,7 @@ export function CartridgeGrid({
   ];
 
   return (
-    <div className="space-y-3">
-      {/* Agent type filter — only shown when more than one type is online */}
-      {availableTypes.length > 1 && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            onClick={() => setTypeFilter('all')}
-            className={`text-xs px-2.5 py-1 rounded-md transition-colors border ${
-              typeFilter === 'all'
-                ? 'bg-white/10 text-white border-white/20'
-                : 'bg-white/[0.03] text-gray-500 border-white/[0.05] hover:text-gray-300 hover:bg-white/[0.06]'
-            }`}
-          >
-            All
-          </button>
-          {availableTypes.map((type) => {
-            const display = AGENT_TYPE_DISPLAY[type];
-            if (!display) return null;
-            const isActive = typeFilter === type;
-            return (
-              <button
-                key={type}
-                onClick={() => setTypeFilter(type)}
-                className={`text-xs px-2.5 py-1 rounded-md transition-colors border flex items-center gap-1.5 ${
-                  isActive
-                    ? display.active
-                    : 'bg-white/[0.03] text-gray-500 border-white/[0.05] hover:text-gray-300 hover:bg-white/[0.06]'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? display.dot : 'bg-gray-600'}`} />
-                {display.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
+    <div className="space-y-4">
       {/* Status filter bar */}
       <div className="flex items-center gap-2 flex-wrap">
         {filters.map(({ key, label }) => (

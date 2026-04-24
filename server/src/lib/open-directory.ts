@@ -222,7 +222,6 @@ export function registerCliAgent(repoPath: string, agentType: string, sessionId:
 export const CLI_COMMANDS: Record<string, string> = {
   gemini:  'gemini',
   amazonq: 'q chat',
-  codex:   'codex',
 };
 
 let _codeBin: string | null = null;
@@ -256,8 +255,10 @@ export function openDirectory(dirPath: string, agentType: string): string | null
     }
   }
 
-  // VS Code-based tools (claude, gridlight)
-  const resolvedType = agentType === 'gridlight' ? 'gridlight' : 'claude';
+  // VS Code-based tools (claude, gridlight, codex)
+  const resolvedType = agentType === 'gridlight' ? 'gridlight'
+    : agentType === 'codex' ? 'codex'
+    : 'claude';
   writeVscodeSettings(dirPath, resolvedType);
 
   if (!_codeBin) _codeBin = findCodeBinary();
