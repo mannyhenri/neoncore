@@ -159,27 +159,6 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN plans_included INTEGER NOT NULL DEFAULT 0`);
 }
 
-// Migration: add plan_content column to workflow_steps (stores plan captured from ExitPlanMode)
-try {
-  db.prepare('SELECT plan_content FROM workflow_steps LIMIT 1').get();
-} catch {
-  db.exec(`ALTER TABLE workflow_steps ADD COLUMN plan_content TEXT NOT NULL DEFAULT ''`);
-}
-
-// Migration: add initial_context column to workflows (user-supplied context passed to first steps)
-try {
-  db.prepare('SELECT initial_context FROM workflows LIMIT 1').get();
-} catch {
-  db.exec(`ALTER TABLE workflows ADD COLUMN initial_context TEXT NOT NULL DEFAULT ''`);
-}
-
-// Migration: add ntfy_url to virtual_cartridges (per-project push notification override)
-try {
-  db.prepare('SELECT ntfy_url FROM virtual_cartridges LIMIT 1').get();
-} catch {
-  db.exec(`ALTER TABLE virtual_cartridges ADD COLUMN ntfy_url TEXT NOT NULL DEFAULT ''`);
-}
-
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (
@@ -238,6 +217,13 @@ try {
   db.exec(`ALTER TABLE workflows ADD COLUMN template_id TEXT DEFAULT NULL`);
   db.exec(`ALTER TABLE workflows ADD COLUMN run_number INTEGER NOT NULL DEFAULT 0`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_template ON workflows(template_id)`);
+}
+
+// Migration: add initial_context column to workflows (user-supplied context passed to first steps)
+try {
+  db.prepare('SELECT initial_context FROM workflows LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflows ADD COLUMN initial_context TEXT NOT NULL DEFAULT ''`);
 }
 
 // FTS5 full-text search over session summaries and project knowledge.
@@ -375,6 +361,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_status ON workflow_steps(status);
 `);
 
+// Migration: add plan_content column to workflow_steps (stores plan captured from ExitPlanMode)
+try {
+  db.prepare('SELECT plan_content FROM workflow_steps LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN plan_content TEXT NOT NULL DEFAULT ''`);
+}
+
 // Migration: add description column to mcp_servers
 try {
   db.prepare('SELECT description FROM mcp_servers LIMIT 1').get();
@@ -472,6 +465,13 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_virtual_cartridges_path ON virtual_cartridges(directory_path);
 `);
+
+// Migration: add ntfy_url to virtual_cartridges (per-project push notification override)
+try {
+  db.prepare('SELECT ntfy_url FROM virtual_cartridges LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE virtual_cartridges ADD COLUMN ntfy_url TEXT NOT NULL DEFAULT ''`);
+}
 
 // MCP Macros table — reusable multi-step MCP tool chains
 db.exec(`
