@@ -14,6 +14,46 @@ function browserNotify(title: string, body: string, tag: string) {
   setTimeout(() => n.close(), 10000);
 }
 
+let chimeContext: AudioContext | null = null;
+
+function getChimeContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (chimeContext) return chimeContext;
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return null;
+  chimeContext = new Ctx();
+  return chimeContext;
+}
+
+// Two-tone chime synthesized via Web Audio API — avoids shipping a binary asset
+// and fits the Atari-themed UI. Skipped when the tab is hidden because background
+// tabs queue/block audio anyway; the Web Notification path covers that case.
+function playApprovalChime() {
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+  const ctx = getChimeContext();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+  const now = ctx.currentTime;
+  const tones: { freq: number; start: number; duration: number }[] = [
+    { freq: 880, start: 0, duration: 0.12 },
+    { freq: 1318.51, start: 0.10, duration: 0.18 },
+  ];
+  for (const t of tones) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = t.freq;
+    gain.gain.setValueAtTime(0, now + t.start);
+    gain.gain.linearRampToValueAtTime(0.15, now + t.start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + t.start + t.duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now + t.start);
+    osc.stop(now + t.start + t.duration);
+  }
+}
+
 const MAX_ACTIVITIES = 100;
 const POLL_INTERVAL_MS = 10_000; // Poll every 10s as fallback for mobile
 
@@ -86,6 +126,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
       const notifTitle = isQuestion ? 'Agent Question' : isPlan ? 'Plan Ready for Review' : 'Approval Needed';
       const notifBody = request.description || `${request.toolName} is waiting for your response`;
       browserNotify(notifTitle, notifBody, `perm-${request.id}`);
+      playApprovalChime();
     },
     onPermissionDecided: (request) => {
       setPendingPermissions((prev) => prev.filter((p) => p.id !== request.id));
