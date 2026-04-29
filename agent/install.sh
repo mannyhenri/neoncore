@@ -13,6 +13,14 @@ HOOKS_DIR="$SCRIPT_DIR/hooks"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 ORCHESTRATOR_URL="${NEONCORE_URL:-http://localhost:4040}"
 
+# Python interpreter: prefer python3, fall back to python, fall back to py (Windows launcher).
+# Override by exporting PYTHON before running.
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+if [ -z "$PYTHON" ]; then
+  echo "Error: python 3.x required (install python or set PYTHON env var)" >&2
+  exit 1
+fi
+
 echo "NeonCore Agent Hook Installer"
 echo "=============================="
 echo ""
@@ -30,14 +38,22 @@ chmod +x "$HOOKS_DIR/notification.sh"
 # Ensure .claude directory exists
 mkdir -p "$HOME/.claude"
 
+# Convert SETTINGS_FILE for Python to read/write (Git Bash /c/... is unintelligible to native Windows Python).
+# HOOKS_DIR stays in Git Bash form because it gets embedded in hook commands run by Claude Code's bash subshell.
+if command -v cygpath >/dev/null 2>&1; then
+  PY_SETTINGS_FILE=$(cygpath -m "$SETTINGS_FILE")
+else
+  PY_SETTINGS_FILE="$SETTINGS_FILE"
+fi
+
 # Create or update settings.json with hooks
 if [ -f "$SETTINGS_FILE" ]; then
   echo "Existing settings.json found. Merging hooks..."
 
-  /usr/bin/env python3 << PYEOF
+  "$PYTHON" << PYEOF
 import json, sys
 
-settings_file = "$SETTINGS_FILE"
+settings_file = "$PY_SETTINGS_FILE"
 hooks_dir = "$HOOKS_DIR"
 orchestrator_url = "$ORCHESTRATOR_URL"
 

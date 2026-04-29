@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Activity Reporter Hook — Gemini CLI variant
 # Fires on AfterTool — reports completed tool actions to the orchestrator.
 #
@@ -30,7 +35,7 @@ post_with_retry() {
   return 1
 }
 
-PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
+PARSED=$(printf '%s' "$INPUT" | "$PYTHON" -c "
 import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
@@ -42,7 +47,7 @@ tool_response = d.get('tool_response', {})
 session_id    = d.get('session_id', '') or d.get('sessionId', '')
 cwd           = d.get('cwd', '')
 hook_event    = d.get('hook_event_name', 'AfterTool')
-machine       = os.uname().nodename
+machine       = __import__('platform').node()
 
 # Resolve cwd to git repo root
 try:

@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Permission Proxy Hook
 # Fires on PreToolUse - intercepts permission requests and queries the orchestrator.
 #
@@ -18,7 +23,7 @@ INPUT=$(cat)
 
 # Use python3 to parse all fields AND build the JSON payloads safely
 # This avoids shell quoting issues with embedded quotes in tool inputs
-PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
+PARSED=$(printf '%s' "$INPUT" | "$PYTHON" -c "
 import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
@@ -40,7 +45,7 @@ elif tool_name == 'Task':
 else:
     desc = tool_name
 
-machine = os.uname().nodename
+machine = __import__('platform').node()
 
 # Resolve cwd to git repo root so agent name stays consistent
 try:
@@ -154,8 +159,8 @@ fi
 
 # Check if trust mode gave immediate approval
 # ExitPlanMode always goes through the permission flow — plans should be human-reviewed
-TRUST_MODE=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))" 2>/dev/null)
-TOOL_NAME=$(printf '%s\n' "$PARSED" | /usr/bin/env python3 -c "
+TRUST_MODE=$(printf '%s' "$RESPONSE" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))" 2>/dev/null)
+TOOL_NAME=$(printf '%s\n' "$PARSED" | "$PYTHON" -c "
 import sys, json
 line = sys.stdin.readline()  # skip line 1 (register body)
 line = sys.stdin.readline()  # line 2 (permission body)
@@ -168,7 +173,7 @@ if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "AskUserQuestion" ]; then
 fi
 
 # Extract permission request ID
-REQUEST_ID=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+REQUEST_ID=$(printf '%s' "$RESPONSE" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
 
 if [ -z "$REQUEST_ID" ]; then
   exit 0
@@ -192,7 +197,7 @@ while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
   fi
 
   # Parse decision + response and construct appropriate hook output
-  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 -c "
+  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | "$PYTHON" -c "
 import sys, json, os, traceback, datetime
 
 DEBUG_LOG = '/tmp/neoncore-hook-debug.log'

@@ -15,6 +15,7 @@ import os
 import sys
 import argparse
 import platform
+import shutil
 
 
 def get_settings_path() -> str:
@@ -29,16 +30,26 @@ def get_hooks_dir() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "hooks")
 
 
-def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str) -> str:
-    """Build the hook command string (cross-platform)."""
-    script_path = os.path.join(hooks_dir, script_name)
+def find_python() -> str:
+    """Resolve a Python 3.x interpreter path (prefer python3, then python, then py)."""
+    for name in ("python3", "python", "py"):
+        path = shutil.which(name)
+        if path:
+            return path
+    raise RuntimeError(
+        "Python 3.x not found in PATH. Install Python or extend PATH before running."
+    )
 
-    if platform.system() == "Windows":
-        # Claude Code on Windows uses bash (Git Bash), so use Unix env var syntax
-        return f'NEONCORE_URL={orchestrator_url} python "{script_path}"'
-    else:
-        # On Unix, use env var prefix
-        return f'NEONCORE_URL={orchestrator_url} python3 "{script_path}"'
+
+def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str, python_path: str) -> str:
+    """Build the hook command string (cross-platform).
+
+    Embeds the resolved Python path so the hook is decoupled from PATH at runtime
+    and works on hosts where the interpreter is named `python` rather than `python3`.
+    Claude Code on Windows uses bash (Git Bash), so Unix env-var syntax is portable.
+    """
+    script_path = os.path.join(hooks_dir, script_name)
+    return f'NEONCORE_URL={orchestrator_url} "{python_path}" "{script_path}"'
 
 
 def is_neoncore_hook(hook) -> bool:
@@ -59,13 +70,15 @@ def main():
     orchestrator_url = args.url or os.environ.get("NEONCORE_URL", "http://localhost:4040")
     settings_file = get_settings_path()
     hooks_dir = get_hooks_dir()
+    python_path = find_python()
 
     print("NeonCore Agent Hook Installer")
     print("=" * 30)
     print()
-    print(f"  Platform:       {platform.system()} {platform.machine()}")
-    print(f"  Orchestrator:   {orchestrator_url}")
-    print(f"  Settings file:  {settings_file}")
+    print(f"  Platform:        {platform.system()} {platform.machine()}")
+    print(f"  Python:          {python_path}")
+    print(f"  Orchestrator:    {orchestrator_url}")
+    print(f"  Settings file:   {settings_file}")
     print(f"  Hooks directory: {hooks_dir}")
     print()
 
@@ -89,10 +102,10 @@ def main():
                 os.chmod(path, 0o755)
 
     # Build hook commands
-    reporter_cmd = build_hook_command(hooks_dir, "reporter.py", orchestrator_url)
-    permission_cmd = build_hook_command(hooks_dir, "permission-proxy.py", orchestrator_url)
-    message_cmd = build_hook_command(hooks_dir, "message-reader.py", orchestrator_url)
-    notification_cmd = build_hook_command(hooks_dir, "notification.py", orchestrator_url)
+    reporter_cmd = build_hook_command(hooks_dir, "reporter.py", orchestrator_url, python_path)
+    permission_cmd = build_hook_command(hooks_dir, "permission-proxy.py", orchestrator_url, python_path)
+    message_cmd = build_hook_command(hooks_dir, "message-reader.py", orchestrator_url, python_path)
+    notification_cmd = build_hook_command(hooks_dir, "notification.py", orchestrator_url, python_path)
 
     # Ensure .claude directory exists
     os.makedirs(os.path.dirname(settings_file), exist_ok=True)

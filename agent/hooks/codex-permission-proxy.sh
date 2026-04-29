@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Permission Proxy Hook — OpenAI Codex CLI variant
 # Fires on PreToolUse — intercepts tool calls and queries the orchestrator.
 #
@@ -44,7 +49,7 @@ MAX_POLL_RETRIES=5
 
 INPUT=$(cat)
 
-PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
+PARSED=$(printf '%s' "$INPUT" | "$PYTHON" -c "
 import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
@@ -52,7 +57,7 @@ session_id = d.get('session_id', '')
 tool_name  = d.get('tool_name', '')
 tool_input = d.get('tool_input', {})
 cwd        = d.get('cwd', '')
-machine    = os.uname().nodename
+machine    = __import__('platform').node()
 
 # Build description (Codex primarily hooks Bash)
 if tool_name == 'Bash':
@@ -105,7 +110,7 @@ fi
 REGISTER_BODY=$(printf '%s\n' "$PARSED" | sed -n '1p')
 PERMISSION_BODY=$(printf '%s\n' "$PARSED" | sed -n '2p')
 SESSION_ID=$(printf '%s\n' "$PARSED" | sed -n '3p')
-TOOL_NAME=$(printf '%s\n' "$PARSED" | sed -n '4p' | /usr/bin/env python3 -c "import sys,json; print(json.load(sys.stdin))" 2>/dev/null)
+TOOL_NAME=$(printf '%s\n' "$PARSED" | sed -n '4p' | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin))" 2>/dev/null)
 
 # Register agent (fire-and-forget)
 curl -sf -X POST "$ORCHESTRATOR_URL/api/agents/register" \
@@ -122,7 +127,7 @@ if [ $? -ne 0 ] || [ -z "$RESPONSE" ]; then
 fi
 
 # Trust mode → immediate allow (same JSON response format as Claude Code)
-TRUST_MODE=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "
+TRUST_MODE=$(printf '%s' "$RESPONSE" | "$PYTHON" -c "
 import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))
 " 2>/dev/null)
 
@@ -132,7 +137,7 @@ if [ "$TRUST_MODE" = "True" ]; then
 fi
 
 # Extract permission request ID
-REQUEST_ID=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "
+REQUEST_ID=$(printf '%s' "$RESPONSE" | "$PYTHON" -c "
 import sys,json; d=json.load(sys.stdin); print(d.get('id',''))
 " 2>/dev/null)
 
@@ -151,7 +156,7 @@ while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
     continue
   fi
 
-  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 -c "
+  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | "$PYTHON" -c "
 import sys, json
 poll = json.load(sys.stdin)
 decision = poll.get('decision', '')

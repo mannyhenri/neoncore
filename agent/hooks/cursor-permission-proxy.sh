@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Permission Proxy Hook — Cursor variant
 # Fires on beforeShellExecution and beforeMCPExecution.
 #
@@ -37,14 +42,14 @@ MAX_POLL_RETRIES=5
 
 INPUT=$(cat)
 
-PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
+PARSED=$(printf '%s' "$INPUT" | "$PYTHON" -c "
 import sys, json, os, subprocess
 
 d = json.load(sys.stdin)
 hook_event      = d.get('hook_event_name', '')
 conversation_id = d.get('conversation_id', '')
 cwd             = d.get('cwd', '') or (d.get('workspace_roots') or [''])[0]
-machine         = os.uname().nodename
+machine         = __import__('platform').node()
 
 # Extract tool info depending on event type
 if hook_event == 'beforeShellExecution':
@@ -130,7 +135,7 @@ if [ $? -ne 0 ] || [ -z "$RESPONSE" ]; then
 fi
 
 # Trust mode → immediate allow
-TRUST_MODE=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "
+TRUST_MODE=$(printf '%s' "$RESPONSE" | "$PYTHON" -c "
 import sys,json; d=json.load(sys.stdin); print(d.get('trustMode', False))
 " 2>/dev/null)
 
@@ -140,7 +145,7 @@ if [ "$TRUST_MODE" = "True" ]; then
 fi
 
 # Extract permission request ID
-REQUEST_ID=$(printf '%s' "$RESPONSE" | /usr/bin/env python3 -c "
+REQUEST_ID=$(printf '%s' "$RESPONSE" | "$PYTHON" -c "
 import sys,json; d=json.load(sys.stdin); print(d.get('id',''))
 " 2>/dev/null)
 
@@ -160,7 +165,7 @@ while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
     continue
   fi
 
-  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 -c "
+  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | "$PYTHON" -c "
 import sys, json
 poll = json.load(sys.stdin)
 decision = poll.get('decision', '')
