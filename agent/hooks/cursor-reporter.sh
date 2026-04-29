@@ -34,7 +34,7 @@ post_with_retry() {
   local url="$1"
   local body="$2"
   for i in 1 2 3; do
-    if curl -sf -X POST "$url" -H "Content-Type: application/json" -d "$body" >/dev/null 2>&1; then
+    if curl -sf --max-time 2 -X POST "$url" -H "Content-Type: application/json" -d "$body" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
