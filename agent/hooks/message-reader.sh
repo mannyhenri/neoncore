@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Message Reader Hook
 # Fires on Stop (when Claude finishes responding).
 # Reads the last assistant message from the transcript
@@ -26,14 +31,14 @@ post_with_retry() {
 
 # Extract the last assistant message from the transcript using python3.
 # Errors go to stderr (visible in Claude Code hook logs) instead of being suppressed.
-PAYLOAD=$(echo "$INPUT" | /usr/bin/env python3 -c "
+PAYLOAD=$(echo "$INPUT" | "$PYTHON" -c "
 import sys, json, os
 
 d = json.load(sys.stdin)
 session_id = d.get('session_id', '')
 cwd = d.get('cwd', '')
 transcript_path = d.get('transcript_path', '')
-machine = os.uname().nodename
+machine = __import__('platform').node()
 
 def extract_text(content):
     if isinstance(content, str) and content.strip():

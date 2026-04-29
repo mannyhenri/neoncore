@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Activity Reporter Hook — Amazon Q Developer CLI variant
 # Fires on postToolUse — reports completed tool actions to the orchestrator.
 #
@@ -34,7 +39,7 @@ post_with_retry() {
   return 1
 }
 
-PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
+PARSED=$(printf '%s' "$INPUT" | "$PYTHON" -c "
 import sys, json, os, subprocess, hashlib
 
 d = json.load(sys.stdin)
@@ -43,7 +48,7 @@ tool_input    = d.get('tool_input', {})
 tool_response = d.get('tool_response', {})
 cwd           = d.get('cwd', '')
 hook_event    = d.get('hook_event_name', 'postToolUse')
-machine       = os.uname().nodename
+machine       = __import__('platform').node()
 
 # Resolve git root
 try:

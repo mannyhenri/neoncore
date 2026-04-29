@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# Python interpreter shim (prefer python3, fall back to python, then py launcher).
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
+[ -z "$PYTHON" ] && { echo "Error: python 3.x required (install python or set PYTHON)" >&2; exit 1; }
+
 # NeonCore Notification Hook
 # Fires on Notification events from Claude Code.
 # Sends the notification text to the orchestrator as activity.
@@ -20,13 +25,13 @@ post_with_retry() {
   return 1
 }
 
-BODY=$(echo "$INPUT" | /usr/bin/env python3 -c "
+BODY=$(echo "$INPUT" | "$PYTHON" -c "
 import sys, json, os
 
 d = json.load(sys.stdin)
 session_id = d.get('session_id', '')
 cwd = d.get('cwd', '')
-machine = os.uname().nodename
+machine = __import__('platform').node()
 
 # Extract notification text
 notification = d.get('notification', d.get('message', ''))
