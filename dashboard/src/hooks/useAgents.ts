@@ -54,6 +54,19 @@ function playApprovalChime() {
   }
 }
 
+// Chrome/Firefox autoplay policy: an AudioContext created from non-gesture code
+// (a socket handler) starts in 'suspended' state and resume() is a no-op outside
+// a user gesture. Wake the context on the first pointer/key event so that
+// subsequent chimes scheduled from socket events actually produce sound.
+if (typeof window !== 'undefined') {
+  const wakeChime = () => {
+    const ctx = getChimeContext();
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+  };
+  window.addEventListener('pointerdown', wakeChime, { once: true });
+  window.addEventListener('keydown', wakeChime, { once: true });
+}
+
 const MAX_ACTIVITIES = 100;
 const POLL_INTERVAL_MS = 10_000; // Poll every 10s as fallback for mobile
 
