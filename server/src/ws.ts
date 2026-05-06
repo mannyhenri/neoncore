@@ -9,6 +9,9 @@ let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 // Track which socket belongs to which agent (for offline detection on disconnect)
 const socketToAgent = new Map<string, string>();
 
+// Track the primary (most recently registered) socket per agent — commands go here
+const agentPrimarySocket = new Map<string, string>(); // agentId → socketId
+
 export function initWebSocket(server: HTTPServer) {
   io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(server, {
     cors: {
@@ -40,7 +43,8 @@ export function initWebSocket(server: HTTPServer) {
           const agentRoom = `agent:${agent.id}`;
           socket.join(agentRoom);
           socketToAgent.set(socket.id, agent.id);
-          console.log(`[ws] Socket ${socket.id} also joined agent room ${agentRoom}`);
+          agentPrimarySocket.set(agent.id, socket.id);
+          console.log(`[ws] Socket ${socket.id} also joined agent room ${agentRoom} (primary)`);
         } else {
           console.log(`[ws] No agent found for ${machine}:${repoPath} (type=${agentType}) — path room only`);
         }
@@ -54,13 +58,17 @@ export function initWebSocket(server: HTTPServer) {
       const agentRoom = `agent:${agentId}`;
       socket.join(agentRoom);
       socketToAgent.set(socket.id, agentId);
-      console.log(`[ws] Socket ${socket.id} joined agent room ${agentRoom} (post-registration)`);
+      agentPrimarySocket.set(agentId, socket.id);
+      console.log(`[ws] Socket ${socket.id} joined agent room ${agentRoom} (post-registration, primary)`);
     });
 
     socket.on('disconnect', () => {
       const agentId = socketToAgent.get(socket.id);
       if (agentId) {
         socketToAgent.delete(socket.id);
+        if (agentPrimarySocket.get(agentId) === socket.id) {
+          agentPrimarySocket.delete(agentId);
+        }
         markAgentOffline(agentId);
       }
       console.log(`[ws] Client disconnected: ${socket.id}`);
@@ -115,15 +123,24 @@ export function upgradeSocketsToAgentRoom(machine: string, repoPath: string, age
   const agentRoom = `agent:${agentId}`;
   const socketsInRoom = io.sockets.adapter.rooms.get(pathRoom);
   if (socketsInRoom && socketsInRoom.size > 0) {
+    let lastSocketId: string | undefined;
     for (const socketId of socketsInRoom) {
       const s = io.sockets.sockets.get(socketId);
       if (s) {
         s.join(agentRoom);
         socketToAgent.set(socketId, agentId);
+        lastSocketId = socketId;
       }
     }
+    // Most recently iterated socket becomes primary
+    if (lastSocketId) agentPrimarySocket.set(agentId, lastSocketId);
     console.log(`[ws] Upgraded ${socketsInRoom.size} socket(s) from ${pathRoom} to ${agentRoom}`);
   }
+}
+
+/** Return the primary (most recently registered) socket ID for an agent */
+export function getPrimarySocket(agentId: string): string | undefined {
+  return agentPrimarySocket.get(agentId);
 }
 
 export function getIO() {
