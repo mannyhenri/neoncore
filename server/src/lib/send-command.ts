@@ -1,7 +1,7 @@
 import { execSync } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { getIO } from '../ws.js';
+import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 
@@ -148,15 +148,23 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
     return command;
   }
 
-  // Emit to the agent-specific room only — no fallback to path room to prevent misdelivery
+  // Emit to the primary socket (most recently registered window) to avoid sending to
+  // multiple VS Code windows that may share the same agent room.
   const agentRoom = `agent:${agentId}`;
-  const agentRoomSize = getIO().sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
+  const primarySocketId = getPrimarySocket(agentId);
+  const primarySocket = primarySocketId ? getIO().sockets.sockets.get(primarySocketId) : undefined;
 
-  if (agentRoomSize > 0) {
-    console.log(`[cmd] Emitting command_send to agent room ${agentRoom} (${agentRoomSize} socket(s))`);
-    getIO().to(agentRoom).emit('command_send', command);
+  if (primarySocket) {
+    console.log(`[cmd] Emitting command_send to primary socket ${primarySocketId} for agent ${agentId}`);
+    primarySocket.emit('command_send', command);
   } else {
-    console.log(`[cmd] Agent room ${agentRoom} empty — command queued as pending (will drain on reconnect)`);
+    const agentRoomSize = getIO().sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
+    if (agentRoomSize > 0) {
+      console.log(`[cmd] No primary socket — falling back to room ${agentRoom} (${agentRoomSize} socket(s))`);
+      getIO().to(agentRoom).emit('command_send', command);
+    } else {
+      console.log(`[cmd] Agent room ${agentRoom} empty — command queued as pending (will drain on reconnect)`);
+    }
   }
 
   return command;

@@ -76,8 +76,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Always connect — the NeonCore extension acts as both command handler
   // and presence monitor for AI extensions in this VS Code instance.
+  // Small delay lets VS Code finish loading workspace settings before we read them.
   if (config.get('autoConnect', true)) {
-    connectToOrchestrator();
+    updateStatusBar('connecting');
+    setTimeout(() => connectToOrchestrator(), 500);
   }
 
   // Start monitoring which AI extensions are active (Gridlight, Claude, etc.)
@@ -259,6 +261,8 @@ function getLocalIdentity() {
   };
 }
 
+let pendingCommand: Command | null = null;
+
 function connectToOrchestrator() {
   const config = vscode.workspace.getConfiguration('neoncore');
   const url = config.get('orchestratorUrl', 'http://localhost:4040');
@@ -267,11 +271,19 @@ function connectToOrchestrator() {
     vscode.window.showInformationMessage('Already connected to NeonCore orchestrator');
     return;
   }
+  // Clean up any stale socket that's stuck in a reconnecting state
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+
+  updateStatusBar('connecting');
 
   socket = io(url, {
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionDelay: 5000,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 5000,
   });
 
   socket.on('connect', () => {
@@ -297,9 +309,15 @@ function connectToOrchestrator() {
 
   // Skip command/plan listeners for gridlight — the Gridlight extension handles those
   if (agentType !== 'gridlight') {
-    // Listen for commands — validate this command is targeted at our registered agent
+    // Listen for commands — wait until registeredAgentId is known before acting
     socket.on('command_send', (command: Command) => {
-      if (registeredAgentId && command.agentId !== registeredAgentId) {
+      if (!registeredAgentId) {
+        // HTTP registration still in flight — hold the command until we know our ID
+        pendingCommand = command;
+        log(`Command received before registration complete — queued for agent ${command.agentId}`);
+        return;
+      }
+      if (command.agentId !== registeredAgentId) {
         log(`Ignoring command for agent ${command.agentId} (we are ${registeredAgentId})`);
         return;
       }
@@ -427,10 +445,14 @@ async function syncPresence() {
   log(`Presence: active AI extensions: ${[...activeTypes].join(', ') || 'none'}`);
 }
 
-function updateStatusBar(connected: boolean) {
-  if (connected) {
+function updateStatusBar(state: boolean | 'connecting') {
+  if (state === true) {
     statusBarItem.text = '$(plug) NeonCore';
     statusBarItem.tooltip = 'Connected to NeonCore orchestrator';
+    statusBarItem.backgroundColor = undefined;
+  } else if (state === 'connecting') {
+    statusBarItem.text = '$(loading~spin) NeonCore';
+    statusBarItem.tooltip = 'Connecting to NeonCore orchestrator...';
     statusBarItem.backgroundColor = undefined;
   } else {
     statusBarItem.text = '$(debug-disconnect) NeonCore';
@@ -476,6 +498,14 @@ function registerWithOrchestrator() {
       if (socket?.connected) {
         socket.emit('join_agent_room', { agentId: agent.id });
         log(`Joined agent room agent:${agent.id}`);
+      }
+      // Drain any command that arrived before registration completed
+      if (pendingCommand) {
+        if (pendingCommand.agentId === agent.id) {
+          log(`Draining queued command for agent ${agent.id}`);
+          handleCommand(pendingCommand);
+        }
+        pendingCommand = null;
       }
       // Auto-focus the correct agent sidebar so it's ready for commands
       focusAgentPanel();
