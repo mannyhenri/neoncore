@@ -699,23 +699,45 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="space-y-2">
-            {wf.name === 'Jira Tasks Validation' ? (
-              <span className="text-[13px] text-gray-300 font-medium">Which Jira epic would you like to validate?</span>
+            {wf.name === 'Feature Validation' ? (
+              <>
+                <span className="text-[13px] text-gray-300 font-medium">Feature Specification</span>
+                <p className="text-[12px] text-gray-600">
+                  Describe the feature you want to validate. Include: what it does functionally, how it should work architecturally, acceptance criteria, and any edge cases or error states that must be handled. Optionally add a Jira epic key (e.g. GRD-500) to pull in task requirements.
+                </p>
+                <textarea
+                  value={initialContext}
+                  onChange={(e) => setInitialContext(e.target.value)}
+                  rows={8}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  placeholder={"Feature: [name]\n\nWhat it should do:\n- \n\nArchitecture (components/routes/DB tables involved):\n- \n\nAcceptance criteria:\n- [ ] \n\nEdge cases / error states:\n- \n\nJira epic (optional): GRD-"}
+                />
+              </>
+            ) : wf.name === 'Jira Tasks Validation' || wf.name === 'Jira Tasks Completion' ? (
+              <>
+                <span className="text-[13px] text-gray-300 font-medium">Which Jira epic?</span>
+                <p className="text-[12px] text-gray-600">Enter the epic name or key (e.g. "Document Generation" or "GRD-1712").</p>
+                <textarea
+                  value={initialContext}
+                  onChange={(e) => setInitialContext(e.target.value)}
+                  rows={2}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  placeholder="e.g. GRD-1712 or Document Generation"
+                />
+              </>
             ) : (
-              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Initial Context</span>
+              <>
+                <span className="text-[13px] text-gray-500 uppercase tracking-wider">Initial Context</span>
+                <p className="text-[12px] text-gray-600">Optional — passed to the first step(s) of this workflow run.</p>
+                <textarea
+                  value={initialContext}
+                  onChange={(e) => setInitialContext(e.target.value)}
+                  rows={3}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  placeholder="Describe what this run should focus on…"
+                />
+              </>
             )}
-            <p className="text-[12px] text-gray-600">
-              {wf.name === 'Jira Tasks Validation'
-                ? 'Enter the epic name or key (e.g. "Document Generation" or "GRD-1712").'
-                : 'Optional — passed to the first step(s) of this workflow run.'}
-            </p>
-            <textarea
-              value={initialContext}
-              onChange={(e) => setInitialContext(e.target.value)}
-              rows={3}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
-              placeholder={wf.name === 'Jira Tasks Validation' ? 'e.g. GRD-1712 or Document Generation' : 'Describe what this run should focus on…'}
-            />
           </div>
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
@@ -765,7 +787,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             onClick={handleDeferredRun}
             disabled={
               !deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]) ||
-              !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim())
+              !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim()) ||
+              (wf.name === 'Feature Validation' && !initialContext.trim())
             }
             className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
           >
