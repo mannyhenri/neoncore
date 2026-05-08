@@ -48,6 +48,7 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     status: (row.status as WorkflowStep['status']) || 'pending',
     result: (row.result as string) || '',
     error: (row.error as string) || '',
+    dispatchedPrompt: (row.dispatched_prompt as string) || '',
     dependsOn: JSON.parse((row.depends_on as string) || '[]'),
     createdAt: row.created_at as string,
     startedAt: (row.started_at as string) || null,
@@ -229,6 +230,7 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   emitStepLog(step.workflowId, step.id, step.name, `Prompt composed: ${parts.join(' + ')} (${finalPrompt.length} chars)`, 'info');
   console.log(`[workflow-v2] Step "${step.name}" prompt (${finalPrompt.length} chars): role=${role}, webhook=true, memory=${includeMemory}, deps=${step.dependsOn.length}`);
 
+  db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(finalPrompt, step.id);
   sendCommandToAgent(step.executorId, finalPrompt, includeMemory);
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
@@ -280,6 +282,7 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const agentName = getAgentName(reviewAgentId);
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching critic review to "${agentName}" (retry ${currentRetry}/${maxRetries})`, 'info');
 
+  db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(reviewPrompt, step.id);
   const includeMemory = isMemoryEnabled(reviewAgentId);
   sendCommandToAgent(reviewAgentId, reviewPrompt, includeMemory);
 }
@@ -566,6 +569,7 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
   const gateLabel = preset?.label ?? gateType;
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching quality gate [${gateLabel}] to "${agentName}" (attempt ${currentRetry + 1}/${maxRetries + 1})`, 'info');
 
+  db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(finalPrompt, step.id);
   const includeMemory = isMemoryEnabled(agentId);
   sendCommandToAgent(agentId, finalPrompt, includeMemory);
 }
