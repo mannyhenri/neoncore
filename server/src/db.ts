@@ -368,6 +368,13 @@ try {
   db.exec(`ALTER TABLE workflow_steps ADD COLUMN plan_content TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add dispatched_prompt column to workflow_steps (stores the full prompt sent to the agent)
+try {
+  db.prepare('SELECT dispatched_prompt FROM workflow_steps LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN dispatched_prompt TEXT NOT NULL DEFAULT ''`);
+}
+
 // Migration: add description column to mcp_servers
 try {
   db.prepare('SELECT description FROM mcp_servers LIMIT 1').get();

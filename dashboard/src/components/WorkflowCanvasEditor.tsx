@@ -102,6 +102,7 @@ interface LocalStep {
   autoAdvance: boolean;
   status: StepStatus;
   dependsOn: string[];
+  dispatchedPrompt: string;
 }
 
 // ─── Constants ──────────────────────────────────────
@@ -615,7 +616,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     onWorkflowStepUpdated: (step) => {
       if (savedWorkflowId && step.workflowId === savedWorkflowId) {
         setSteps((prev) => prev.map((s) =>
-          s.id === step.id ? { ...s, status: step.status, autoAdvance: step.autoAdvance } : s
+          s.id === step.id ? { ...s, status: step.status, autoAdvance: step.autoAdvance, dispatchedPrompt: step.dispatchedPrompt || s.dispatchedPrompt } : s
         ));
 
         // Show toast when a step completes or fails
@@ -654,6 +655,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         autoAdvance: s.autoAdvance,
         status: s.status,
         dependsOn: s.dependsOn,
+        dispatchedPrompt: s.dispatchedPrompt || '',
       }));
 
       setSteps(localSteps);
@@ -926,6 +928,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       autoAdvance: true,
       status: 'pending',
       dependsOn: [],
+      dispatchedPrompt: '',
     };
 
     setSteps((prev) => [...prev, newStep]);
@@ -1078,7 +1081,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           positionX: s.positionX, positionY: s.positionY,
           executorType: s.executorType, executorId: s.executorId,
           executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
-          status: s.status, dependsOn: s.dependsOn,
+          status: s.status, dependsOn: s.dependsOn, dispatchedPrompt: s.dispatchedPrompt || '',
         })));
       }
       setWorkflowStatus(result.workflow.status);
@@ -1115,7 +1118,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           positionX: s.positionX, positionY: s.positionY,
           executorType: s.executorType, executorId: s.executorId,
           executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
-          status: s.status, dependsOn: s.dependsOn,
+          status: s.status, dependsOn: s.dependsOn, dispatchedPrompt: s.dispatchedPrompt || '',
         })));
       }
       setWorkflowStatus(result.workflow.status);
@@ -2495,6 +2498,32 @@ function ConnectorStepConfig({
 
 // ─── Side Panel Component ───────────────────────────
 
+function DispatchedPromptSection({ prompt }: { prompt: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = prompt.slice(0, 120).replace(/\n/g, ' ');
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors w-full text-left mb-1"
+      >
+        <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="uppercase tracking-wider font-semibold">Message sent to agent</span>
+        <span className="text-gray-700 ml-auto">{prompt.length} chars</span>
+      </button>
+      {expanded ? (
+        <pre className="text-[11px] text-gray-400 bg-black/30 rounded-md p-2 overflow-auto max-h-64 whitespace-pre-wrap break-words font-mono leading-relaxed">
+          {prompt}
+        </pre>
+      ) : (
+        <p className="text-[11px] text-gray-600 font-mono truncate">{preview}{prompt.length > 120 ? '…' : ''}</p>
+      )}
+    </div>
+  );
+}
+
 function SidePanel({
   step,
   steps,
@@ -2818,6 +2847,11 @@ function SidePanel({
               ))}
             </div>
           </div>
+        )}
+
+        {/* Message sent to agent */}
+        {step.dispatchedPrompt && (
+          <DispatchedPromptSection prompt={step.dispatchedPrompt} />
         )}
 
         {/* Status (during execution) */}

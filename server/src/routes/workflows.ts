@@ -272,6 +272,7 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     status: (row.status as WorkflowStep['status']) || 'pending',
     result: (row.result as string) || '',
     error: (row.error as string) || '',
+    dispatchedPrompt: (row.dispatched_prompt as string) || '',
     dependsOn: JSON.parse((row.depends_on as string) || '[]'),
     createdAt: row.created_at as string,
     startedAt: (row.started_at as string) || null,

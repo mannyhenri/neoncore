@@ -330,6 +330,7 @@ export interface WorkflowStep {
   status: StepStatus;
   result: string;
   error: string;
+  dispatchedPrompt: string;
   dependsOn: string[];
   createdAt: string;
   startedAt: string | null;
