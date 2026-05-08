@@ -781,26 +781,71 @@ function seedDefaultTemplates() {
   // ── 6. Feature Validation ─────────────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Feature Validation',
-      'Set the workflow description to what the feature is supposed to do — that spec is automatically passed to every step.', now);
-    step(wfId, s1, 'Feature Mapping',   'Map all files, components, routes, DB tables, hooks, and UI elements involved in this feature.',                           300,  50, 'claude-code',
-      { ...cc('researcher'), workflowContext: true, prompt: 'Using the feature specification above, identify every part of the codebase involved: files, functions, API routes, DB tables/queries, React components, hooks, and event handlers. Trace the complete data flow from user action to response. Do not make any code changes. Output a structured map of what you found.' },
-      []);
-    step(wfId, s2, 'Wiring Check',      'Verify all components are correctly connected — imports, routes, DB queries, hooks, API calls, UI bindings.',              300, 225, 'claude-code',
-      { ...cc('reviewer'), prompt: 'Using the feature map from the previous step, verify that every connection is correctly wired: imports resolve, routes are registered in the correct router, DB queries match the schema, hooks fire at the right lifecycle stage, API calls use the correct endpoints and method, and UI state binds to the right variables. List each issue as: WIRING ISSUE: <file>:<line> — <description>. If everything is wired correctly, say WIRING: ALL CLEAR.' },
-      [s1]);
-    step(wfId, s3, 'Bug Scan',          'Scan for logical bugs, null access, missing error handling, race conditions, and edge cases.',                             300, 400, 'claude-code',
-      { ...cc('reviewer'), prompt: 'Using the wiring check results from the previous step, scan the relevant code for: null/undefined access without guards, missing error handling on async calls, race conditions, incorrect data transformations, off-by-one errors, missing input validation, and edge cases that would cause failures or bad UX. List each finding as: BUG: <file>:<line> — <description> [SEVERITY: low/medium/high]. If no bugs are found, say BUGS: NONE FOUND.' },
-      [s2]);
-    step(wfId, s4, 'Functional Testing','Execute tests simulating a real user validating the feature — happy path, edge cases, error states.',                      300, 575, 'claude-code',
-      { ...cc('tester'), prompt: 'Based on the wiring check and bug scan results, now validate the feature works as intended by testing it as a user would. For each scenario below, run the code/commands needed to verify it:\n\n1. Happy path — trigger the feature with valid inputs and confirm the expected output\n2. Edge cases — empty inputs, boundary values, concurrent actions\n3. Error states — invalid inputs, missing data, network/DB failures\n\nFor each test report: TEST: <scenario name> | RESULT: PASS or FAIL | DETAIL: <what happened>.\nEnd with a summary line: TESTS: X passed, Y failed.' },
-      [s3]);
-    step(wfId, s5, 'Validation Report', 'Compile the complete pass/fail report with action items.',                                                                 300, 750, 'claude-code',
-      { ...cc('general'), prompt: 'Compile the final feature validation report using all findings from the previous steps. Structure it as:\n\n## Feature Validation Report\n\n### Wiring\n[List each WIRING ISSUE or "✅ All clear"]\n\n### Bugs\n[List each BUG with severity or "✅ None found"]\n\n### Functional Tests\n[List each TEST with PASS/FAIL and detail]\n\n### Summary\n- Wiring: ✅ PASS / ❌ FAIL (N issues)\n- Bugs: ✅ PASS / ⚠️ N warnings / ❌ N critical\n- Tests: ✅ N passed / ❌ N failed\n\n### Overall Status\n**STATUS: PASS** or **STATUS: FAIL**\n\n### Action Items\n[Numbered list of issues to fix, highest severity first. If none: "No action required."]' },
-      [s4], false);
-    step(wfId, s6, 'Notify',            'System notification: Feature Validation workflow complete.',                                                                300, 925, 'connector',
-      { connectorType: 'system-notify', title: 'Feature Validation — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s5]);
+      'TDD-based feature validation: specify → define/review tests (human gate) → evaluate code → implement gaps → run tests → final report. Enter the feature description (and optional Jira epic key) in the launch prompt.', now);
+
+    // Step 1: Feature Specification — gather requirements from the user + optional Jira epic
+    step(wfId, s1, 'Feature Specification',
+      'Collect the complete feature requirements from the user. If a Jira epic key is provided, fetch the epic and its tasks. Produce a structured Feature Spec document. Requires human input — does not auto-advance.',
+      300, 80, 'claude-code',
+      {
+        ...cc('researcher'), workflowContext: true, autoAdvance: false,
+        prompt: 'You are opening a Feature Validation workflow. Your job in this step is to establish a crystal-clear, written specification of what the feature is supposed to do — both architecturally and functionally.\n\n**STEP A — PRESENT WHAT WAS PROVIDED**\nThe workflow launch prompt contains the initial feature description (shown above). Display it clearly so the user can review it.\n\n**STEP B — ASK FOR FULL SPECIFICATION**\nUse the AskUserQuestion tool with this exact question:\n"Please provide the complete feature specification:\n\n1. What is this feature? (functional description — what does the user experience?)\n2. What should it do architecturally? (which layers/services/components are involved?)\n3. What are the acceptance criteria? (list every condition that must be true for the feature to be considered done)\n4. What are the edge cases and error states that must be handled?\n5. Jira epic key (optional — e.g. GRD-500): leave blank if none\n\nBe as specific as possible — this spec drives the tests and code evaluation in subsequent steps."\n\n**STEP C — FETCH JIRA EPIC (if provided)**\nIf the user provided a Jira epic key:\n1. Discover the Jira CLI (`jira --version`, `jira-cli --version`, or project scripts).\n2. Fetch the epic details and ALL its child tasks (stories, bugs, tasks, subtasks).\n3. For each task fetch: title, status, description, acceptance criteria.\n4. Add a section "## Jira Epic Tasks" to the spec listing every task with its key, title, status, and requirements.\n\n**STEP D — WRITE THE FEATURE SPEC**\nProduce a structured document in this exact format:\n\n```\n## Feature Specification\n\n### Feature Overview\n[What the feature does from a user perspective]\n\n### Architecture\n[Which layers, services, files, DB tables, API routes, and UI components are involved]\n\n### Functional Requirements\n[Numbered list of every requirement — each must be testable]\n\n### Acceptance Criteria\n[Checkbox list — each item is a condition that MUST be true for the feature to be complete]\n\n### Edge Cases & Error States\n[List of every edge case and expected behavior]\n\n### Jira Epic Tasks (if applicable)\n| Key | Title | Status | Requirements |\n|-----|-------|--------|---------------|\n[one row per task]\n```\n\nOutput this document in full — it is passed to every subsequent step.',
+      }, []);
+
+    // Step 2: Test Discovery & Creation — find existing tests, write missing ones, STOP for human review
+    step(wfId, s2, 'Test Discovery & Creation',
+      'Find all existing tests related to this feature, identify gaps against the spec, write new tests for uncovered behaviors. STOPS for human review — you must confirm the tests truly validate the feature before the workflow continues.',
+      300, 310, 'claude-code',
+      {
+        ...cc('tester'),
+        prompt: 'Using the Feature Specification from the previous step, you must (1) find all existing tests related to this feature, (2) identify coverage gaps, and (3) write new tests for anything not already covered.\n\n**RULE: This step must NOT auto-advance. You will output a test manifest and wait for human approval.**\n\n### PHASE 1 — DISCOVER EXISTING TESTS\n1. Use Grep, Glob, and Read to search the entire test suite for tests related to this feature.\n   - Search by feature name, component names, route paths, function names, DB table names, and key terms from the Feature Specification.\n   - Look in all test directories: `*.test.ts`, `*.spec.ts`, `*.test.tsx`, `__tests__/`, `test/`, `spec/` and any other test file patterns in this project.\n2. For each relevant test found, record:\n   - File path and test name/describe block\n   - What behavior it validates\n   - Whether it maps to a requirement in the Feature Spec\n\n### PHASE 2 — IDENTIFY GAPS\nCross-reference every requirement and acceptance criterion from the Feature Spec against the existing tests.\nFor each requirement, answer: Is it covered? If YES — by which test(s)? If NO — what test is needed?\n\n### PHASE 3 — WRITE MISSING TESTS\nFor every gap identified:\n1. Write real, runnable tests that assert the behavior described in the spec.\n2. Each new test must cover: happy path + at least 2 edge cases + at least 1 error state per requirement.\n3. Tests must be written so they FAIL before the implementation is correct — do not write tests that trivially pass.\n4. Follow the existing test patterns, frameworks, and conventions used in this project (detect from existing test files).\n5. Save new tests to the appropriate test file(s) — either extending an existing file or creating a new one following the project conventions.\n\n### PHASE 4 — OUTPUT THE TEST MANIFEST\nOutput the complete manifest in this exact format — do NOT advance automatically:\n\n```\n## Test Manifest for: [Feature Name]\n\n### Existing Tests (covers this feature)\n| File | Test Name | Requirement Covered |\n|------|-----------|--------------------|\n[one row per relevant test]\n\n### New Tests Written\n| File | Test Name | Requirement Covered | Status |\n|------|-----------|---------------------|--------|\n[one row per new test, Status = NEW]\n\n### Coverage Summary\n- Requirements from spec: N\n- Fully covered by existing tests: N\n- Covered by new tests: N\n- Remaining gaps (if any): N — [list them]\n\n### Instructions for Human Review\nPlease review the test manifest above and confirm:\n1. Do the existing tests truly validate the listed requirements?\n2. Do the new tests cover the gaps accurately?\n3. Are there any additional scenarios you want tested?\n\nOnce you are satisfied, advance this step manually to continue the workflow.\n```',
+      }, [s1], false);
+
+    // Step 3: Code Evaluation — deep analysis of current implementation vs spec
+    step(wfId, s3, 'Code Evaluation',
+      'Thoroughly evaluate the current codebase against the Feature Specification. Identify every gap, incorrect behavior, and missing implementation.',
+      300, 540, 'claude-code',
+      {
+        ...cc('reviewer'),
+        prompt: 'Using the Feature Specification (step 1) and the Test Manifest (step 2), perform a deep, thorough evaluation of the current codebase to determine how well the feature is implemented.\n\n**Do NOT make any code changes in this step — only investigate and report.**\n\n### PHASE 1 — MAP THE IMPLEMENTATION\nTrace every file, function, route, component, hook, and DB query involved in this feature using Read, Grep, and Glob.\nFollow the data flow end-to-end: from the user trigger → through every layer → to the final output/state change.\n\n### PHASE 2 — EVALUATE EACH REQUIREMENT\nFor every requirement and acceptance criterion in the Feature Spec, answer:\n- Is it implemented? (YES / PARTIAL / NO)\n- If YES: which code handles it and does it match the spec exactly?\n- If PARTIAL: what part is missing or wrong?\n- If NO: what needs to be built?\n\n### PHASE 3 — IDENTIFY BUGS & GAPS\nAlso check for:\n- Logic errors that would cause wrong behavior\n- Missing error handling on async calls, DB queries, or API responses\n- Race conditions or state inconsistencies\n- Missing input validation\n- Edge cases from the spec that are not handled\n- Architectural mismatches (wrong layer, wrong data flow)\n\n### PHASE 4 — OUTPUT THE EVALUATION REPORT\n```\n## Code Evaluation Report\n\n### Implementation Status per Requirement\n| Requirement | Status | Files | Notes |\n|-------------|--------|-------|-------|\n[one row per requirement from the Feature Spec — Status: ✅ Implemented / ⚠️ Partial / ❌ Missing]\n\n### Gaps & Issues Found\n| Severity | File:Line | Description | Fix Needed |\n|----------|-----------|-------------|------------|\n[one row per gap or bug — Severity: critical / high / medium / low]\n\n### Summary\n- Fully implemented: N/N requirements\n- Partially implemented: N requirements\n- Not implemented: N requirements\n- Bugs/issues found: N (critical: X, high: Y, medium: Z, low: W)\n\n### Verdict\n[STATUS: COMPLETE — all requirements fully implemented with no issues]\n[STATUS: INCOMPLETE — list the top items that must be fixed]\n```',
+      }, [s2]);
+
+    // Step 4: Code Implementation — fix gaps, never touch tests
+    step(wfId, s4, 'Code Implementation',
+      'Implement all missing or incorrect code identified in the Code Evaluation. Fix every gap in priority order. Do NOT modify any test files.',
+      300, 770, 'claude-code',
+      {
+        ...cc('backend'),
+        prompt: 'Using the Code Evaluation Report from the previous step, implement all fixes and additions needed to make the feature fully comply with the Feature Specification.\n\n**CRITICAL RULE: You must NEVER modify, delete, or weaken any test file. If a test exposes a bug in the implementation, fix the implementation — not the test.**\n\n### IMPLEMENTATION ORDER\nWork through issues in this priority order:\n1. **Critical** — crashes, data corruption, completely missing core paths\n2. **High** — wrong behavior on the happy path, missing required logic\n3. **Medium** — edge cases not handled, partial implementations\n4. **Low** — minor issues, missing error state handling\n\nFor each gap from the evaluation report:\n1. Read the relevant files to understand the existing patterns and conventions.\n2. Implement the minimal correct change — do not refactor beyond what is needed.\n3. Follow the architecture described in the Feature Specification.\n4. Handle all error states and edge cases specified.\n5. Log each change: `IMPLEMENTED [file:line] — [brief description of what was changed and why]`\n\n### AFTER ALL CHANGES\nOutput:\n```\n## Implementation Summary\n\n### Changes Made\n[List of all IMPLEMENTED log lines]\n\n### Gaps Resolved\n[Map each fix to the requirement it addresses]\n\n### Remaining Issues (if any)\n[Anything that could not be implemented and why]\n\nTotal files changed: N | Requirements now fully implemented: N/N\n```',
+      }, [s3]);
+
+    // Step 5: Run Tests — quality-gate loops back to implementation if tests fail
+    step(wfId, s5, 'Run Tests',
+      'Execute all tests from the Test Manifest. If any fail, the code is fixed — tests are never changed. Loops back to Code Implementation on failure (max 3 cycles).',
+      300, 1000, 'quality-gate',
+      {
+        ...gate('test'),
+        routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }],
+        maxCycles: 3,
+        includeDepOutput: true,
+      }, [s4]);
+
+    // Step 6: Final Report — full summary, requires human review before closing
+    step(wfId, s6, 'Final Report',
+      'Compile the complete validation report: what was specified, what tests were written, what code was changed, and the final test results. Requires human review.',
+      300, 1175, 'claude-code',
+      {
+        ...cc('planner'),
+        prompt: 'Compile the final Feature Validation report using all outputs from every previous step. Be thorough and precise.\n\n```\n## Feature Validation Report\n\n### Feature\n[Feature name and 1-sentence description]\n\n### Specification Summary\n[Bullet list of the key requirements from the Feature Spec]\n\n### Tests\n#### Existing Tests (pre-existing, related to this feature)\n| File | Test | Requirement |\n|------|------|-------------|\n\n#### New Tests Written\n| File | Test | Requirement |\n|------|------|-------------|\n\n### Code Changes\n#### What was already implemented correctly\n[Bullet list]\n\n#### What was fixed or added\n| File | Change | Requirement |\n|------|--------|-------------|\n\n### Test Results\n| Test | Result | Detail |\n|------|--------|--------|\n[one row per test from the run — PASS or FAIL]\n\n### Requirements Coverage\n| Requirement | Tests | Code | Status |\n|-------------|-------|------|--------|\n[one row per requirement from the Feature Spec]\n\n### Summary\n- Requirements: N total | N fully validated | N with gaps\n- Tests: N existing + N new = N total | N passed | N failed\n- Code changes: N files modified\n\n### Overall Verdict\n**STATUS: PASS** — all requirements implemented and all tests passing\n**STATUS: FAIL** — list the specific requirements or tests that are still not satisfied\n\n### Next Steps (if STATUS: FAIL)\n[Numbered list of remaining action items, highest severity first]\n```',
+      }, [s5], false);
+
+    // Step 7: Notify
+    step(wfId, s7, 'Notify',
+      'System notification: Feature Validation workflow complete.',
+      300, 1350, 'connector',
+      { connectorType: 'system-notify', title: 'Feature Validation — Done', message: '{{workflowName}} finished. Check NeonCore for the full validation report.' }, [s6]);
   }
 
   // ── 7. Deep Research ──────────────────────────────────────────────────────
