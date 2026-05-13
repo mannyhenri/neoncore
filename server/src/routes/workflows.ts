@@ -797,6 +797,32 @@ router.post('/v2/:id/steps/:stepId/complete', (req, res) => {
   res.json(step);
 });
 
+// Record a human decision choice on a decision step
+router.post('/v2/:id/steps/:stepId/decide', (req, res) => {
+  const { optionId } = req.body;
+  if (!optionId) return res.status(400).json({ error: 'optionId required' });
+
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ? AND workflow_id = ?')
+    .get(req.params.stepId, req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'Step not found' });
+
+  const config = JSON.parse((row.executor_config as string) || '{}');
+  const options = (config.options as Array<{ id: string; label: string; description?: string; nextStepId?: string }>) || [];
+  const chosen = options.find((o) => o.id === optionId);
+  if (!chosen) return res.status(400).json({ error: 'Unknown optionId' });
+
+  const resultText = JSON.stringify({ choice: chosen.label, optionId: chosen.id, description: chosen.description || '' });
+  const now = new Date().toISOString();
+
+  db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
+    .run('completed', resultText, now, req.params.stepId);
+
+  const updated = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown>;
+  const step = normalizeStep(updated);
+  getIO().emit('workflow_step_updated', step);
+  res.json(step);
+});
+
 // Advance a completed step (set auto_advance = 1 so dependents can proceed)
 router.post('/v2/:id/steps/:stepId/advance', (req, res) => {
   const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ? AND workflow_id = ?')

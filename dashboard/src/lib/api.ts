@@ -352,6 +352,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ result }),
     }),
+  decideWorkflowStep: (workflowId: string, stepId: string, optionId: string) =>
+    request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({ optionId }),
+    }),
   advanceWorkflowStep: (workflowId: string, stepId: string) =>
     request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/advance`, {
       method: 'POST',

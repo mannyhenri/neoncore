@@ -708,6 +708,20 @@ function substituteVars(template: string, vars: Record<string, string>): string 
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '');
 }
 
+/** Decision step — presents a structured choice to the human and waits.
+ *  Completion happens via POST /api/workflows/v2/:id/steps/:stepId/decide. */
+async function executeDecisionStep(step: WorkflowStep): Promise<void> {
+  const config = step.executorConfig;
+  if (!config.question) throw new Error('Decision step requires a question in executorConfig');
+
+  emitStepLog(
+    step.workflowId, step.id, step.name,
+    `Decision required: "${config.question}" — waiting for human choice`,
+    'info',
+  );
+  // Step stays in `running` state; the /decide endpoint completes it.
+}
+
 /** Execute an external connector step (Slack, GitHub, Linear, or generic HTTP) */
 async function executeConnectorStep(step: WorkflowStep): Promise<void> {
   const config = step.executorConfig;
@@ -942,6 +956,8 @@ async function executeStep(step: WorkflowStep): Promise<void> {
       await executeCommandStep(step);
     } else if (step.executorType === 'connector') {
       await executeConnectorStep(step);
+    } else if (step.executorType === 'decision') {
+      await executeDecisionStep(step);
     } else {
       if (!step.executorId) throw new Error('Step requires an agent ID');
       await executeStandardStep(step);
@@ -1167,8 +1183,9 @@ function processWorkflow(workflowId: string) {
 
     // Standard and command steps always use webhooks for completion — skip idle-based auto-complete.
     // Only review-gate, quality-gate, and deliberation use idle detection (they have their own completion logic).
+    // Decision steps wait for explicit human choice via /decide endpoint — never auto-complete.
     if (step.executorConfig.waitForWebhook) continue;
-    if (step.executorType === 'claude-code' || step.executorType === 'command' || step.executorType === 'connector' || !step.executorType) continue;
+    if (step.executorType === 'claude-code' || step.executorType === 'command' || step.executorType === 'connector' || step.executorType === 'decision' || !step.executorType) continue;
 
     // Don't auto-complete steps that just started — the agent may not have picked up
     // the command yet. Wait at least MIN_RUNNING_BEFORE_COMPLETE_MS before checking idle.

@@ -245,6 +245,9 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
             intent
           </span>
         )}
+        {data.executorType === 'decision' && (
+          <span className="text-[9px] font-bold uppercase tracking-wider text-violet-400 bg-violet-900/40 px-1.5 py-0.5 rounded">Decision</span>
+        )}
         {data.executorType === 'review-gate' && (
           <span className="text-[13px] text-rose-400/70 font-medium px-1.5 py-0.5 rounded-full bg-rose-500/10 uppercase">
             critic
@@ -1243,13 +1246,41 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
           {/* Add Step — templates only */}
           {!isRunView && (
-            <button
-              onClick={addStep}
-              disabled={isExecuting}
-              className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              + Add Step
-            </button>
+            <>
+              <button
+                onClick={addStep}
+                disabled={isExecuting}
+                className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                + Add Step
+              </button>
+              <button
+                onClick={() => {
+                  const id = crypto.randomUUID();
+                  const maxY = steps.reduce((m, s) => Math.max(m, s.positionY), 0);
+                  const newStep: LocalStep = {
+                    id,
+                    name: 'Decision',
+                    description: '',
+                    positionX: 300,
+                    positionY: maxY + 175,
+                    executorType: 'decision',
+                    executorId: '',
+                    executorConfig: { question: '', options: [] },
+                    autoAdvance: true,
+                    status: 'pending',
+                    dispatchedPrompt: '',
+                    dependsOn: [],
+                  };
+                  setSteps((prev) => [...prev, newStep]);
+                  setSelectedStepId(id);
+                }}
+                disabled={isExecuting}
+                className="text-xs px-3 py-1.5 rounded-md border border-violet-700/40 text-violet-400 hover:text-violet-300 hover:border-violet-600/60 bg-violet-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                + Decision
+              </button>
+            </>
           )}
 
           {/* Save — templates only */}
@@ -2498,6 +2529,239 @@ function ConnectorStepConfig({
 
 // ─── Side Panel Component ───────────────────────────
 
+// ── Decision Step Components ──────────────────────────────────────────────────
+
+interface DecisionOption {
+  id: string;
+  label: string;
+  description?: string;
+  pros?: string[];
+  cons?: string[];
+}
+
+interface DecisionConfig {
+  question?: string;
+  eli10?: string;
+  stakes?: string;
+  recommendation?: string;
+  options?: DecisionOption[];
+}
+
+function DecisionStepConfig({ step, onUpdate, isExecuting, steps }: {
+  step: LocalStep;
+  onUpdate: (patch: Partial<LocalStep>) => void;
+  isExecuting: boolean;
+  steps: LocalStep[];
+}) {
+  const cfg = (step.executorConfig || {}) as DecisionConfig & Record<string, unknown>;
+  const options: DecisionOption[] = (cfg.options as DecisionOption[]) || [];
+
+  const updateCfg = (patch: Partial<DecisionConfig>) =>
+    onUpdate({ executorConfig: { ...cfg, ...patch } });
+
+  const updateOption = (idx: number, patch: Partial<DecisionOption>) => {
+    const next = options.map((o, i) => (i === idx ? { ...o, ...patch } : o));
+    updateCfg({ options: next });
+  };
+
+  const addOption = () => {
+    const id = `opt${Date.now()}`;
+    updateCfg({ options: [...options, { id, label: '', description: '' }] });
+  };
+
+  const removeOption = (idx: number) => {
+    updateCfg({ options: options.filter((_, i) => i !== idx) });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Decision question</label>
+        <input
+          type="text"
+          value={(cfg.question as string) || ''}
+          onChange={(e) => updateCfg({ question: e.target.value })}
+          onKeyDown={(e) => e.stopPropagation()}
+          disabled={isExecuting}
+          placeholder="Which approach should we take?"
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+        />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">ELI10 — plain English context (optional)</label>
+        <textarea
+          value={(cfg.eli10 as string) || ''}
+          onChange={(e) => updateCfg({ eli10: e.target.value })}
+          onKeyDown={(e) => e.stopPropagation()}
+          disabled={isExecuting}
+          rows={2}
+          placeholder="Explain the trade-off in plain English…"
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50 resize-none"
+        />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Stakes — what breaks if we pick wrong? (optional)</label>
+        <input
+          type="text"
+          value={(cfg.stakes as string) || ''}
+          onChange={(e) => updateCfg({ stakes: e.target.value })}
+          onKeyDown={(e) => e.stopPropagation()}
+          disabled={isExecuting}
+          placeholder="e.g. Performance degrades under load"
+          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+        />
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs text-gray-500">Options</label>
+          <button
+            onClick={addOption}
+            disabled={isExecuting}
+            className="text-[11px] text-violet-400 hover:text-violet-300 transition-colors disabled:opacity-40"
+          >
+            + Add option
+          </button>
+        </div>
+        <div className="space-y-3">
+          {options.map((opt, idx) => (
+            <div key={opt.id} className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-3 space-y-2">
+              <div className="flex gap-2 items-start">
+                <input
+                  type="text"
+                  value={opt.label}
+                  onChange={(e) => updateOption(idx, { label: e.target.value })}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  disabled={isExecuting}
+                  placeholder={`Option ${String.fromCharCode(65 + idx)} label`}
+                  className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+                />
+                <button
+                  onClick={() => {
+                    const id = opt.id;
+                    const recommended = (cfg.recommendation as string) === id ? '' : id;
+                    updateCfg({ recommendation: recommended });
+                  }}
+                  disabled={isExecuting}
+                  title="Mark as recommended"
+                  className={`text-[11px] px-2 py-1.5 rounded border transition-colors disabled:opacity-40 ${
+                    (cfg.recommendation as string) === opt.id
+                      ? 'bg-violet-900/40 text-violet-300 border-violet-700/50'
+                      : 'text-gray-600 border-white/[0.07] hover:text-gray-300'
+                  }`}
+                >
+                  ★
+                </button>
+                <button
+                  onClick={() => removeOption(idx)}
+                  disabled={isExecuting}
+                  className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-40"
+                >
+                  ×
+                </button>
+              </div>
+              <input
+                type="text"
+                value={opt.description || ''}
+                onChange={(e) => updateOption(idx, { description: e.target.value })}
+                onKeyDown={(e) => e.stopPropagation()}
+                disabled={isExecuting}
+                placeholder="Brief description of this option"
+                className="w-full text-xs glass-input text-gray-400 rounded px-2 py-1.5 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          ))}
+          {options.length === 0 && (
+            <p className="text-[11px] text-gray-600">No options yet — add at least 2 before running.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionBrief({ step, workflowId }: { step: LocalStep; workflowId: string }) {
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const [decided, setDecided] = useState(false);
+
+  const cfg = (step.executorConfig || {}) as DecisionConfig & Record<string, unknown>;
+  const options: DecisionOption[] = (cfg.options as DecisionOption[]) || [];
+  const recommendation = cfg.recommendation as string | undefined;
+
+  const handleDecide = async (optionId: string) => {
+    if (deciding || decided) return;
+    setDeciding(optionId);
+    try {
+      await api.decideWorkflowStep(workflowId, step.id, optionId);
+      setDecided(true);
+    } catch {
+      setDeciding(null);
+    }
+  };
+
+  if (decided) {
+    return (
+      <div className="mt-3 p-3 rounded-lg bg-emerald-900/20 border border-emerald-800/40 text-[12px] text-emerald-400">
+        Decision recorded — workflow advancing.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {/* Question */}
+      <div className="bg-violet-900/20 border border-violet-800/30 rounded-lg p-3">
+        <p className="text-[11px] text-violet-400 uppercase tracking-wider font-semibold mb-1">Decision Required</p>
+        <p className="text-sm text-gray-200 font-medium">{cfg.question || 'Make a choice'}</p>
+        {cfg.eli10 && (
+          <p className="text-[12px] text-gray-500 mt-1.5 leading-relaxed">{cfg.eli10 as string}</p>
+        )}
+        {cfg.stakes && (
+          <p className="text-[11px] text-amber-500/80 mt-1.5">
+            <span className="font-medium">Stakes: </span>{cfg.stakes as string}
+          </p>
+        )}
+      </div>
+
+      {/* Options */}
+      <div className="space-y-2">
+        {options.map((opt) => {
+          const isRecommended = opt.id === recommendation;
+          const isDeciding = deciding === opt.id;
+          return (
+            <button
+              key={opt.id}
+              onClick={() => handleDecide(opt.id)}
+              disabled={!!deciding}
+              className={`w-full text-left rounded-lg p-3 border transition-all disabled:opacity-60 ${
+                isRecommended
+                  ? 'bg-violet-900/30 border-violet-700/50 hover:bg-violet-900/50'
+                  : 'bg-white/[0.02] border-white/[0.07] hover:bg-white/[0.05]'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className={`text-[13px] font-medium ${isRecommended ? 'text-violet-200' : 'text-gray-300'}`}>
+                  {opt.label}
+                  {isRecommended && <span className="ml-1.5 text-[10px] text-violet-400">(recommended)</span>}
+                </span>
+                {isDeciding && (
+                  <span className="text-[11px] text-violet-400">Choosing…</span>
+                )}
+              </div>
+              {opt.description && (
+                <p className="text-[11px] text-gray-500 leading-relaxed">{opt.description}</p>
+              )}
+            </button>
+          );
+        })}
+        {options.length === 0 && (
+          <p className="text-[12px] text-gray-600">No options configured for this decision step.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DispatchedPromptSection({ prompt }: { prompt: string }) {
   const [expanded, setExpanded] = useState(false);
   const preview = prompt.slice(0, 120).replace(/\n/g, ' ');
@@ -2609,6 +2873,7 @@ function SidePanel({
             <option value="review-gate">Critic / Review Gate</option>
             <option value="deliberation">Multi-Cartridge Deliberation</option>
             <option value="connector">External Connector (Slack / GitHub / Linear / HTTP)</option>
+            <option value="decision">Decision Checkpoint (Human Choice)</option>
           </select>
         </div>
 
@@ -2617,8 +2882,13 @@ function SidePanel({
           <CommandStepConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
         )}
 
+        {/* ── Decision step config ── */}
+        {step.executorType === 'decision' && (
+          <DecisionStepConfig step={step} onUpdate={onUpdate} isExecuting={isExecuting} steps={steps} />
+        )}
+
         {/* ── Standard step config ── */}
-        {step.executorType !== 'review-gate' && step.executorType !== 'deliberation' && step.executorType !== 'quality-gate' && step.executorType !== 'command' && step.executorType !== 'connector' && (
+        {step.executorType !== 'review-gate' && step.executorType !== 'deliberation' && step.executorType !== 'quality-gate' && step.executorType !== 'command' && step.executorType !== 'connector' && step.executorType !== 'decision' && (
           <>
             {/* Expert role selector */}
             <div>
@@ -2872,8 +3142,13 @@ function SidePanel({
             )}
             {step.status === 'running' && (
               <>
+                {/* Decision step — structured choice UI */}
+                {step.executorType === 'decision' && workflowId && (
+                  <DecisionBrief step={step} workflowId={workflowId} />
+                )}
+
                 {/* Mid-task steering — only for running claude-code steps with an assigned agent */}
-                {step.executorType === 'claude-code' && step.executorId && step.executorId !== '__deferred__' && workflowId && (
+                {step.executorType !== 'decision' && step.executorType === 'claude-code' && step.executorId && step.executorId !== '__deferred__' && workflowId && (
                   <div className="mt-3">
                     <label className="block text-xs text-gray-500 mb-1">Steer agent</label>
                     <div className="flex gap-1.5">
@@ -2922,20 +3197,22 @@ function SidePanel({
                   </div>
                 )}
 
-                <div className="mt-2 flex gap-2">
-                  <button
-                    onClick={onForceComplete}
-                    className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/20 transition-colors"
-                  >
-                    Mark complete
-                  </button>
-                  <button
-                    onClick={onSkip}
-                    className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
-                  >
-                    Skip
-                  </button>
-                </div>
+                {step.executorType !== 'decision' && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={onForceComplete}
+                      className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/20 transition-colors"
+                    >
+                      Mark complete
+                    </button>
+                    <button
+                      onClick={onSkip}
+                      className="flex-1 text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                )}
               </>
             )}
             {step.status === 'pending' && (
