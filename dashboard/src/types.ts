@@ -342,6 +342,16 @@ export interface Project {
   estimatedCostUsd?: number;
 }
 
+export interface ProjectLearning {
+  id: string;
+  projectId: string | null;
+  workflowId: string;
+  workflowName: string;
+  content: string;
+  tags: string[];
+  createdAt: string;
+}
+
 // Workflow Step types (V2 canvas workflows)
 export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate' | 'command' | 'connector' | 'decision';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';

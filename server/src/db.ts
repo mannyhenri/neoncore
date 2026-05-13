@@ -585,6 +585,19 @@ db.exec(`
   -- Add project column to notes for project-scoped notes
   -- (SQLite ALTER TABLE ADD COLUMN is safe to run multiple times if column exists — handled below)
 
+  -- Project learnings — extracted insights from workflow runs, scoped to a goal project
+  CREATE TABLE IF NOT EXISTS project_learnings (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    workflow_id TEXT NOT NULL,
+    workflow_name TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_learnings_project ON project_learnings(project_id);
+  CREATE INDEX IF NOT EXISTS idx_project_learnings_workflow ON project_learnings(workflow_id);
+
   -- Goals: top-level business objectives
   CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,

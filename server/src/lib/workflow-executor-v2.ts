@@ -208,11 +208,20 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     }
   }
 
+  // Typed output format instructions
+  const outputSchema = step.executorConfig.outputSchema as string | undefined;
+  const OUTPUT_FORMAT_INSTRUCTIONS: Record<string, string> = {
+    test_results: `\n\nOUTPUT FORMAT: After completing all work, end your response with a structured test results block (copy this format exactly):\n\n---TEST RESULTS---\nSTATUS: PASS\nPASSED: N\nFAILED: N\nFAILED_TESTS:\n- test name: error message\n---END TEST RESULTS---\n\nReplace N with actual counts. List each failed test on its own "- name: error" line. If all pass, omit FAILED_TESTS.`,
+    code_review: `\n\nOUTPUT FORMAT: After completing your review, end your response with a structured code review block (copy this format exactly):\n\n---CODE REVIEW---\nSTATUS: PASS\nCRITICAL: N\nHIGH: N\nMEDIUM: N\nLOW: N\nISSUES:\n- [SEVERITY] file:line — description\n---END CODE REVIEW---\n\nSTATUS is PASS if no critical/high issues, FAIL otherwise. List each issue on its own line.`,
+    design_doc: `\n\nOUTPUT FORMAT: Structure your response as a markdown design document with clear sections (## headings). Include: Overview, Problem, Solution, Architecture, Trade-offs, and Next Steps.`,
+  };
+  const formatSuffix = outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[outputSchema] || '') : '';
+
   // Always append webhook instructions so the agent provides a structured summary on completion
   const port = process.env.PORT || '4040';
   const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
-  const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + webhookSuffix;
+  const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
@@ -922,6 +931,43 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       }).catch((err) => {
         console.warn('[workflow] pushNotify failed:', err instanceof Error ? err.message : err);
       });
+      break;
+    }
+
+    case 'capture-learnings': {
+      // Collect all completed step results from this workflow run
+      const completedSteps = db.prepare(
+        `SELECT name, result FROM workflow_steps WHERE workflow_id = ? AND status = 'completed' AND result != '' ORDER BY completed_at ASC`
+      ).all(step.workflowId) as { name: string; result: string }[];
+
+      // Get the project_id for this workflow
+      const wfProjectRow = db.prepare('SELECT project_id FROM workflows WHERE id = ?').get(step.workflowId) as { project_id: string | null } | undefined;
+      const projectId = wfProjectRow?.project_id || null;
+
+      const contentTemplate = (config.content as string) || '';
+      let content: string;
+      if (contentTemplate) {
+        content = substituteVars(contentTemplate, vars);
+      } else {
+        // Auto-synthesize from step results
+        const stepSummaries = completedSteps
+          .filter((s) => s.name !== step.name)
+          .map((s) => `### ${s.name}\n${s.result.slice(0, 500)}${s.result.length > 500 ? '...' : ''}`)
+          .join('\n\n');
+        content = `## Workflow: ${workflowName}\n\nRan on ${new Date().toLocaleString()}\n\n${stepSummaries || 'No step results captured.'}`;
+      }
+
+      const tagsRaw = config.tags as string | undefined;
+      const tags = tagsRaw ? JSON.parse(tagsRaw) : [];
+
+      const { randomUUID } = await import('crypto');
+      db.prepare(
+        `INSERT INTO project_learnings (id, project_id, workflow_id, workflow_name, content, tags, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(randomUUID(), projectId, step.workflowId, workflowName, content, JSON.stringify(tags), new Date().toISOString());
+
+      emitStepLog(step.workflowId, step.id, step.name,
+        `Learnings captured for workflow "${workflowName}"${projectId ? ' and stored to project' : ' (no project assigned)'}`, 'success');
       break;
     }
 
