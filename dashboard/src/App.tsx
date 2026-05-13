@@ -8,6 +8,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
+import { GoalsPage } from './components/GoalsPage';
 import { api } from './lib/api';
 import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
 
@@ -49,6 +50,7 @@ export default function App() {
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
+  const [activeView, setActiveView] = useState<'agents' | 'goals'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
@@ -90,6 +92,21 @@ export default function App() {
             </span>
           </div>
           <div className="flex items-center gap-2 md:gap-4 text-base">
+            {/* View switcher */}
+            <div className="flex rounded-md overflow-hidden border border-white/10">
+              <button
+                onClick={() => setActiveView('agents')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'agents' ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Agents
+              </button>
+              <button
+                onClick={() => setActiveView('goals')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'goals' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Goals
+              </button>
+            </div>
             {/* Repo Picker */}
             <RepoPicker />
             {/* Commands button */}
@@ -136,6 +153,10 @@ export default function App() {
 
       {/* Main content */}
       <main className="p-3 md:p-6 space-y-4 md:space-y-6">
+        {activeView === 'goals' ? (
+          <GoalsPage />
+        ) : (
+        <>
         {/* Workflow Panel */}
         <section>
           <WorkflowPanel agents={agents} />
@@ -199,6 +220,8 @@ export default function App() {
             }}
           />
         </section>
+        </>
+        )}
       </main>
 
       {/* Command Templates Modal */}

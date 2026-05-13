@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { WorkflowGeneratorModal } from './WorkflowGeneratorModal';
-import type { Agent, Workflow, PlayerRole, PlayerType, StepSummary, WorkflowStep } from '../types';
+import type { Agent, Workflow, PlayerRole, PlayerType, StepSummary, WorkflowStep, Project } from '../types';
 
 // ─── Browser notification helper ────────────────────
 
@@ -593,6 +593,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
   const [initialContext, setInitialContext] = useState('');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
@@ -635,6 +637,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       setDeferredAssignments({});
       setDeferredPrompts({});
       setInitialContext('');
+      setSelectedProjectId('');
+      api.getGoalProjects().then(setProjects).catch(() => {});
       setStarting(false);
     } catch { /* silent */ }
     finally { setStarting(false); }
@@ -655,8 +659,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
         initialContext.trim() || undefined,
       );
-      if (result?.workflow?.id && result.workflow.id !== wf.id && onRunCreated) {
-        onRunCreated(result.workflow.id);
+      const runId = result?.workflow?.id;
+      if (runId && selectedProjectId) {
+        api.assignWorkflowProject(runId, selectedProjectId).catch(() => {});
+      }
+      if (runId && runId !== wf.id && onRunCreated) {
+        onRunCreated(runId);
       } else {
         onAction();
       }
@@ -739,6 +747,25 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               </>
             )}
           </div>
+          {/* Project assignment — optional */}
+          {projects.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Project (optional)</span>
+              <select
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+              >
+                <option value="">— No project —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.goalName ? `${p.goalName} / ` : ''}{p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
               <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge Selection</span>

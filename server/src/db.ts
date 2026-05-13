@@ -226,6 +226,14 @@ try {
   db.exec(`ALTER TABLE workflows ADD COLUMN initial_context TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add project_id column to workflows (goal cascade)
+try {
+  db.prepare('SELECT project_id FROM workflows LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflows ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_id)`);
+}
+
 // FTS5 full-text search over session summaries and project knowledge.
 // Drop triggers and tables first so we always start from a consistent schema.
 try {
@@ -576,6 +584,32 @@ db.exec(`
 
   -- Add project column to notes for project-scoped notes
   -- (SQLite ALTER TABLE ADD COLUMN is safe to run multiple times if column exists — handled below)
+
+  -- Goals: top-level business objectives
+  CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    success_metric TEXT NOT NULL DEFAULT '',
+    budget_usd REAL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
+
+  -- Projects: work areas that serve a goal
+  CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    primary_repo TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '#a855f7',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_projects_goal ON projects(goal_id);
 `);
 
 // Add project column to notes table (migration-safe)

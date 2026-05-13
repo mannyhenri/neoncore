@@ -432,6 +432,29 @@ export const api = {
       `/journal/search?q=${encodeURIComponent(query)}${project ? `&project=${encodeURIComponent(project)}` : ''}`
     ),
 
+  // Goals
+  getGoals: () => request<import('../types').Goal[]>('/goals'),
+  createGoal: (data: { name: string; description?: string; successMetric?: string; budgetUsd?: number | null }) =>
+    request<import('../types').Goal>('/goals', { method: 'POST', body: JSON.stringify(data) }),
+  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; budgetUsd?: number | null; status?: string }) =>
+    request<import('../types').Goal>(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteGoal: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
+
+  // Goal Projects (separate from journal projects)
+  getGoalProjects: (goalId?: string) =>
+    request<import('../types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),
+  getGoalProject: (id: string) =>
+    request<{ project: import('../types').Project; workflows: Record<string, unknown>[] }>(`/projects/${id}`),
+  createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string }) =>
+    request<import('../types').Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string }) =>
+    request<import('../types').Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+
+  // Assign workflow to project
+  assignWorkflowProject: (workflowId: string, projectId: string | null) =>
+    request<void>(`/workflows/${workflowId}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
+
   // Tool integrations
   getToolsStatus: () =>
     request<Record<string, { label: string; installed: boolean; configFile: string; hooksExist: boolean; cliInstalled: boolean; cliPath: string | null; npmPkg: string | null; authCmd: string | null }>>('/tools/status'),

@@ -312,6 +312,35 @@ export interface CommandTemplate {
   updatedAt: string;
 }
 
+// Goal Cascade types
+export interface Goal {
+  id: string;
+  name: string;
+  description: string;
+  successMetric: string;
+  budgetUsd: number | null;
+  status: 'active' | 'achieved' | 'paused';
+  createdAt: string;
+  updatedAt: string;
+  projectCount?: number;
+  runCount?: number;
+  estimatedCostUsd?: number;
+}
+
+export interface Project {
+  id: string;
+  goalId: string | null;
+  goalName?: string;
+  name: string;
+  description: string;
+  primaryRepo: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+  runCount?: number;
+  estimatedCostUsd?: number;
+}
+
 // Workflow Step types (V2 canvas workflows)
 export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate' | 'command' | 'connector';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';

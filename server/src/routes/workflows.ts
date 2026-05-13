@@ -243,6 +243,13 @@ router.delete('/:id', (req, res) => {
   res.status(204).send();
 });
 
+// Assign/unassign workflow to a project
+router.put('/:id/project', (req, res) => {
+  const { projectId } = req.body;
+  db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId || null, req.params.id);
+  res.status(204).send();
+});
+
 // List available API models
 router.get('/models', (_req, res) => {
   const openaiKey = getSetting('openai_api_key');
