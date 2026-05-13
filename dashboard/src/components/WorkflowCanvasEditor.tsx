@@ -103,6 +103,8 @@ interface LocalStep {
   status: StepStatus;
   dependsOn: string[];
   dispatchedPrompt: string;
+  result?: string;
+  error?: string;
 }
 
 // ─── Constants ──────────────────────────────────────
@@ -619,7 +621,14 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     onWorkflowStepUpdated: (step) => {
       if (savedWorkflowId && step.workflowId === savedWorkflowId) {
         setSteps((prev) => prev.map((s) =>
-          s.id === step.id ? { ...s, status: step.status, autoAdvance: step.autoAdvance, dispatchedPrompt: step.dispatchedPrompt || s.dispatchedPrompt } : s
+          s.id === step.id ? {
+            ...s,
+            status: step.status,
+            autoAdvance: step.autoAdvance,
+            dispatchedPrompt: step.dispatchedPrompt || s.dispatchedPrompt,
+            result: step.result ?? s.result,
+            error: step.error ?? s.error,
+          } : s
         ));
 
         // Show toast when a step completes or fails
@@ -659,6 +668,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         status: s.status,
         dependsOn: s.dependsOn,
         dispatchedPrompt: s.dispatchedPrompt || '',
+        result: s.result || '',
+        error: s.error || '',
       }));
 
       setSteps(localSteps);
@@ -1085,6 +1096,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           executorType: s.executorType, executorId: s.executorId,
           executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
           status: s.status, dependsOn: s.dependsOn, dispatchedPrompt: s.dispatchedPrompt || '',
+          result: s.result || '', error: s.error || '',
         })));
       }
       setWorkflowStatus(result.workflow.status);
@@ -1122,6 +1134,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           executorType: s.executorType, executorId: s.executorId,
           executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
           status: s.status, dependsOn: s.dependsOn, dispatchedPrompt: s.dispatchedPrompt || '',
+          result: s.result || '', error: s.error || '',
         })));
       }
       setWorkflowStatus(result.workflow.status);
@@ -1279,6 +1292,32 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 className="text-xs px-3 py-1.5 rounded-md border border-violet-700/40 text-violet-400 hover:text-violet-300 hover:border-violet-600/60 bg-violet-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 + Decision
+              </button>
+              <button
+                onClick={() => {
+                  const id = crypto.randomUUID();
+                  const maxY = steps.reduce((m, s) => Math.max(m, s.positionY), 0);
+                  const newStep: LocalStep = {
+                    id,
+                    name: 'Capture Learnings',
+                    description: 'Save workflow results to project memory',
+                    positionX: 300,
+                    positionY: maxY + 175,
+                    executorType: 'connector',
+                    executorId: '',
+                    executorConfig: { connectorType: 'capture-learnings' },
+                    autoAdvance: true,
+                    status: 'pending',
+                    dispatchedPrompt: '',
+                    dependsOn: [],
+                  };
+                  setSteps((prev) => [...prev, newStep]);
+                  setSelectedStepId(id);
+                }}
+                disabled={isExecuting}
+                className="text-xs px-3 py-1.5 rounded-md border border-emerald-700/40 text-emerald-400 hover:text-emerald-300 hover:border-emerald-600/60 bg-emerald-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                + Learnings
               </button>
             </>
           )}
@@ -2278,6 +2317,8 @@ function ConnectorStepConfig({
           <option value="github">GitHub</option>
           <option value="linear">Linear</option>
           <option value="http">Generic HTTP</option>
+          <option value="system-notify">System Notify</option>
+          <option value="capture-learnings">Capture Learnings</option>
         </select>
       </div>
 
@@ -2523,11 +2564,193 @@ function ConnectorStepConfig({
           </div>
         </>
       )}
+
+      {connectorType === 'capture-learnings' && (
+        <>
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            Captures all completed step results from this workflow run and stores them as a project learning entry. No config required — it works automatically when the workflow is assigned to a project.
+          </p>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Content Override (optional)</label>
+            <textarea
+              value={(cfg.content as string) || ''}
+              onChange={(e) => update({ content: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              rows={4}
+              placeholder="Leave blank to auto-synthesize from step results. Supports {{workflowName}}, {{result}}, {{stepName}}."
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Tags (JSON array, optional)</label>
+            <input
+              type="text"
+              value={(cfg.tags as string) || ''}
+              onChange={(e) => update({ tags: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder='["review", "backend"]'
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono text-[13px] disabled:opacity-50"
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Side Panel Component ───────────────────────────
+
+// ── Typed Result Panel ────────────────────────────────────────────────────────
+
+type OutputSchema = 'test_results' | 'code_review' | 'design_doc' | 'free_text';
+
+interface TestResultsData {
+  status: 'PASS' | 'FAIL';
+  passed: number;
+  failed: number;
+  failedTests: { name: string; error: string }[];
+}
+
+interface CodeReviewData {
+  status: 'PASS' | 'FAIL';
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  issues: { severity: string; location: string; description: string }[];
+}
+
+function parseTestResults(result: string): TestResultsData | null {
+  const block = result.match(/---TEST RESULTS---([\s\S]*?)---END TEST RESULTS---/i)?.[1];
+  if (!block) return null;
+  const status = /STATUS:\s*(PASS|FAIL)/i.exec(block)?.[1]?.toUpperCase() as 'PASS' | 'FAIL';
+  const passed = parseInt(/PASSED:\s*(\d+)/i.exec(block)?.[1] || '0', 10);
+  const failed = parseInt(/FAILED:\s*(\d+)/i.exec(block)?.[1] || '0', 10);
+  const failedTests: { name: string; error: string }[] = [];
+  const testLines = block.match(/^-\s+(.+?):\s+(.+)$/gm) || [];
+  for (const l of testLines) {
+    const m = /^-\s+(.+?):\s+(.+)$/.exec(l);
+    if (m) failedTests.push({ name: m[1].trim(), error: m[2].trim() });
+  }
+  return { status, passed, failed, failedTests };
+}
+
+function parseCodeReview(result: string): CodeReviewData | null {
+  const block = result.match(/---CODE REVIEW---([\s\S]*?)---END CODE REVIEW---/i)?.[1];
+  if (!block) return null;
+  const status = /STATUS:\s*(PASS|FAIL)/i.exec(block)?.[1]?.toUpperCase() as 'PASS' | 'FAIL';
+  const critical = parseInt(/CRITICAL:\s*(\d+)/i.exec(block)?.[1] || '0', 10);
+  const high = parseInt(/HIGH:\s*(\d+)/i.exec(block)?.[1] || '0', 10);
+  const medium = parseInt(/MEDIUM:\s*(\d+)/i.exec(block)?.[1] || '0', 10);
+  const low = parseInt(/LOW:\s*(\d+)/i.exec(block)?.[1] || '0', 10);
+  const issues: { severity: string; location: string; description: string }[] = [];
+  const issueLines = block.match(/^-\s+\[(\w+)\]\s+(.+?)\s+—\s+(.+)$/gm) || [];
+  for (const l of issueLines) {
+    const m = /^-\s+\[(\w+)\]\s+(.+?)\s+—\s+(.+)$/.exec(l);
+    if (m) issues.push({ severity: m[1], location: m[2].trim(), description: m[3].trim() });
+  }
+  return { status, critical, high, medium, low, issues };
+}
+
+function TypedResultPanel({ result, schema }: { result: string; schema: OutputSchema }) {
+  if (!result?.trim()) {
+    return <p className="text-[12px] text-gray-600 italic">No result yet.</p>;
+  }
+
+  if (schema === 'test_results') {
+    const data = parseTestResults(result);
+    if (data) {
+      const passBg = data.status === 'PASS' ? 'bg-emerald-900/30 border-emerald-800/40' : 'bg-red-900/30 border-red-800/40';
+      const passText = data.status === 'PASS' ? 'text-emerald-400' : 'text-red-400';
+      return (
+        <div className="space-y-3">
+          <div className={`rounded-lg p-3 border ${passBg}`}>
+            <div className="flex items-center gap-3">
+              <span className={`text-lg font-bold ${passText}`}>{data.status}</span>
+              <span className="text-[12px] text-gray-400">{data.passed} passed</span>
+              {data.failed > 0 && <span className="text-[12px] text-red-400">{data.failed} failed</span>}
+            </div>
+          </div>
+          {data.failedTests.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider">Failed tests</p>
+              {data.failedTests.map((t, i) => (
+                <div key={i} className="bg-red-900/20 border border-red-900/40 rounded p-2">
+                  <p className="text-[12px] text-red-300 font-medium">{t.name}</p>
+                  <p className="text-[11px] text-red-400/70 mt-0.5">{t.error}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <details className="text-[11px]">
+            <summary className="text-gray-600 cursor-pointer hover:text-gray-400">Full output</summary>
+            <pre className="mt-2 text-gray-500 bg-black/30 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{result}</pre>
+          </details>
+        </div>
+      );
+    }
+  }
+
+  if (schema === 'code_review') {
+    const data = parseCodeReview(result);
+    if (data) {
+      const SEVERITY_COLORS: Record<string, string> = {
+        CRITICAL: 'text-red-400 bg-red-900/30',
+        HIGH: 'text-orange-400 bg-orange-900/30',
+        MEDIUM: 'text-yellow-400 bg-yellow-900/30',
+        LOW: 'text-gray-400 bg-gray-900/30',
+      };
+      return (
+        <div className="space-y-3">
+          <div className={`rounded-lg p-3 border ${data.status === 'PASS' ? 'bg-emerald-900/30 border-emerald-800/40' : 'bg-red-900/30 border-red-800/40'}`}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className={`text-lg font-bold ${data.status === 'PASS' ? 'text-emerald-400' : 'text-red-400'}`}>{data.status}</span>
+              {data.critical > 0 && <span className="text-[11px] text-red-400 font-semibold">{data.critical} critical</span>}
+              {data.high > 0 && <span className="text-[11px] text-orange-400">{data.high} high</span>}
+              {data.medium > 0 && <span className="text-[11px] text-yellow-400">{data.medium} medium</span>}
+              {data.low > 0 && <span className="text-[11px] text-gray-400">{data.low} low</span>}
+            </div>
+          </div>
+          {data.issues.length > 0 && (
+            <div className="space-y-1.5">
+              {data.issues.map((issue, i) => {
+                const cls = SEVERITY_COLORS[issue.severity.toUpperCase()] || 'text-gray-400 bg-gray-900/30';
+                return (
+                  <div key={i} className={`rounded p-2 ${cls.split(' ')[1]}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className={`text-[10px] font-bold uppercase ${cls.split(' ')[0]}`}>{issue.severity}</span>
+                      <span className="text-[11px] text-gray-500 font-mono">{issue.location}</span>
+                    </div>
+                    <p className="text-[12px] text-gray-300">{issue.description}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <details className="text-[11px]">
+            <summary className="text-gray-600 cursor-pointer hover:text-gray-400">Full output</summary>
+            <pre className="mt-2 text-gray-500 bg-black/30 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{result}</pre>
+          </details>
+        </div>
+      );
+    }
+  }
+
+  if (schema === 'design_doc') {
+    return (
+      <div className="prose prose-invert prose-sm max-w-none">
+        <pre className="text-[12px] text-gray-300 bg-black/20 rounded-lg p-3 overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed">{result}</pre>
+      </div>
+    );
+  }
+
+  // Fallback: raw text
+  return (
+    <pre className="text-[12px] text-gray-400 bg-black/20 rounded-lg p-3 overflow-auto max-h-64 whitespace-pre-wrap leading-relaxed">{result}</pre>
+  );
+}
 
 // ── Decision Step Components ──────────────────────────────────────────────────
 
@@ -2882,6 +3105,30 @@ function SidePanel({
           <CommandStepConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
         )}
 
+        {/* ── Output Schema — typed result rendering ── */}
+        {(step.executorType === 'claude-code' || !step.executorType) && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Output format (optional)</label>
+            <select
+              value={(step.executorConfig.outputSchema as string) || 'free_text'}
+              onChange={(e) => {
+                const schema = e.target.value === 'free_text' ? undefined : e.target.value;
+                onUpdate({ executorConfig: { ...step.executorConfig, outputSchema: schema } });
+              }}
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            >
+              <option value="free_text">Free text (default)</option>
+              <option value="test_results">Test Results (pass/fail + counts)</option>
+              <option value="code_review">Code Review (severity breakdown)</option>
+              <option value="design_doc">Design Doc (rendered markdown)</option>
+            </select>
+            {(step.executorConfig.outputSchema as string | undefined) && (
+              <p className="text-[11px] text-gray-600 mt-1">Format instructions will be appended to the agent prompt.</p>
+            )}
+          </div>
+        )}
+
         {/* ── Decision step config ── */}
         {step.executorType === 'decision' && (
           <DecisionStepConfig step={step} onUpdate={onUpdate} isExecuting={isExecuting} steps={steps} />
@@ -3122,6 +3369,20 @@ function SidePanel({
         {/* Message sent to agent */}
         {step.dispatchedPrompt && (
           <DispatchedPromptSection prompt={step.dispatchedPrompt} />
+        )}
+
+        {/* Step result — shown when completed or failed */}
+        {(step.status === 'completed' || step.status === 'failed') && step.result && step.executorType !== 'decision' && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5">
+              Result
+              {step.status === 'failed' && <span className="ml-1.5 text-red-400">— {step.error}</span>}
+            </label>
+            <TypedResultPanel
+              result={step.result}
+              schema={(step.executorConfig.outputSchema as OutputSchema) || 'free_text'}
+            />
+          </div>
         )}
 
         {/* Status (during execution) */}

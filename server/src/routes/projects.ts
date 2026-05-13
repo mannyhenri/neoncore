@@ -117,4 +117,25 @@ router.delete('/:id', (req, res) => {
   res.status(204).send();
 });
 
+router.get('/:id/learnings', (req, res) => {
+  const row = db.prepare('SELECT id FROM projects WHERE id = ?').get(req.params.id) as { id: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+
+  const limit = Math.min(parseInt(req.query.limit as string || '50', 10), 200);
+  const learnings = db.prepare(
+    `SELECT id, project_id, workflow_id, workflow_name, content, tags, created_at
+     FROM project_learnings WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`
+  ).all(req.params.id, limit) as Record<string, unknown>[];
+
+  res.json(learnings.map((r) => ({
+    id: r.id,
+    projectId: r.project_id,
+    workflowId: r.workflow_id,
+    workflowName: r.workflow_name,
+    content: r.content,
+    tags: JSON.parse((r.tags as string) || '[]'),
+    createdAt: r.created_at,
+  })));
+});
+
 export default router;

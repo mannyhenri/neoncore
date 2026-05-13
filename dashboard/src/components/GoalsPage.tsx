@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { Goal, Project } from '../types';
+import type { Goal, Project, ProjectLearning } from '../types';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -205,9 +205,10 @@ interface ProjectCardProps {
   project: Project;
   onEdit: (p: Project) => void;
   onDelete: (id: string) => void;
+  onLearnings: (p: Project) => void;
 }
 
-function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
+function ProjectCard({ project, onEdit, onDelete, onLearnings }: ProjectCardProps) {
   return (
     <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
@@ -231,17 +232,75 @@ function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
       {project.description && (
         <p className="text-[12px] text-gray-500 leading-relaxed line-clamp-2">{project.description}</p>
       )}
-      <div className="flex items-center gap-3 text-[11px] text-gray-600 mt-auto pt-1 border-t border-white/[0.05]">
-        {project.primaryRepo && (
-          <span className="truncate max-w-[120px]" title={project.primaryRepo}>
-            {project.primaryRepo.split('/').pop()}
-          </span>
-        )}
-        <span>{project.runCount ?? 0} runs</span>
-        {(project.estimatedCostUsd ?? 0) > 0 && (
-          <span className="text-violet-400">{formatCost(project.estimatedCostUsd!)}</span>
-        )}
+      <div className="flex items-center justify-between gap-2 mt-auto pt-1 border-t border-white/[0.05]">
+        <div className="flex items-center gap-3 text-[11px] text-gray-600">
+          {project.primaryRepo && (
+            <span className="truncate max-w-[100px]" title={project.primaryRepo}>
+              {project.primaryRepo.split('/').pop()}
+            </span>
+          )}
+          <span>{project.runCount ?? 0} runs</span>
+          {(project.estimatedCostUsd ?? 0) > 0 && (
+            <span className="text-violet-400">{formatCost(project.estimatedCostUsd!)}</span>
+          )}
+        </div>
+        <button
+          onClick={() => onLearnings(project)}
+          className="text-[10px] text-gray-600 hover:text-violet-400 transition-colors flex items-center gap-1"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+          </svg>
+          Learnings
+        </button>
       </div>
+    </div>
+  );
+}
+
+function ProjectLearningsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const [learnings, setLearnings] = useState<ProjectLearning[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getProjectLearnings(project.id).then((data) => {
+      setLearnings(data);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [project.id]);
+
+  function formatRelativeTime(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+
+  return (
+    <div className="space-y-3">
+      {loading ? (
+        <p className="text-[12px] text-gray-500">Loading learnings...</p>
+      ) : learnings.length === 0 ? (
+        <div className="text-center py-6">
+          <p className="text-[12px] text-gray-600">No learnings captured yet.</p>
+          <p className="text-[11px] text-gray-700 mt-1">Add a "Capture Learnings" connector step at the end of a workflow to start building project memory.</p>
+        </div>
+      ) : (
+        learnings.map((l) => (
+          <div key={l.id} className="bg-black/30 border border-white/[0.07] rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[11px] font-medium text-violet-400">{l.workflowName}</span>
+              <span className="text-[10px] text-gray-600">{formatRelativeTime(l.createdAt)}</span>
+              {l.tags.length > 0 && l.tags.map((t) => (
+                <span key={t} className="text-[10px] px-1.5 py-0.5 bg-white/5 border border-white/10 rounded text-gray-500">{t}</span>
+              ))}
+            </div>
+            <pre className="text-[11px] text-gray-400 whitespace-pre-wrap leading-relaxed font-sans line-clamp-6">{l.content}</pre>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -256,9 +315,10 @@ interface GoalCardProps {
   onEditProject: (p: Project) => void;
   onDeleteProject: (id: string) => void;
   onAddProject: (goalId: string) => void;
+  onLearnings: (p: Project) => void;
 }
 
-function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject }: GoalCardProps) {
+function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings }: GoalCardProps) {
   const totalCost = projects.reduce((s, p) => s + (p.estimatedCostUsd ?? 0), 0);
   const budgetPct = goal.budgetUsd && totalCost > 0 ? Math.min(100, (totalCost / goal.budgetUsd) * 100) : null;
 
@@ -319,7 +379,7 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
               {projects.map((p) => (
-                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} />
+                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} onLearnings={onLearnings} />
               ))}
             </div>
           )}
@@ -373,6 +433,7 @@ export function GoalsPage() {
     | { type: 'edit-goal'; goal: Goal }
     | { type: 'new-project'; goalId: string | null }
     | { type: 'edit-project'; project: Project }
+    | { type: 'learnings'; project: Project }
     | null
   >(null);
 
@@ -502,6 +563,7 @@ export function GoalsPage() {
               onEditProject={(p) => setModal({ type: 'edit-project', project: p })}
               onDeleteProject={handleDeleteProject}
               onAddProject={(goalId) => setModal({ type: 'new-project', goalId })}
+              onLearnings={(p) => setModal({ type: 'learnings', project: p })}
             />
           ))}
 
@@ -516,6 +578,7 @@ export function GoalsPage() {
                     project={p}
                     onEdit={(proj) => setModal({ type: 'edit-project', project: proj })}
                     onDelete={handleDeleteProject}
+                    onLearnings={(proj) => setModal({ type: 'learnings', project: proj })}
                   />
                 ))}
               </div>
@@ -560,6 +623,12 @@ export function GoalsPage() {
             onSave={(data) => handleUpdateProject(modal.project.id, data)}
             onCancel={() => setModal(null)}
           />
+        </Modal>
+      )}
+
+      {modal?.type === 'learnings' && (
+        <Modal title={`Learnings — ${modal.project.name}`} onClose={() => setModal(null)}>
+          <ProjectLearningsPanel project={modal.project} onClose={() => setModal(null)} />
         </Modal>
       )}
     </div>

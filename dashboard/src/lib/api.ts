@@ -460,6 +460,10 @@ export const api = {
   assignWorkflowProject: (workflowId: string, projectId: string | null) =>
     request<void>(`/workflows/${workflowId}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
 
+  // Project learnings
+  getProjectLearnings: (projectId: string, limit?: number) =>
+    request<import('../types').ProjectLearning[]>(`/projects/${projectId}/learnings${limit ? `?limit=${limit}` : ''}`),
+
   // Tool integrations
   getToolsStatus: () =>
     request<Record<string, { label: string; installed: boolean; configFile: string; hooksExist: boolean; cliInstalled: boolean; cliPath: string | null; npmPkg: string | null; authCmd: string | null }>>('/tools/status'),
