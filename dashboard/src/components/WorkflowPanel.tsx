@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
-import { WorkflowGeneratorModal } from './WorkflowGeneratorModal';
 import type { Agent, Workflow, PlayerRole, PlayerType, StepSummary, WorkflowStep, Project } from '../types';
 
 // ─── Browser notification helper ────────────────────
@@ -49,7 +48,6 @@ export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [expanded, setExpanded] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
-  const [showGenerator, setShowGenerator] = useState(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -148,13 +146,6 @@ export function WorkflowPanel({ agents }: Props) {
     openWorkflow(runId);
   };
 
-  // After AI generator creates a template, open it in the canvas for review/edit
-  const handleGeneratorCreated = (workflowId: string) => {
-    setShowGenerator(false);
-    loadWorkflows();
-    openWorkflow(workflowId);
-  };
-
   return (
     <div>
       <button
@@ -181,16 +172,6 @@ export function WorkflowPanel({ agents }: Props) {
               className="text-sm px-4 py-2 rounded-lg gl-gradient text-white hover:opacity-90 transition-opacity font-medium"
             >
               + New Workflow
-            </button>
-            <button
-              onClick={() => setShowGenerator(true)}
-              className="text-sm px-4 py-2 rounded-lg bg-gl-purple/15 text-gl-purple border border-gl-purple/25 hover:bg-gl-purple/25 transition-colors font-medium flex items-center gap-1.5"
-              title="Generate a workflow from a natural language description"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
-              </svg>
-              AI Generate
             </button>
           </div>
 
@@ -293,13 +274,6 @@ export function WorkflowPanel({ agents }: Props) {
         />
       )}
 
-      {/* AI Workflow Generator */}
-      {showGenerator && (
-        <WorkflowGeneratorModal
-          onClose={() => setShowGenerator(false)}
-          onCreated={handleGeneratorCreated}
-        />
-      )}
     </div>
   );
 }
