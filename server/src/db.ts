@@ -666,10 +666,20 @@ if (orphanNotes.length > 0) {
 function seedDefaultTemplates() {
   // Always replace the 5 standard templates by name so schema changes take effect.
   // User-created templates with other names are left untouched.
-  const standardNames = ['Code Improvement', 'Bug Hunter', 'Feature Fix', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit'];
+  const standardNames = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit'];
   for (const name of standardNames) {
-    const row = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").get(name) as { id: string } | undefined;
-    if (row) {
+    const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
+    for (const row of rows) {
+      db.prepare("DELETE FROM workflow_steps WHERE workflow_id = ?").run(row.id);
+      db.prepare("DELETE FROM workflows WHERE id = ?").run(row.id);
+    }
+  }
+
+  // Remove deprecated templates on every boot so they don't linger in existing DBs
+  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor'];
+  for (const name of deprecatedNames) {
+    const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
+    for (const row of rows) {
       db.prepare("DELETE FROM workflow_steps WHERE workflow_id = ?").run(row.id);
       db.prepare("DELETE FROM workflows WHERE id = ?").run(row.id);
     }
@@ -722,24 +732,7 @@ function seedDefaultTemplates() {
 
   // Layout constants: all steps x=300, y increments by 175 (fully linear/sequential).
 
-  // ── 1. Code Improvement ───────────────────────────────────────────────────
-  {
-    const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
-    insertWorkflow.run(wfId, 'Code Improvement',
-      'Audit → architect → define tests → implement → run tests → security → notify.', now);
-    step(wfId, s1, 'Performance Audit',   'Identify top bottlenecks ranked by impact. No code changes.',                                                                                                                      300,   50, 'claude-code', cc('performance'), []);
-    step(wfId, s2, 'Architecture Review', 'Propose refactoring steps with exact file paths and interfaces.',                                                                                                                  300,  225, 'claude-code', cc('architect'),   [s1]);
-    step(wfId, s3, 'Define Tests',        'Define the test cases and expected outcomes that will prove the improvements worked. List what each test verifies. Do not write implementation code.',                              300,  400, 'claude-code', cc('tester'),     [s2]);
-    step(wfId, s4, 'Implement Fixes',     'Apply the improvements following the architecture plan.',                                                                                                                          300,  575, 'claude-code', cc('backend'),    [s3]);
-    step(wfId, s5, 'Run Tests',           'Execute the tests defined in the Define Tests step. Verify all pass.',                                                                                                             300,  750, 'quality-gate',
-      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 }, [s4]);
-    step(wfId, s6, 'Security & Lint',     'Verify lint and security pass after the changes.',                                                                                                                                 300,  925, 'quality-gate', gate('security'), [s5]);
-    step(wfId, s7, 'Notify',              'System notification: Code Improvement workflow complete.',                                                                                                                          300, 1100, 'connector',
-      { connectorType: 'system-notify', title: 'Code Improvement — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s6]);
-  }
-
-  // ── 2. Bug Hunter ─────────────────────────────────────────────────────────
+  // ── 1. Bug Hunter ────────────────────────────────────────────────────────
   {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
@@ -797,24 +790,7 @@ function seedDefaultTemplates() {
       { connectorType: 'system-notify', title: 'Bug Hunter — Done', message: '{{workflowName}} finished. Check NeonCore for the full bug report.' }, [s6]);
   }
 
-  // ── 3. Feature Fix ────────────────────────────────────────────────────────
-  {
-    const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
-    insertWorkflow.run(wfId, 'Feature Fix',
-      'Diagnose → plan → define tests → implement → run tests → security → notify.', now);
-    step(wfId, s1, 'Diagnose Issue',  'Find exactly where behavior diverges from intent. No code changes.',                                                                                                                    300,   50, 'claude-code', cc('reviewer'),  []);
-    step(wfId, s2, 'Plan the Fix',    'Design the minimal fix with exact file paths and edge case analysis.',                                                                                                                  300,  225, 'claude-code', cc('architect'), [s1]);
-    step(wfId, s3, 'Define Tests',    'Define the test cases that describe the correct behavior. List what each test verifies and what inputs/outputs prove the feature works. Do not write the fix yet.',                     300,  400, 'claude-code', cc('tester'),    [s2]);
-    step(wfId, s4, 'Implement Fix',   'Implement the fix following the plan.',                                                                                                                                                300,  575, 'claude-code', cc('backend'),   [s3]);
-    step(wfId, s5, 'Run Tests',       'Execute all tests defined in Define Tests. Verify the feature behaves as expected.',                                                                                                   300,  750, 'quality-gate',
-      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 2 }, [s4]);
-    step(wfId, s6, 'Security & Lint', 'Confirm lint and security pass after the fix.',                                                                                                                                        300,  925, 'quality-gate', gate('security'), [s5]);
-    step(wfId, s7, 'Notify',          'System notification: Feature Fix workflow complete.',                                                                                                                                   300, 1100, 'connector',
-      { connectorType: 'system-notify', title: 'Feature Fix — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s6]);
-  }
-
-  // ── 4. New Feature ────────────────────────────────────────────────────────
+  // ── 3. New Feature ────────────────────────────────────────────────────────
   {
     const wfId = randomUUID();
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
@@ -1353,7 +1329,7 @@ function seedDefaultTemplates() {
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s5]);
   }
 
-  console.log('[db] Seeded 14 default workflow templates');
+  console.log('[db] Seeded 12 default workflow templates');
 }
 
 seedDefaultTemplates();
