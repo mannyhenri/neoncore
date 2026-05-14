@@ -25,11 +25,13 @@ import virtualCartridgesRouter from './routes/virtual-cartridges.js';
 import toolsRouter from './routes/tools.js';
 import goalsRouter from './routes/goals.js';
 import projectsRouter from './routes/projects.js';
+import heartbeatsRouter from './routes/heartbeats.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startEpicExecutor } from './routes/epics.js';
 import { startWorkflowExecutor } from './lib/workflow-executor.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
+import { startHeartbeatScheduler } from './lib/heartbeat-scheduler.js';
 import { restoreRunningServers } from './lib/mcp-manager.js';
 import { endSession } from './lib/session-manager.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
@@ -71,6 +73,7 @@ app.use('/api/virtual-cartridges', virtualCartridgesRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/goals', goalsRouter);
 app.use('/api/projects', projectsRouter);
+app.use('/api/heartbeats', heartbeatsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -180,6 +183,7 @@ startCleanupScheduler();
 // startEpicExecutor(); // TODO: disabled — autopilot not working yet
 startWorkflowExecutor();
 startWorkflowExecutorV2();
+startHeartbeatScheduler();
 
 // Restore MCP servers that were running before restart
 restoreRunningServers().catch((err) => console.error('[mcp] Restore failed:', err));

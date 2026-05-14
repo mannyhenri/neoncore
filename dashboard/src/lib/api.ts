@@ -464,6 +464,27 @@ export const api = {
   getProjectLearnings: (projectId: string, limit?: number) =>
     request<import('../types').ProjectLearning[]>(`/projects/${projectId}/learnings${limit ? `?limit=${limit}` : ''}`),
 
+  // Heartbeats
+  getHeartbeats: (projectId?: string) =>
+    request<import('../types').Heartbeat[]>(`/heartbeats${projectId ? `?projectId=${projectId}` : ''}`),
+  createHeartbeat: (data: {
+    projectId?: string | null;
+    templateId: string;
+    agentId?: string;
+    schedule: { type: 'hourly' | 'daily' | 'weekly'; time?: string; day?: number };
+    label?: string;
+    active?: boolean;
+  }) => request<import('../types').Heartbeat>('/heartbeats', { method: 'POST', body: JSON.stringify(data) }),
+  updateHeartbeat: (id: string, data: {
+    templateId?: string;
+    agentId?: string;
+    schedule?: { type: 'hourly' | 'daily' | 'weekly'; time?: string; day?: number };
+    label?: string;
+    active?: boolean;
+  }) => request<import('../types').Heartbeat>(`/heartbeats/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteHeartbeat: (id: string) => request<void>(`/heartbeats/${id}`, { method: 'DELETE' }),
+  fireHeartbeat: (id: string) => request<{ runId: string; message: string }>(`/heartbeats/${id}/fire`, { method: 'POST' }),
+
   // Tool integrations
   getToolsStatus: () =>
     request<Record<string, { label: string; installed: boolean; configFile: string; hooksExist: boolean; cliInstalled: boolean; cliPath: string | null; npmPkg: string | null; authCmd: string | null }>>('/tools/status'),

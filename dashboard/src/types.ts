@@ -342,6 +342,22 @@ export interface Project {
   estimatedCostUsd?: number;
 }
 
+export interface Heartbeat {
+  id: string;
+  projectId: string | null;
+  templateId: string;
+  templateName: string | null;
+  agentId: string;
+  agentName: string | null;
+  schedule: { type: 'hourly' | 'daily' | 'weekly'; time?: string; day?: number };
+  scheduleLabel: string;
+  label: string;
+  active: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  createdAt: string;
+}
+
 export interface ProjectLearning {
   id: string;
   projectId: string | null;

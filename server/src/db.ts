@@ -623,6 +623,22 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_projects_goal ON projects(goal_id);
+
+  -- Heartbeats: scheduled recurring workflow runs per project
+  CREATE TABLE IF NOT EXISTS heartbeats (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    template_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL DEFAULT '',
+    schedule TEXT NOT NULL DEFAULT '{"type":"daily","time":"09:00"}',
+    label TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    next_run_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_heartbeats_project ON heartbeats(project_id);
+  CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats(active, next_run_at);
 `);
 
 // Add project column to notes table (migration-safe)
