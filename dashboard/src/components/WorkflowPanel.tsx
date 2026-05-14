@@ -658,11 +658,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
         initialContext.trim() || undefined,
+        selectedProjectId || null,
       );
       const runId = result?.workflow?.id;
-      if (runId && selectedProjectId) {
-        api.assignWorkflowProject(runId, selectedProjectId).catch(() => {});
-      }
       if (runId && runId !== wf.id && onRunCreated) {
         onRunCreated(runId);
       } else {

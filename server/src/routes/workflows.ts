@@ -634,7 +634,23 @@ router.post('/v2/:id/start', (req, res) => {
       .get(templateId) as { next: number }).next;
     runId = uuid();
 
-    const initialContext = (req.body?.initialContext as string) || '';
+    const projectId = (req.body?.projectId as string) || null;
+    let initialContext = (req.body?.initialContext as string) || '';
+
+    // Auto-inject recent project learnings into initial context
+    if (projectId) {
+      const learnings = db.prepare(
+        `SELECT content, workflow_name FROM project_learnings WHERE project_id = ? ORDER BY created_at DESC LIMIT 3`
+      ).all(projectId) as { content: string; workflow_name: string }[];
+      if (learnings.length > 0) {
+        const learningsBlock = [
+          '## Recent Project Learnings',
+          ...learnings.map((l, i) => `### ${i + 1}. From "${l.workflow_name}"\n${l.content.slice(0, 600)}${l.content.length > 600 ? '...' : ''}`),
+          '---',
+        ].join('\n\n');
+        initialContext = learningsBlock + (initialContext ? '\n\n' + initialContext : '');
+      }
+    }
 
     db.prepare(`
       INSERT INTO workflows (id, name, jira_task_id, description, players, phases, status,
@@ -649,6 +665,11 @@ router.post('/v2/:id/start', (req, res) => {
       now, now,
       row.target_repos, templateId, runNum,
     );
+
+    // Assign project immediately if provided
+    if (projectId) {
+      db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId, runId);
+    }
 
     // Clone steps with new IDs, remapping depends_on references
     const templateSteps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')

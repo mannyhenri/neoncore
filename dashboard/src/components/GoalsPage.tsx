@@ -207,17 +207,28 @@ interface ProjectCardProps {
   onDelete: (id: string) => void;
   onLearnings: (p: Project) => void;
   onHeartbeats: (p: Project) => void;
+  onRun: (p: Project) => void;
 }
 
-function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats }: ProjectCardProps) {
+function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats, onRun }: ProjectCardProps) {
   return (
     <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
           <span className="text-sm font-medium text-gray-200 truncate">{project.name}</span>
+          {project.lastRunStatus && <RunStatusDot status={project.lastRunStatus} />}
         </div>
         <div className="flex gap-1 flex-shrink-0">
+          <button
+            onClick={() => onRun(project)}
+            className="text-gray-600 hover:text-violet-400 transition-colors p-0.5"
+            title="Run workflow"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+            </svg>
+          </button>
           <button onClick={() => onEdit(project)} className="text-gray-600 hover:text-gray-300 transition-colors p-0.5">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
@@ -315,6 +326,113 @@ function ProjectLearningsPanel({ project, onClose }: { project: Project; onClose
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+function RunStatusDot({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    completed: 'bg-emerald-500',
+    running:   'bg-blue-400 animate-pulse',
+    failed:    'bg-red-500',
+    paused:    'bg-yellow-500',
+  };
+  const cls = map[status] || 'bg-gray-600';
+  return <span className={`inline-block w-2 h-2 rounded-full ${cls}`} title={status} />;
+}
+
+function LaunchFromProjectModal({ project, onClose }: { project: Project; onClose: (runId?: string) => void }) {
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string; repoName: string; status: string }[]>([]);
+  const [templateId, setTemplateId] = useState('');
+  const [agentId, setAgentId] = useState('');
+  const [note, setNote] = useState('');
+  const [launching, setLaunching] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      api.getWorkflows().then((ws) => ws.filter((w) => !w.templateId).map((w) => ({ id: w.id, name: w.name }))),
+      api.getAgents().then((as) => as.filter((a) => a.status !== 'offline').map((a) => ({ id: a.id, name: a.name, repoName: a.repoName, status: a.status }))),
+    ]).then(([tmps, ags]) => { setTemplates(tmps); setAgents(ags); });
+  }, []);
+
+  async function handleLaunch() {
+    if (!templateId) return;
+    setLaunching(true);
+    setError('');
+    try {
+      const result = await api.startWorkflowV2(
+        templateId,
+        agentId ? { [templateId]: agentId } : undefined,
+        undefined,
+        note.trim() || undefined,
+        project.id,
+      );
+      onClose(result?.workflow?.id);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Launch failed');
+      setLaunching(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && <p className="text-[12px] text-red-400">{error}</p>}
+
+      <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Workflow template</label>
+        <select
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+        >
+          <option value="">— Select template —</option>
+          {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Agent (optional)</label>
+        <select
+          value={agentId}
+          onChange={(e) => setAgentId(e.target.value)}
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+        >
+          <option value="">— Any available —</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>{a.repoName || a.name} ({a.status})</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Run note (optional)</label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="Additional context for this run…"
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 resize-none"
+        />
+      </div>
+
+      {project.lastRunStatus !== null && project.lastRunStatus !== undefined && (
+        <p className="text-[11px] text-gray-600">
+          Last run: <RunStatusDot status={project.lastRunStatus} /> <span className="ml-1">{project.lastRunStatus}</span>
+        </p>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={handleLaunch}
+          disabled={!templateId || launching}
+          className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm rounded-md transition-colors"
+        >
+          {launching ? 'Launching…' : 'Launch'}
+        </button>
+        <button onClick={() => onClose()} className="px-4 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
+      </div>
     </div>
   );
 }
@@ -641,9 +759,10 @@ interface GoalCardProps {
   onAddProject: (goalId: string) => void;
   onLearnings: (p: Project) => void;
   onHeartbeats: (p: Project) => void;
+  onRun: (p: Project) => void;
 }
 
-function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings, onHeartbeats }: GoalCardProps) {
+function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings, onHeartbeats, onRun }: GoalCardProps) {
   const totalCost = projects.reduce((s, p) => s + (p.estimatedCostUsd ?? 0), 0);
   const budgetPct = goal.budgetUsd && totalCost > 0 ? Math.min(100, (totalCost / goal.budgetUsd) * 100) : null;
 
@@ -704,7 +823,7 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
               {projects.map((p) => (
-                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} onLearnings={onLearnings} onHeartbeats={onHeartbeats} />
+                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} onLearnings={onLearnings} onHeartbeats={onHeartbeats} onRun={onRun} />
               ))}
             </div>
           )}
@@ -760,6 +879,7 @@ export function GoalsPage() {
     | { type: 'edit-project'; project: Project }
     | { type: 'learnings'; project: Project }
     | { type: 'heartbeats'; project: Project }
+    | { type: 'run'; project: Project }
     | null
   >(null);
 
@@ -891,6 +1011,7 @@ export function GoalsPage() {
               onAddProject={(goalId) => setModal({ type: 'new-project', goalId })}
               onLearnings={(p) => setModal({ type: 'learnings', project: p })}
               onHeartbeats={(p) => setModal({ type: 'heartbeats', project: p })}
+              onRun={(p) => setModal({ type: 'run', project: p })}
             />
           ))}
 
@@ -907,6 +1028,7 @@ export function GoalsPage() {
                     onDelete={handleDeleteProject}
                     onLearnings={(proj) => setModal({ type: 'learnings', project: proj })}
                     onHeartbeats={(proj) => setModal({ type: 'heartbeats', project: proj })}
+                    onRun={(proj) => setModal({ type: 'run', project: proj })}
                   />
                 ))}
               </div>
@@ -963,6 +1085,18 @@ export function GoalsPage() {
       {modal?.type === 'heartbeats' && (
         <Modal title={`Scheduled Runs — ${modal.project.name}`} onClose={() => setModal(null)}>
           <HeartbeatsPanel project={modal.project} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+
+      {modal?.type === 'run' && (
+        <Modal title={`Run Workflow — ${modal.project.name}`} onClose={() => setModal(null)}>
+          <LaunchFromProjectModal
+            project={modal.project}
+            onClose={(runId) => {
+              setModal(null);
+              if (runId) refresh();
+            }}
+          />
         </Modal>
       )}
     </div>
