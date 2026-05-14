@@ -39,6 +39,39 @@ interface SelectedPlayer {
 }
 
 const PHASE_LABELS = { research: 'Research', coding: 'Coding', review: 'Review' } as const;
+
+type TemplateTab = 'all' | 'strategy' | 'development' | 'quality' | 'jira';
+
+const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
+  'Product Strategy Session':       'strategy',
+  'Engineering Architecture Review':'strategy',
+  'Deep Research':                  'strategy',
+  'New Feature':                    'development',
+  'Feature Validation':             'development',
+  'Bug Investigation':              'development',
+  'Code Review & Audit':            'development',
+  'Full QA Review':                 'quality',
+  'Bug Hunter':                     'quality',
+  'CI/CD Pipeline':                 'quality',
+  'Jira Tasks Validation':          'jira',
+  'Jira Tasks Completion':          'jira',
+};
+
+const TAB_LABELS: Record<TemplateTab, string> = {
+  all:         'All',
+  strategy:    'Strategy',
+  development: 'Dev',
+  quality:     'Quality',
+  jira:        'Jira',
+};
+
+const TAB_COLORS: Record<TemplateTab, string> = {
+  all:         'bg-white/10 text-gray-200',
+  strategy:    'bg-violet-900/60 text-violet-300',
+  development: 'bg-blue-900/60 text-blue-300',
+  quality:     'bg-emerald-900/60 text-emerald-300',
+  jira:        'bg-orange-900/60 text-orange-300',
+};
 const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 const ROLE_OPTIONS: PlayerRole[] = ['research', 'coding', 'review'];
 
@@ -53,6 +86,7 @@ export function WorkflowPanel({ agents }: Props) {
   const [showAllRecent, setShowAllRecent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showRecentRuns, setShowRecentRuns] = useState(false);
+  const [templateTab, setTemplateTab] = useState<'all' | 'strategy' | 'development' | 'quality' | 'jira'>('all');
 
   const loadWorkflows = useCallback(async () => {
     try {
@@ -222,11 +256,42 @@ export function WorkflowPanel({ agents }: Props) {
                   {templates.filter((t) => t.stepSummary).length}
                 </span>
               </button>
-              {showTemplates && templates.filter((t) => t.stepSummary).map((wf) => (
-                <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
-                  onRunCreated={handleRunCreated}
-                  runCount={runs.filter((r) => r.templateId === wf.id).length} />
-              ))}
+              {showTemplates && (
+                <>
+                  {/* Category tabs */}
+                  <div className="flex rounded-md overflow-hidden border border-white/10 w-fit">
+                    {(Object.keys(TAB_LABELS) as TemplateTab[]).map((tab) => {
+                      const count = tab === 'all'
+                        ? templates.filter((t) => t.stepSummary).length
+                        : templates.filter((t) => t.stepSummary && (TEMPLATE_CATEGORY[t.name] ?? 'development') === tab).length;
+                      return (
+                        <button
+                          key={tab}
+                          onClick={() => setTemplateTab(tab)}
+                          className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1 ${
+                            templateTab === tab
+                              ? TAB_COLORS[tab]
+                              : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                          }`}
+                        >
+                          {TAB_LABELS[tab]}
+                          <span className={`text-[10px] ${templateTab === tab ? 'opacity-70' : 'opacity-40'}`}>{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Filtered template list */}
+                  {templates
+                    .filter((t) => t.stepSummary)
+                    .filter((t) => templateTab === 'all' || (TEMPLATE_CATEGORY[t.name] ?? 'development') === templateTab)
+                    .map((wf) => (
+                      <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
+                        onRunCreated={handleRunCreated}
+                        runCount={runs.filter((r) => r.templateId === wf.id).length} />
+                    ))
+                  }
+                </>
+              )}
             </div>
           )}
 
