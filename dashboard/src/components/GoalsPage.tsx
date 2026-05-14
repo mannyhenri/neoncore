@@ -863,12 +863,15 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+    >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-lg shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-200">{title}</h3>
-          <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-gray-600 hover:text-gray-300 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
