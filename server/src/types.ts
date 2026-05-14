@@ -401,6 +401,7 @@ export type ServerToClientEvents = {
   plan_executed: (data: { agentId: string }) => void;
   session_started: (data: { agentId: string; project: string; sessionId: string }) => void;
   session_ended: (data: { agentId: string; project: string; sessionId: string }) => void;
+  heartbeat_fired: (data: { heartbeatId: string; runId: string; projectId: string | null; templateId: string; label: unknown; firedAt: string; nextRunAt: string }) => void;
 };
 
 export type ClientToServerEvents = {

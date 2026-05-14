@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { Goal, Project, ProjectLearning } from '../types';
+import type { Goal, Project, ProjectLearning, Heartbeat } from '../types';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -206,9 +206,10 @@ interface ProjectCardProps {
   onEdit: (p: Project) => void;
   onDelete: (id: string) => void;
   onLearnings: (p: Project) => void;
+  onHeartbeats: (p: Project) => void;
 }
 
-function ProjectCard({ project, onEdit, onDelete, onLearnings }: ProjectCardProps) {
+function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats }: ProjectCardProps) {
   return (
     <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
@@ -244,15 +245,28 @@ function ProjectCard({ project, onEdit, onDelete, onLearnings }: ProjectCardProp
             <span className="text-violet-400">{formatCost(project.estimatedCostUsd!)}</span>
           )}
         </div>
-        <button
-          onClick={() => onLearnings(project)}
-          className="text-[10px] text-gray-600 hover:text-violet-400 transition-colors flex items-center gap-1"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-          </svg>
-          Learnings
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onHeartbeats(project)}
+            className="text-[10px] text-gray-600 hover:text-emerald-400 transition-colors flex items-center gap-1"
+            title="Scheduled runs"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Schedule
+          </button>
+          <button
+            onClick={() => onLearnings(project)}
+            className="text-[10px] text-gray-600 hover:text-violet-400 transition-colors flex items-center gap-1"
+            title="Workflow learnings"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            </svg>
+            Learnings
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -305,6 +319,316 @@ function ProjectLearningsPanel({ project, onClose }: { project: Project; onClose
   );
 }
 
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+interface HeartbeatFormData {
+  templateId: string;
+  agentId: string;
+  scheduleType: 'hourly' | 'daily' | 'weekly';
+  scheduleTime: string;
+  scheduleDay: number;
+  label: string;
+  active: boolean;
+}
+
+const EMPTY_FORM: HeartbeatFormData = {
+  templateId: '', agentId: '', scheduleType: 'daily',
+  scheduleTime: '09:00', scheduleDay: 1, label: '', active: true,
+};
+
+function HeartbeatsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string; repoName: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<HeartbeatFormData>(EMPTY_FORM);
+  const [firing, setFiring] = useState<string | null>(null);
+  const [firedRun, setFiredRun] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      api.getHeartbeats(project.id),
+      api.getWorkflows().then((ws) => ws.filter((w) => !w.templateId).map((w) => ({ id: w.id, name: w.name }))),
+      api.getAgents().then((as) => as.map((a) => ({ id: a.id, name: a.name, repoName: a.repoName }))),
+    ]).then(([hbs, tmps, ags]) => {
+      setHeartbeats(hbs);
+      setTemplates(tmps);
+      setAgents(ags);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [project.id]);
+
+  async function handleSave() {
+    const schedule = {
+      type: form.scheduleType,
+      ...(form.scheduleType !== 'hourly' && { time: form.scheduleTime }),
+      ...(form.scheduleType === 'weekly' && { day: form.scheduleDay }),
+    };
+    try {
+      if (editingId) {
+        const updated = await api.updateHeartbeat(editingId, {
+          templateId: form.templateId, agentId: form.agentId,
+          schedule, label: form.label, active: form.active,
+        });
+        setHeartbeats((prev) => prev.map((h) => (h.id === editingId ? updated : h)));
+      } else {
+        const created = await api.createHeartbeat({
+          projectId: project.id, templateId: form.templateId, agentId: form.agentId,
+          schedule, label: form.label, active: form.active,
+        });
+        setHeartbeats((prev) => [created, ...prev]);
+      }
+      setShowForm(false);
+      setEditingId(null);
+      setForm(EMPTY_FORM);
+    } catch (e) { /* no-op */ }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this scheduled run?')) return;
+    await api.deleteHeartbeat(id);
+    setHeartbeats((prev) => prev.filter((h) => h.id !== id));
+  }
+
+  async function handleFire(id: string) {
+    setFiring(id);
+    try {
+      const result = await api.fireHeartbeat(id);
+      setFiredRun(result.runId);
+      const updated = await api.getHeartbeats(project.id);
+      setHeartbeats(updated);
+    } catch { /* no-op */ } finally {
+      setFiring(null);
+    }
+  }
+
+  function startEdit(h: Heartbeat) {
+    setForm({
+      templateId: h.templateId,
+      agentId: h.agentId,
+      scheduleType: h.schedule.type,
+      scheduleTime: h.schedule.time || '09:00',
+      scheduleDay: h.schedule.day ?? 1,
+      label: h.label,
+      active: h.active,
+    });
+    setEditingId(h.id);
+    setShowForm(true);
+  }
+
+  function formatRelativeTime(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+
+  function formatNextRun(iso: string) {
+    const diff = new Date(iso).getTime() - Date.now();
+    if (diff < 0) return 'overdue';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `in ${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `in ${hrs}h`;
+    return `in ${Math.floor(hrs / 24)}d`;
+  }
+
+  if (loading) return <p className="text-[12px] text-gray-500">Loading...</p>;
+
+  return (
+    <div className="space-y-3">
+      {firedRun && (
+        <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
+          <span className="text-[12px] text-emerald-400">Run started — ID: {firedRun.slice(0, 8)}…</span>
+          <button onClick={() => setFiredRun(null)} className="text-emerald-600 hover:text-emerald-400 text-[11px]">dismiss</button>
+        </div>
+      )}
+
+      {!showForm && (
+        <button
+          onClick={() => { setShowForm(true); setEditingId(null); setForm(EMPTY_FORM); }}
+          className="flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-violet-400 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Schedule a recurring run
+        </button>
+      )}
+
+      {showForm && (
+        <div className="bg-black/30 border border-white/[0.07] rounded-lg p-3 space-y-3">
+          <h4 className="text-[11px] text-gray-400 font-semibold uppercase tracking-wider">
+            {editingId ? 'Edit schedule' : 'New scheduled run'}
+          </h4>
+
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">Label (optional)</label>
+            <input
+              value={form.label}
+              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+              placeholder="e.g. Weekly code health check"
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">Workflow template</label>
+            <select
+              value={form.templateId}
+              onChange={(e) => setForm((f) => ({ ...f, templateId: e.target.value }))}
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+            >
+              <option value="">— Select template —</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">Agent (optional)</label>
+            <select
+              value={form.agentId}
+              onChange={(e) => setForm((f) => ({ ...f, agentId: e.target.value }))}
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+            >
+              <option value="">— Any available agent —</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex gap-2">
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">Frequency</label>
+              <select
+                value={form.scheduleType}
+                onChange={(e) => setForm((f) => ({ ...f, scheduleType: e.target.value as HeartbeatFormData['scheduleType'] }))}
+                className="bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+              >
+                <option value="hourly">Hourly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            {form.scheduleType !== 'hourly' && (
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Time</label>
+                <input
+                  type="time"
+                  value={form.scheduleTime}
+                  onChange={(e) => setForm((f) => ({ ...f, scheduleTime: e.target.value }))}
+                  className="bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                />
+              </div>
+            )}
+            {form.scheduleType === 'weekly' && (
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Day</label>
+                <select
+                  value={form.scheduleDay}
+                  onChange={(e) => setForm((f) => ({ ...f, scheduleDay: parseInt(e.target.value) }))}
+                  className="bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                >
+                  {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hb-active"
+              checked={form.active}
+              onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
+              className="rounded border-white/20 bg-black/40"
+            />
+            <label htmlFor="hb-active" className="text-[12px] text-gray-400">Active</label>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={!form.templateId}
+              className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm rounded-md transition-colors"
+            >
+              {editingId ? 'Save' : 'Create'}
+            </button>
+            <button
+              onClick={() => { setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); }}
+              className="px-4 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {heartbeats.length === 0 && !showForm ? (
+        <p className="text-[12px] text-gray-600">No scheduled runs yet.</p>
+      ) : (
+        heartbeats.map((h) => (
+          <div key={h.id} className={`bg-black/30 border rounded-lg p-3 ${h.active ? 'border-white/[0.07]' : 'border-white/[0.04] opacity-60'}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${h.active ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+                  <span className="text-[12px] font-medium text-gray-200 truncate">{h.label || h.templateName || h.templateId.slice(0, 8)}</span>
+                </div>
+                <p className="text-[11px] text-gray-500 ml-4">{h.scheduleLabel}</p>
+                {h.templateName && h.label && (
+                  <p className="text-[10px] text-gray-600 ml-4 mt-0.5">{h.templateName}</p>
+                )}
+                <div className="flex gap-3 text-[10px] text-gray-700 ml-4 mt-1">
+                  {h.lastRunAt && <span>Last: {formatRelativeTime(h.lastRunAt)}</span>}
+                  <span>Next: {formatNextRun(h.nextRunAt)}</span>
+                  {h.agentName && <span>Agent: {h.agentName}</span>}
+                </div>
+              </div>
+              <div className="flex gap-1 flex-shrink-0">
+                <button
+                  onClick={() => handleFire(h.id)}
+                  disabled={firing === h.id}
+                  className="text-gray-600 hover:text-emerald-400 disabled:opacity-40 transition-colors p-0.5"
+                  title="Fire now"
+                >
+                  {firing === h.id ? (
+                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+                    </svg>
+                  )}
+                </button>
+                <button onClick={() => startEdit(h)} className="text-gray-600 hover:text-gray-300 transition-colors p-0.5">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                  </svg>
+                </button>
+                <button onClick={() => handleDelete(h.id)} className="text-gray-600 hover:text-red-400 transition-colors p-0.5">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 interface GoalCardProps {
   goal: Goal;
   projects: Project[];
@@ -316,9 +640,10 @@ interface GoalCardProps {
   onDeleteProject: (id: string) => void;
   onAddProject: (goalId: string) => void;
   onLearnings: (p: Project) => void;
+  onHeartbeats: (p: Project) => void;
 }
 
-function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings }: GoalCardProps) {
+function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings, onHeartbeats }: GoalCardProps) {
   const totalCost = projects.reduce((s, p) => s + (p.estimatedCostUsd ?? 0), 0);
   const budgetPct = goal.budgetUsd && totalCost > 0 ? Math.min(100, (totalCost / goal.budgetUsd) * 100) : null;
 
@@ -379,7 +704,7 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
               {projects.map((p) => (
-                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} onLearnings={onLearnings} />
+                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} onLearnings={onLearnings} onHeartbeats={onHeartbeats} />
               ))}
             </div>
           )}
@@ -434,6 +759,7 @@ export function GoalsPage() {
     | { type: 'new-project'; goalId: string | null }
     | { type: 'edit-project'; project: Project }
     | { type: 'learnings'; project: Project }
+    | { type: 'heartbeats'; project: Project }
     | null
   >(null);
 
@@ -564,6 +890,7 @@ export function GoalsPage() {
               onDeleteProject={handleDeleteProject}
               onAddProject={(goalId) => setModal({ type: 'new-project', goalId })}
               onLearnings={(p) => setModal({ type: 'learnings', project: p })}
+              onHeartbeats={(p) => setModal({ type: 'heartbeats', project: p })}
             />
           ))}
 
@@ -579,6 +906,7 @@ export function GoalsPage() {
                     onEdit={(proj) => setModal({ type: 'edit-project', project: proj })}
                     onDelete={handleDeleteProject}
                     onLearnings={(proj) => setModal({ type: 'learnings', project: proj })}
+                    onHeartbeats={(proj) => setModal({ type: 'heartbeats', project: proj })}
                   />
                 ))}
               </div>
@@ -629,6 +957,12 @@ export function GoalsPage() {
       {modal?.type === 'learnings' && (
         <Modal title={`Learnings — ${modal.project.name}`} onClose={() => setModal(null)}>
           <ProjectLearningsPanel project={modal.project} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+
+      {modal?.type === 'heartbeats' && (
+        <Modal title={`Scheduled Runs — ${modal.project.name}`} onClose={() => setModal(null)}>
+          <HeartbeatsPanel project={modal.project} onClose={() => setModal(null)} />
         </Modal>
       )}
     </div>
