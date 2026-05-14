@@ -9,7 +9,7 @@ function estimateCostUsd(inputChars: number, outputChars: number): number {
   return (inputChars / 4 / 1_000_000) * 3 + (outputChars / 4 / 1_000_000) * 15;
 }
 
-function normalizeProject(row: Record<string, unknown>, extra?: { goalName?: string; runCount?: number; estimatedCostUsd?: number; lastRunStatus?: string | null; lastRunAt?: string | null }): Project {
+function normalizeProject(row: Record<string, unknown>, extra?: { goalName?: string; runCount?: number; estimatedCostUsd?: number; lastRunStatus?: string | null; lastRunAt?: string | null; activeRunCount?: number }): Project {
   return {
     id: row.id as string,
     goalId: (row.goal_id as string) || null,
@@ -48,12 +48,17 @@ function withComputedFields(row: Record<string, unknown>): Project {
     SELECT status, started_at FROM workflows WHERE project_id = ? AND template_id IS NOT NULL ORDER BY created_at DESC LIMIT 1
   `).get(projectId) as { status: string; started_at: string } | undefined;
 
+  const { activeRunCount } = db.prepare(`
+    SELECT COUNT(*) as activeRunCount FROM workflows WHERE project_id = ? AND status = 'running' AND template_id IS NOT NULL
+  `).get(projectId) as { activeRunCount: number };
+
   return normalizeProject(row, {
     goalName: goalRow?.name,
     runCount,
     estimatedCostUsd: estimateCostUsd(inputChars, outputChars),
     lastRunStatus: lastRun?.status || null,
     lastRunAt: lastRun?.started_at || null,
+    activeRunCount,
   });
 }
 

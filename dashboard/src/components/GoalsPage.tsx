@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
+import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, ProjectLearning, Heartbeat } from '../types';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -217,7 +218,10 @@ function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats, onR
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
           <span className="text-sm font-medium text-gray-200 truncate">{project.name}</span>
-          {project.lastRunStatus && <RunStatusDot status={project.lastRunStatus} />}
+          {(project.activeRunCount ?? 0) > 0
+            ? <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 bg-blue-900/30 border border-blue-700/30 rounded-full px-1.5 py-0.5 flex-shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />{project.activeRunCount} running</span>
+            : project.lastRunStatus && <RunStatusDot status={project.lastRunStatus} />
+          }
         </div>
         <div className="flex gap-1 flex-shrink-0">
           <button
@@ -344,6 +348,7 @@ function RunStatusDot({ status }: { status: string }) {
 function LaunchFromProjectModal({ project, onClose }: { project: Project; onClose: (runId?: string) => void }) {
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string; repoName: string; status: string }[]>([]);
+  const [learningsCount, setLearningsCount] = useState(0);
   const [templateId, setTemplateId] = useState('');
   const [agentId, setAgentId] = useState('');
   const [note, setNote] = useState('');
@@ -354,8 +359,9 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
     Promise.all([
       api.getWorkflows().then((ws) => ws.filter((w) => !w.templateId).map((w) => ({ id: w.id, name: w.name }))),
       api.getAgents().then((as) => as.filter((a) => a.status !== 'offline').map((a) => ({ id: a.id, name: a.name, repoName: a.repoName, status: a.status }))),
-    ]).then(([tmps, ags]) => { setTemplates(tmps); setAgents(ags); });
-  }, []);
+      api.getProjectLearnings(project.id, 3).then((ls) => ls.length).catch(() => 0),
+    ]).then(([tmps, ags, count]) => { setTemplates(tmps); setAgents(ags); setLearningsCount(count); });
+  }, [project.id]);
 
   async function handleLaunch() {
     if (!templateId) return;
@@ -417,10 +423,13 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
         />
       </div>
 
-      {project.lastRunStatus !== null && project.lastRunStatus !== undefined && (
-        <p className="text-[11px] text-gray-600">
-          Last run: <RunStatusDot status={project.lastRunStatus} /> <span className="ml-1">{project.lastRunStatus}</span>
-        </p>
+      {learningsCount > 0 && (
+        <div className="flex items-center gap-2 bg-violet-900/20 border border-violet-700/30 rounded-lg px-3 py-2">
+          <svg className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+          </svg>
+          <span className="text-[12px] text-violet-300">{learningsCount} past learning{learningsCount !== 1 ? 's' : ''} will be auto-injected as context</span>
+        </div>
       )}
 
       <div className="flex gap-2 pt-1">
@@ -818,6 +827,14 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
       {/* Projects grid */}
       {expanded && (
         <div className="px-4 pb-4 border-t border-white/[0.05]">
+          {budgetPct !== null && budgetPct >= 90 && (
+            <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium ${budgetPct >= 100 ? 'bg-red-900/30 border border-red-700/40 text-red-400' : 'bg-yellow-900/30 border border-yellow-700/40 text-yellow-400'}`}>
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              {budgetPct >= 100 ? `Budget cap reached — heartbeats paused` : `${Math.round(budgetPct)}% of budget used — approaching cap`}
+            </div>
+          )}
           {projects.length === 0 ? (
             <p className="text-[12px] text-gray-600 mt-3">No projects yet — add one to start tracking work against this goal.</p>
           ) : (
@@ -891,6 +908,12 @@ export function GoalsPage() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Refresh project stats when runs start/complete or heartbeats fire
+  useSocket({
+    onWorkflowUpdated: useCallback(() => { refresh(); }, [refresh]),
+    onReconnect: useCallback(() => { refresh(); }, [refresh]),
+  });
 
   const toggleGoal = (id: string) => {
     setExpandedGoals((prev) => {
