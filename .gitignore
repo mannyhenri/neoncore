@@ -9,3 +9,4 @@ dist/
 *.tsbuildinfo
 server/public/
 .claude/
+.gstack/
