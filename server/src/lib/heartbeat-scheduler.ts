@@ -172,25 +172,23 @@ function checkDueHeartbeats(): void {
       const templateId = hb.template_id as string;
       const schedule: HeartbeatSchedule = JSON.parse((hb.schedule as string) || '{}');
 
-      // Budget gate: skip if project's goal has a cap and it's been reached
+      // Token budget gate: skip if project's goal has a token cap and it's been reached
       if (projectId) {
         const proj = db.prepare('SELECT goal_id FROM projects WHERE id = ?').get(projectId) as { goal_id: string | null } | undefined;
         if (proj?.goal_id) {
-          const goal = db.prepare('SELECT budget_usd FROM goals WHERE id = ?').get(proj.goal_id) as { budget_usd: number | null } | undefined;
-          if (goal?.budget_usd) {
-            const stepRows = db.prepare(`
-              SELECT ws.dispatched_prompt, ws.result FROM workflow_steps ws
-              JOIN workflows w ON ws.workflow_id = w.id WHERE w.project_id = ?
-            `).all(projectId) as { dispatched_prompt: string; result: string }[];
-            const spent = stepRows.reduce((s, r) =>
-              s + (r.dispatched_prompt?.length || 0) / 4 / 1_000_000 * 3
-                + (r.result?.length || 0) / 4 / 1_000_000 * 15, 0);
-            if (spent >= goal.budget_usd) {
-              console.warn(`[heartbeat] Skipping ${hb.id}: project ${projectId} over budget ($${spent.toFixed(3)} / $${goal.budget_usd})`);
+          const goal = db.prepare('SELECT token_budget FROM goals WHERE id = ?').get(proj.goal_id) as { token_budget: number | null } | undefined;
+          if (goal?.token_budget) {
+            const { tokensUsed } = db.prepare(`
+              SELECT COALESCE(SUM(ws.tokens_in + ws.tokens_out), 0) as tokensUsed
+              FROM workflow_steps ws JOIN workflows w ON ws.workflow_id = w.id
+              WHERE w.project_id = ?
+            `).get(projectId) as { tokensUsed: number };
+            if (tokensUsed >= goal.token_budget) {
+              console.warn(`[heartbeat] Skipping ${hb.id}: project ${projectId} over token budget (${tokensUsed} / ${goal.token_budget})`);
               import('../ws.js').then(({ getIO }) => {
                 getIO().emit('heartbeat_fired', {
                   heartbeatId: hb.id as string, runId: '', projectId, templateId,
-                  label: `⚠️ Skipped — budget exceeded ($${spent.toFixed(2)} / $${goal.budget_usd})`,
+                  label: `⚠️ Skipped — token budget exceeded (${(tokensUsed / 1000).toFixed(0)}K / ${(goal.token_budget! / 1000).toFixed(0)}K tokens)`,
                   firedAt: new Date().toISOString(), nextRunAt: computeNextRunAt(schedule),
                 });
               }).catch(() => {});

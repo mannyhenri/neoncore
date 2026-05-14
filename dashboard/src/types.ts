@@ -319,13 +319,13 @@ export interface Goal {
   name: string;
   description: string;
   successMetric: string;
-  budgetUsd: number | null;
+  tokenBudget: number | null;
   status: 'active' | 'achieved' | 'paused';
   createdAt: string;
   updatedAt: string;
   projectCount?: number;
   runCount?: number;
-  estimatedCostUsd?: number;
+  tokensUsed?: number;
 }
 
 export interface Project {
@@ -339,7 +339,7 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   runCount?: number;
-  estimatedCostUsd?: number;
+  tokensUsed?: number;
   lastRunStatus?: string | null;
   lastRunAt?: string | null;
   activeRunCount?: number;

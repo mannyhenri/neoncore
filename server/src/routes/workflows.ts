@@ -952,8 +952,10 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   const finalResult = planContent
     ? `[Plan]\n${planContent}\n\n[Implementation Summary]\n${result || 'Completed via webhook'}`
     : (result || 'Completed via webhook');
-  db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
-    .run('completed', finalResult, now, step.id);
+  const tokensIn = Math.round(((row.dispatched_prompt as string) || '').length / 4);
+  const tokensOut = Math.round(finalResult.length / 4);
+  db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ?, tokens_in = ?, tokens_out = ? WHERE id = ?')
+    .run('completed', finalResult, now, tokensIn, tokensOut, step.id);
 
   const updated = normalizeStep(
     db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>

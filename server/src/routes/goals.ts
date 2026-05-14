@@ -5,18 +5,17 @@ import type { Goal } from '../types.js';
 
 const router = Router();
 
-// Sonnet pricing estimate: $3/1M input tokens, $15/1M output tokens, ~4 chars/token
-function estimateCostUsd(inputChars: number, outputChars: number): number {
-  return (inputChars / 4 / 1_000_000) * 3 + (outputChars / 4 / 1_000_000) * 15;
+function estimateTokens(inputChars: number, outputChars: number): number {
+  return Math.round((inputChars + outputChars) / 4);
 }
 
-function normalizeGoal(row: Record<string, unknown>, extra?: { projectCount?: number; runCount?: number; estimatedCostUsd?: number }): Goal {
+function normalizeGoal(row: Record<string, unknown>, extra?: { projectCount?: number; runCount?: number; tokensUsed?: number }): Goal {
   return {
     id: row.id as string,
     name: row.name as string,
     description: (row.description as string) || '',
     successMetric: (row.success_metric as string) || '',
-    budgetUsd: row.budget_usd != null ? (row.budget_usd as number) : null,
+    tokenBudget: row.token_budget != null ? (row.token_budget as number) : null,
     status: (row.status as Goal['status']) || 'active',
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -49,7 +48,7 @@ router.get('/', (_req, res) => {
       WHERE p.goal_id = ? AND w.template_id IS NOT NULL
     `).get(goalId) as { runCount: number };
 
-    return normalizeGoal(row, { projectCount, runCount, estimatedCostUsd: estimateCostUsd(inputChars, outputChars) });
+    return normalizeGoal(row, { projectCount, runCount, tokensUsed: estimateTokens(inputChars, outputChars) });
   });
 
   res.json(goals);
@@ -62,16 +61,16 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, description, successMetric, budgetUsd, status } = req.body;
+  const { name, description, successMetric, tokenBudget, status } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
 
   const id = randomUUID();
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO goals (id, name, description, success_metric, budget_usd, status, created_at, updated_at)
+    INSERT INTO goals (id, name, description, success_metric, token_budget, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name.trim(), description?.trim() || '', successMetric?.trim() || '', budgetUsd ?? null, status || 'active', now, now);
+  `).run(id, name.trim(), description?.trim() || '', successMetric?.trim() || '', tokenBudget ?? null, status || 'active', now, now);
 
   const created = db.prepare('SELECT * FROM goals WHERE id = ?').get(id) as Record<string, unknown>;
   res.status(201).json(normalizeGoal(created));
@@ -81,17 +80,17 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Goal not found' });
 
-  const { name, description, successMetric, budgetUsd, status } = req.body;
+  const { name, description, successMetric, tokenBudget, status } = req.body;
   const now = new Date().toISOString();
 
   db.prepare(`
-    UPDATE goals SET name = ?, description = ?, success_metric = ?, budget_usd = ?, status = ?, updated_at = ?
+    UPDATE goals SET name = ?, description = ?, success_metric = ?, token_budget = ?, status = ?, updated_at = ?
     WHERE id = ?
   `).run(
     name?.trim() || row.name,
     description?.trim() ?? row.description,
     successMetric?.trim() ?? row.success_metric,
-    budgetUsd !== undefined ? budgetUsd : row.budget_usd,
+    tokenBudget !== undefined ? tokenBudget : row.token_budget,
     status || row.status,
     now,
     req.params.id,
