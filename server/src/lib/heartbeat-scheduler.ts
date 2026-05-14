@@ -69,9 +69,22 @@ function cloneTemplateAsRun(templateId: string, projectId: string | null): strin
     template.target_repos, templateId, runNum,
   );
 
-  // Set project_id on the new run
+  // Set project_id and inject recent learnings as initial context
   if (projectId) {
     db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId, runId);
+
+    const learnings = db.prepare(
+      `SELECT content, workflow_name FROM project_learnings WHERE project_id = ? ORDER BY created_at DESC LIMIT 3`
+    ).all(projectId) as { content: string; workflow_name: string }[];
+
+    if (learnings.length > 0) {
+      const ctx = [
+        '## Recent Project Learnings',
+        ...learnings.map((l, i) => `### ${i + 1}. From "${l.workflow_name}"\n${l.content.slice(0, 600)}${l.content.length > 600 ? '...' : ''}`),
+        '---',
+      ].join('\n\n');
+      db.prepare('UPDATE workflows SET initial_context = ? WHERE id = ?').run(ctx, runId);
+    }
   }
 
   // Clone steps, remap depends_on IDs

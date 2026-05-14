@@ -340,6 +340,8 @@ export interface Project {
   updatedAt: string;
   runCount?: number;
   estimatedCostUsd?: number;
+  lastRunStatus?: string | null;
+  lastRunAt?: string | null;
 }
 
 export interface Heartbeat {

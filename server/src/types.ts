@@ -339,6 +339,8 @@ export interface Project {
   updatedAt: string;
   runCount?: number;
   estimatedCostUsd?: number;
+  lastRunStatus?: string | null;
+  lastRunAt?: string | null;
 }
 
 // Workflow Step types (V2 canvas workflows)
