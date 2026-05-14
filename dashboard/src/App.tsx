@@ -9,6 +9,7 @@ import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
+import { GuideModal } from './components/GuideModal';
 import { api } from './lib/api';
 import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
 
@@ -53,6 +54,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<'agents' | 'goals'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
@@ -109,6 +111,17 @@ export default function App() {
             </div>
             {/* Repo Picker */}
             <RepoPicker />
+            {/* Guide button */}
+            <button
+              onClick={() => setGuideOpen(true)}
+              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+              title="How NeonCore works"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+              </svg>
+              Guide
+            </button>
             {/* Commands button */}
             <button
               onClick={() => setCommandsOpen(true)}
@@ -223,6 +236,11 @@ export default function App() {
         </>
         )}
       </main>
+
+      {/* Guide Modal */}
+      {guideOpen && (
+        <GuideModal onClose={() => setGuideOpen(false)} />
+      )}
 
       {/* Command Templates Modal */}
       {commandsOpen && (
