@@ -383,6 +383,21 @@ try {
   db.exec(`ALTER TABLE workflow_steps ADD COLUMN dispatched_prompt TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: add token tracking columns to workflow_steps
+try {
+  db.prepare('SELECT tokens_in FROM workflow_steps LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN tokens_out INTEGER NOT NULL DEFAULT 0`);
+}
+
+// Migration: add token_budget to goals (replaces budget_usd)
+try {
+  db.prepare('SELECT token_budget FROM goals LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE goals ADD COLUMN token_budget INTEGER`);
+}
+
 // Migration: add description column to mcp_servers
 try {
   db.prepare('SELECT description FROM mcp_servers LIMIT 1').get();
@@ -1034,7 +1049,7 @@ function seedDefaultTemplates() {
   // ── 10. Product Strategy Session ─────────────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s9 = randomUUID();
     insertWorkflow.run(wfId, 'Product Strategy Session',
       'Set the workflow description to the product/feature being reviewed. Premise challenge → alternatives → dream state → dual-voice analysis (CEO vs PM) → 10-dimension strategy review → action plan → capture learnings.', now);
 
@@ -1091,16 +1106,21 @@ function seedDefaultTemplates() {
       300, 1130, 'connector',
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s6]);
 
-    step(wfId, s8, 'Notify',
-      'System notification: Product Strategy Session complete.',
+    step(wfId, s8, 'Save to Project',
+      'Write the full strategy session output as a Markdown file in the linked project repo.',
       300, 1305, 'connector',
-      { connectorType: 'system-notify', title: 'Product Strategy Session — Done', message: '{{workflowName}} complete. Review the action plan in NeonCore.' }, [s7]);
+      { connectorType: 'save-to-project' }, [s7]);
+
+    step(wfId, s9, 'Notify',
+      'System notification: Product Strategy Session complete.',
+      300, 1480, 'connector',
+      { connectorType: 'system-notify', title: 'Product Strategy Session — Done', message: '{{workflowName}} complete. Review the action plan in NeonCore.' }, [s8]);
   }
 
   // ── 11. Engineering Architecture Review ──────────────────────────────────
   {
     const wfId = randomUUID();
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
     insertWorkflow.run(wfId, 'Engineering Architecture Review',
       'Set the workflow description to the system or feature under review. Architecture mapping → bottleneck analysis → alternative approaches → recommendation → implementation roadmap → human review → capture learnings.', now);
 
@@ -1149,10 +1169,15 @@ function seedDefaultTemplates() {
       300, 955, 'connector',
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s5]);
 
-    step(wfId, s7, 'Notify',
-      'System notification: Engineering Architecture Review complete.',
+    step(wfId, s7, 'Save to Project',
+      'Write the full architecture review as a Markdown file in the linked project repo.',
       300, 1130, 'connector',
-      { connectorType: 'system-notify', title: 'Architecture Review — Done', message: '{{workflowName}} complete. Review the implementation roadmap in NeonCore.' }, [s6]);
+      { connectorType: 'save-to-project' }, [s6]);
+
+    step(wfId, s8, 'Notify',
+      'System notification: Engineering Architecture Review complete.',
+      300, 1305, 'connector',
+      { connectorType: 'system-notify', title: 'Architecture Review — Done', message: '{{workflowName}} complete. Review the implementation roadmap in NeonCore.' }, [s7]);
   }
 
   // ── 12. Full QA Review ────────────────────────────────────────────────────

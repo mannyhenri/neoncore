@@ -5,11 +5,11 @@ import type { Project } from '../types.js';
 
 const router = Router();
 
-function estimateCostUsd(inputChars: number, outputChars: number): number {
-  return (inputChars / 4 / 1_000_000) * 3 + (outputChars / 4 / 1_000_000) * 15;
+function estimateTokens(inputChars: number, outputChars: number): number {
+  return Math.round((inputChars + outputChars) / 4);
 }
 
-function normalizeProject(row: Record<string, unknown>, extra?: { goalName?: string; runCount?: number; estimatedCostUsd?: number; lastRunStatus?: string | null; lastRunAt?: string | null; activeRunCount?: number }): Project {
+function normalizeProject(row: Record<string, unknown>, extra?: { goalName?: string; runCount?: number; tokensUsed?: number; lastRunStatus?: string | null; lastRunAt?: string | null; activeRunCount?: number }): Project {
   return {
     id: row.id as string,
     goalId: (row.goal_id as string) || null,
@@ -55,7 +55,7 @@ function withComputedFields(row: Record<string, unknown>): Project {
   return normalizeProject(row, {
     goalName: goalRow?.name,
     runCount,
-    estimatedCostUsd: estimateCostUsd(inputChars, outputChars),
+    tokensUsed: estimateTokens(inputChars, outputChars),
     lastRunStatus: lastRun?.status || null,
     lastRunAt: lastRun?.started_at || null,
     activeRunCount,
