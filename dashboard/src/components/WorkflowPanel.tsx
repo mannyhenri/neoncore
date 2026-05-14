@@ -784,24 +784,35 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               </>
             )}
           </div>
-          {/* Project assignment — optional */}
-          {projects.length > 0 && (
-            <div className="space-y-1.5">
-              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Project (optional)</span>
+          {/* Project assignment — required */}
+          <div className="space-y-1.5">
+            <span className="text-[13px] text-gray-500 uppercase tracking-wider">Project</span>
+            {projects.length === 0 ? (
+              <p className="text-[12px] text-gray-600">
+                No projects yet.{' '}
+                <a
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setDeferredPopup(null); }}
+                  className="text-violet-400 hover:text-violet-300"
+                >
+                  Create one in Goals first →
+                </a>
+              </p>
+            ) : (
               <select
                 value={selectedProjectId}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
                 className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
               >
-                <option value="">— No project —</option>
+                <option value="">Select a project…</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.goalName ? `${p.goalName} / ` : ''}{p.name}
                   </option>
                 ))}
               </select>
-            </div>
-          )}
+            )}
+          </div>
 
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
@@ -850,6 +861,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           <button
             onClick={handleDeferredRun}
             disabled={
+              !selectedProjectId ||
               !deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]) ||
               !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim()) ||
               (wf.name === 'Feature Validation' && !initialContext.trim())

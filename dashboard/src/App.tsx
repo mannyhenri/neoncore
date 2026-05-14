@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAgents } from './hooks/useAgents';
 import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
-import { CommandBar } from './components/CommandBar';
-import CommandTemplatesModal from './components/CommandTemplatesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
@@ -53,7 +51,6 @@ export default function App() {
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   const [activeView, setActiveView] = useState<'agents' | 'goals'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [commandsOpen, setCommandsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
@@ -122,13 +119,6 @@ export default function App() {
               </svg>
               Guide
             </button>
-            {/* Commands button */}
-            <button
-              onClick={() => setCommandsOpen(true)}
-              className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors"
-            >
-              Commands
-            </button>
             {/* Notification center — bell with dropdown */}
             <NotificationCenter
               pendingPermissions={pendingPermissions}
@@ -161,8 +151,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Command Bar */}
-      <CommandBar agents={agents} onSendCommand={sendCommand} />
 
       {/* Main content */}
       <main className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -240,11 +228,6 @@ export default function App() {
       {/* Guide Modal */}
       {guideOpen && (
         <GuideModal onClose={() => setGuideOpen(false)} />
-      )}
-
-      {/* Command Templates Modal */}
-      {commandsOpen && (
-        <CommandTemplatesModal onClose={() => setCommandsOpen(false)} />
       )}
 
       {/* Settings Modal */}

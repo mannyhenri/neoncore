@@ -1,7 +1,187 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, ProjectLearning, Heartbeat } from '../types';
+
+// ── FolderPicker ──────────────────────────────────────────────────────────────
+
+interface FolderPickerProps {
+  value: string;
+  onChange: (path: string) => void;
+}
+
+function FolderPicker({ value, onChange }: FolderPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [browsing, setBrowsing] = useState<{ current: string; parent: string | null; dirs: string[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  async function browse(path?: string) {
+    setLoading(true);
+    try {
+      const result = await api.browseDir(path) as { current: string; parent: string | null; dirs: string[] };
+      setBrowsing(result);
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleOpen() {
+    setOpen(true);
+    setManualMode(false);
+    browse(value || undefined);
+  }
+
+  function handleSelect(path: string) {
+    onChange(path);
+    setOpen(false);
+    setBrowsing(null);
+  }
+
+  function handleEnterDir(dirName: string) {
+    if (!browsing) return;
+    browse(`${browsing.current}/${dirName}`);
+  }
+
+  const displayName = value ? value.split('/').filter(Boolean).pop() || value : '';
+
+  if (manualMode) {
+    return (
+      <div className="flex gap-2">
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="/Users/you/projects/my-repo"
+          className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25"
+        />
+        <button
+          type="button"
+          onClick={() => setManualMode(false)}
+          className="text-[11px] text-gray-500 hover:text-gray-300 whitespace-nowrap"
+        >
+          Use picker
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <div className="flex gap-2">
+        <div
+          className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm flex items-center gap-2 min-w-0 cursor-pointer hover:border-white/20"
+          onClick={handleOpen}
+        >
+          {value ? (
+            <>
+              <svg className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+              </svg>
+              <span className="text-gray-200 truncate">{displayName}</span>
+              <span className="text-gray-600 text-[11px] truncate hidden sm:block">{value}</span>
+            </>
+          ) : (
+            <span className="text-gray-600">Browse to select folder…</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleOpen}
+          className="px-3 py-2 text-xs text-gray-400 bg-black/40 border border-white/10 rounded-md hover:border-white/20 hover:text-gray-200 transition-colors whitespace-nowrap"
+        >
+          Browse…
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1.5 z-50 w-full bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden">
+          {/* Current path breadcrumb */}
+          <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between">
+            <span className="text-[11px] text-gray-500 truncate flex-1">{browsing?.current || '…'}</span>
+            {value && (
+              <button
+                type="button"
+                onClick={() => handleSelect(browsing?.current || value)}
+                className="ml-2 text-[11px] text-violet-400 hover:text-violet-300 whitespace-nowrap"
+              >
+                Select this folder
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="px-3 py-4 text-[12px] text-gray-600 text-center">Loading…</div>
+          ) : browsing ? (
+            <div className="max-h-48 overflow-y-auto py-1">
+              {browsing.parent && (
+                <button
+                  type="button"
+                  onClick={() => browse(browsing.parent!)}
+                  className="w-full text-left px-3 py-1.5 text-[12px] text-gray-500 hover:bg-white/[0.04] flex items-center gap-2"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                  </svg>
+                  <span>..</span>
+                </button>
+              )}
+              {browsing.dirs.length === 0 && (
+                <div className="px-3 py-2 text-[12px] text-gray-600">No subdirectories</div>
+              )}
+              {browsing.dirs.map((dir) => {
+                const fullPath = `${browsing.current}/${dir}`;
+                return (
+                  <div key={dir} className="flex items-center group">
+                    <button
+                      type="button"
+                      onClick={() => handleEnterDir(dir)}
+                      className="flex-1 text-left px-3 py-1.5 text-[12px] text-gray-300 hover:bg-white/[0.04] flex items-center gap-2 min-w-0"
+                    >
+                      <svg className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                      </svg>
+                      <span className="truncate">{dir}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(fullPath)}
+                      className="pr-3 text-[11px] text-violet-500 hover:text-violet-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
+                    >
+                      Select
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
+          <div className="border-t border-white/[0.06] px-3 py-2">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setManualMode(true); }}
+              className="text-[11px] text-gray-600 hover:text-gray-400 transition-colors"
+            >
+              Enter path manually instead
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -166,13 +346,8 @@ function ProjectForm({ goals, initial, onSave, onCancel }: ProjectFormProps) {
         </select>
       </div>
       <div>
-        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Primary repo path (optional)</label>
-        <input
-          value={primaryRepo}
-          onChange={(e) => setPrimaryRepo(e.target.value)}
-          placeholder="/Users/you/projects/my-repo"
-          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25"
-        />
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Codebase — for doc output &amp; save-to-project (optional)</label>
+        <FolderPicker value={primaryRepo} onChange={setPrimaryRepo} />
       </div>
       <div>
         <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Color</label>
