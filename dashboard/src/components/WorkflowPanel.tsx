@@ -40,7 +40,7 @@ interface SelectedPlayer {
 
 const PHASE_LABELS = { research: 'Research', coding: 'Coding', review: 'Review' } as const;
 
-type TemplateTab = 'all' | 'strategy' | 'development' | 'quality' | 'jira';
+type TemplateTab = 'all' | 'strategy' | 'development' | 'quality' | 'jira' | 'compound';
 
 const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Product Strategy Session':       'strategy',
@@ -55,14 +55,23 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'CI/CD Pipeline':                 'quality',
   'Jira Tasks Validation':          'jira',
   'Jira Tasks Completion':          'jira',
+  'CE: Phase 1 — Interrogate':      'compound',
+  'CE: Phase 2 — Plan':             'compound',
+  'CE: Phase 3 — Implement':        'compound',
+  'CE: Phase 4 — Review':           'compound',
+  'CE: Phase 5 — QA':               'compound',
+  'CE: Phase 6 — Ship':             'compound',
+  'CE: Phase 7 — Compound':         'compound',
+  'CE: Full Delivery':              'compound',
 };
 
 const TAB_LABELS: Record<TemplateTab, string> = {
-  all:         'All',
-  strategy:    'Strategy',
+  all:      'All',
+  strategy: 'Strategy',
   development: 'Dev',
-  quality:     'Quality',
-  jira:        'Jira',
+  quality:  'Quality',
+  jira:     'Jira',
+  compound: 'Compound Eng',
 };
 
 const TAB_COLORS: Record<TemplateTab, string> = {
@@ -71,6 +80,7 @@ const TAB_COLORS: Record<TemplateTab, string> = {
   development: 'bg-blue-900/60 text-blue-300',
   quality:     'bg-emerald-900/60 text-emerald-300',
   jira:        'bg-orange-900/60 text-orange-300',
+  compound:    'bg-cyan-900/60 text-cyan-300',
 };
 const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 const ROLE_OPTIONS: PlayerRole[] = ['research', 'coding', 'review'];
@@ -86,7 +96,7 @@ export function WorkflowPanel({ agents }: Props) {
   const [showAllRecent, setShowAllRecent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showRecentRuns, setShowRecentRuns] = useState(false);
-  const [templateTab, setTemplateTab] = useState<'all' | 'strategy' | 'development' | 'quality' | 'jira'>('all');
+  const [templateTab, setTemplateTab] = useState<TemplateTab>('all');
 
   const loadWorkflows = useCallback(async () => {
     try {

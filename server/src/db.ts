@@ -681,7 +681,7 @@ if (orphanNotes.length > 0) {
 function seedDefaultTemplates() {
   // Always replace the 5 standard templates by name so schema changes take effect.
   // User-created templates with other names are left untouched.
-  const standardNames = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit'];
+  const standardNames = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'];
   for (const name of standardNames) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {
@@ -1354,7 +1354,358 @@ function seedDefaultTemplates() {
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s5]);
   }
 
-  console.log('[db] Seeded 12 default workflow templates');
+  // ══════════════════════════════════════════════════════════════════════
+  // COMPOUND ENGINEERING × GSTACK — 7-phase feature delivery templates
+  // Launch context: enter the feature slug (e.g. "user-auth-v2") so
+  // every step can read/write to docs/[slug]/ and todos/[slug]/.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── CE Phase 1 — Interrogate ─────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 1 — Interrogate',
+      'Challenge the idea before any planning begins. Enter the feature slug + description in launch context. Outputs docs/[slug]/brainstorm.md.', now);
+
+    step(wfId, s1, 'Load Prior Work',
+      'Search CLAUDE.md and docs/solutions/ for existing patterns and prior decisions related to this feature.',
+      300, 80, 'claude-code',
+      { ...cc('researcher'), workflowContext: true, prompt: 'The feature name/slug is in the workflow context above.\n\n1. READ CLAUDE.md — extract patterns, anti-patterns, taste decisions, and caveats relevant to this feature area.\n2. SEARCH docs/solutions/ for any compound docs related to this domain. Read any relevant ones.\n3. SEARCH docs/brainstorms/ and docs/plans/ for any prior work on this feature.\n\nOutput a Prior Work Summary:\n```\n## Prior Work Summary\n\n### CLAUDE.md Relevant Notes\n[bullet list — or "None"]\n\n### Prior Compound Docs Found\n[names and 1-sentence summary each — or "None"]\n\n### Prior Brainstorms / Plans Found\n[names and key decisions — or "None"]\n\n### Verdict\n[CLEAN START — no relevant prior work] or [PRIOR WORK EXISTS — key context: ...]\n```' }, []);
+
+    step(wfId, s2, 'Office Hours — Interrogate',
+      'Run /office-hours: 6 forcing questions to challenge the idea, surface assumptions, and generate 2–3 approaches with effort estimates.',
+      300, 255, 'claude-code',
+      { ...cc('planner'), prompt: 'You are running /office-hours. Prior work findings are above.\n\nAsk 6 forcing questions — answer each based on the feature context:\n\n**Q1 — DEMAND REALITY**: Who specifically wants this? How do we know?\n**Q2 — STATUS QUO**: What are users doing right now without this? Why is that not enough?\n**Q3 — DESPERATE SPECIFICITY**: Describe the one person most desperate for this. What is their exact situation?\n**Q4 — NARROWEST WEDGE**: What is the smallest version that still delivers real value?\n**Q5 — OBSERVATION**: Have we watched someone try to do this? What actually happened?\n**Q6 — FUTURE FIT**: In 2 years, does this feature become more or less relevant? Why?\n\nThen generate 2–3 implementation approaches:\nFor each: name, one-sentence description, effort (S/M/L), key assumption, biggest risk.\n\nEnd with:\n```\n## Recommended Approach\n[name]: [why]\n\n## Key Assumptions\n- [list]\n\n## Estimated Effort: [S/M/L]\n```' }, [s1]);
+
+    step(wfId, s3, 'CE Brainstorm',
+      'Run CE /ce-brainstorm: lightweight repo research, clarify purpose/users/constraints, define what "done" looks like.',
+      300, 430, 'claude-code',
+      { ...cc('researcher'), prompt: 'You are running CE /ce-brainstorm. Office Hours output is above — build on it, do not repeat it.\n\n1. REPO RESEARCH — use Read, Grep, Glob:\n   - Find existing code related to this feature\n   - Identify files and modules that will be touched\n   - Note established patterns you must follow\n   - Flag constraints (locked interfaces, technical debt)\n\n2. CLARIFY:\n   - Purpose (what does this solve at the code level?)\n   - Users (which flows are affected?)\n   - Hard constraints (what must NOT change?)\n   - Top 3 edge cases\n\n3. DEFINE DONE — concrete, observable criteria.\n\nOutput:\n```\n## CE Brainstorm\n\n### Repo Research\n[files affected, patterns to follow, constraints]\n\n### Clarified Purpose\n[one paragraph]\n\n### Users & Flows Affected\n[bullet list]\n\n### Top Edge Cases\n1. [case + handling]\n2. [case + handling]\n3. [case + handling]\n\n### Definition of Done\n- [ ] [criterion]\n- [ ] [criterion]\n```' }, [s2]);
+
+    step(wfId, s4, 'Write Brainstorm Doc',
+      'Merge all outputs into docs/[slug]/brainstorm.md. Pauses for human review before Phase 2 begins.',
+      300, 605, 'claude-code',
+      { ...cc('planner'), prompt: 'Merge all prior step outputs into a canonical brainstorm document.\n\n1. Determine the feature slug from context (lowercase-hyphenated, e.g. "user-auth-v2").\n2. Create docs/[slug]/ directory if needed.\n3. WRITE docs/[slug]/brainstorm.md:\n   - ## Problem Statement\n   - ## Recommended Approach (one sentence)\n   - ## Approaches Considered (table: name | effort | key assumption | risk)\n   - ## Scoped Definition (in / out)\n   - ## Files / Modules Affected\n   - ## Constraints\n   - ## Top Edge Cases\n   - ## Definition of Done (checklist)\n   - ## Open Questions\n   - ## Prior Work References\n   - ## Effort Estimate: [S/M/L]\n\n4. Output gate summary:\n```\n## Phase 1 — AWAITING HUMAN REVIEW\n\nFeature: [name] | Slug: [slug]\nRecommended approach: [one sentence]\nKey assumptions: [bullet list]\nEstimated effort: [S/M/L]\nFile written: docs/[slug]/brainstorm.md\n\nAdvance manually after reviewing the brainstorm doc.\n```\n\nDo NOT advance automatically.', }, [s3], false);
+
+    step(wfId, s5, 'Phase 1 Complete',
+      'Phase 1 — Interrogate complete. Brainstorm doc is ready for review.',
+      300, 780, 'connector',
+      { connectorType: 'system-notify', title: 'CE Phase 1 — Interrogate Done', message: 'Brainstorm doc ready. Review docs/[slug]/brainstorm.md then advance to Phase 2.' }, [s4]);
+  }
+
+  // ── CE Phase 2 — Plan ─────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 2 — Plan',
+      'Pressure-test the plan from 3 angles before any code is written. Load brainstorm → CEO + Eng + CE Plan run in parallel → merge to docs/[slug]/plan.md.', now);
+
+    step(wfId, s1, 'Load Brainstorm',
+      'Read docs/[slug]/brainstorm.md and prepare a structured summary for the three parallel review agents.',
+      450, 80, 'claude-code',
+      { ...cc('researcher'), workflowContext: true, prompt: 'The feature slug is in workflow context above.\n\nREAD docs/[slug]/brainstorm.md in full.\n\nOutput a structured summary:\n```\n## Brainstorm Summary for Plan Review\n\nFeature: [name] | Slug: [slug]\nRecommended Approach: [one sentence]\nEffort: [S/M/L]\n\n### Files / Modules Affected\n[list]\n\n### Key Constraints\n[list]\n\n### Open Questions from Phase 1\n[list]\n\n### Definition of Done\n[checklist]\n```\n\nThis feeds three parallel reviews (CEO, Engineering, CE Research) that run simultaneously.' }, []);
+
+    step(wfId, s2, '/plan-ceo-review',
+      'Scope check, 10-star product test, 4 scope modes. Runs in parallel with Eng Review and CE Plan Research.',
+      150, 255, 'claude-code',
+      { ...cc('planner'), prompt: 'You are running /plan-ceo-review. Brainstorm summary is above.\n\nPick ONE of 4 scope modes and argue it:\n- EXPANSION: should we build MORE? What value are we leaving on the table?\n- SELECTIVE EXPANSION: core + one high-value addition. What is the addition?\n- HOLD SCOPE: the proposal is right as stated. Defend it.\n- REDUCTION: we are overbuilding. What is the minimum that still delivers real value?\n\nRun the 10-star product test:\n- 7/10 version (mediocre but ships): [description]\n- 10/10 version (legendary, 10x longer): [description]\n- Recommended target: [N/10] — [why]\n\nOutput:\n```\n## CEO Review\n\n### Mode: [NAME]\n[3-4 sentence argument]\n\n### 10-Star Test\n7/10: [description]\n10/10: [description]\nTarget: [N/10] — [why]\n\n### Scope Recommendation\nIn: [list] | Out: [list]\n\n### Risk Flags\n- [flag]\n- [flag]\n```' }, [s1]);
+
+    step(wfId, s3, '/plan-eng-review',
+      'Architecture, data flow diagram, edge cases, test matrix, security concerns. Runs in parallel.',
+      450, 255, 'claude-code',
+      { ...cc('architect'), prompt: 'You are running /plan-eng-review. Brainstorm summary is above.\n\n1. DATA FLOW — draw ASCII diagram: User action → [layers] → DB/API → response → UI state\n\n2. AFFECTED FILES — table: File | Change Type | Why\n\n3. KEY INTERFACES — types/interfaces to create or modify\n\n4. EDGE CASES — top 5: Case | Input | Expected behavior | Failure mode\n\n5. TEST MATRIX — minimum test coverage: Test | Type (unit/integration/e2e) | What it verifies\n\n6. FAILURE MODES — what breaks in production if this fails?\n\n7. SECURITY CONCERNS — auth, authorization, input validation, data exposure at design level\n\nOutput all sections clearly labeled.' }, [s1]);
+
+    step(wfId, s4, 'CE Plan Research',
+      'Spawn repo research, framework docs, and best practices research simultaneously. Runs in parallel.',
+      750, 255, 'claude-code',
+      { ...cc('researcher'), prompt: 'You are running CE /ce-plan research. Brainstorm summary is above.\n\nRun three parallel research tracks:\n\n**TRACK 1 — REPO PATTERNS** (repo-research-analyst):\nSearch codebase for: existing patterns for this feature type, prior similar implementations, naming/file/test conventions. Use Read, Grep, Glob extensively.\n\n**TRACK 2 — FRAMEWORK DOCS** (framework-docs-researcher):\nIdentify frameworks/libraries this feature uses. For each: official approach, version constraints, recommended patterns.\n\n**TRACK 3 — BEST PRACTICES** (best-practices-researcher):\nIndustry-standard approaches, what senior engineers get wrong on this type of feature, security/performance best practices.\n\nSynthesize into:\n```\n## CE Plan Research\n\n### Existing Codebase Patterns\n[what to follow, what already exists]\n\n### Framework Guidance\n[official approach + version constraints]\n\n### Industry Best Practices\n[key patterns + pitfalls to avoid]\n\n### Implementation Recommendations\n- [specific recommendation]\n- [specific recommendation]\n- [specific recommendation]\n```' }, [s1]);
+
+    step(wfId, s5, 'Write Plan Doc',
+      'Merge CEO review, Eng review, and CE research into docs/[slug]/plan.md. Pauses for human review.',
+      450, 430, 'claude-code',
+      { ...cc('planner'), prompt: 'Merge all three parallel review outputs into a canonical plan document.\n\nWRITE docs/[slug]/plan.md:\n- ## Overview (what, why, how — one paragraph)\n- ## Scope (in / out — from CEO review)\n- ## Architecture (data flow ASCII + interfaces — from Eng review)\n- ## Affected Files (table: file | change type | why)\n- ## Implementation Steps (numbered, ordered, each step is one actionable task)\n- ## Test Plan (table: test | type | what it verifies)\n- ## Security Checklist (from Eng review)\n- ## Rollback Plan (how to revert if something goes wrong)\n- ## Open Decisions (items still requiring human input)\n\nOutput gate summary:\n```\n## Phase 2 — AWAITING HUMAN REVIEW\n\nFeature: [name] | Slug: [slug]\nAffected files: [count]\nImplementation steps: [count]\nRisks identified:\n- [risk]\nOpen decisions:\n- [decision]\nFile written: docs/[slug]/plan.md\n\nAdvance manually after reviewing the plan doc.\n```\n\nDo NOT advance automatically.', }, [s2, s3, s4], false);
+
+    step(wfId, s6, 'Phase 2 Complete',
+      'Phase 2 — Plan complete. Plan doc is ready for review.',
+      450, 605, 'connector',
+      { connectorType: 'system-notify', title: 'CE Phase 2 — Plan Done', message: 'Plan ready. Review docs/[slug]/plan.md then advance to Phase 3.' }, [s5]);
+  }
+
+  // ── CE Phase 3 — Implement ────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 3 — Implement',
+      'Isolated implementation in a git worktree. Load plan → CE work (WIP commits) → run tests → build summary. Auto-continues to Phase 4.', now);
+
+    step(wfId, s1, 'Load Plan + Worktree',
+      'Read docs/[slug]/plan.md, create isolated git worktree on feature branch, and output a step checklist.',
+      300, 80, 'claude-code',
+      { ...cc('architect'), workflowContext: true, prompt: 'The feature slug is in workflow context above.\n\n1. READ docs/[slug]/plan.md in full.\n2. Create an isolated git worktree:\n   git worktree add ../[slug]-work feature/[slug]\n   If it already exists, verify it is on the correct branch.\n3. Safety mode: before any destructive operation (file deletion, DROP TABLE, force-push), state what you are about to do and confirm via the plan.\n\nOutput:\n```\n## Phase 3 Setup\n\nFeature: [name] | Slug: [slug]\nWorktree: ../[slug]-work\nBranch: feature/[slug]\nPlan loaded: [N] implementation steps\n\n### Step Checklist\n[ ] Step 1: [name]\n[ ] Step 2: [name]\n[all steps from plan]\n```' }, []);
+
+    step(wfId, s2, 'CE Implement',
+      'Execute every step in the plan sequentially. WIP commits after each step. Adapt and document any deviations.',
+      300, 255, 'claude-code',
+      { ...cc('backend'), prompt: 'You are running CE /ce-work. Plan and worktree setup are above.\n\nRules:\n1. Execute implementation steps IN ORDER from the plan. Do not skip.\n2. After each file changed: run the relevant linter/type-checker for that file.\n3. After each step: WIP commit — format: "WIP: [slug] — step N: [name]"\n4. If a step reveals a problem with the plan: adapt, implement the better approach, and document the deviation.\n5. Do NOT touch test files.\n6. Do NOT open a PR.\n\nOutput after all steps:\n```\n## Implementation Complete\n\n### Steps Executed\n[numbered list — each: ✅ done or ⚠️ DEVIATED: [what changed and why]]\n\n### Files Changed\n[list]\n\n### Deviations from Plan\n[list — or "None"]\n```' }, [s1]);
+
+    step(wfId, s3, 'Run Tests',
+      'Execute full test suite. Routes back to CE Implement if any tests fail (max 3 cycles).',
+      300, 430, 'quality-gate',
+      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s2 }], maxCycles: 3 }, [s2]);
+
+    step(wfId, s4, 'Build Summary',
+      'Run type check, lint, and coverage check. Write todos/[slug]/build-summary.md. Auto-continues to Phase 4.',
+      300, 605, 'claude-code',
+      { ...cc('reviewer'), prompt: 'Run full pre-merge verification. Do NOT open a PR.\n\n1. TYPE CHECK: run tsc --noEmit (or equivalent). Report: clean / N errors.\n2. LINT: run the linter. Report: clean / N issues.\n3. COVERAGE: check test coverage. Report: N%. Flag if below project threshold.\n\nWRITE todos/[slug]/build-summary.md with:\n- Tests: [N passing / N failing]\n- Type check: [clean / N errors]\n- Lint: [clean / N issues]\n- Coverage: [N%]\n- Files changed: [list]\n- Deviations from plan: [list or "None"]\n\nOutput:\n```\nSTATUS: [PASS — ready for Phase 4] | [FAIL — resolve before continuing]\n\n[If FAIL: list each blocking issue with file:line]\n```' }, [s3]);
+
+    step(wfId, s5, 'Phase 3 Complete',
+      'Phase 3 — Implement complete. Auto-advancing to Phase 4.',
+      300, 780, 'connector',
+      { connectorType: 'system-notify', title: 'CE Phase 3 — Implement Done', message: 'Build complete. Review build summary then start Phase 4 — Review.' }, [s4]);
+  }
+
+  // ── CE Phase 4 — Review ───────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s9 = randomUUID(), s10 = randomUUID(), s11 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 4 — Review',
+      '6 specialist agents run in parallel (security, perf, architecture, quality, codex) → triage P1/P2/P3 → resolve P2s → open PR. Human gate if P1s exist.', now);
+
+    step(wfId, s1, 'Load Diff + Build Summary',
+      'Read the feature plan and current git diff. Prepare review dispatch context for all parallel agents.',
+      650, 80, 'claude-code',
+      { ...cc('reviewer'), workflowContext: true, prompt: 'The feature slug is in workflow context above.\n\n1. READ docs/[slug]/plan.md\n2. READ todos/[slug]/build-summary.md\n3. Run: git diff main...HEAD to get the full diff.\n\nOutput structured dispatch context:\n```\n## Review Dispatch Context\n\nFeature: [name] | Slug: [slug]\nBranch: feature/[slug]\nFiles changed: [count] — [list]\nTests: [passing/failing]\nCoverage: [N%]\n\n### Diff Summary\n[brief description of what changed, organized by file]\n\n### Plan Reference\ndocs/[slug]/plan.md\n```\n\nThis feeds 6 parallel specialist review agents.' }, []);
+
+    step(wfId, s2, 'Security Sentinel',
+      'CE security-sentinel: OWASP Top 10, injection, auth flaws, authorization bypasses. Runs in parallel.',
+      100, 255, 'claude-code',
+      { ...cc('reviewer'), prompt: 'You are CE security-sentinel. Diff and context are above.\n\nAudit for OWASP Top 10:\n1. Injection (SQL, command, XSS, template)\n2. Broken authentication / session management\n3. Sensitive data exposure\n4. Broken access control / missing authorization checks\n5. Security misconfiguration\n6. Insecure deserialization\n7. Missing input validation / sanitization on user-controlled values\n8. Hardcoded credentials or API keys\n9. Verbose error messages that leak internals\n10. Missing HTTPS or insecure transport\n\nFor each finding: file:line | vulnerability type | severity (critical/high/medium) | description | fix\n\nEnd with: SECURITY: CLEAN or SECURITY: N FINDINGS (critical: X, high: Y, medium: Z)' }, [s1]);
+
+    step(wfId, s3, 'CSO / STRIDE Review',
+      '/cso: OWASP + STRIDE threat model, 8/10+ confidence gate, verified findings only. Runs in parallel.',
+      330, 255, 'claude-code',
+      { ...cc('reviewer'), prompt: 'You are running /cso (Chief Security Officer review). Diff and context are above.\n\nRun a STRIDE threat model against this change:\n- SPOOFING: can an attacker impersonate another user or service?\n- TAMPERING: can data be modified without authorization?\n- REPUDIATION: can actions be denied? Is there an audit trail?\n- INFORMATION DISCLOSURE: can sensitive data leak?\n- DENIAL OF SERVICE: can this be abused to cause outages?\n- ELEVATION OF PRIVILEGE: can a lower-privilege user gain higher access?\n\nConfidence gate: only report findings with 8/10+ confidence. Exclude false positives.\n\nFor each finding: threat category | file:line | description | impact | recommended mitigation\n\nEnd with: CSO: APPROVED or CSO: N VERIFIED THREATS' }, [s1]);
+
+    step(wfId, s4, 'Performance Oracle',
+      'CE performance-oracle: N+1 queries, missing indexes, caching gaps, algorithmic bottlenecks. Runs in parallel.',
+      560, 255, 'claude-code',
+      { ...cc('reviewer'), prompt: 'You are CE performance-oracle. Diff and context are above.\n\nAnalyze for performance issues:\n1. N+1 QUERIES — loops that trigger per-iteration DB calls\n2. MISSING INDEXES — WHERE clauses on un-indexed columns\n3. FULL TABLE SCANS — queries without WHERE or with non-selective conditions\n4. MISSING CACHING — expensive operations that run on every request unnecessarily\n5. ALGORITHMIC COMPLEXITY — O(n²) or worse where O(n) or O(log n) is feasible\n6. BLOCKING OPERATIONS — sync calls in hot paths, missing pagination\n7. MEMORY LEAKS — objects retained in long-lived scope, event listeners not cleaned up\n8. UNNECESSARY RE-RENDERS — React/UI components re-rendering on every tick\n\nFor each finding: file:line | issue type | severity | description | suggested fix\n\nEnd with: PERFORMANCE: CLEAN or PERFORMANCE: N FINDINGS' }, [s1]);
+
+    step(wfId, s5, 'Architecture Review',
+      'CE architecture-strategist + pattern-recognition: system design, component boundaries, anti-patterns. Runs in parallel.',
+      790, 255, 'claude-code',
+      { ...cc('architect'), prompt: 'You are CE architecture-strategist and pattern-recognition-specialist combined. Diff and context are above.\n\nARCHITECTURE:\n1. Does this respect existing component boundaries and separation of concerns?\n2. Does data flow in the right direction? (no circular dependencies, no leaking internals)\n3. Does this create inappropriate coupling between modules?\n4. Does this belong at the right layer? (UI logic in UI, business logic in services, etc.)\n5. Will this scale? Any bottlenecks at the architectural level?\n\nPATTERNS:\n1. Does this follow the patterns already established in this codebase?\n2. Any anti-patterns: God objects, anemic models, magic numbers, shotgun surgery?\n3. Any code smells: duplicated logic, long functions, deep nesting, inconsistent naming?\n4. Any YAGNI violations: abstractions for hypothetical future requirements?\n\nFor each finding: file:line | category | severity | description | recommendation\n\nEnd with: ARCHITECTURE: CLEAN or ARCHITECTURE: N FINDINGS' }, [s1]);
+
+    step(wfId, s6, 'Code Quality Review',
+      'CE code-simplicity-reviewer + /review: production bugs that pass CI, completeness gaps, readability. Runs in parallel.',
+      1020, 255, 'claude-code',
+      { ...cc('reviewer'), prompt: 'You are CE code-simplicity-reviewer and staff-engineer reviewer combined. Diff and context are above.\n\nSIMPLICITY CHECK:\n1. Is there code that is more complex than it needs to be?\n2. Any premature abstractions — base classes, factories, registries for one use case?\n3. Any dead code introduced in this PR?\n4. Are variable/function names clear without needing comments?\n\nPRODUCTION READINESS (bugs that pass CI):\n1. Unhandled error states — what happens when this fails in production?\n2. Missing loading/empty states in UI\n3. Race conditions on concurrent requests\n4. Hard-coded values that should be config\n5. Missing logging for production debugging\n6. Incomplete feature — does the implementation fully satisfy the plan?\n\nFor each finding: file:line | category | severity | description | fix\n\nEnd with: QUALITY: CLEAN or QUALITY: N FINDINGS' }, [s1]);
+
+    step(wfId, s7, 'Codex — Cross-Model Review',
+      '/codex: independent review from a second model. Fresh eyes, no shared context with prior agents. Runs in parallel.',
+      1250, 255, 'claude-code',
+      { ...cc('reviewer'), prompt: 'You are running /codex — an independent cross-model review. You have NOT seen any prior review agent output.\n\nReview the diff and plan with completely fresh eyes:\n1. Read the diff carefully. Understand what it does.\n2. Read the plan. Does the implementation match the intent?\n3. Without being primed by other reviewers: what are the top 3 issues you notice?\n4. PASS/FAIL verdict: would you merge this into production as-is?\n\nOutput:\n```\n## Codex Review\n\n### Top Findings\n1. [file:line] SEVERITY: [level] — [description]\n2. [file:line] SEVERITY: [level] — [description]\n3. [file:line] SEVERITY: [level] — [description]\n\n### Implementation vs. Plan\n[Does the code do what the plan says? Any gaps?]\n\n### Verdict\nCODEX: [PASS | PASS WITH NOTES | FAIL]\n[one sentence rationale]\n```' }, [s1]);
+
+    step(wfId, s8, 'Triage — P1 / P2 / P3',
+      'Consolidate all 6 agent findings. Classify P1/P2/P3. Auto-resolve P3. Write todos/[slug]/p1.md and p2.md. Human gate if P1s exist.',
+      650, 430, 'claude-code',
+      { ...cc('planner'), prompt: 'All 6 parallel review agent outputs are above. Consolidate and classify.\n\nClassification:\n- P1 — must fix before merge: security holes, data loss, broken core functionality, critical logic errors\n- P2 — should fix before merge: performance issues, architectural debt, incomplete error handling\n- P3 — nice to fix: style, naming, minor simplification → auto-resolve these now\n\nSteps:\n1. Deduplicate overlapping findings across agents.\n2. Classify every unique finding as P1, P2, or P3.\n3. AUTO-RESOLVE all P3 findings now (make the changes).\n4. WRITE todos/[slug]/p1.md — one finding per line: file:line | issue | severity | agent that found it\n5. WRITE todos/[slug]/p2.md — same format.\n\nOutput:\n```\n## Triage Complete\n\nP1 findings: [count] — [bullet list of each]\nP2 findings: [count] — [bullet list of each]\nP3 findings: [count] — auto-resolved\n\nFiles written:\n- todos/[slug]/p1.md ([count] items)\n- todos/[slug]/p2.md ([count] items)\n```\n\nIf P1 count > 0: this step pauses for human review. Do NOT advance automatically.', }, [s2, s3, s4, s5, s6, s7], false);
+
+    step(wfId, s9, 'Resolve P2s',
+      'Run CE /ce-resolve-pr-feedback on all P2 findings. Fix each one with a focused commit.',
+      650, 605, 'claude-code',
+      { ...cc('backend'), prompt: 'Read todos/[slug]/p2.md. Fix every P2 finding.\n\nFor each finding:\n1. Read the affected file.\n2. Make the minimal correct fix.\n3. Commit: "fix: [slug] P2 — [brief description]"\n4. Mark as resolved in your output.\n\nDo not fix P1s here — those require human decision.\nDo not introduce new logic beyond the fix.\n\nOutput:\n```\n## P2 Resolutions\n\n[finding] → RESOLVED: [what was changed]\n[finding] → RESOLVED: [what was changed]\n\nTotal P2s resolved: [count]\n```' }, [s8]);
+
+    step(wfId, s10, 'Open PR',
+      'Run /ship to open the PR with build summary, plan link, and P1/P2 resolution summary. Human reviews before merge.',
+      650, 780, 'claude-code',
+      { ...cc('planner'), prompt: 'Open the PR for this feature.\n\n1. Squash WIP commits: git rebase -i to collapse all "WIP:" prefixed commits.\n2. Run /ship (push branch + open PR) with this PR body:\n\n```\n## [Feature Name]\n\n**Plan:** docs/[slug]/plan.md\n**Build:** Tests [N passing] | Coverage [N%] | Lint [clean]\n\n### What changed\n[2-3 bullet points from the implementation]\n\n### P1 findings requiring human decision\n[list from todos/[slug]/p1.md — or "None"]\n\n### P2 findings resolved automatically\n[count] fixed\n\n### Test coverage delta\n[N% → N%]\n```\n\n3. Output the PR URL.\n\nDo NOT merge. Human reviews the PR.', }, [s9], false);
+
+    step(wfId, s11, 'Phase 4 Complete',
+      'Phase 4 — Review complete. PR is open.',
+      650, 955, 'connector',
+      { connectorType: 'system-notify', title: 'CE Phase 4 — Review Done', message: 'PR is open. Review P1 findings then advance to Phase 5 — QA.' }, [s10]);
+  }
+
+  // ── CE Phase 5 — QA ───────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 5 — QA',
+      'Real-browser QA on staging. Walk every user flow, fix bugs with atomic commits, write regression tests. Enter [slug] and [staging URL] in launch context.', now);
+
+    step(wfId, s1, 'QA Browser Run',
+      'Run /qa [staging URL]: real Chromium, walk all flows from the plan, fix each bug atomically, write regression tests.',
+      300, 80, 'claude-code',
+      { ...cc('tester'), workflowContext: true, prompt: 'The feature slug and staging URL are in workflow context above.\n\nRun /qa on the staging URL:\n1. Launch a real browser and navigate to the staging environment.\n2. Read docs/[slug]/plan.md — identify every user flow defined there.\n3. Walk through EVERY flow systematically:\n   - Happy path\n   - Each edge case from the plan\n   - Error states (invalid input, network failure, empty state)\n4. For each bug found:\n   a. Document: what you did → what happened → what was expected\n   b. Fix it with one atomic commit: "fix: [slug] QA — [description]"\n   c. Write a regression test that would have caught it\n   d. Re-verify the fix in the browser before moving on\n5. Continue until all flows pass.\n\nOutput:\n```\n## QA Run — [feature name]\n\n### Flows Tested\n[list each flow with ✅ PASS or 🐛 BUG FOUND + FIXED]\n\n### Bugs Found and Fixed\n[bug description | commit | regression test written]\n\n### Flows Failing (if any)\n[description + what was tried]\n\nSTATUS: [ALL FLOWS PASSING] | [N FLOWS FAILING]\n```' }, []);
+
+    step(wfId, s2, 'CE Three Questions',
+      'Ask the 3 CE implementation quality questions. Answers expose hidden uncertainty before shipping.',
+      300, 255, 'claude-code',
+      { ...cc('reviewer'), prompt: 'Answer these 3 CE quality questions about this implementation honestly:\n\n**Q1 — HARDEST DECISION**: What was the hardest technical decision made in this implementation? Why was it hard? What was the alternative?\n\n**Q2 — REJECTED ALTERNATIVES**: What other approaches were considered and rejected? For each: what was it, why was it rejected, and could rejecting it turn out to be wrong?\n\n**Q3 — LEAST CONFIDENT**: What part of this implementation are you least confident about? What could go wrong with it in production that you have not fully accounted for?\n\nBe honest. The goal is to surface real uncertainty, not to look good.\n\nAppend answers to todos/[slug]/qa-report.md.' }, [s1]);
+
+    step(wfId, s3, 'Investigate Uncertainties',
+      'Run /investigate on anything flagged as uncertain. Iron Law: no fixes without root cause first. Escalate after 3 failed attempts.',
+      300, 430, 'claude-code',
+      { ...cc('reviewer'), prompt: 'Read the CE Three Questions output above. For each item flagged as uncertain:\n\nRun /investigate — Iron Law: never fix before understanding root cause.\n\nFor each uncertain item:\n1. Form a hypothesis: "I think X because Y"\n2. Test the hypothesis: read the relevant code, add a debug log, check the failing test\n3. If hypothesis is wrong: form a new one. Max 3 attempts per item.\n4. If confirmed: document the root cause and either fix it or escalate.\n\nEscalation rule: if after 3 attempts you cannot determine root cause → write to todos/[slug]/escalations.md and mark for human review. Do NOT attempt a fix.\n\nOutput:\n```\n## Investigation Results\n\n### [Uncertainty 1]\nHypothesis: [what you thought]\nFindings: [what you found]\nOutcome: [RESOLVED: fix applied] | [ESCALATED: see todos/[slug]/escalations.md]\n```' }, [s2]);
+
+    step(wfId, s4, 'QA Report',
+      'Write final todos/[slug]/qa-report.md. Pauses for human review if any flows are failing or escalations exist.',
+      300, 605, 'claude-code',
+      { ...cc('planner'), prompt: 'Compile the final QA report.\n\nWRITE todos/[slug]/qa-report.md:\n- ## QA Summary\n- ## Flows Tested (count + list with pass/fail)\n- ## Bugs Found and Fixed (count + descriptions + commits)\n- ## Regression Tests Added (count + file locations)\n- ## CE Three Questions Answers\n- ## Escalations (if any — link to todos/[slug]/escalations.md)\n- ## Status: ALL PASSING | N FAILING\n\nOutput gate summary:\n```\n## Phase 5 — QA REPORT\n\nFlows tested: [count]\nBugs found and fixed: [count]\nRegression tests added: [count]\nEscalations: [count — or "None"]\n\nSTATUS: [ALL FLOWS PASSING — advance to Phase 6] | [ESCALATIONS EXIST — human decision required]\n```\n\nIf escalations exist or any flows are failing: do NOT advance automatically.', }, [s3], false);
+
+    step(wfId, s5, 'Phase 5 Complete',
+      'Phase 5 — QA complete. All flows passing.',
+      300, 780, 'connector',
+      { connectorType: 'system-notify', title: 'CE Phase 5 — QA Done', message: 'QA passed. Review qa-report then advance to Phase 6 — Ship.' }, [s4]);
+  }
+
+  // ── CE Phase 6 — Ship ─────────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 6 — Ship',
+      'Document release → human merge approval → land & deploy → 10-min canary watch. QA must be clean before starting.', now);
+
+    step(wfId, s1, 'Document Release',
+      'Run /document-release: cross-reference the diff against all docs, update stale content, flag gaps.',
+      300, 80, 'claude-code',
+      { ...cc('planner'), workflowContext: true, prompt: 'You are running /document-release for the [slug] feature.\n\n1. Read the full diff: git diff main...HEAD\n2. Read every documentation file in the project: README.md, ARCHITECTURE.md, CONTRIBUTING.md, CLAUDE.md, any docs/ files.\n3. For each doc file: does the diff change anything this document describes? If yes, update it.\n4. Cross-reference the implementation against the docs. Flag any documentation that:\n   - Describes behavior that no longer exists\n   - Is missing documentation for new behavior\n   - Has stale file paths, function names, or configuration keys\n5. Update what you can automatically. Flag what requires human judgment.\n\nOutput:\n```\n## Document Release Report\n\n### Files Updated\n[file | what was updated]\n\n### Stale Docs Flagged (require human update)\n[file | what is stale | why it needs human judgment]\n\n### Coverage\n[All docs current] | [N items flagged for human review]\n```' }, []);
+
+    step(wfId, s2, 'Merge Gate',
+      'Human merge approval gate. Review the PR, QA report, and doc release report before approving merge.',
+      300, 255, 'claude-code',
+      { ...cc('planner'), prompt: 'Prepare the merge approval summary for human review.\n\nCollect and summarize:\n1. PR URL and title\n2. QA status from todos/[slug]/qa-report.md\n3. Doc release status from above\n4. Build summary: tests, coverage, lint\n5. Any remaining P1 findings\n\nOutput:\n```\n## Phase 6 — AWAITING MERGE APPROVAL\n\nPR: [URL]\nQA: [ALL FLOWS PASSING]\nDocs: [updated / N items flagged]\nBuild: Tests [N] | Coverage [N%] | Lint [clean]\nP1 findings: [None | list]\n\nTo merge: advance this step manually.\nTo hold: reject with reason.\n```\n\nDo NOT merge automatically. Do NOT advance automatically.', }, [s1], false);
+
+    step(wfId, s3, 'Land & Deploy',
+      'Run /land-and-deploy: merge PR, wait for CI, deploy, verify production health endpoint.',
+      300, 430, 'claude-code',
+      { ...cc('backend'), prompt: 'Human has approved the merge. Run /land-and-deploy:\n\n1. MERGE the PR (do not squash unless project convention requires it).\n2. Wait for CI to complete — poll every 30 seconds. Fail loudly if CI fails.\n3. Wait for the deploy to complete — check the deploy pipeline status.\n4. VERIFY production health: hit the health endpoint and confirm 200 OK.\n5. Do a quick smoke test: navigate to the feature in production, confirm it loads.\n\nOutput:\n```\n## Deploy Status\n\nMerge: [commit SHA]\nCI: [PASSED in Nm]\nDeploy: [COMPLETED at HH:MM]\nHealth check: [200 OK]\nSmoke test: [PASS]\n\nProduction is live.\n```' }, [s2]);
+
+    step(wfId, s4, 'Canary Watch',
+      'Monitor production for 10 minutes post-deploy. Watch for console errors, performance regressions, page failures. Human gate if regression found.',
+      300, 605, 'claude-code',
+      { ...cc('reviewer'), prompt: 'Monitor production for 10 minutes after deploy.\n\nWatch for:\n1. Console errors / JS exceptions in the browser\n2. API error rate increase (check logs or monitoring)\n3. Page load time regression (>20% slower than baseline)\n4. Any 4xx or 5xx errors from the new feature endpoints\n5. User-visible failures in the feature flows\n\nCheck every 2 minutes. After 10 minutes, report:\n\n```\n## Canary Report — [feature name]\n\nDuration: 10 minutes\nErrors found: [count]\nPerformance regression: [None | description]\nPage failures: [None | description]\n\nCANARY: [CLEAN — auto-continue to Phase 7] | [REGRESSION FOUND — human decision required]\n```\n\nIf REGRESSION FOUND: do NOT advance automatically. Recommend: rollback or hotfix.', }, [s3], false);
+
+    step(wfId, s5, 'Phase 6 Complete',
+      'Phase 6 — Ship complete. Feature is live in production.',
+      300, 780, 'connector',
+      { connectorType: 'system-notify', title: 'CE Phase 6 — Shipped!', message: 'Feature is live. Canary is clean. Advance to Phase 7 — Compound.' }, [s4]);
+  }
+
+  // ── CE Phase 7 — Compound ─────────────────────────────────────────────
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CE: Phase 7 — Compound',
+      'Make the next feature cheaper. CE compound → update CLAUDE.md → retro → learn. The most important phase — do not skip.', now);
+
+    step(wfId, s1, 'CE Compound',
+      'Run CE /ce-compound: 6 parallel subagents extract what was learned and write docs/solutions/[slug].md.',
+      300, 80, 'claude-code',
+      { ...cc('researcher'), workflowContext: true, prompt: 'You are running CE /ce-compound for the [slug] feature. Canary is clean.\n\nSpawn 6 parallel research tasks and synthesize:\n\n**context-analyzer**: What problem did this feature solve? What was the real user need vs. the stated requirement?\n\n**solution-extractor**: What worked well in this implementation? What did not work and had to be abandoned? What surprised you?\n\n**related-docs-finder**: Search docs/solutions/ for existing compound docs. What prior learnings applied here? What was missing?\n\n**prevention-strategist**: What mistakes were made or nearly made? How would you detect this class of problem earlier next time?\n\n**category-classifier**: Tag this solution for future retrieval. Categories: auth | data | performance | ui | api | testing | architecture | devops | other. Also tag: language, framework, scope (component/service/system).\n\n**documentation-writer**: Format the final searchable document.\n\nWRITE docs/solutions/[slug].md with YAML frontmatter:\n```yaml\n---\ntitle: [feature name]\nslug: [slug]\ncategories: [list]\ntags: [list]\ndate: [today]\n---\n```\nThen sections: ## Problem, ## Solution, ## What Worked, ## What Did Not Work, ## Prevention, ## Related Docs, ## Key Code References' }, []);
+
+    step(wfId, s2, 'Update CLAUDE.md',
+      'Add new patterns, anti-patterns, taste decisions, and caveats discovered in this sprint to CLAUDE.md.',
+      300, 255, 'claude-code',
+      { ...cc('planner'), prompt: 'Read the compound doc from the previous step and the full git log for this sprint.\n\nUpdate CLAUDE.md — add to the relevant sections:\n- NEW PATTERNS: things that worked well that should be repeated\n- ANTI-PATTERNS: things that went wrong or nearly went wrong — include early detection signals\n- TASTE DECISIONS: naming, structure, approach choices made — and why\n- CAVEATS: project-specific constraints discovered\n\nRule: if an agent made a mistake during this sprint that another agent or human had to correct, add a note so it will not happen again next sprint.\n\nDo not remove existing content unless it is now factually wrong. Mark superseded patterns as deprecated with a note.\n\nOutput: list of sections updated and what was added.' }, [s1]);
+
+    step(wfId, s3, 'Retro',
+      'Run /retro: velocity vs estimate, top 3 blockers, coverage trend. Write docs/retros/[date]-[slug].md.',
+      300, 430, 'claude-code',
+      { ...cc('planner'), prompt: 'Run /retro for the [slug] sprint.\n\nGather from git log, todos, and build summary:\n1. VELOCITY: estimated effort (from Phase 1) vs. actual time spent\n2. COVERAGE TREND: coverage at start of sprint vs. end\n3. PHASE ANALYSIS: which phase took longest? Which was smoothest?\n4. TOP 3 BLOCKERS: what slowed the team down most?\n5. WHAT TO REPEAT: what went well that we should do more of?\n6. WHAT TO CHANGE: what would we do differently?\n\nToday\'s date: use the current date.\n\nWRITE docs/retros/[today-date]-[slug].md with all sections.\n\nOutput a summary: velocity ratio (estimated/actual), coverage delta, top 3 blockers.' }, [s2]);
+
+    step(wfId, s4, 'Learn & Final Review',
+      'Run /learn: review new learnings, prune superseded ones, verify CLAUDE.md is current. Final human sign-off.',
+      300, 605, 'claude-code',
+      { ...cc('planner'), prompt: 'Run /learn for the [slug] sprint.\n\n1. Review all learnings added in this sprint (from CLAUDE.md updates in previous step).\n2. Search for any existing learnings that are now superseded by what we learned — mark them as deprecated.\n3. Verify CLAUDE.md is consistent (no contradictions, no stale file paths or function names).\n4. Confirm docs/solutions/[slug].md is written and well-structured.\n\nOutput final compound summary:\n```\n## Phase 7 — COMPOUND COMPLETE\n\nFeature: [name] is live in production\nCompound doc: docs/solutions/[slug].md\nCLAUDE.md: updated with [N] new patterns, [N] anti-patterns\nRetro: docs/retros/[date]-[slug].md\nNew learnings added: [N]\nSuperseded learnings pruned: [N]\n\nThe system is now smarter than it was before this feature was built.\n\nAdvance to close this sprint.\n```\n\nDo NOT advance automatically.', }, [s3], false);
+
+    step(wfId, s5, 'Sprint Complete',
+      'Full Compound Engineering sprint complete. Feature live, learnings captured, system improved.',
+      300, 780, 'connector',
+      { connectorType: 'system-notify', title: 'CE Sprint Complete 🎯', message: 'Feature is live, compound doc written, CLAUDE.md updated, retro done. The system is smarter.' }, [s4]);
+  }
+
+  // ── CE: Full Delivery — all 7 phases chained ──────────────────────────
+  {
+    const wfId = randomUUID();
+
+    // Phase 1 IDs
+    const p1s1 = randomUUID(), p1s2 = randomUUID(), p1s3 = randomUUID(), p1s4 = randomUUID(), p1s5 = randomUUID();
+    // Phase 2 IDs
+    const p2s1 = randomUUID(), p2s2 = randomUUID(), p2s3 = randomUUID(), p2s4 = randomUUID(), p2s5 = randomUUID(), p2s6 = randomUUID();
+    // Phase 3 IDs
+    const p3s1 = randomUUID(), p3s2 = randomUUID(), p3s3 = randomUUID(), p3s4 = randomUUID(), p3s5 = randomUUID();
+    // Phase 4 IDs
+    const p4s1 = randomUUID(), p4s2 = randomUUID(), p4s3 = randomUUID(), p4s4 = randomUUID(), p4s5 = randomUUID(), p4s6 = randomUUID(), p4s7 = randomUUID(), p4s8 = randomUUID(), p4s9 = randomUUID(), p4s10 = randomUUID(), p4s11 = randomUUID();
+    // Phase 5 IDs
+    const p5s1 = randomUUID(), p5s2 = randomUUID(), p5s3 = randomUUID(), p5s4 = randomUUID(), p5s5 = randomUUID();
+    // Phase 6 IDs
+    const p6s1 = randomUUID(), p6s2 = randomUUID(), p6s3 = randomUUID(), p6s4 = randomUUID(), p6s5 = randomUUID();
+    // Phase 7 IDs
+    const p7s1 = randomUUID(), p7s2 = randomUUID(), p7s3 = randomUUID(), p7s4 = randomUUID(), p7s5 = randomUUID();
+
+    insertWorkflow.run(wfId, 'CE: Full Delivery',
+      'All 7 phases chained end-to-end. Interrogate → Plan → Implement → Review → QA → Ship → Compound. Enter feature slug + description in launch context.', now);
+
+    // ── Phase 1 (y: 80–780) ────────────────────────────────────────────
+    step(wfId, p1s1, '[P1] Load Prior Work',         'Search CLAUDE.md and docs/solutions/ for prior patterns.',               300,   80, 'claude-code', { ...cc('researcher'), workflowContext: true, prompt: 'The feature name/slug is in the workflow context above.\n\n1. READ CLAUDE.md — extract patterns, anti-patterns, taste decisions, and caveats relevant to this feature area.\n2. SEARCH docs/solutions/ for any compound docs related to this domain. Read any relevant ones.\n3. SEARCH docs/brainstorms/ and docs/plans/ for any prior work on this feature.\n\nOutput a Prior Work Summary:\n```\n## Prior Work Summary\n\n### CLAUDE.md Relevant Notes\n[bullet list — or "None"]\n\n### Prior Compound Docs Found\n[names and 1-sentence summary each — or "None"]\n\n### Prior Brainstorms / Plans Found\n[names and key decisions — or "None"]\n\n### Verdict\n[CLEAN START — no relevant prior work] or [PRIOR WORK EXISTS — key context: ...]\n```' }, []);
+    step(wfId, p1s2, '[P1] Office Hours',            'Run /office-hours: 6 forcing questions, 2–3 approaches, effort estimate.', 300,  255, 'claude-code', { ...cc('planner'), prompt: 'You are running /office-hours. Prior work findings are above.\n\nAsk 6 forcing questions — answer each based on the feature context:\n\n**Q1 — DEMAND REALITY**: Who specifically wants this? How do we know?\n**Q2 — STATUS QUO**: What are users doing right now without this? Why is that not enough?\n**Q3 — DESPERATE SPECIFICITY**: Describe the one person most desperate for this. What is their exact situation?\n**Q4 — NARROWEST WEDGE**: What is the smallest version that still delivers real value?\n**Q5 — OBSERVATION**: Have we watched someone try to do this? What actually happened?\n**Q6 — FUTURE FIT**: In 2 years, does this feature become more or less relevant? Why?\n\nThen generate 2–3 implementation approaches:\nFor each: name, one-sentence description, effort (S/M/L), key assumption, biggest risk.\n\nEnd with:\n```\n## Recommended Approach\n[name]: [why]\n\n## Key Assumptions\n- [list]\n\n## Estimated Effort: [S/M/L]\n```' }, [p1s1]);
+    step(wfId, p1s3, '[P1] CE Brainstorm',           'Repo research, clarify purpose/constraints, define done.',               300,  430, 'claude-code', { ...cc('researcher'), prompt: 'You are running CE /ce-brainstorm. Office Hours output is above — build on it, do not repeat it.\n\n1. REPO RESEARCH — use Read, Grep, Glob:\n   - Find existing code related to this feature\n   - Identify files and modules that will be touched\n   - Note established patterns you must follow\n   - Flag constraints (locked interfaces, technical debt)\n\n2. CLARIFY:\n   - Purpose (what does this solve at the code level?)\n   - Users (which flows are affected?)\n   - Hard constraints (what must NOT change?)\n   - Top 3 edge cases\n\n3. DEFINE DONE — concrete, observable criteria.\n\nOutput:\n```\n## CE Brainstorm\n\n### Repo Research\n[files affected, patterns to follow, constraints]\n\n### Clarified Purpose\n[one paragraph]\n\n### Users & Flows Affected\n[bullet list]\n\n### Top Edge Cases\n1. [case + handling]\n2. [case + handling]\n3. [case + handling]\n\n### Definition of Done\n- [ ] [criterion]\n- [ ] [criterion]\n```' }, [p1s2]);
+    step(wfId, p1s4, '[P1] Write Brainstorm Doc',    'Merge outputs → docs/[slug]/brainstorm.md. Human gate.',                  300,  605, 'claude-code', { ...cc('planner'), prompt: 'Merge all prior step outputs into a canonical brainstorm document.\n\n1. Determine the feature slug from context (lowercase-hyphenated, e.g. "user-auth-v2").\n2. Create docs/[slug]/ directory if needed.\n3. WRITE docs/[slug]/brainstorm.md:\n   - ## Problem Statement\n   - ## Recommended Approach (one sentence)\n   - ## Approaches Considered (table: name | effort | key assumption | risk)\n   - ## Scoped Definition (in / out)\n   - ## Files / Modules Affected\n   - ## Constraints\n   - ## Top Edge Cases\n   - ## Definition of Done (checklist)\n   - ## Open Questions\n   - ## Prior Work References\n   - ## Effort Estimate: [S/M/L]\n\n4. Output gate summary:\n```\n## Phase 1 — AWAITING HUMAN REVIEW\n\nFeature: [name] | Slug: [slug]\nRecommended approach: [one sentence]\nKey assumptions: [bullet list]\nEstimated effort: [S/M/L]\nFile written: docs/[slug]/brainstorm.md\n\nAdvance manually after reviewing the brainstorm doc.\n```\n\nDo NOT advance automatically.' }, [p1s3], false);
+    step(wfId, p1s5, '[P1] ✓ Interrogate Done',      'Phase 1 complete — notify.',                                              300,  780, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — P1 Done', message: 'Brainstorm ready. Review then advance to Phase 2.' }, [p1s4]);
+
+    // ── Phase 2 (y: 1000–1600, parallel at y=1175) ─────────────────────
+    step(wfId, p2s1, '[P2] Load Brainstorm',          'Read brainstorm doc, prepare context for parallel reviews.',             450, 1000, 'claude-code', { ...cc('researcher'), prompt: 'Read docs/[slug]/brainstorm.md in full.\n\nOutput a structured summary:\n```\n## Brainstorm Summary for Plan Review\n\nFeature: [name] | Slug: [slug]\nRecommended Approach: [one sentence]\nEffort: [S/M/L]\n\n### Files / Modules Affected\n[list]\n\n### Key Constraints\n[list]\n\n### Open Questions from Phase 1\n[list]\n\n### Definition of Done\n[checklist]\n```\n\nThis feeds three parallel reviews that run simultaneously.' }, [p1s4]);
+    step(wfId, p2s2, '[P2] /plan-ceo-review',         'Scope check, 10-star test, 4 scope modes. Parallel.',                   150, 1175, 'claude-code', { ...cc('planner'), prompt: 'You are running /plan-ceo-review. Brainstorm summary is above.\n\nPick ONE of 4 scope modes and argue it:\n- EXPANSION: should we build MORE? What value are we leaving on the table?\n- SELECTIVE EXPANSION: core + one high-value addition. What is the addition?\n- HOLD SCOPE: the proposal is right as stated. Defend it.\n- REDUCTION: we are overbuilding. What is the minimum that still delivers real value?\n\nRun the 10-star product test:\n- 7/10 version (mediocre but ships): [description]\n- 10/10 version (legendary, 10x longer): [description]\n- Recommended target: [N/10] — [why]\n\nOutput:\n```\n## CEO Review\n\n### Mode: [NAME]\n[3-4 sentence argument]\n\n### 10-Star Test\n7/10: [description]\n10/10: [description]\nTarget: [N/10] — [why]\n\n### Scope Recommendation\nIn: [list] | Out: [list]\n\n### Risk Flags\n- [flag]\n- [flag]\n```' }, [p2s1]);
+    step(wfId, p2s3, '[P2] /plan-eng-review',         'Architecture, data flow, edge cases, test matrix. Parallel.',           450, 1175, 'claude-code', { ...cc('architect'), prompt: 'You are running /plan-eng-review. Brainstorm summary is above.\n\n1. DATA FLOW — draw ASCII diagram: User action → [layers] → DB/API → response → UI state\n\n2. AFFECTED FILES — table: File | Change Type | Why\n\n3. KEY INTERFACES — types/interfaces to create or modify\n\n4. EDGE CASES — top 5: Case | Input | Expected behavior | Failure mode\n\n5. TEST MATRIX — minimum test coverage: Test | Type (unit/integration/e2e) | What it verifies\n\n6. FAILURE MODES — what breaks in production if this fails?\n\n7. SECURITY CONCERNS — auth, authorization, input validation, data exposure at design level\n\nOutput all sections clearly labeled.' }, [p2s1]);
+    step(wfId, p2s4, '[P2] CE Plan Research',         'Repo patterns + framework docs + best practices. Parallel.',            750, 1175, 'claude-code', { ...cc('researcher'), prompt: 'You are running CE /ce-plan research. Brainstorm summary is above.\n\nRun three parallel research tracks:\n\n**TRACK 1 — REPO PATTERNS**: Search codebase for existing patterns for this feature type, prior implementations, naming/file/test conventions.\n\n**TRACK 2 — FRAMEWORK DOCS**: Identify frameworks/libraries this feature uses. Official approach, version constraints, recommended patterns.\n\n**TRACK 3 — BEST PRACTICES**: Industry-standard approaches, common mistakes, security/performance best practices.\n\nSynthesize into:\n```\n## CE Plan Research\n\n### Existing Codebase Patterns\n[what to follow, what already exists]\n\n### Framework Guidance\n[official approach + version constraints]\n\n### Industry Best Practices\n[key patterns + pitfalls to avoid]\n\n### Implementation Recommendations\n- [specific recommendation]\n- [specific recommendation]\n```' }, [p2s1]);
+    step(wfId, p2s5, '[P2] Write Plan Doc',           'Merge reviews → docs/[slug]/plan.md. Human gate.',                      450, 1350, 'claude-code', { ...cc('planner'), prompt: 'Merge all three parallel review outputs into a canonical plan document.\n\nWRITE docs/[slug]/plan.md:\n- ## Overview (what, why, how — one paragraph)\n- ## Scope (in / out — from CEO review)\n- ## Architecture (data flow ASCII + interfaces — from Eng review)\n- ## Affected Files (table: file | change type | why)\n- ## Implementation Steps (numbered, ordered, each step is one actionable task)\n- ## Test Plan (table: test | type | what it verifies)\n- ## Security Checklist (from Eng review)\n- ## Rollback Plan\n- ## Open Decisions\n\nOutput gate summary:\n```\n## Phase 2 — AWAITING HUMAN REVIEW\n\nFeature: [name] | Slug: [slug]\nAffected files: [count]\nImplementation steps: [count]\nRisks: [bullet list]\nOpen decisions: [bullet list]\nFile written: docs/[slug]/plan.md\n```\n\nDo NOT advance automatically.' }, [p2s2, p2s3, p2s4], false);
+    step(wfId, p2s6, '[P2] ✓ Plan Done',              'Phase 2 complete — notify.',                                             450, 1525, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — P2 Done', message: 'Plan ready. Review then advance to Phase 3.' }, [p2s5]);
+
+    // ── Phase 3 (y: 1745–2545) ─────────────────────────────────────────
+    step(wfId, p3s1, '[P3] Load Plan + Worktree',    'Read plan, create git worktree, output step checklist.',                 300, 1745, 'claude-code', { ...cc('architect'), prompt: 'Read docs/[slug]/plan.md in full.\n\nCreate an isolated git worktree:\n  git worktree add ../[slug]-work feature/[slug]\nIf it already exists, verify it is on the correct branch.\n\nOutput:\n```\n## Phase 3 Setup\n\nFeature: [name] | Slug: [slug]\nWorktree: ../[slug]-work\nBranch: feature/[slug]\nPlan loaded: [N] implementation steps\n\n### Step Checklist\n[ ] Step 1: [name]\n[ ] Step 2: [name]\n[all steps from plan]\n```' }, [p2s5]);
+    step(wfId, p3s2, '[P3] CE Implement',            'Execute plan steps sequentially, WIP commits after each.',              300, 1920, 'claude-code', { ...cc('backend'), prompt: 'Execute every implementation step in the plan IN ORDER. Rules:\n1. After each file changed: run the linter/type-checker for that file.\n2. After each step: WIP commit — "WIP: [slug] — step N: [name]"\n3. If a step reveals a problem: adapt, implement better, document the deviation.\n4. Do NOT touch test files. Do NOT open a PR.\n\nOutput:\n```\n## Implementation Complete\n\n### Steps\n[numbered — ✅ done or ⚠️ DEVIATED: [what and why]]\n\n### Files Changed\n[list]\n\n### Deviations\n[list — or "None"]\n```' }, [p3s1]);
+    step(wfId, p3s3, '[P3] Run Tests',               'Full test suite. Routes back to Implement if failing (max 3 cycles).',  300, 2095, 'quality-gate', { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: p3s2 }], maxCycles: 3 }, [p3s2]);
+    step(wfId, p3s4, '[P3] Build Summary',           'Type check, lint, coverage. Write todos/[slug]/build-summary.md.',     300, 2270, 'claude-code', { ...cc('reviewer'), prompt: 'Run full pre-merge verification. Do NOT open a PR.\n\n1. TYPE CHECK: tsc --noEmit. Report: clean / N errors.\n2. LINT: report: clean / N issues.\n3. COVERAGE: N%. Flag if below threshold.\n\nWRITE todos/[slug]/build-summary.md.\n\nOutput:\n```\nSTATUS: [PASS — ready for Phase 4] | [FAIL — resolve first]\n\nTests: [N passing / N failing]\nType check: [clean / N errors]\nLint: [clean / N issues]\nCoverage: [N%]\n```' }, [p3s3]);
+    step(wfId, p3s5, '[P3] ✓ Implement Done',        'Phase 3 complete — notify.',                                            300, 2445, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — P3 Done', message: 'Build complete. Starting Phase 4 — Review.' }, [p3s4]);
+
+    // ── Phase 4 (y: 2665–3615, parallel at y=2840) ─────────────────────
+    step(wfId, p4s1,  '[P4] Load Diff + Build',       'Read plan, diff, build summary. Prepare dispatch context.',             650, 2665, 'claude-code', { ...cc('reviewer'), prompt: 'READ docs/[slug]/plan.md, READ todos/[slug]/build-summary.md, run git diff main...HEAD.\n\nOutput dispatch context:\n```\n## Review Dispatch Context\n\nFeature: [name] | Slug: [slug]\nBranch: feature/[slug]\nFiles changed: [count] — [list]\nTests: [pass/fail count]\nCoverage: [N%]\n\n### Diff Summary\n[brief per-file description]\n```' }, [p3s4]);
+    step(wfId, p4s2,  '[P4] Security Sentinel',       'CE security-sentinel: OWASP Top 10 + injection + auth. Parallel.',      100, 2840, 'claude-code', { ...cc('reviewer'), prompt: 'You are CE security-sentinel. Diff and context are above.\n\nAudit for OWASP Top 10:\n1. Injection (SQL, command, XSS, template)\n2. Broken auth / session management\n3. Sensitive data exposure\n4. Broken access control\n5. Security misconfiguration\n6. Insecure deserialization\n7. Missing input validation\n8. Hardcoded credentials\n9. Verbose error messages leaking internals\n10. Insecure transport\n\nFor each: file:line | type | severity | description | fix\n\nEnd with: SECURITY: CLEAN or SECURITY: N FINDINGS' }, [p4s1]);
+    step(wfId, p4s3,  '[P4] CSO / STRIDE',            '/cso: STRIDE threat model, 8/10+ confidence only. Parallel.',           330, 2840, 'claude-code', { ...cc('reviewer'), prompt: 'You are running /cso. STRIDE threat model — 8/10+ confidence findings only.\n\nSPOOFING | TAMPERING | REPUDIATION | INFORMATION DISCLOSURE | DENIAL OF SERVICE | ELEVATION OF PRIVILEGE\n\nFor each: threat | file:line | description | impact | mitigation\n\nEnd with: CSO: APPROVED or CSO: N VERIFIED THREATS' }, [p4s1]);
+    step(wfId, p4s4,  '[P4] Performance Oracle',      'CE performance-oracle: N+1, indexes, caching, algorithmic. Parallel.',  560, 2840, 'claude-code', { ...cc('reviewer'), prompt: 'You are CE performance-oracle. Diff and context above.\n\nCheck: N+1 queries | missing indexes | full table scans | missing caching | O(n²)+ algorithms | blocking ops | memory leaks | unnecessary re-renders.\n\nFor each: file:line | type | severity | description | fix\n\nEnd with: PERFORMANCE: CLEAN or PERFORMANCE: N FINDINGS' }, [p4s1]);
+    step(wfId, p4s5,  '[P4] Architecture Review',     'CE architecture-strategist + pattern-recognition. Parallel.',           790, 2840, 'claude-code', { ...cc('architect'), prompt: 'CE architecture-strategist + pattern-recognition. Diff above.\n\nARCHITECTURE: component boundaries | data flow direction | coupling | correct layer | scalability\nPATTERNS: follows codebase conventions | anti-patterns | YAGNI violations | code smells\n\nFor each: file:line | category | severity | description | recommendation\n\nEnd with: ARCHITECTURE: CLEAN or ARCHITECTURE: N FINDINGS' }, [p4s1]);
+    step(wfId, p4s6,  '[P4] Code Quality Review',     'CE simplicity + /review: prod bugs that pass CI, completeness. Parallel.', 1020, 2840, 'claude-code', { ...cc('reviewer'), prompt: 'CE code-simplicity + staff-engineer review. Diff above.\n\nSIMPLICITY: over-complex code | premature abstractions | dead code | unclear names\nPRODUCTION READINESS: unhandled error states | missing loading/empty states | race conditions | hard-coded values | missing logging | incomplete feature\n\nFor each: file:line | category | severity | description | fix\n\nEnd with: QUALITY: CLEAN or QUALITY: N FINDINGS' }, [p4s1]);
+    step(wfId, p4s7,  '[P4] Codex',                   '/codex: independent cross-model review. No shared context. Parallel.',  1250, 2840, 'claude-code', { ...cc('reviewer'), prompt: 'You are /codex — independent review with no prior agent context.\n\nRead the diff and plan with fresh eyes:\n1. What does this change do?\n2. Does it match the plan intent?\n3. Top 3 issues you notice independently.\n4. PASS/FAIL verdict for production merge.\n\nOutput:\n```\n## Codex Review\n\n### Top Findings\n1. [file:line] [severity] — [description]\n2. [file:line] [severity] — [description]\n3. [file:line] [severity] — [description]\n\n### Plan Fidelity\n[gaps between code and plan]\n\nCODEX: [PASS | PASS WITH NOTES | FAIL]\n```' }, [p4s1]);
+    step(wfId, p4s8,  '[P4] Triage P1/P2/P3',         'Consolidate all 6 agents. P3 auto-resolved. Write p1.md + p2.md. Human gate if P1s.', 650, 3015, 'claude-code', { ...cc('planner'), prompt: 'All 6 parallel review outputs are above. Consolidate and classify.\n\nP1 — must fix before merge: security holes, data loss, broken core functionality\nP2 — should fix: perf issues, architectural debt, incomplete error handling\nP3 — nice to fix → auto-resolve all P3s now\n\n1. Deduplicate findings across agents.\n2. Classify every finding.\n3. AUTO-RESOLVE P3s immediately.\n4. WRITE todos/[slug]/p1.md\n5. WRITE todos/[slug]/p2.md\n\nIf P1 count > 0: output gate message and do NOT advance automatically.\n\n```\n## Triage\nP1: [count] | P2: [count] | P3: [count auto-resolved]\n```' }, [p4s2, p4s3, p4s4, p4s5, p4s6, p4s7], false);
+    step(wfId, p4s9,  '[P4] Resolve P2s',             'Fix every P2 from todos/[slug]/p2.md with focused commits.',            650, 3190, 'claude-code', { ...cc('backend'), prompt: 'Read todos/[slug]/p2.md. Fix every P2 finding.\n\nFor each: minimal fix → commit "fix: [slug] P2 — [description]" → mark resolved.\n\nDo not fix P1s. Do not introduce new logic.\n\nOutput: list of P2s resolved.' }, [p4s8]);
+    step(wfId, p4s10, '[P4] Open PR',                 'Run /ship to open PR. Human reviews before merge.',                    650, 3365, 'claude-code', { ...cc('planner'), prompt: 'Squash WIP commits, then run /ship to open the PR.\n\nPR body:\n```\n## [Feature Name]\n\nPlan: docs/[slug]/plan.md\nBuild: Tests [N] | Coverage [N%] | Lint clean\n\n### Changes\n[2-3 bullets]\n\n### P1 findings (if any)\n[list or "None"]\n\n### P2 resolved\n[count] fixed\n```\n\nOutput PR URL. Do NOT merge. Do NOT advance automatically.' }, [p4s9], false);
+    step(wfId, p4s11, '[P4] ✓ Review Done',            'Phase 4 complete — notify.',                                            650, 3540, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — P4 Done', message: 'PR open. Review P1 findings then advance to Phase 5.' }, [p4s10]);
+
+    // ── Phase 5 (y: 3760–4560) ─────────────────────────────────────────
+    step(wfId, p5s1, '[P5] QA Browser Run',          'Run /qa: real Chromium, walk all flows, fix bugs + regression tests.',  300, 3760, 'claude-code', { ...cc('tester'), prompt: 'Run /qa on the staging URL (from context or .env.staging).\n\n1. Launch browser, navigate to staging.\n2. Read docs/[slug]/plan.md — walk EVERY user flow.\n3. For each bug: document → fix with atomic commit → write regression test → re-verify.\n\nOutput:\n```\n## QA Run\n\n### Flows\n[each: ✅ PASS or 🐛 BUG + FIXED]\n\n### Bugs Fixed\n[description | commit | regression test]\n\nSTATUS: [ALL PASSING] | [N FAILING]\n```' }, [p4s10]);
+    step(wfId, p5s2, '[P5] CE Three Questions',      'Answer 3 CE quality questions to surface hidden uncertainty.',          300, 3935, 'claude-code', { ...cc('reviewer'), prompt: 'Answer honestly:\n\nQ1 — HARDEST DECISION: What was hardest technically? Why? What was the alternative?\nQ2 — REJECTED ALTERNATIVES: What was considered and rejected? Could rejecting it be wrong?\nQ3 — LEAST CONFIDENT: What could go wrong in production you have not fully accounted for?\n\nAppend to todos/[slug]/qa-report.md.' }, [p5s1]);
+    step(wfId, p5s3, '[P5] Investigate',             'Run /investigate on flagged uncertainties. Escalate after 3 failures.', 300, 4110, 'claude-code', { ...cc('reviewer'), prompt: 'For each uncertainty from CE Three Questions: hypothesis → test → confirm or new hypothesis. Max 3 attempts.\n\nEscalate unresolved items to todos/[slug]/escalations.md.\n\nOutput investigation results per item.' }, [p5s2]);
+    step(wfId, p5s4, '[P5] QA Report',               'Write todos/[slug]/qa-report.md. Human gate if failures/escalations.',  300, 4285, 'claude-code', { ...cc('planner'), prompt: 'WRITE todos/[slug]/qa-report.md:\n- ## Flows Tested\n- ## Bugs Fixed\n- ## Regression Tests Added\n- ## CE Three Questions\n- ## Escalations\n- ## Status\n\nIf escalations or failures: do NOT advance automatically.\n\n```\nQA STATUS: [ALL PASSING] | [ESCALATIONS EXIST]\n```' }, [p5s3], false);
+    step(wfId, p5s5, '[P5] ✓ QA Done',               'Phase 5 complete — notify.',                                            300, 4460, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — P5 Done', message: 'QA passed. Advance to Phase 6 — Ship.' }, [p5s4]);
+
+    // ── Phase 6 (y: 4680–5480) ─────────────────────────────────────────
+    step(wfId, p6s1, '[P6] Document Release',        'Cross-reference diff vs all docs. Update stale content. Flag gaps.',   300, 4680, 'claude-code', { ...cc('planner'), prompt: 'Run /document-release.\n\n1. git diff main...HEAD\n2. Read all docs: README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md, docs/\n3. Update stale content. Flag what needs human judgment.\n\nOutput: files updated | items flagged.' }, [p5s4]);
+    step(wfId, p6s2, '[P6] Merge Gate',              'Human merge approval. Review PR + QA + docs before proceeding.',       300, 4855, 'claude-code', { ...cc('planner'), prompt: 'Prepare merge approval summary.\n\nCollect: PR URL | QA status | doc release status | build summary | P1 findings.\n\n```\n## Phase 6 — AWAITING MERGE APPROVAL\n\nPR: [URL]\nQA: [status]\nDocs: [status]\nBuild: [summary]\nP1s: [None or list]\n```\n\nDo NOT merge automatically.' }, [p6s1], false);
+    step(wfId, p6s3, '[P6] Land & Deploy',           'Merge PR, wait for CI, deploy, verify production health.',             300, 5030, 'claude-code', { ...cc('backend'), prompt: 'Run /land-and-deploy:\n1. Merge PR\n2. Wait for CI — fail loudly if CI fails\n3. Wait for deploy\n4. Verify health endpoint: 200 OK\n5. Smoke test the feature in production\n\nOutput: merge SHA | CI status | deploy status | health check | smoke test.' }, [p6s2]);
+    step(wfId, p6s4, '[P6] Canary Watch',            '10-min production monitor. Human gate if regression found.',           300, 5205, 'claude-code', { ...cc('reviewer'), prompt: 'Monitor production for 10 minutes.\n\nWatch: console errors | API error rate | page load regression (>20%) | 4xx/5xx on feature endpoints.\n\nCheck every 2 min. After 10 min:\n```\nCANARY: [CLEAN] | [REGRESSION: description]\n```\n\nIf REGRESSION: do NOT advance automatically.' }, [p6s3], false);
+    step(wfId, p6s5, '[P6] ✓ Shipped',               'Feature is live. Notify.',                                             300, 5380, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — P6 Done', message: 'Feature is live. Canary clean. Advance to Phase 7 — Compound.' }, [p6s4]);
+
+    // ── Phase 7 (y: 5600–6400) ─────────────────────────────────────────
+    step(wfId, p7s1, '[P7] CE Compound',             '6-agent compound: extract learnings → docs/solutions/[slug].md.',      300, 5600, 'claude-code', { ...cc('researcher'), prompt: 'Run CE /ce-compound. Canary is clean.\n\nRun 6 parallel tasks:\n- context-analyzer: what problem did this really solve?\n- solution-extractor: what worked / did not work?\n- related-docs-finder: search docs/solutions/ for prior learnings that applied\n- prevention-strategist: how to detect this class of problem earlier?\n- category-classifier: tags for future retrieval (YAML frontmatter)\n- documentation-writer: format the final doc\n\nWRITE docs/solutions/[slug].md with YAML frontmatter and sections: Problem | Solution | What Worked | What Did Not Work | Prevention | Related Docs | Key Code References' }, [p6s4]);
+    step(wfId, p7s2, '[P7] Update CLAUDE.md',        'Add new patterns, anti-patterns, taste decisions to CLAUDE.md.',       300, 5775, 'claude-code', { ...cc('planner'), prompt: 'Read the compound doc and git log for this sprint.\n\nUpdate CLAUDE.md — add to relevant sections:\n- NEW PATTERNS: things to repeat\n- ANTI-PATTERNS: things to avoid (include early detection signals)\n- TASTE DECISIONS: naming/structure/approach choices and why\n- CAVEATS: project-specific constraints discovered\n\nRule: if a mistake was made and corrected, document it so it does not repeat.\n\nOutput: sections updated + what was added.' }, [p7s1]);
+    step(wfId, p7s3, '[P7] Retro',                   'Run /retro: velocity, coverage trend, blockers → docs/retros/.',       300, 5950, 'claude-code', { ...cc('planner'), prompt: 'Run /retro.\n\n1. VELOCITY: estimated (Phase 1) vs actual\n2. COVERAGE TREND: start vs end\n3. PHASE ANALYSIS: which phase was slowest / smoothest\n4. TOP 3 BLOCKERS\n5. REPEAT: what to do more of\n6. CHANGE: what to do differently\n\nWRITE docs/retros/[today-date]-[slug].md.' }, [p7s2]);
+    step(wfId, p7s4, '[P7] Learn & Final Review',    'Run /learn, prune superseded learnings. Final human sign-off.',        300, 6125, 'claude-code', { ...cc('planner'), prompt: 'Run /learn.\n\n1. Review new learnings from this sprint.\n2. Find and deprecate any now-superseded learnings.\n3. Verify CLAUDE.md is consistent.\n\nOutput:\n```\n## Phase 7 — COMPOUND COMPLETE\n\nFeature: [name] is live\nCompound doc: docs/solutions/[slug].md\nCLAUDE.md: [N] patterns added, [N] anti-patterns added\nRetro: docs/retros/[date]-[slug].md\nLearnings: [N] added, [N] superseded\n\nThe system is now smarter than before this feature was built.\n```\n\nDo NOT advance automatically.' }, [p7s3], false);
+    step(wfId, p7s5, '[P7] ✓ Sprint Complete',        'All 7 phases done. Feature live, learnings captured.',                300, 6300, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — COMPLETE 🎯', message: 'All 7 phases done. Feature live, compound doc written, CLAUDE.md updated, retro done.' }, [p7s4]);
+  }
+
+  console.log('[db] Seeded 20 default workflow templates');
 }
 
 seedDefaultTemplates();
