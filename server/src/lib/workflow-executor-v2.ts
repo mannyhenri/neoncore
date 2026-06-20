@@ -217,9 +217,11 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   };
   const formatSuffix = outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[outputSchema] || '') : '';
 
-  // Always append webhook instructions so the agent provides a structured summary on completion
+  // Always append completion instructions so the agent signals a structured summary
+  // when done. MCP tool is primary (reliable, works for agents on other machines);
+  // the curl webhook is a same-machine fallback; idle-detection is the final backstop.
   const port = process.env.PORT || '4040';
-  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${step.id}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
 
   const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
 

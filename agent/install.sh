@@ -203,6 +203,30 @@ EOF
   echo "Settings file created."
 fi
 
+# Register the NeonCore MCP coordination server for Claude Code (project-scoped .mcp.json)
+REPO_ROOT="$(cd "$HOOKS_DIR/../.." && pwd)"
+MCP_SERVER_JS="$REPO_ROOT/server/dist/mcp-server.js"
+/usr/bin/env python3 - "$REPO_ROOT" "$MCP_SERVER_JS" "$ORCHESTRATOR_URL" <<'PYEOF'
+import json, os, sys
+repo_root, mcp_server_js, url = sys.argv[1], sys.argv[2], sys.argv[3]
+entry = {"command": "node", "args": [mcp_server_js],
+         "env": {"NEONCORE_URL": url, "NEONCORE_AGENT_TYPE": "claude"}}
+path = os.path.join(repo_root, ".mcp.json")
+try:
+    cfg = json.load(open(path)) if os.path.exists(path) else {}
+except Exception:
+    cfg = {}
+servers = cfg.get("mcpServers", {})
+servers["neoncore"] = entry
+cfg["mcpServers"] = servers
+json.dump(cfg, open(path, "w"), indent=2)
+print(f"NeonCore MCP server registered (project scope): {path}")
+if not os.path.exists(mcp_server_js):
+    print(f"  NOTE: {mcp_server_js} not found yet — run 'npm run build' in server/.")
+print("For GLOBAL registration run:  claude mcp add-json neoncore '" +
+      json.dumps(entry, separators=(",", ":")) + "' --scope user")
+PYEOF
+
 echo ""
 echo "Installation complete!"
 echo ""
