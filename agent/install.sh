@@ -13,10 +13,19 @@ HOOKS_DIR="$SCRIPT_DIR/hooks"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 ORCHESTRATOR_URL="${NEONCORE_URL:-http://localhost:4040}"
 
+# Per-machine trust opt-in. Run with NEONCORE_TRUST=1 to have agents from this
+# machine start in trust mode (auto-approve) instead of the default 'manual'.
+# When set, hook commands carry "NEONCORE_TRUST=1" so the register call flags new agents.
+case "$(printf '%s' "${NEONCORE_TRUST:-}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) TRUST_ENV="NEONCORE_TRUST=1 " ;;
+  *)             TRUST_ENV="" ;;
+esac
+
 echo "NeonCore Agent Hook Installer"
 echo "=============================="
 echo ""
 echo "Orchestrator URL: $ORCHESTRATOR_URL"
+echo "Trust mode:       ${TRUST_ENV:+enabled (new agents auto-approve)}${TRUST_ENV:-disabled (manual approval)}"
 echo "Settings file:    $SETTINGS_FILE"
 echo "Hooks directory:  $HOOKS_DIR"
 echo ""
@@ -40,15 +49,17 @@ import json, sys
 settings_file = "$SETTINGS_FILE"
 hooks_dir = "$HOOKS_DIR"
 orchestrator_url = "$ORCHESTRATOR_URL"
+trust_env = "$TRUST_ENV"  # "NEONCORE_TRUST=1 " when opted in, else empty
 
 with open(settings_file, 'r') as f:
     settings = json.load(f)
 
-# Build hook commands with env var for orchestrator URL
-reporter_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/reporter.sh"
-permission_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/permission-proxy.sh"
-message_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/message-reader.sh"
-notification_cmd = f"NEONCORE_URL={orchestrator_url} {hooks_dir}/notification.sh"
+# Build hook commands with env var for orchestrator URL (+ optional trust flag)
+env_prefix = f"NEONCORE_URL={orchestrator_url} {trust_env}"
+reporter_cmd = f"{env_prefix}{hooks_dir}/reporter.sh"
+permission_cmd = f"{env_prefix}{hooks_dir}/permission-proxy.sh"
+message_cmd = f"{env_prefix}{hooks_dir}/message-reader.sh"
+notification_cmd = f"{env_prefix}{hooks_dir}/notification.sh"
 
 # Helper to clean and add a neoncore hook entry
 def is_neoncore(h):
@@ -73,11 +84,11 @@ pre_hooks.append({
 })
 hooks['PreToolUse'] = pre_hooks
 
-# Stop → message reader (final assistant message)
+# Stop → reporter (final assistant turn + token usage, via transcript parse)
 stop_hooks = [h for h in hooks.get('Stop', []) if not is_neoncore(h)]
 stop_hooks.append({
     "matcher": "",
-    "hooks": [{"type": "command", "command": message_cmd}]
+    "hooks": [{"type": "command", "command": reporter_cmd}]
 })
 hooks['Stop'] = stop_hooks
 
@@ -125,7 +136,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/reporter.sh"
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL ${TRUST_ENV}$HOOKS_DIR/reporter.sh"
           }
         ]
       }
@@ -136,7 +147,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/permission-proxy.sh"
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL ${TRUST_ENV}$HOOKS_DIR/permission-proxy.sh"
           }
         ]
       }
@@ -147,7 +158,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/message-reader.sh"
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL ${TRUST_ENV}$HOOKS_DIR/reporter.sh"
           }
         ]
       }
@@ -158,7 +169,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/notification.sh"
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL ${TRUST_ENV}$HOOKS_DIR/notification.sh"
           }
         ]
       }
@@ -169,7 +180,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/reporter.sh"
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL ${TRUST_ENV}$HOOKS_DIR/reporter.sh"
           }
         ]
       }
@@ -180,7 +191,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "NEONCORE_URL=$ORCHESTRATOR_URL $HOOKS_DIR/reporter.sh"
+            "command": "NEONCORE_URL=$ORCHESTRATOR_URL ${TRUST_ENV}$HOOKS_DIR/reporter.sh"
           }
         ]
       }
@@ -198,7 +209,7 @@ echo ""
 echo "Hooks installed:"
 echo "  - PreToolUse      → permission-proxy.sh (permissions, AskUser, PlanMode)"
 echo "  - PostToolUse     → reporter.sh (tool activity + intermediate messages)"
-echo "  - Stop            → message-reader.sh (final assistant message)"
+echo "  - Stop            → reporter.sh (final turn + token usage)"
 echo "  - Notification    → notification.sh (Claude notifications)"
 echo "  - SubagentStop    → reporter.sh (subagent completion)"
 echo "  - UserPromptSubmit → reporter.sh (user prompts)"

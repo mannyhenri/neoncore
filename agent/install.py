@@ -29,16 +29,20 @@ def get_hooks_dir() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "hooks")
 
 
+def trust_enabled() -> bool:
+    """Per-machine trust opt-in via NEONCORE_TRUST env var."""
+    return os.environ.get("NEONCORE_TRUST", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str) -> str:
     """Build the hook command string (cross-platform)."""
     script_path = os.path.join(hooks_dir, script_name)
 
-    if platform.system() == "Windows":
-        # Claude Code on Windows uses bash (Git Bash), so use Unix env var syntax
-        return f'NEONCORE_URL={orchestrator_url} python "{script_path}"'
-    else:
-        # On Unix, use env var prefix
-        return f'NEONCORE_URL={orchestrator_url} python3 "{script_path}"'
+    # When opted in, carry NEONCORE_TRUST=1 so new agents from this machine auto-approve
+    trust_prefix = "NEONCORE_TRUST=1 " if trust_enabled() else ""
+    # Claude Code uses bash (incl. Git Bash on Windows), so Unix env var syntax works everywhere
+    interpreter = "python" if platform.system() == "Windows" else "python3"
+    return f'NEONCORE_URL={orchestrator_url} {trust_prefix}{interpreter} "{script_path}"'
 
 
 def is_neoncore_hook(hook) -> bool:
@@ -65,6 +69,7 @@ def main():
     print()
     print(f"  Platform:       {platform.system()} {platform.machine()}")
     print(f"  Orchestrator:   {orchestrator_url}")
+    print(f"  Trust mode:     {'enabled (new agents auto-approve)' if trust_enabled() else 'disabled (manual approval)'}")
     print(f"  Settings file:  {settings_file}")
     print(f"  Hooks directory: {hooks_dir}")
     print()
@@ -119,9 +124,9 @@ def main():
     hooks["PreToolUse"] = [h for h in hooks.get("PreToolUse", []) if not is_neoncore_hook(h)]
     hooks["PreToolUse"].append(make_hook_entry(permission_cmd))
 
-    # Stop → message reader
+    # Stop → reporter (final assistant turn + token usage, via transcript parse)
     hooks["Stop"] = [h for h in hooks.get("Stop", []) if not is_neoncore_hook(h)]
-    hooks["Stop"].append(make_hook_entry(message_cmd))
+    hooks["Stop"].append(make_hook_entry(reporter_cmd))
 
     # Notification → notification handler
     hooks["Notification"] = [h for h in hooks.get("Notification", []) if not is_neoncore_hook(h)]
@@ -145,8 +150,8 @@ def main():
     print()
     print("Hooks installed:")
     print("  - PreToolUse       → permission-proxy.py (permissions, AskUser, PlanMode)")
-    print("  - PostToolUse      → reporter.py (tool activity + intermediate messages)")
-    print("  - Stop             → message-reader.py (final assistant message)")
+    print("  - PostToolUse      → reporter.py (tool activity + transcript events)")
+    print("  - Stop             → reporter.py (final turn + token usage)")
     print("  - Notification     → notification.py (Claude notifications)")
     print("  - SubagentStop     → reporter.py (subagent completion)")
     print("  - UserPromptSubmit → reporter.py (user prompts)")
