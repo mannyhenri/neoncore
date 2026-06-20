@@ -34,6 +34,56 @@ def trust_enabled() -> bool:
     return os.environ.get("NEONCORE_TRUST", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def repo_root() -> str:
+    """NeonCore repo root (parent of the agent/ dir holding this script)."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def install_mcp_server(orchestrator_url: str) -> None:
+    """Register the NeonCore MCP server (coordination tools) for Claude Code.
+
+    Idempotently merges a `neoncore` entry into a project-scoped `.mcp.json` at
+    the repo root (Claude Code reads this when an agent works in this repo). Also
+    prints the equivalent `claude mcp add-json` command for user-scope (global)
+    registration across all repos.
+    """
+    mcp_server_js = os.path.join(repo_root(), "server", "dist", "mcp-server.js")
+    entry = {
+        "command": "node",
+        "args": [mcp_server_js],
+        "env": {
+            "NEONCORE_URL": orchestrator_url,
+            "NEONCORE_AGENT_TYPE": "claude",
+        },
+    }
+
+    mcp_json_path = os.path.join(repo_root(), ".mcp.json")
+    try:
+        if os.path.exists(mcp_json_path):
+            with open(mcp_json_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        else:
+            cfg = {}
+    except Exception:
+        cfg = {}
+    servers = cfg.get("mcpServers", {})
+    servers["neoncore"] = entry  # overwrite our own entry; leave others untouched
+    cfg["mcpServers"] = servers
+    with open(mcp_json_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+    if not os.path.exists(mcp_server_js):
+        print(f"  NOTE: {mcp_server_js} not found yet — run 'npm run build' in server/ so the MCP server can launch.")
+
+    print()
+    print("NeonCore MCP server registered (project scope) in:")
+    print(f"  {mcp_json_path}")
+    print("Tools: report_step_done, my_queue, claim_task, report_task_done, list_agents")
+    print("For GLOBAL (all repos) registration, run:")
+    compact = json.dumps(entry, separators=(",", ":"))
+    print(f"  claude mcp add-json neoncore '{compact}' --scope user")
+
+
 def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str) -> str:
     """Build the hook command string (cross-platform)."""
     script_path = os.path.join(hooks_dir, script_name)
@@ -144,6 +194,9 @@ def main():
 
     with open(settings_file, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
+
+    # Register the NeonCore MCP coordination server for Claude Code
+    install_mcp_server(orchestrator_url)
 
     print()
     print("Installation complete!")

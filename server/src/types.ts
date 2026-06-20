@@ -59,6 +59,23 @@ export interface TurnUsage {
   model: string;
 }
 
+export type TaskStatus = 'queued' | 'claimed' | 'in_progress' | 'done' | 'failed' | 'cancelled';
+
+export interface Task {
+  id: string;
+  title: string;
+  prompt: string;
+  projectId: string | null;
+  status: TaskStatus;
+  assignedAgentId: string | null;
+  priority: number;
+  result: string;
+  error: string;
+  createdAt: string;
+  claimedAt: string | null;
+  completedAt: string | null;
+}
+
 export interface PermissionRequest {
   id: string;
   agentId: string;
@@ -417,6 +434,8 @@ export type ServerToClientEvents = {
   activity_logged: (activity: Activity) => void;
   transcript_event: (event: TranscriptEvent) => void;
   turn_complete: (data: { agentId: string; sessionId: string; engine: TranscriptEngine; usage: TurnUsage }) => void;
+  task_created: (task: Task) => void;
+  task_updated: (task: Task) => void;
   permission_requested: (request: PermissionRequest) => void;
   permission_decided: (request: PermissionRequest) => void;
   command_send: (command: Command) => void;
