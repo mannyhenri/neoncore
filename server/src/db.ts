@@ -319,6 +319,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_usage_agent ON session_usage(agent_id);
 `);
 
+// Transcript messages table — rich per-turn capture from the session JSONL.
+// Unifies Claude Code and Gridlight sessions (engine column). Unique (session_id, seq)
+// makes hook ingestion idempotent on retries/overlapping byte ranges.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '[]',
+    model TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    engine TEXT NOT NULL DEFAULT 'claude',
+    ts TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, seq);
+  CREATE INDEX IF NOT EXISTS idx_messages_agent ON messages(agent_id, ts);
+`);
+
 // MCP Servers table
 db.exec(`
   CREATE TABLE IF NOT EXISTS mcp_servers (

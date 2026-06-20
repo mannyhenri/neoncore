@@ -30,6 +30,35 @@ export interface Activity {
   timestamp: string;
 }
 
+export type TranscriptEngine = 'claude' | 'gridlight';
+export type TranscriptRole = 'user' | 'assistant' | 'tool_result' | 'system';
+
+// A single parsed transcript entry. `content` is a JSON string of content blocks:
+// [{ type: 'text'|'thinking'|'tool_use'|'tool_result', ... }]
+export interface TranscriptEvent {
+  id: string;
+  agentId: string;
+  sessionId: string;
+  seq: number;
+  role: TranscriptRole;
+  content: string; // JSON string of content blocks
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  engine: TranscriptEngine;
+  ts: string;
+}
+
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  model: string;
+}
+
 export interface PermissionRequest {
   id: string;
   agentId: string;
@@ -386,6 +415,8 @@ export type ServerToClientEvents = {
   agent_registered: (agent: Agent) => void;
   agent_updated: (agent: Agent) => void;
   activity_logged: (activity: Activity) => void;
+  transcript_event: (event: TranscriptEvent) => void;
+  turn_complete: (data: { agentId: string; sessionId: string; engine: TranscriptEngine; usage: TurnUsage }) => void;
   permission_requested: (request: PermissionRequest) => void;
   permission_decided: (request: PermissionRequest) => void;
   command_send: (command: Command) => void;

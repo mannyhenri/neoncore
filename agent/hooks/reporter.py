@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """NeonCore Activity Reporter Hook (cross-platform).
 
-Fires on PostToolUse, SubagentStop, and UserPromptSubmit.
-Reports completed tool actions to the orchestrator server.
-Also captures intermediate assistant text from the transcript (deduped).
-Runs non-blocking (always exits 0) so it never interferes with Claude Code.
+Fires on PostToolUse, Stop, SubagentStop, and UserPromptSubmit.
+Reports completed tool actions to the orchestrator server and ships rich,
+incremental transcript events (assistant text + thinking + tool_use,
+tool_result, and per-turn token usage) parsed from the session JSONL.
+
+The parse runs here — on the agent's machine — because transcripts are local;
+the server only stores and fans out. Tracks a per-session byte offset so each
+firing ships only new transcript lines. Runs non-blocking (always exits 0).
 """
 
 import sys
 import json
 import os
-import hashlib
 import platform
 import subprocess
 import tempfile
 from urllib.request import Request, urlopen
-from urllib.error import URLError
 
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
+
+# Size caps to avoid DB bloat (mirrors the existing tool_result truncation).
+BLOCK_CAP = 8000        # per text/thinking/tool_result block
+TOOL_INPUT_CAP = 4000   # per tool_use input (serialized)
+EVENT_TOTAL_CAP = 16000 # per transcript event, across all blocks
 
 
 def post_json(url: str, body: str, retries: int = 3) -> bool:
@@ -94,19 +101,20 @@ def main():
         "repoName": repo_name,
         "status": "working",
     }
+    # Per-machine opt-in: NEONCORE_TRUST=1 means new agents from this machine start in trust mode
+    if os.environ.get("NEONCORE_TRUST", "").strip().lower() in ("1", "true", "yes", "on"):
+        register["trustMode"] = True
 
     # Register agent
     post_json(f"{ORCHESTRATOR_URL}/api/agents/register", json.dumps(register))
 
     # Skip activity logging for tools already logged by permission-proxy PreToolUse hook
     # (e.g., ExitPlanMode includes plan content, AskUserQuestion includes question details)
-    # But still extract assistant messages below so the dashboard shows Claude's text
     if tool_name not in ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
         post_json(f"{ORCHESTRATOR_URL}/api/activity", json.dumps(activity))
 
     # Notify server that ExitPlanMode has finished executing.
-    # The extension uses this to time the auto-approve of Claude's follow-up plan prompt
-    # (much more reliable than guessing timing from when permission was granted).
+    # The extension uses this to time the auto-approve of Claude's follow-up plan prompt.
     if hook_event == "PostToolUse" and tool_name == "ExitPlanMode":
         post_json(f"{ORCHESTRATOR_URL}/api/agents/plan-executed", json.dumps({
             "sessionId": session_id,
@@ -114,80 +122,168 @@ def main():
             "repoPath": cwd,
         }))
 
-    # Report token usage on session stop
-    if hook_event in ("Stop", "SubagentStop"):
-        usage = d.get("usage", {})
-        input_tokens = usage.get("input_tokens", 0) if isinstance(usage, dict) else 0
-        output_tokens = usage.get("output_tokens", 0) if isinstance(usage, dict) else 0
-        model = d.get("model", "")
-        if input_tokens > 0 or output_tokens > 0:
-            post_json(f"{ORCHESTRATOR_URL}/api/activity/usage", json.dumps({
-                "sessionId": session_id,
-                "machine": machine,
-                "repoPath": cwd,
-                "inputTokens": input_tokens,
-                "outputTokens": output_tokens,
-                "model": model,
-            }))
-
-    # Try to extract last assistant text from transcript (deduped)
-    if hook_event == "PostToolUse" and transcript_path and os.path.exists(transcript_path):
+    # Ship new transcript events (assistant text/thinking/tool_use, tool_result,
+    # and token usage). This replaces the old last-message scrape and the
+    # unreliable stdin-usage path — token usage now comes from the transcript.
+    if transcript_path and os.path.exists(transcript_path):
         try:
-            assistant_msg = extract_assistant_message(transcript_path, session_id, machine, cwd)
-            if assistant_msg:
-                post_json(f"{ORCHESTRATOR_URL}/api/agents/message", json.dumps(assistant_msg))
+            events, new_offset, new_seq = extract_new_transcript_events(transcript_path, session_id)
+            if events:
+                body = {
+                    "sessionId": session_id,
+                    "machine": machine,
+                    "repoPath": cwd,
+                    "engine": "claude",
+                    "triggeredBy": hook_event,
+                    "events": events,
+                }
+                if post_json(f"{ORCHESTRATOR_URL}/api/agents/transcript", json.dumps(body)):
+                    save_transcript_state(session_id, new_offset, new_seq)
+            else:
+                # No emittable events, but advance past skipped lines so we don't rescan.
+                save_transcript_state(session_id, new_offset, new_seq)
         except Exception:
             pass
 
 
-def extract_text(content) -> str:
-    if isinstance(content, str) and content.strip():
-        return content[:4000]
-    elif isinstance(content, list):
-        texts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                texts.append(block.get("text", ""))
-        combined = "\n".join(texts).strip()
-        if combined:
-            return combined[:4000]
-    return ""
+# ── Transcript parsing ──────────────────────────────────────────────────────
+
+def _state_file(session_id: str) -> str:
+    return os.path.join(tempfile.gettempdir(), f"neoncore-tstate-{session_id}")
 
 
-def extract_assistant_message(transcript_path: str, session_id: str, machine: str, cwd: str):
-    with open(transcript_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+def load_transcript_state(session_id: str):
+    """Return (byte_offset, seq) of how far we've consumed this transcript."""
+    try:
+        with open(_state_file(session_id), "r") as f:
+            s = json.load(f)
+            return int(s.get("offset", 0)), int(s.get("seq", 0))
+    except Exception:
+        return 0, 0
 
-    for line in reversed(lines):
-        try:
-            entry = json.loads(line.strip())
-            msg = entry.get("message", {})
-            if not isinstance(msg, dict) or msg.get("role") != "assistant":
-                continue
-            text = extract_text(msg.get("content", []))
-            if text:
-                # Dedup using hash file in temp directory
-                msg_hash = hashlib.md5(text.encode()).hexdigest()[:12]
-                hash_file = os.path.join(tempfile.gettempdir(), f"neoncore-lastmsg-{session_id}")
-                last_hash = ""
-                try:
-                    with open(hash_file, "r") as hf:
-                        last_hash = hf.read().strip()
-                except FileNotFoundError:
-                    pass
-                if msg_hash != last_hash:
-                    with open(hash_file, "w") as hf:
-                        hf.write(msg_hash)
-                    return {
-                        "sessionId": session_id,
-                        "machine": machine,
-                        "repoPath": cwd,
-                        "message": text,
-                    }
-                return None
-        except (json.JSONDecodeError, KeyError):
+
+def save_transcript_state(session_id: str, offset: int, seq: int):
+    try:
+        with open(_state_file(session_id), "w") as f:
+            json.dump({"offset": offset, "seq": seq}, f)
+    except Exception:
+        pass
+
+
+def extract_new_transcript_events(transcript_path: str, session_id: str):
+    """Read only the bytes appended since last run; return (events, new_offset, new_seq).
+
+    seq is the absolute transcript line index, making ingestion idempotent: a
+    re-sent line carries the same (session_id, seq) and the server INSERT OR
+    IGNOREs it. Only complete lines (up to the last newline) are consumed.
+    """
+    offset, seq = load_transcript_state(session_id)
+
+    size = os.path.getsize(transcript_path)
+    if size < offset:
+        # File was truncated/rotated (session id reuse) — start over.
+        offset, seq = 0, 0
+
+    with open(transcript_path, "rb") as f:
+        f.seek(offset)
+        chunk = f.read()
+
+    last_nl = chunk.rfind(b"\n")
+    if last_nl == -1:
+        # No complete line appended yet.
+        return [], offset, seq
+
+    complete = chunk[:last_nl]
+    new_offset = offset + last_nl + 1
+
+    events = []
+    for raw in complete.split(b"\n"):
+        seq += 1  # advance for every line (incl. skipped) so seq == line index
+        line = raw.strip()
+        if not line:
             continue
-    return None
+        try:
+            entry = json.loads(line.decode("utf-8", errors="replace"))
+        except Exception:
+            continue
+        ev = normalize_entry(entry, seq)
+        if ev:
+            events.append(ev)
+
+    return events, new_offset, seq
+
+
+def normalize_entry(entry: dict, seq: int):
+    """Map one transcript JSONL entry to a transcript event, or None to skip."""
+    msg = entry.get("message")
+    if not isinstance(msg, dict):
+        return None
+    role = msg.get("role")
+    if role not in ("user", "assistant"):
+        return None
+
+    blocks = normalize_blocks(msg.get("content"))
+    if not blocks:
+        return None
+
+    ev = {"seq": seq, "role": role, "content": blocks}
+
+    model = msg.get("model")
+    if model:
+        ev["model"] = model
+
+    usage = msg.get("usage")
+    if isinstance(usage, dict):
+        ev["usage"] = {
+            "input_tokens": usage.get("input_tokens", 0),
+            "output_tokens": usage.get("output_tokens", 0),
+            "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+        }
+
+    return ev
+
+
+def normalize_blocks(content):
+    """Preserve text/thinking/tool_use/tool_result blocks, capped for size."""
+    if isinstance(content, str):
+        text = content.strip()
+        return [{"type": "text", "text": text[:BLOCK_CAP]}] if text else []
+
+    if not isinstance(content, list):
+        return []
+
+    blocks = []
+    total = 0
+    for b in content:
+        if not isinstance(b, dict):
+            continue
+        t = b.get("type")
+        if t == "text":
+            text = (b.get("text") or "")[:BLOCK_CAP]
+            if text.strip():
+                blocks.append({"type": "text", "text": text})
+                total += len(text)
+        elif t == "thinking":
+            text = (b.get("thinking") or "")[:BLOCK_CAP]
+            if text.strip():
+                blocks.append({"type": "thinking", "text": text})
+                total += len(text)
+        elif t == "tool_use":
+            inp = b.get("input", {})
+            inp_s = (inp if isinstance(inp, str) else json.dumps(inp))[:TOOL_INPUT_CAP]
+            blocks.append({"type": "tool_use", "name": b.get("name", ""), "id": b.get("id", ""), "input": inp_s})
+            total += len(inp_s)
+        elif t == "tool_result":
+            c = b.get("content")
+            txt = c if isinstance(c, str) else json.dumps(c)
+            txt = (txt or "")[:BLOCK_CAP]
+            blocks.append({"type": "tool_result", "tool_use_id": b.get("tool_use_id", ""), "content": txt})
+            total += len(txt)
+        if total >= EVENT_TOTAL_CAP:
+            break
+
+    return blocks
 
 
 if __name__ == "__main__":

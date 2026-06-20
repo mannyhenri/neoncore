@@ -6,6 +6,8 @@ import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
+import { resolveAgentId } from '../lib/resolve-agent.js';
+import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
 
@@ -28,7 +30,7 @@ function normalizeRepoPath(p: string): string {
 // Register or update an agent
 // Deduplicates on machine + repoPath (with cross-platform path normalization)
 router.post('/register', (req, res) => {
-  const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion } = req.body;
+  const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion, trustMode } = req.body;
   const resolvedType = agentType || 'claude';
 
   const now = new Date().toISOString();
@@ -131,9 +133,16 @@ router.post('/register', (req, res) => {
   const newStatus = reqStatus || 'working';
   const newQuestion = newStatus === 'waiting' ? (pendingQuestion || '') : '';
 
+  // Per-machine opt-in: hooks installed with NEONCORE_TRUST=1 send trustMode:true,
+  // so newly-discovered agents from that machine start in trust mode (auto-approve)
+  // instead of the default 'manual'. Only applies on creation — once the agent exists,
+  // the dashboard mode toggle is authoritative (the UPDATE path never touches it).
+  const initialTrust = trustMode ? 1 : 0;
+  const initialMode = initialTrust ? 'trust' : 'manual';
+
   db.prepare(`
-    INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, pending_question, trust_mode, last_seen, session_id, agent_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, pending_question, trust_mode, agent_mode, last_seen, session_id, agent_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     agentName,
@@ -144,6 +153,8 @@ router.post('/register', (req, res) => {
     currentTask || '',
     newStatus,
     newQuestion,
+    initialTrust,
+    initialMode,
     now,
     sessionId || '',
     resolvedType
@@ -264,6 +275,140 @@ router.post('/message', (req, res) => {
   getIO().emit('agent_updated', normalized);
   res.json(normalized);
 });
+
+// Ingest a batch of parsed transcript events (sent by the reporter hook on
+// PostToolUse/Stop/SubagentStop, and by the Gridlight extension for its own
+// sessions). Idempotent: INSERT OR IGNORE on the unique (session_id, seq) index
+// means retries / overlapping byte ranges never create duplicates.
+router.post('/transcript', (req, res) => {
+  const { sessionId, machine, repoPath, engine, events, triggeredBy } = req.body as {
+    sessionId?: string;
+    machine?: string;
+    repoPath?: string;
+    engine?: TranscriptEngine;
+    triggeredBy?: string; // hook event name, e.g. 'Stop'
+    events?: Array<{
+      seq: number;
+      role: TranscriptRole;
+      content: unknown; // array of blocks or string
+      model?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
+    }>;
+  };
+
+  const agentId = resolveAgentId({ sessionId, machine, repoPath });
+  if (!agentId) return res.status(404).json({ error: 'Agent not found' });
+  if (!Array.isArray(events) || events.length === 0) return res.json({ inserted: 0 });
+
+  const resolvedEngine: TranscriptEngine = engine === 'gridlight' ? 'gridlight' : 'claude';
+  const now = new Date().toISOString();
+
+  const insertMessage = db.prepare(`
+    INSERT OR IGNORE INTO messages
+      (id, agent_id, session_id, seq, role, content, model,
+       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, engine, ts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertUsage = db.prepare(`
+    INSERT INTO session_usage (id, session_id, agent_id, input_tokens, output_tokens, model, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const io = getIO();
+  let inserted = 0;
+  let lastAssistantText = '';
+  const turnUsage: TurnUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: '' };
+
+  const ingest = db.transaction(() => {
+    for (const ev of events) {
+      if (typeof ev.seq !== 'number' || !ev.role) continue;
+      const contentStr = typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content ?? []);
+      const u = ev.usage || {};
+      const inTok = Number(u.input_tokens) || 0;
+      const outTok = Number(u.output_tokens) || 0;
+      const cacheRead = Number(u.cache_read_input_tokens) || 0;
+      const cacheCreate = Number(u.cache_creation_input_tokens) || 0;
+      const model = ev.model || '';
+      const id = uuid();
+
+      const info = insertMessage.run(
+        id, agentId, sessionId || '', ev.seq, ev.role, contentStr, model,
+        inTok, outTok, cacheRead, cacheCreate, resolvedEngine, now,
+      );
+
+      if (info.changes === 0) continue; // duplicate seq — already ingested
+      inserted++;
+
+      // Mirror token usage into session_usage so existing cost endpoints keep working.
+      // This is now the authoritative token source (the stdin-usage path was unreliable).
+      if (inTok > 0 || outTok > 0) {
+        insertUsage.run(uuid(), sessionId || '', agentId, inTok, outTok, model, now);
+        turnUsage.inputTokens += inTok;
+        turnUsage.outputTokens += outTok;
+        turnUsage.cacheReadTokens += cacheRead;
+        turnUsage.cacheCreationTokens += cacheCreate;
+        if (model) turnUsage.model = model;
+      }
+
+      // Track latest assistant text for the agent summary line.
+      if (ev.role === 'assistant') {
+        const text = extractTextFromContent(ev.content);
+        if (text) lastAssistantText = text;
+      }
+
+      const event: TranscriptEvent = {
+        id,
+        agentId,
+        sessionId: sessionId || '',
+        seq: ev.seq,
+        role: ev.role,
+        content: contentStr,
+        model,
+        inputTokens: inTok,
+        outputTokens: outTok,
+        cacheReadTokens: cacheRead,
+        cacheCreationTokens: cacheCreate,
+        engine: resolvedEngine,
+        ts: now,
+      };
+      io.emit('transcript_event', event);
+    }
+  });
+  ingest();
+
+  // Update the agent's summary line + activity heartbeat when we got new assistant text.
+  if (lastAssistantText) {
+    db.prepare('UPDATE agents SET last_message = ?, last_seen = ?, status = ? WHERE id = ?')
+      .run(lastAssistantText.slice(0, 500), now, 'working', agentId);
+    const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+    if (updated) io.emit('agent_updated', normalizeAgent(updated));
+  }
+
+  // A completed turn (Stop hook) gets a dedicated signal carrying turn usage —
+  // this is what workflow step-gating / cost meters subscribe to.
+  if (inserted > 0 && triggeredBy === 'Stop') {
+    io.emit('turn_complete', { agentId, sessionId: sessionId || '', engine: resolvedEngine, usage: turnUsage });
+  }
+
+  res.status(201).json({ inserted });
+});
+
+/** Pull plain text out of a transcript content value (string or block array). */
+function extractTextFromContent(content: unknown): string {
+  if (typeof content === 'string') return content.trim().slice(0, 4000);
+  if (Array.isArray(content)) {
+    const texts = content
+      .filter((b): b is { type: string; text?: string } => !!b && typeof b === 'object' && (b as { type?: string }).type === 'text')
+      .map((b) => b.text || '');
+    return texts.join('\n').trim().slice(0, 4000);
+  }
+  return '';
+}
 
 // Signal that ExitPlanMode has completed (sent by PostToolUse reporter hook).
 // The extension uses this to time the auto-approve keystroke after Claude generates
