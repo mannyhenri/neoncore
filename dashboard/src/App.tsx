@@ -7,6 +7,7 @@ import { RepoPicker } from './components/RepoPicker';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
+import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
 import { api } from './lib/api';
 import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
@@ -46,15 +47,19 @@ export default function App() {
     deleteAgent,
     dismissStuckAlert,
     dismissWorkflowNotification,
+    tasks,
+    createTask,
+    cancelTask,
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
-  const [activeView, setActiveView] = useState<'agents' | 'goals'>('agents');
+  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
+  const activeTaskCount = tasks.filter((t) => t.status === 'queued' || t.status === 'claimed' || t.status === 'in_progress').length;
 
   const filteredAgents = typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter);
 
@@ -104,6 +109,15 @@ export default function App() {
                 className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'goals' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
               >
                 Goals
+              </button>
+              <button
+                onClick={() => setActiveView('tasks')}
+                className={`px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5 ${activeView === 'tasks' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Tasks
+                {activeTaskCount > 0 && (
+                  <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
+                )}
               </button>
             </div>
             {/* Repo Picker */}
@@ -156,6 +170,8 @@ export default function App() {
       <main className="p-3 md:p-6 space-y-4 md:space-y-6">
         {activeView === 'goals' ? (
           <GoalsPage />
+        ) : activeView === 'tasks' ? (
+          <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} />
         ) : (
         <>
         {/* Workflow Panel */}
