@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, WorkflowNotification } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, WorkflowNotification, Task } from '../types';
 import { api } from '../lib/api';
 import { useSocket } from './useSocket';
 
@@ -30,6 +30,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
   const [loading, setLoading] = useState(true);
   const [stuckAlerts, setStuckAlerts] = useState<Map<string, StuckAlert>>(new Map());
   const [workflowNotifications, setWorkflowNotifications] = useState<WorkflowNotification[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   // Fetch all data from server (used on mount and reconnect)
   const refreshData = useCallback(() => {
@@ -46,6 +47,8 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
       console.error('Failed to load data:', err);
       setLoading(false);
     });
+    // Tasks load independently so a task error never blocks core agent data.
+    api.getTasks().then(setTasks).catch(() => {});
   }, []);
 
   // Load initial data
@@ -115,6 +118,12 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
       setWorkflowNotifications((prev) => [n, ...prev].slice(0, 20));
       browserNotify(n.title, n.body, `wf-${n.id}`);
     },
+    onTaskCreated: (task) => {
+      setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [task, ...prev]));
+    },
+    onTaskUpdated: (task) => {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+    },
   });
 
   const decidePermission = useCallback(async (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => {
@@ -155,6 +164,18 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     setWorkflowNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
+  const createTask = useCallback(async (data: { title: string; prompt?: string; projectId?: string | null; priority?: number }) => {
+    const task = await api.createTask(data);
+    // Optimistic insert; the task_created socket event is deduped by id.
+    setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [task, ...prev]));
+    return task;
+  }, []);
+
+  const cancelTask = useCallback(async (id: string) => {
+    const updated = await api.cancelTask(id);
+    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  }, []);
+
   // Group activities by agent for cartridge terminal display
   const activitiesByAgent = useMemo(() => {
     const grouped: Record<string, Activity[]> = {};
@@ -176,6 +197,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     stuckAlerts,
     stuckAlertsArray,
     workflowNotifications,
+    tasks,
     loading,
     connected,
     decidePermission,
@@ -184,5 +206,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     deleteAgent,
     dismissStuckAlert,
     dismissWorkflowNotification,
+    createTask,
+    cancelTask,
   };
 }

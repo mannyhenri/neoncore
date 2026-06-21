@@ -419,6 +419,24 @@ export interface WorkflowNotification {
   timestamp: string;
 }
 
+// Agent task queue
+export type TaskStatus = 'queued' | 'claimed' | 'in_progress' | 'done' | 'failed' | 'cancelled';
+
+export interface Task {
+  id: string;
+  title: string;
+  prompt: string;
+  projectId: string | null;
+  status: TaskStatus;
+  assignedAgentId: string | null;
+  priority: number;
+  result: string;
+  error: string;
+  createdAt: string;
+  claimedAt: string | null;
+  completedAt: string | null;
+}
+
 // Git types
 export interface Worktree {
   path: string;

@@ -492,4 +492,16 @@ export const api = {
     request<{ ok: boolean; tool: string; configFile: string; note: string }>(`/tools/install/${tool}`, { method: 'POST' }),
   uninstallTool: (tool: string) =>
     request<{ ok: boolean; note?: string }>(`/tools/uninstall/${tool}`, { method: 'POST' }),
+
+  // Tasks (agent queue)
+  getTasks: (filters?: { status?: string; agentId?: string; projectId?: string }) => {
+    const qs = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString()
+      : '';
+    return request<import('../types').Task[]>(`/tasks${qs}`);
+  },
+  createTask: (data: { title: string; prompt?: string; projectId?: string | null; priority?: number }) =>
+    request<import('../types').Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  cancelTask: (id: string) =>
+    request<import('../types').Task>(`/tasks/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
 };
