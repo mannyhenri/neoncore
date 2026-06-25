@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import { resolveAgentId } from '../lib/resolve-agent.js';
+import { resolveAgentId, projectIdsForAgent } from '../lib/resolve-agent.js';
 import type { Task, TaskStatus } from '../types.js';
 
 const router = Router();
@@ -59,12 +59,16 @@ router.post('/', (req, res) => {
 
 // List tasks (filterable)
 router.get('/', (req, res) => {
-  const { status, agentId, projectId } = req.query as Record<string, string | undefined>;
+  const { status, agentId, projectId, goalId } = req.query as Record<string, string | undefined>;
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (status) { clauses.push('status = ?'); params.push(status); }
   if (agentId) { clauses.push('assigned_agent_id = ?'); params.push(agentId); }
   if (projectId) { clauses.push('project_id = ?'); params.push(projectId); }
+  if (goalId) {
+    clauses.push('project_id IN (SELECT id FROM projects WHERE goal_id = ?)');
+    params.push(goalId);
+  }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db
     .prepare(`SELECT * FROM tasks ${where} ORDER BY priority DESC, created_at ASC LIMIT 200`)
@@ -77,12 +81,20 @@ router.get('/', (req, res) => {
 router.get('/queue', (req, res) => {
   const agentId = callerAgentId(req.query as Record<string, unknown>);
   if (!agentId) return res.status(404).json({ error: 'Agent not found' });
+  // Hard-pin: an unassigned task with a project_id is only claimable by an agent
+  // whose repo matches that project's primary_repo. Unscoped tasks (project_id
+  // NULL) remain claimable by anyone.
+  const projectIds = projectIdsForAgent(agentId);
+  const placeholders = projectIds.map(() => '?').join(',');
+  const pinClause = projectIds.length
+    ? `(project_id IS NULL OR project_id IN (${placeholders}))`
+    : 'project_id IS NULL';
   const rows = db.prepare(`
     SELECT * FROM tasks
-     WHERE (status = 'queued' AND assigned_agent_id IS NULL)
+     WHERE (status = 'queued' AND assigned_agent_id IS NULL AND ${pinClause})
         OR (assigned_agent_id = ? AND status IN ('queued','claimed','in_progress'))
      ORDER BY priority DESC, created_at ASC LIMIT 100
-  `).all(agentId) as Record<string, unknown>[];
+  `).all(...projectIds, agentId) as Record<string, unknown>[];
   res.json(rows.map(normalizeTask));
 });
 
@@ -99,6 +111,12 @@ router.post('/:id/claim', (req, res) => {
   if (!agentId) return res.status(404).json({ error: 'Agent not found' });
   const existing = getTask(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
+
+  // Hard-pin: a project-scoped task may only be claimed by an agent serving that
+  // project's cartridge. (Race-safe claim still enforced by the UPDATE below.)
+  if (existing.projectId && !projectIdsForAgent(agentId).includes(existing.projectId)) {
+    return res.status(403).json({ error: 'Task is pinned to a different project/cartridge' });
+  }
 
   const now = new Date().toISOString();
   const info = db.prepare(`

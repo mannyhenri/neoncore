@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
-import type { Goal, Project, ProjectLearning, Heartbeat } from '../types';
+import type { Goal, Project, ProjectLearning, Heartbeat, Task } from '../types';
 
 // ── FolderPicker ──────────────────────────────────────────────────────────────
 
@@ -935,6 +935,7 @@ function HeartbeatsPanel({ project, onClose }: { project: Project; onClose: () =
 interface GoalCardProps {
   goal: Goal;
   projects: Project[];
+  tasks: Task[];
   expanded: boolean;
   onToggle: () => void;
   onEditGoal: (g: Goal) => void;
@@ -947,9 +948,22 @@ interface GoalCardProps {
   onRun: (p: Project) => void;
 }
 
-function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings, onHeartbeats, onRun }: GoalCardProps) {
+const TASK_STATUS_DOT: Record<string, string> = {
+  queued: 'bg-gray-500',
+  claimed: 'bg-blue-400',
+  in_progress: 'bg-violet-400 animate-pulse',
+  done: 'bg-emerald-500',
+  failed: 'bg-red-500',
+  cancelled: 'bg-yellow-600',
+};
+
+function GoalCard({ goal, projects, tasks, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings, onHeartbeats, onRun }: GoalCardProps) {
   const totalTokens = projects.reduce((s, p) => s + (p.tokensUsed ?? 0), 0);
   const budgetPct = goal.tokenBudget && totalTokens > 0 ? Math.min(100, (totalTokens / goal.tokenBudget) * 100) : null;
+  // Tasks roll up to the goal through their project (Task → Project → Goal).
+  const projectIds = new Set(projects.map((p) => p.id));
+  const goalTasks = tasks.filter((t) => t.projectId && projectIds.has(t.projectId));
+  const activeTasks = goalTasks.filter((t) => ['queued', 'claimed', 'in_progress'].includes(t.status));
 
   return (
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
@@ -974,6 +988,9 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
           <div className="flex items-center gap-4 mt-2 text-[11px] text-gray-600">
             <span>{goal.projectCount ?? projects.length} projects</span>
             <span>{goal.runCount ?? 0} runs</span>
+            {goalTasks.length > 0 && (
+              <span>{activeTasks.length} active {activeTasks.length === 1 ? 'task' : 'tasks'}</span>
+            )}
             {totalTokens > 0 && <span className="text-violet-400">{formatTokens(totalTokens)} used</span>}
             {goal.tokenBudget && <span>/ {formatTokens(goal.tokenBudget)} budget</span>}
           </div>
@@ -1029,6 +1046,32 @@ function GoalCard({ goal, projects, expanded, onToggle, onEditGoal, onDeleteGoal
             </svg>
             Add project
           </button>
+
+          {/* Tasks queued against this goal's projects */}
+          {goalTasks.length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-[11px] text-gray-600 uppercase tracking-wider mb-2">Tasks</h4>
+              <div className="space-y-1.5">
+                {goalTasks.slice(0, 8).map((t) => {
+                  const project = projects.find((p) => p.id === t.projectId);
+                  return (
+                    <div key={t.id} className="flex items-center gap-2 text-[12px] bg-black/20 border border-white/[0.05] rounded-md px-2.5 py-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${TASK_STATUS_DOT[t.status] || 'bg-gray-600'}`} title={t.status} />
+                      <span className="text-gray-300 truncate flex-1">{t.title}</span>
+                      {project && (
+                        <span className="text-[10px] flex-shrink-0" style={{ color: project.color }} title={project.name}>
+                          {project.name}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {goalTasks.length > 8 && (
+                  <p className="text-[11px] text-gray-600 pl-1">+{goalTasks.length - 8} more</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1064,6 +1107,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 export function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [expandedGoals, setExpandedGoals] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -1080,9 +1124,10 @@ export function GoalsPage() {
   >(null);
 
   const refresh = useCallback(async () => {
-    const [g, p] = await Promise.all([api.getGoals(), api.getGoalProjects()]);
+    const [g, p, t] = await Promise.all([api.getGoals(), api.getGoalProjects(), api.getTasks()]);
     setGoals(g);
     setProjects(p);
+    setTasks(t);
     setLoading(false);
   }, []);
 
@@ -1204,6 +1249,7 @@ export function GoalsPage() {
               key={goal.id}
               goal={goal}
               projects={projects.filter((p) => p.goalId === goal.id)}
+              tasks={tasks}
               expanded={expandedGoals.has(goal.id)}
               onToggle={() => toggleGoal(goal.id)}
               onEditGoal={(g) => setModal({ type: 'edit-goal', goal: g })}
