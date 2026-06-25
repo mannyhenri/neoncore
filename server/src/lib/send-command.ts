@@ -11,6 +11,49 @@ import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from 
  */
 const CLI_AGENT_TYPES = new Set(['gemini', 'amazonq', 'codex']);
 
+/**
+ * Type a command directly into the frontmost terminal via AppleScript (macOS only).
+ * Tries iTerm2 first, then Terminal.app. Returns true if delivery succeeded.
+ *
+ * Used for CLI agents that have no WebSocket relay (gemini/codex/amazonq), and as a
+ * fallback for `claude` agents running in a bare terminal with no VS Code extension
+ * connected to receive the command_send socket event.
+ */
+function typeIntoTerminal(text: string): boolean {
+  if (process.platform !== 'darwin') return false;
+
+  // Escape for AppleScript string: backslash and double-quote
+  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+  // Try iTerm2 first
+  try {
+    execSync(
+      `osascript` +
+      ` -e 'tell application "iTerm2"'` +
+      ` -e 'tell current session of current window'` +
+      ` -e 'write text "${escaped}"'` +
+      ` -e 'end tell'` +
+      ` -e 'end tell'`,
+      { timeout: 5000 }
+    );
+    return true;
+  } catch { /* fall through */ }
+
+  // Try Terminal.app
+  try {
+    execSync(
+      `osascript` +
+      ` -e 'tell application "Terminal"'` +
+      ` -e 'do script "${escaped}" in front window'` +
+      ` -e 'end tell'`,
+      { timeout: 5000 }
+    );
+    return true;
+  } catch { /* ignore */ }
+
+  return false;
+}
+
 export function sendCommandToAgent(agentId: string, text: string, includeMemory = false): Command | null {
   const agentCheck = db.prepare('SELECT id, repo_name, status, agent_type, session_id FROM agents WHERE id = ?')
     .get(agentId) as { id: string; repo_name: string; status: string; agent_type: string; session_id: string } | undefined;
@@ -106,44 +149,10 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
 
   // ── CLI tools (gemini / codex / amazonq): type into the terminal via AppleScript ──
   if (CLI_AGENT_TYPES.has(agentCheck.agent_type)) {
-    if (process.platform === 'darwin') {
-      // Escape for AppleScript string: backslash and double-quote
-      const escaped = finalText.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      let sent = false;
-
-      // Try iTerm2 first
-      try {
-        execSync(
-          `osascript` +
-          ` -e 'tell application "iTerm2"'` +
-          ` -e 'tell current session of current window'` +
-          ` -e 'write text "${escaped}"'` +
-          ` -e 'end tell'` +
-          ` -e 'end tell'`,
-          { timeout: 5000 }
-        );
-        sent = true;
-      } catch { /* fall through */ }
-
-      // Try Terminal.app
-      if (!sent) {
-        try {
-          execSync(
-            `osascript` +
-            ` -e 'tell application "Terminal"'` +
-            ` -e 'do script "${escaped}" in front window'` +
-            ` -e 'end tell'`,
-            { timeout: 5000 }
-          );
-          sent = true;
-        } catch { /* ignore */ }
-      }
-
-      if (sent) {
-        console.log(`[cmd] Typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
-      } else {
-        console.warn(`[cmd] Could not send command to terminal — no supported terminal found`);
-      }
+    if (typeIntoTerminal(finalText)) {
+      console.log(`[cmd] Typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
+    } else if (process.platform === 'darwin') {
+      console.warn(`[cmd] Could not send command to terminal — no supported terminal found`);
     }
     return command;
   }
@@ -162,6 +171,10 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
     if (agentRoomSize > 0) {
       console.log(`[cmd] No primary socket — falling back to room ${agentRoom} (${agentRoomSize} socket(s))`);
       getIO().to(agentRoom).emit('command_send', command);
+    } else if (agentCheck.agent_type === 'claude' && typeIntoTerminal(finalText)) {
+      // No VS Code extension connected for this claude agent — it's running in a bare
+      // terminal. Fall back to typing the command directly into the frontmost terminal.
+      console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for claude: ${finalText.slice(0, 80)}`);
     } else {
       console.log(`[cmd] Agent room ${agentRoom} empty — command queued as pending (will drain on reconnect)`);
     }

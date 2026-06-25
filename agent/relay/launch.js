@@ -1,0 +1,71 @@
+#!/usr/bin/env node
+/**
+ * NeonCore relay bootstrap — cross-platform one-click launcher.
+ *
+ * Runs BEFORE the relay's dependencies are guaranteed to exist, so it uses only
+ * Node built-ins. It performs the setup the old bash launcher did, but portably
+ * (macOS / Linux / Windows), then hands off to the relay:
+ *
+ *   1. Install the relay's npm deps on first use (node-pty, socket.io-client).
+ *   2. Best-effort install NeonCore hooks if not already present.
+ *   3. Spawn the relay (index.js) with stdio inherited, in the ORIGINAL cwd
+ *      (the cartridge/repo directory), so the agent registers for the right repo.
+ *
+ * Invoked by the dashboard's one-click cartridge launch as: `node launch.js`.
+ */
+
+import { spawn, spawnSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const isWin = process.platform === 'win32';
+const relayDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(relayDir, '..', '..');
+const installScript = path.join(repoRoot, 'agent', 'install.py');
+const npmCmd = isWin ? 'npm.cmd' : 'npm';
+
+function log(msg) { process.stdout.write(`[NeonCore] ${msg}\n`); }
+
+// 1. Relay dependencies (node-pty needs a one-time install/build).
+if (!existsSync(path.join(relayDir, 'node_modules'))) {
+  log('Installing relay dependencies (first run)...');
+  const r = spawnSync(npmCmd, ['install'], { cwd: relayDir, stdio: 'inherit', shell: isWin });
+  if (r.status !== 0) {
+    process.stderr.write('[NeonCore] relay dependency install failed — see output above.\n');
+    process.exit(r.status || 1);
+  }
+}
+
+// 2. Hooks (best-effort): gives status/activity/permission gating. Skip if present.
+const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+let hooksPresent = false;
+try {
+  hooksPresent = existsSync(settingsPath) && readFileSync(settingsPath, 'utf-8').includes('neoncore');
+} catch { /* ignore */ }
+
+if (!hooksPresent && existsSync(installScript)) {
+  log('Installing NeonCore hooks...');
+  // python3 on macOS/Linux; try python3 then python on Windows.
+  const pythons = isWin ? ['python', 'python3'] : ['python3', 'python'];
+  for (const py of pythons) {
+    const r = spawnSync(py, [installScript], { stdio: 'inherit', env: process.env, shell: isWin });
+    if (r.error && r.error.code === 'ENOENT') continue; // try next interpreter
+    break;
+  }
+}
+
+// 3. Launch the relay in the user's current directory.
+log('Launching Claude Code...');
+const extraArgs = process.argv.slice(2);
+const child = spawn(process.execPath, [path.join(relayDir, 'index.js'), ...extraArgs], {
+  stdio: 'inherit',
+  cwd: process.cwd(),
+  env: process.env,
+});
+child.on('exit', (code) => process.exit(code ?? 0));
+child.on('error', (err) => {
+  process.stderr.write(`[NeonCore] failed to launch relay: ${err}\n`);
+  process.exit(1);
+});

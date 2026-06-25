@@ -112,7 +112,8 @@ function ToolExecuteModal({
 // ---------------------------------------------------------------------------
 
 const LAUNCH_OPTIONS: { type: string; label: string }[] = [
-  { type: 'claude',    label: 'Claude CC' },
+  { type: 'claude-terminal', label: 'Claude · Terminal' },
+  { type: 'claude',    label: 'Claude · VS Code' },
   { type: 'gridlight', label: 'Gridlight' },
   { type: 'gemini',   label: 'Gemini CLI' },
   { type: 'codex',    label: 'Codex' },
