@@ -137,7 +137,7 @@ export const api = {
       `/repos/browse${dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''}`
     ),
   getRepos: () => request<{ repos: { name: string; path: string; source: string }[]; projectsDirs: string[] }>('/repos'),
-  openRepo: (repoPath: string, agentType: AgentType = 'claude') =>
+  openRepo: (repoPath: string, agentType: string = 'claude') =>
     request<{ ok: boolean }>('/repos/open', {
       method: 'POST',
       body: JSON.stringify({ path: repoPath, agentType }),
