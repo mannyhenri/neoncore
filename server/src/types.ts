@@ -365,6 +365,7 @@ export interface Goal {
   description: string;
   successMetric: string;
   tokenBudget: number | null;
+  budgetUsd: number | null;
   status: 'active' | 'achieved' | 'paused';
   createdAt: string;
   updatedAt: string;

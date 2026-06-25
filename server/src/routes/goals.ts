@@ -2,30 +2,12 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
 import type { Goal } from '../types.js';
-import { agentIdsForRepo } from '../lib/resolve-agent.js';
-import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
+import { goalCostUsd } from '../lib/goal-cost.js';
 
 const router = Router();
 
 function estimateTokens(inputChars: number, outputChars: number): number {
   return Math.round((inputChars + outputChars) / 4);
-}
-
-/** Real USD spent across every cartridge (repo) belonging to this goal's projects. */
-function goalCostUsd(goalId: string): number {
-  const repos = db
-    .prepare("SELECT primary_repo FROM projects WHERE goal_id = ? AND primary_repo != ''")
-    .all(goalId) as { primary_repo: string }[];
-  const agentIds = [...new Set(repos.flatMap((r) => agentIdsForRepo(r.primary_repo)))];
-  if (!agentIds.length) return 0;
-  const placeholders = agentIds.map(() => '?').join(',');
-  const rows = db
-    .prepare(
-      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model
-         FROM session_usage WHERE agent_id IN (${placeholders})`,
-    )
-    .all(...agentIds) as UsageRow[];
-  return totalCostUsd(rows);
 }
 
 function normalizeGoal(row: Record<string, unknown>, extra?: { projectCount?: number; runCount?: number; tokensUsed?: number; costUsd?: number }): Goal {
@@ -35,6 +17,7 @@ function normalizeGoal(row: Record<string, unknown>, extra?: { projectCount?: nu
     description: (row.description as string) || '',
     successMetric: (row.success_metric as string) || '',
     tokenBudget: row.token_budget != null ? (row.token_budget as number) : null,
+    budgetUsd: row.budget_usd != null ? (row.budget_usd as number) : null,
     status: (row.status as Goal['status']) || 'active',
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -80,16 +63,16 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, description, successMetric, tokenBudget, status } = req.body;
+  const { name, description, successMetric, tokenBudget, budgetUsd, status } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
 
   const id = randomUUID();
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO goals (id, name, description, success_metric, token_budget, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name.trim(), description?.trim() || '', successMetric?.trim() || '', tokenBudget ?? null, status || 'active', now, now);
+    INSERT INTO goals (id, name, description, success_metric, token_budget, budget_usd, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name.trim(), description?.trim() || '', successMetric?.trim() || '', tokenBudget ?? null, budgetUsd ?? null, status || 'active', now, now);
 
   const created = db.prepare('SELECT * FROM goals WHERE id = ?').get(id) as Record<string, unknown>;
   res.status(201).json(normalizeGoal(created));
@@ -99,17 +82,18 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Goal not found' });
 
-  const { name, description, successMetric, tokenBudget, status } = req.body;
+  const { name, description, successMetric, tokenBudget, budgetUsd, status } = req.body;
   const now = new Date().toISOString();
 
   db.prepare(`
-    UPDATE goals SET name = ?, description = ?, success_metric = ?, token_budget = ?, status = ?, updated_at = ?
+    UPDATE goals SET name = ?, description = ?, success_metric = ?, token_budget = ?, budget_usd = ?, status = ?, updated_at = ?
     WHERE id = ?
   `).run(
     name?.trim() || row.name,
     description?.trim() ?? row.description,
     successMetric?.trim() ?? row.success_metric,
     tokenBudget !== undefined ? tokenBudget : row.token_budget,
+    budgetUsd !== undefined ? budgetUsd : row.budget_usd,
     status || row.status,
     now,
     req.params.id,

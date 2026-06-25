@@ -439,9 +439,9 @@ export const api = {
 
   // Goals
   getGoals: () => request<import('../types').Goal[]>('/goals'),
-  createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null }) =>
+  createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null }) =>
     request<import('../types').Goal>('/goals', { method: 'POST', body: JSON.stringify(data) }),
-  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; status?: string }) =>
+  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string }) =>
     request<import('../types').Goal>(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteGoal: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
 
