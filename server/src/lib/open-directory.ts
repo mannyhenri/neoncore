@@ -102,8 +102,10 @@ export function writeVscodeSettings(repoPath: string, agentType: string): void {
  * Write a temporary shell script and open it in a terminal window.
  * Returns an error string on failure, null on success.
  */
-export function openInTerminal(repoPath: string, command: string, sessionId: string): string | null {
+export function openInTerminal(repoPath: string, command: string, sessionId: string, extraEnv: Record<string, string> = {}): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+  const winExtraEnv = Object.entries(extraEnv).map(([k, v]) => `set "${k}=${v}"`);
+  const posixExtraEnv = Object.entries(extraEnv).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`);
 
   // Windows: emit a native .cmd batch script and run it via cmd.exe. (A bash .sh
   // launched through `cmd /k` cannot execute — this is what broke Windows launch.)
@@ -116,6 +118,7 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
       `cd /d "${repoPath}"`,
       `set "NEONCORE_URL=${neonUrl}"`,
       `set "NEONCORE_SESSION_ID=${sessionId}"`,
+      ...winExtraEnv,
       command,
     ].join('\r\n') + '\r\n');
 
@@ -138,6 +141,7 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
     `cd ${JSON.stringify(repoPath)}`,
     `export NEONCORE_URL=${JSON.stringify(neonUrl)}`,
     `export NEONCORE_SESSION_ID=${JSON.stringify(sessionId)}`,
+    ...posixExtraEnv,
     '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
     '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
     '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
@@ -273,6 +277,29 @@ function buildRelayLaunchCommand(): string {
 }
 
 /**
+ * Env handed to the relay (and through it, to the spawned `gridlight` CLI) for a
+ * Gridlight terminal launch. NEONCORE_AGENT_CMD/TYPE tell the relay to spawn
+ * gridlight and register it as a gridlight agent; the GRIDLIGHT_* vars are the
+ * CLI's own contract for correlating transcript/permission reporting. Gateway
+ * URL and API token are passed through only when configured on the server env,
+ * so secrets are never hardcoded here.
+ */
+function buildGridlightEnv(sessionId: string): Record<string, string> {
+  const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+  const env: Record<string, string> = {
+    NEONCORE_AGENT_CMD: process.platform === 'win32' ? 'gridlight.cmd' : 'gridlight',
+    NEONCORE_AGENT_TYPE: 'gridlight',
+    GRIDLIGHT_SESSION_ID: sessionId,
+    GRIDLIGHT_MACHINE_NAME: os.hostname(),
+    GRIDLIGHT_NEONCORE_URL: neonUrl,
+    GRIDLIGHT_PERMISSION_MODE: process.env.GRIDLIGHT_PERMISSION_MODE || 'auto',
+  };
+  if (process.env.GRIDLIGHT_GATEWAY_URL) env.GRIDLIGHT_GATEWAY_URL = process.env.GRIDLIGHT_GATEWAY_URL;
+  if (process.env.GRIDLIGHT_API_TOKEN) env.GRIDLIGHT_API_TOKEN = process.env.GRIDLIGHT_API_TOKEN;
+  return env;
+}
+
+/**
  * Open a directory with the specified agent type.
  * Returns an error string on failure, null on success.
  */
@@ -285,6 +312,14 @@ export function openDirectory(dirPath: string, agentType: string): string | null
   if (agentType === 'claude-terminal' || agentType === 'claude-cli') {
     const sessionId = `neoncore-claude-${Date.now()}`;
     return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId);
+  }
+
+  // Gridlight CLI (the Claude-analog) in a plain terminal via the same relay.
+  // The relay spawns `gridlight` instead of `claude` and the GRIDLIGHT_* env
+  // lets the CLI correlate its transcript/permission reporting back to NeonCore.
+  if (agentType === 'gridlight-terminal' || agentType === 'gridlight-cli') {
+    const sessionId = `neoncore-gridlight-${Date.now()}`;
+    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, buildGridlightEnv(sessionId));
   }
 
   // CLI tools

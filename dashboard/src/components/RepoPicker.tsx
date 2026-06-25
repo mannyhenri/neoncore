@@ -22,7 +22,8 @@ interface ToolInfo {
 const TOOL_DISPLAY: Record<string, { label: string; color: string }> = {
   'claude-terminal': { label: 'Claude · Terminal', color: 'text-blue-400 hover:text-blue-300' },
   claude:  { label: 'Claude · VS Code', color: 'text-blue-400 hover:text-blue-300' },
-  gridlight:{ label: 'Gridlight', color: 'text-gl-purple hover:text-purple-300' },
+  'gridlight-terminal': { label: 'Gridlight · Terminal', color: 'text-gl-purple hover:text-purple-300' },
+  gridlight:{ label: 'Gridlight · VS Code', color: 'text-gl-purple hover:text-purple-300' },
   gemini:  { label: 'Gemini',    color: 'text-teal-400 hover:text-teal-300' },
   amazonq: { label: 'Amazon Q',  color: 'text-orange-400 hover:text-orange-300' },
   codex:   { label: 'Codex',     color: 'text-green-400 hover:text-green-300' },
@@ -30,10 +31,10 @@ const TOOL_DISPLAY: Record<string, { label: string; color: string }> = {
 };
 
 // Tools always shown regardless of install state
-const ALWAYS_SHOW = new Set(['claude-terminal', 'claude', 'gridlight']);
+const ALWAYS_SHOW = new Set(['claude-terminal', 'gridlight-terminal', 'claude', 'gridlight']);
 
-// Preferred display order — terminal Claude first (no VS Code required)
-const TOOL_ORDER = ['claude-terminal', 'gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
+// Preferred display order — terminal launchers first (no VS Code required)
+const TOOL_ORDER = ['claude-terminal', 'gridlight-terminal', 'gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
 
 export function RepoPicker() {
   const [repos, setRepos] = useState<Repo[]>([]);
