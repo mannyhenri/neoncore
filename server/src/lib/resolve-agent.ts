@@ -49,3 +49,23 @@ export function resolveAgentId(opts: {
 
   return undefined;
 }
+
+/**
+ * Projects an agent "serves" — those whose primary_repo matches the agent's
+ * repo_path (cross-platform normalized). This is the join used to hard-pin a
+ * task to the cartridge an agent is working in: a task scoped to project P is
+ * only claimable by an agent whose repo matches P's primary_repo.
+ */
+export function projectIdsForAgent(agentId: string): string[] {
+  const agent = db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(agentId) as
+    | { repo_path: string }
+    | undefined;
+  if (!agent) return [];
+  const norm = normalizeRepoPath(agent.repo_path);
+  if (!norm) return [];
+  const projects = db.prepare("SELECT id, primary_repo FROM projects WHERE primary_repo != ''").all() as {
+    id: string;
+    primary_repo: string;
+  }[];
+  return projects.filter((p) => normalizeRepoPath(p.primary_repo) === norm).map((p) => p.id);
+}

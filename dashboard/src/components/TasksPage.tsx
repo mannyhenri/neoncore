@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
-import type { Task, TaskStatus, Agent } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../lib/api';
+import type { Task, TaskStatus, Agent, Goal, Project } from '../types';
 
 interface TasksPageProps {
   tasks: Task[];
   agents: Agent[];
-  createTask: (data: { title: string; prompt?: string; priority?: number }) => Promise<Task>;
+  createTask: (data: { title: string; prompt?: string; projectId?: string | null; priority?: number }) => Promise<Task>;
   cancelTask: (id: string) => Promise<void>;
 }
 
@@ -40,19 +41,43 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(secs / 86400)}d ago`;
 }
 
-function CreateTaskModal({ onClose, onCreate }: { onClose: () => void; onCreate: TasksPageProps['createTask'] }) {
+function CreateTaskModal({
+  onClose,
+  onCreate,
+  goals,
+  projects,
+}: {
+  onClose: () => void;
+  onCreate: TasksPageProps['createTask'];
+  goals: Goal[];
+  projects: Project[];
+}) {
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [priority, setPriority] = useState(0);
+  const [projectId, setProjectId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Group projects under their goal so the picker reads "assign to a goal → cartridge".
+  const grouped = useMemo(() => {
+    const byGoal = new Map<string | null, Project[]>();
+    for (const p of projects) {
+      const key = p.goalId ?? null;
+      if (!byGoal.has(key)) byGoal.set(key, []);
+      byGoal.get(key)!.push(p);
+    }
+    return byGoal;
+  }, [projects]);
+
+  const selected = projects.find((p) => p.id === projectId);
 
   const save = async () => {
     if (!title.trim()) return;
     setSaving(true);
     setError('');
     try {
-      await onCreate({ title: title.trim(), prompt: prompt.trim(), priority });
+      await onCreate({ title: title.trim(), prompt: prompt.trim(), projectId: projectId || null, priority });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create task');
@@ -91,6 +116,35 @@ function CreateTaskModal({ onClose, onCreate }: { onClose: () => void; onCreate:
           className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 mb-3 resize-y"
         />
 
+        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Cartridge / project</label>
+        <select
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25 mb-1"
+        >
+          <option value="">— Any agent (unpinned) —</option>
+          {[...grouped.entries()].map(([goalId, ps]) => {
+            const goal = goals.find((g) => g.id === goalId);
+            const label = goal ? goal.name : 'No goal';
+            return (
+              <optgroup key={goalId ?? 'none'} label={label}>
+                {ps.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.primaryRepo ? ` (${p.primaryRepo.split('/').filter(Boolean).pop()})` : ' — no repo'}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </select>
+        <p className="text-[11px] text-gray-600 mb-3">
+          {selected
+            ? selected.primaryRepo
+              ? `Only an idle agent in ${selected.primaryRepo.split('/').filter(Boolean).pop()} can claim this — it waits until that agent is free.`
+              : `This project has no repo set, so no agent can be matched. Set a codebase on the project first.`
+            : 'Any idle agent can claim this task.'}
+        </p>
+
         <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Priority</label>
         <input
           type="number"
@@ -118,8 +172,9 @@ function CreateTaskModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   );
 }
 
-function TaskCard({ task, agents, onCancel }: { task: Task; agents: Agent[]; onCancel: (id: string) => void }) {
+function TaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: (id: string) => void }) {
   const agent = task.assignedAgentId ? agents.find((a) => a.id === task.assignedAgentId) : undefined;
+  const project = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
   const isTerminal = task.status === 'done' || task.status === 'failed' || task.status === 'cancelled';
   return (
     <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2">
@@ -129,6 +184,16 @@ function TaskCard({ task, agents, onCancel }: { task: Task; agents: Agent[]; onC
             <StatusBadge status={task.status} />
             {task.priority > 0 && (
               <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.05] text-gray-400 border border-white/10">p{task.priority}</span>
+            )}
+            {project && (
+              <span
+                className="text-[11px] px-1.5 py-0.5 rounded border flex items-center gap-1"
+                style={{ color: project.color, borderColor: `${project.color}55`, backgroundColor: `${project.color}11` }}
+                title={project.primaryRepo || 'no repo'}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: project.color }} />
+                {project.name}
+              </span>
             )}
           </div>
           <h3 className="text-sm font-medium text-gray-200 mt-1.5 truncate">{task.title}</h3>
@@ -169,6 +234,14 @@ function TaskCard({ task, agents, onCancel }: { task: Task; agents: Agent[]; onC
 export function TasksPage({ tasks, agents, createTask, cancelTask }: TasksPageProps) {
   const [filter, setFilter] = useState<'all' | 'active' | TaskStatus>('active');
   const [creating, setCreating] = useState(false);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    Promise.all([api.getGoals(), api.getGoalProjects()])
+      .then(([g, p]) => { setGoals(g); setProjects(p); })
+      .catch(() => { /* tasks still work unpinned if goals/projects fail to load */ });
+  }, []);
 
   const filtered = useMemo(() => {
     const sorted = [...tasks].sort(
@@ -233,12 +306,12 @@ export function TasksPage({ tasks, agents, createTask, cancelTask }: TasksPagePr
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filtered.map((t) => (
-            <TaskCard key={t.id} task={t} agents={agents} onCancel={cancelTask} />
+            <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} />
           ))}
         </div>
       )}
 
-      {creating && <CreateTaskModal onClose={() => setCreating(false)} onCreate={createTask} />}
+      {creating && <CreateTaskModal onClose={() => setCreating(false)} onCreate={createTask} goals={goals} projects={projects} />}
     </div>
   );
 }
