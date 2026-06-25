@@ -2,22 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
 import type { Project } from '../types.js';
-import { agentIdsForRepo } from '../lib/resolve-agent.js';
-import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
-
-/** Real USD spent by every agent working in this repo (from session_usage). */
-function repoCostUsd(primaryRepo: string): number {
-  const agentIds = agentIdsForRepo(primaryRepo);
-  if (!agentIds.length) return 0;
-  const placeholders = agentIds.map(() => '?').join(',');
-  const rows = db
-    .prepare(
-      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model
-         FROM session_usage WHERE agent_id IN (${placeholders})`,
-    )
-    .all(...agentIds) as UsageRow[];
-  return totalCostUsd(rows);
-}
+import { projectCostUsd } from '../lib/goal-cost.js';
 
 const router = Router();
 
@@ -72,7 +57,7 @@ function withComputedFields(row: Record<string, unknown>): Project {
     goalName: goalRow?.name,
     runCount,
     tokensUsed: estimateTokens(inputChars, outputChars),
-    costUsd: repoCostUsd((row.primary_repo as string) || ''),
+    costUsd: projectCostUsd((row.primary_repo as string) || ''),
     lastRunStatus: lastRun?.status || null,
     lastRunAt: lastRun?.started_at || null,
     activeRunCount,
