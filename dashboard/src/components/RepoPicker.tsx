@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
-import type { AgentType } from '../types';
 
 interface Repo {
   name: string;
@@ -21,7 +20,8 @@ interface ToolInfo {
 
 // Display config for each tool button
 const TOOL_DISPLAY: Record<string, { label: string; color: string }> = {
-  claude:  { label: 'Claude',    color: 'text-blue-400 hover:text-blue-300' },
+  'claude-terminal': { label: 'Claude · Terminal', color: 'text-blue-400 hover:text-blue-300' },
+  claude:  { label: 'Claude · VS Code', color: 'text-blue-400 hover:text-blue-300' },
   gridlight:{ label: 'Gridlight', color: 'text-gl-purple hover:text-purple-300' },
   gemini:  { label: 'Gemini',    color: 'text-teal-400 hover:text-teal-300' },
   amazonq: { label: 'Amazon Q',  color: 'text-orange-400 hover:text-orange-300' },
@@ -30,10 +30,10 @@ const TOOL_DISPLAY: Record<string, { label: string; color: string }> = {
 };
 
 // Tools always shown regardless of install state
-const ALWAYS_SHOW = new Set(['claude', 'gridlight']);
+const ALWAYS_SHOW = new Set(['claude-terminal', 'claude', 'gridlight']);
 
-// Preferred display order
-const TOOL_ORDER = ['gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
+// Preferred display order — terminal Claude first (no VS Code required)
+const TOOL_ORDER = ['claude-terminal', 'gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
 
 export function RepoPicker() {
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -81,7 +81,7 @@ export function RepoPicker() {
     return info && info.installed;
   });
 
-  const handleOpen = async (repoPath: string, agentType: AgentType) => {
+  const handleOpen = async (repoPath: string, agentType: string) => {
     setOpen(false);
     setSelectedRepo(null);
     setLaunchError(null);
@@ -136,7 +136,7 @@ export function RepoPicker() {
                       return (
                         <button
                           key={key}
-                          onClick={() => handleOpen(repo.path, key as AgentType)}
+                          onClick={() => handleOpen(repo.path, key)}
                           className={`text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors ${display.color}`}
                         >
                           {display.label}
