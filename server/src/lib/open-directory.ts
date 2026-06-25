@@ -7,6 +7,7 @@ import fs from 'fs';
 import http from 'http';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,33 @@ export function writeVscodeSettings(repoPath: string, agentType: string): void {
 export function openInTerminal(repoPath: string, command: string, sessionId: string): string | null {
   const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
 
+  // Windows: emit a native .cmd batch script and run it via cmd.exe. (A bash .sh
+  // launched through `cmd /k` cannot execute — this is what broke Windows launch.)
+  if (process.platform === 'win32') {
+    const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.cmd`);
+    // Do NOT JSON.stringify Windows paths — cmd treats backslashes literally, so
+    // doubled backslashes would corrupt the path. Plain double-quotes suffice.
+    fs.writeFileSync(scriptPath, [
+      '@echo off',
+      `cd /d "${repoPath}"`,
+      `set "NEONCORE_URL=${neonUrl}"`,
+      `set "NEONCORE_SESSION_ID=${sessionId}"`,
+      command,
+    ].join('\r\n') + '\r\n');
+
+    setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
+
+    try {
+      spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', scriptPath], {
+        detached: true, stdio: 'ignore',
+      }).unref();
+      return null;
+    } catch (err) {
+      return `Failed to open terminal: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  // POSIX (macOS / Linux): bash script that sources rc files for PATH, then runs.
   const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
   fs.writeFileSync(scriptPath, [
     '#!/usr/bin/env bash',
@@ -168,18 +196,9 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
       } catch { /* try next */ }
     }
     return 'No terminal emulator found (tried gnome-terminal, xfce4-terminal, konsole, xterm)';
-
-  } else if (process.platform === 'win32') {
-    try {
-      spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', scriptPath], {
-        detached: true, stdio: 'ignore',
-      }).unref();
-      return null;
-    } catch (err) {
-      return `Failed to open terminal: ${err instanceof Error ? err.message : String(err)}`;
-    }
   }
 
+  // win32 is handled at the top of this function (native .cmd path).
   return 'Unsupported platform';
 }
 
@@ -227,11 +246,46 @@ export const CLI_COMMANDS: Record<string, string> = {
 let _codeBin: string | null = null;
 
 /**
+ * NeonCore repo root, resolved from this module's location so it works both in
+ * dev (server/src/lib via tsx) and in the build (server/dist/lib) — three levels
+ * up lands on the repo root in either case.
+ */
+function neoncoreRepoRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+}
+
+/**
+ * Build the command that boots a bare-terminal Claude Code session wired into
+ * NeonCore via the agent relay — the terminal equivalent of "open in VS Code".
+ *
+ * All setup (dep install, hook install, relay launch) lives in the relay's
+ * cross-platform Node bootstrap (agent/relay/launch.js), so this is a single
+ * `node "<path>"` invocation that runs verbatim in both bash and cmd.exe. The
+ * bootstrap launches the relay in the terminal's cwd (the cartridge directory),
+ * so the agent registers against the right repo.
+ */
+function buildRelayLaunchCommand(): string {
+  const launchEntry = path.join(neoncoreRepoRoot(), 'agent', 'relay', 'launch.js');
+  // Plain double-quotes are valid in both POSIX shells and cmd.exe; do NOT use
+  // JSON.stringify here — it would double Windows backslashes, which cmd treats
+  // literally and would break the path.
+  return `node "${launchEntry}"`;
+}
+
+/**
  * Open a directory with the specified agent type.
  * Returns an error string on failure, null on success.
  */
 export function openDirectory(dirPath: string, agentType: string): string | null {
   if (!fs.existsSync(dirPath)) return 'Path does not exist';
+
+  // Claude Code in a plain terminal (no VS Code) via the agent relay.
+  // The relay self-registers and opens the addressed socket, so we don't
+  // pre-register here (that would just churn the agent's session id).
+  if (agentType === 'claude-terminal' || agentType === 'claude-cli') {
+    const sessionId = `neoncore-claude-${Date.now()}`;
+    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId);
+  }
 
   // CLI tools
   if (agentType in CLI_COMMANDS) {

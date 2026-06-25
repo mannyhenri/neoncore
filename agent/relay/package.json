@@ -1,0 +1,21 @@
+{
+  "name": "@neoncore/agent-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone PTY relay — lets a bare-terminal Claude Code session receive NeonCore workflow commands without the VS Code extension. Cross-platform (macOS, Linux, Windows/ConPTY).",
+  "bin": {
+    "neoncore-agent": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "postinstall": "node scripts/fix-pty-perms.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "socket.io-client": "^4.8.0"
+  }
+}
