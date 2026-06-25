@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Activity } from '../types.js';
+import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
 
 const router = Router();
 
@@ -133,15 +134,30 @@ router.get('/usage/:agentId', (req, res) => {
   const { agentId } = req.params;
   const since = req.query.since as string | undefined;
 
+  // No LIMIT — the card shows lifetime "total tokens consumed", so sum every row
+  // (optionally bounded by `since`). Cache tokens are summed for accurate cost.
+  const cols = 'input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at';
   const rows = since
-    ? db.prepare('SELECT input_tokens, output_tokens, model, recorded_at FROM session_usage WHERE agent_id = ? AND recorded_at >= ? ORDER BY recorded_at DESC').all(agentId, since) as { input_tokens: number; output_tokens: number; model: string; recorded_at: string }[]
-    : db.prepare('SELECT input_tokens, output_tokens, model, recorded_at FROM session_usage WHERE agent_id = ? ORDER BY recorded_at DESC LIMIT 50').all(agentId) as { input_tokens: number; output_tokens: number; model: string; recorded_at: string }[];
+    ? db.prepare(`SELECT ${cols} FROM session_usage WHERE agent_id = ? AND recorded_at >= ? ORDER BY recorded_at DESC`).all(agentId, since) as (UsageRow & { recorded_at: string })[]
+    : db.prepare(`SELECT ${cols} FROM session_usage WHERE agent_id = ? ORDER BY recorded_at DESC`).all(agentId) as (UsageRow & { recorded_at: string })[];
 
-  const totalInput = rows.reduce((sum, r) => sum + r.input_tokens, 0);
-  const totalOutput = rows.reduce((sum, r) => sum + r.output_tokens, 0);
+  const totalInput = rows.reduce((sum, r) => sum + (r.input_tokens || 0), 0);
+  const totalOutput = rows.reduce((sum, r) => sum + (r.output_tokens || 0), 0);
+  const totalCacheRead = rows.reduce((sum, r) => sum + (r.cache_read_tokens || 0), 0);
+  const totalCacheCreation = rows.reduce((sum, r) => sum + (r.cache_creation_tokens || 0), 0);
   const latestModel = rows[0]?.model || '';
 
-  res.json({ agentId, totalInput, totalOutput, total: totalInput + totalOutput, latestModel, sessions: rows.length });
+  res.json({
+    agentId,
+    totalInput,
+    totalOutput,
+    totalCacheRead,
+    totalCacheCreation,
+    total: totalInput + totalOutput,
+    costUsd: totalCostUsd(rows),
+    latestModel,
+    sessions: rows.length,
+  });
 });
 
 export default router;

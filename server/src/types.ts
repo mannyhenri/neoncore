@@ -371,6 +371,7 @@ export interface Goal {
   projectCount?: number;
   runCount?: number;
   tokensUsed?: number;
+  costUsd?: number;
 }
 
 export interface Project {
@@ -385,6 +386,7 @@ export interface Project {
   updatedAt: string;
   runCount?: number;
   tokensUsed?: number;
+  costUsd?: number;
   lastRunStatus?: string | null;
   lastRunAt?: string | null;
   activeRunCount?: number;

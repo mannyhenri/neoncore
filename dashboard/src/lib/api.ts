@@ -405,7 +405,7 @@ export const api = {
 
   // Token usage
   getAgentTokenUsage: (agentId: string, since?: string) =>
-    request<{ agentId: string; totalInput: number; totalOutput: number; total: number; latestModel: string; sessions: number }>(
+    request<{ agentId: string; totalInput: number; totalOutput: number; totalCacheRead: number; totalCacheCreation: number; total: number; costUsd: number; latestModel: string; sessions: number }>(
       `/activity/usage/${agentId}${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
 
