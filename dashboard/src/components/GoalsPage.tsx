@@ -191,6 +191,14 @@ function formatTokens(n: number): string {
   return `~${(n / 1_000_000).toFixed(1)}M tokens`;
 }
 
+// Real USD spent (from session_usage), denominated for the goal/project budget view.
+function formatUsd(n: number): string {
+  if (n <= 0) return '$0';
+  if (n < 1) return `$${n.toFixed(2)}`;
+  if (n < 1000) return `$${n.toFixed(2)}`;
+  return `$${(n / 1000).toFixed(1)}k`;
+}
+
 function statusBadge(status: Goal['status']) {
   const map: Record<Goal['status'], { label: string; cls: string }> = {
     active:   { label: 'Active',   cls: 'bg-emerald-900/40 text-emerald-400 border-emerald-800/50' },
@@ -434,6 +442,9 @@ function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats, onR
           <span>{project.runCount ?? 0} runs</span>
           {(project.tokensUsed ?? 0) > 0 && (
             <span className="text-violet-400">{formatTokens(project.tokensUsed!)}</span>
+          )}
+          {(project.costUsd ?? 0) > 0 && (
+            <span className="text-emerald-400" title="Real spend on this cartridge (from session usage)">{formatUsd(project.costUsd!)}</span>
           )}
         </div>
         <div className="flex gap-2">
@@ -993,6 +1004,9 @@ function GoalCard({ goal, projects, tasks, expanded, onToggle, onEditGoal, onDel
             )}
             {totalTokens > 0 && <span className="text-violet-400">{formatTokens(totalTokens)} used</span>}
             {goal.tokenBudget && <span>/ {formatTokens(goal.tokenBudget)} budget</span>}
+            {(goal.costUsd ?? 0) > 0 && (
+              <span className="text-emerald-400 font-medium" title="Real spend across this goal's cartridges (from session usage, cache-inclusive)">{formatUsd(goal.costUsd!)} spent</span>
+            )}
           </div>
           {budgetPct !== null && (
             <div className="mt-2 h-1 bg-white/10 rounded-full overflow-hidden w-48">

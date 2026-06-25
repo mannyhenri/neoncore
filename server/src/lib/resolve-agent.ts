@@ -69,3 +69,18 @@ export function projectIdsForAgent(agentId: string): string[] {
   }[];
   return projects.filter((p) => normalizeRepoPath(p.primary_repo) === norm).map((p) => p.id);
 }
+
+/**
+ * Agents whose repo matches the given repo path (cross-platform normalized).
+ * Inverse of projectIdsForAgent — used to roll real session_usage cost from
+ * agents up to the project/goal that owns their cartridge.
+ */
+export function agentIdsForRepo(repoPath: string): string[] {
+  const norm = normalizeRepoPath(repoPath);
+  if (!norm) return [];
+  const agents = db.prepare("SELECT id, repo_path FROM agents WHERE repo_path != ''").all() as {
+    id: string;
+    repo_path: string;
+  }[];
+  return agents.filter((a) => normalizeRepoPath(a.repo_path) === norm).map((a) => a.id);
+}

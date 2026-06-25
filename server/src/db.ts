@@ -319,6 +319,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_usage_agent ON session_usage(agent_id);
 `);
 
+// Migration: track cache tokens in session_usage (needed for accurate USD cost).
+try {
+  db.prepare('SELECT cache_read_tokens FROM session_usage LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE session_usage ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE session_usage ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0`);
+}
+
 // Agent task queue — work that agents can be assigned or claim autonomously via
 // the NeonCore MCP coordination tools. project_id links softly to the Goal
 // Cascade (no FK enforcement — tolerate nulls / deleted projects).

@@ -315,8 +315,9 @@ router.post('/transcript', (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertUsage = db.prepare(`
-    INSERT INTO session_usage (id, session_id, agent_id, input_tokens, output_tokens, model, recorded_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO session_usage
+      (id, session_id, agent_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const io = getIO();
@@ -346,8 +347,8 @@ router.post('/transcript', (req, res) => {
 
       // Mirror token usage into session_usage so existing cost endpoints keep working.
       // This is now the authoritative token source (the stdin-usage path was unreliable).
-      if (inTok > 0 || outTok > 0) {
-        insertUsage.run(uuid(), sessionId || '', agentId, inTok, outTok, model, now);
+      if (inTok > 0 || outTok > 0 || cacheRead > 0 || cacheCreate > 0) {
+        insertUsage.run(uuid(), sessionId || '', agentId, inTok, outTok, cacheRead, cacheCreate, model, now);
         turnUsage.inputTokens += inTok;
         turnUsage.outputTokens += outTok;
         turnUsage.cacheReadTokens += cacheRead;

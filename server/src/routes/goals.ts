@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
 import type { Goal } from '../types.js';
+import { agentIdsForRepo } from '../lib/resolve-agent.js';
+import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
 
 const router = Router();
 
@@ -9,7 +11,24 @@ function estimateTokens(inputChars: number, outputChars: number): number {
   return Math.round((inputChars + outputChars) / 4);
 }
 
-function normalizeGoal(row: Record<string, unknown>, extra?: { projectCount?: number; runCount?: number; tokensUsed?: number }): Goal {
+/** Real USD spent across every cartridge (repo) belonging to this goal's projects. */
+function goalCostUsd(goalId: string): number {
+  const repos = db
+    .prepare("SELECT primary_repo FROM projects WHERE goal_id = ? AND primary_repo != ''")
+    .all(goalId) as { primary_repo: string }[];
+  const agentIds = [...new Set(repos.flatMap((r) => agentIdsForRepo(r.primary_repo)))];
+  if (!agentIds.length) return 0;
+  const placeholders = agentIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model
+         FROM session_usage WHERE agent_id IN (${placeholders})`,
+    )
+    .all(...agentIds) as UsageRow[];
+  return totalCostUsd(rows);
+}
+
+function normalizeGoal(row: Record<string, unknown>, extra?: { projectCount?: number; runCount?: number; tokensUsed?: number; costUsd?: number }): Goal {
   return {
     id: row.id as string,
     name: row.name as string,
@@ -48,7 +67,7 @@ router.get('/', (_req, res) => {
       WHERE p.goal_id = ? AND w.template_id IS NOT NULL
     `).get(goalId) as { runCount: number };
 
-    return normalizeGoal(row, { projectCount, runCount, tokensUsed: estimateTokens(inputChars, outputChars) });
+    return normalizeGoal(row, { projectCount, runCount, tokensUsed: estimateTokens(inputChars, outputChars), costUsd: goalCostUsd(goalId) });
   });
 
   res.json(goals);

@@ -447,10 +447,11 @@ export function CartridgeCard({
   const [journalOpen, setJournalOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
 
-  // Token usage — fetched from server, refreshed when agent status changes
+  // Token usage + USD cost — fetched from server, refreshed when agent status changes
   const [tokenTotal, setTokenTotal] = useState<number | null>(null);
+  const [costUsd, setCostUsd] = useState<number | null>(null);
   useEffect(() => {
-    api.getAgentTokenUsage(agent.id).then((u) => setTokenTotal(u.total)).catch(() => {});
+    api.getAgentTokenUsage(agent.id).then((u) => { setTokenTotal(u.total); setCostUsd(u.costUsd); }).catch(() => {});
   }, [agent.id, effectiveStatus]);
 
 
@@ -590,8 +591,11 @@ export function CartridgeCard({
             <span className="text-[13px] text-gray-200">{status.label}</span>
             <span className="text-[13px] text-gray-500">{timeAgo(agent.lastSeen)}</span>
             {tokenTotal !== null && tokenTotal > 0 && (
-              <span className="text-[11px] text-gray-600 font-mono ml-auto" title="Total tokens consumed">
-                ~{tokenTotal >= 1000 ? `${(tokenTotal / 1000).toFixed(1)}k` : tokenTotal} tok
+              <span className="text-[11px] text-gray-600 font-mono ml-auto flex items-center gap-1.5" title="Total tokens consumed (input + output); cost includes cache">
+                {costUsd !== null && costUsd > 0 && (
+                  <span className="text-emerald-500/80">{costUsd >= 1 ? `$${costUsd.toFixed(2)}` : `$${costUsd.toFixed(3)}`}</span>
+                )}
+                <span>~{tokenTotal >= 1000 ? `${(tokenTotal / 1000).toFixed(1)}k` : tokenTotal} tok</span>
               </span>
             )}
           </div>
