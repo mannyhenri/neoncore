@@ -10,3 +10,14 @@ dist/
 server/public/
 .claude/
 .gstack/
+.gridlight/
+
+# Editor
+.vscode/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Build artifact copied into the extension by prepackage
+extension/logo.png
