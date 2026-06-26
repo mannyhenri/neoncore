@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import { resolveAgentId, projectIdsForAgent } from '../lib/resolve-agent.js';
+import { resolveAgentId, projectIdsForAgent, agentIdsForProject } from '../lib/resolve-agent.js';
+import { sendCommandToAgent } from '../lib/send-command.js';
 import type { Task, TaskStatus } from '../types.js';
 
 const router = Router();
@@ -39,6 +40,48 @@ function callerAgentId(src: Record<string, unknown>): string | undefined {
   });
 }
 
+/**
+ * Pick a connected agent to push a task's prompt into. Prefers an idle agent
+ * serving the task's project, falling back to any non-offline one. Returns
+ * undefined for unpinned tasks (no unambiguous terminal) or when none is online.
+ */
+function autoDispatchTarget(projectId: string | null): string | undefined {
+  if (!projectId) return undefined;
+  const candidates = agentIdsForProject(projectId)
+    .map((id) => {
+      const row = db.prepare('SELECT status FROM agents WHERE id = ?').get(id) as { status?: string } | undefined;
+      return { id, status: row?.status };
+    })
+    .filter((a) => a.status && a.status !== 'offline');
+  return (candidates.find((a) => a.status === 'idle') ?? candidates[0])?.id;
+}
+
+/**
+ * Push a task's prompt straight into an agent's terminal (reusing the command
+ * dispatch path → relay/extension/terminal) and mark the task in-progress for it.
+ * Returns the updated task, or null if the agent could not be reached.
+ */
+function dispatchTaskToAgent(task: Task, agentId: string): Task | null {
+  // Report-back instruction (path C): tell the agent how to close the loop. If the
+  // NeonCore MCP server isn't registered in that terminal the tool won't exist —
+  // the Stop-hook fallback (path B) and the dashboard buttons still complete it.
+  const reportBack =
+    `When you finish, call the neoncore_report_task_done tool with taskId="${task.id}" and a short result ` +
+    `(use status:"failed" with an error if you could not complete it). If that tool isn't available, just finish normally.`;
+  const instructions = task.prompt && task.prompt.trim() ? task.prompt.trim() : task.title;
+  const body = `[NeonCore task ${task.id}: ${task.title}]\n\n${instructions}\n\n${reportBack}`;
+  const cmd = sendCommandToAgent(agentId, body, true);
+  if (!cmd) return null;
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE tasks SET status = 'in_progress', assigned_agent_id = ?, claimed_at = COALESCE(claimed_at, ?)
+     WHERE id = ?
+  `).run(agentId, now, task.id);
+  const updated = getTask(task.id)!;
+  getIO().emit('task_updated', updated);
+  return updated;
+}
+
 // Create a task
 router.post('/', (req, res) => {
   const { title, prompt, projectId, priority } = req.body || {};
@@ -54,7 +97,51 @@ router.post('/', (req, res) => {
 
   const task = getTask(id)!;
   getIO().emit('task_created', task);
-  res.status(201).json(task);
+
+  // Auto-dispatch: if the task is pinned to a project that has a connected agent,
+  // push the prompt straight into that terminal instead of waiting to be pulled.
+  const target = autoDispatchTarget(task.projectId);
+  const dispatched = target ? dispatchTaskToAgent(task, target) : null;
+  res.status(201).json(dispatched ?? task);
+});
+
+// Edit a queued task (dashboard). Only queued tasks are editable — once claimed
+// an agent already holds the instructions, so changing them silently would drift.
+router.patch('/:id', (req, res) => {
+  const task = getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (task.status !== 'queued') {
+    return res.status(409).json({ error: 'Only queued tasks can be edited' });
+  }
+  const { title, prompt, projectId, priority } = req.body || {};
+  const newTitle = typeof title === 'string' && title.trim() ? title.trim() : task.title;
+  const newPrompt = typeof prompt === 'string' ? prompt : task.prompt;
+  const newProjectId = projectId === undefined ? task.projectId : (projectId || null);
+  const newPriority = priority === undefined ? task.priority : (Number(priority) || 0);
+  db.prepare('UPDATE tasks SET title = ?, prompt = ?, project_id = ?, priority = ? WHERE id = ?')
+    .run(newTitle, newPrompt, newProjectId, newPriority, req.params.id);
+  const updated = getTask(req.params.id)!;
+  getIO().emit('task_updated', updated);
+  res.json(updated);
+});
+
+// Dispatch a task to a terminal now (dashboard "Send to agent"). Pushes the
+// prompt into the chosen agent (or an auto-picked one) and marks it in-progress.
+router.post('/:id/dispatch', (req, res) => {
+  const task = getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (task.status === 'done' || task.status === 'cancelled') {
+    return res.status(409).json({ error: 'Task is already finished' });
+  }
+  const agentId = (req.body?.agentId as string) || autoDispatchTarget(task.projectId);
+  if (!agentId) return res.status(404).json({ error: 'No connected agent to dispatch to' });
+  // Respect the hard-pin: a project-scoped task may only go to an agent serving it.
+  if (task.projectId && !projectIdsForAgent(agentId).includes(task.projectId)) {
+    return res.status(403).json({ error: "Agent does not serve this task's project/cartridge" });
+  }
+  const updated = dispatchTaskToAgent(task, agentId);
+  if (!updated) return res.status(404).json({ error: 'Agent not found' });
+  res.json(updated);
 });
 
 // List tasks (filterable)
@@ -161,6 +248,21 @@ router.post('/:id/complete', (req, res) => {
   const now = new Date().toISOString();
   db.prepare('UPDATE tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
     .run(finalStatus, result || '', error || '', now, req.params.id);
+  const updated = getTask(req.params.id)!;
+  getIO().emit('task_updated', updated);
+  res.json(updated);
+});
+
+// Mark a task done/failed from the dashboard (no owner check — the human is
+// closing the loop manually, e.g. after a dispatched task that didn't self-report).
+router.post('/:id/done', (req, res) => {
+  const { status, result, error } = req.body || {};
+  const task = getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  const finalStatus: TaskStatus = status === 'failed' ? 'failed' : 'done';
+  const now = new Date().toISOString();
+  db.prepare('UPDATE tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
+    .run(finalStatus, result || task.result || '', error || task.error || '', now, req.params.id);
   const updated = getTask(req.params.id)!;
   getIO().emit('task_updated', updated);
   res.json(updated);

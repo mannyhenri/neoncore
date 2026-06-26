@@ -66,6 +66,9 @@ if tool_name == 'AskUserQuestion':
 else:
     # Explicitly mark working so the next tool after AskUserQuestion clears 'waiting'
     register_data['status'] = 'working'
+# Per-machine opt-in: NEONCORE_TRUST=1 means new agents from this machine start in trust mode
+if os.environ.get('NEONCORE_TRUST', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+    register_data['trustMode'] = True
 register_body = json.dumps(register_data)
 permission_body = json.dumps({
     'sessionId': session_id,

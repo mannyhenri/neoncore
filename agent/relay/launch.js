@@ -57,7 +57,7 @@ if (!hooksPresent && existsSync(installScript)) {
 }
 
 // 3. Launch the relay in the user's current directory.
-log('Launching Claude Code...');
+log('Launching Gridlight Terminal Code...');
 const extraArgs = process.argv.slice(2);
 const child = spawn(process.execPath, [path.join(relayDir, 'index.js'), ...extraArgs], {
   stdio: 'inherit',

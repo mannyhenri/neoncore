@@ -212,6 +212,9 @@ def main():
     if tool_name == "AskUserQuestion":
         register_data["status"] = "waiting"
         register_data["pendingQuestion"] = json.dumps(tool_input)[:4000]
+    # Per-machine opt-in: NEONCORE_TRUST=1 means new agents from this machine start in trust mode
+    if os.environ.get("NEONCORE_TRUST", "").strip().lower() in ("1", "true", "yes", "on"):
+        register_data["trustMode"] = True
     register_body = json.dumps(register_data)
     register_resp = post_json(f"{ORCHESTRATOR_URL}/api/agents/register", register_body)
     resolved_agent_id = register_resp.get("id", "") if register_resp else ""

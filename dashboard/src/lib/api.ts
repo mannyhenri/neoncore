@@ -504,4 +504,10 @@ export const api = {
     request<import('../types').Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
   cancelTask: (id: string) =>
     request<import('../types').Task>(`/tasks/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
+  updateTask: (id: string, data: { title?: string; prompt?: string; projectId?: string | null; priority?: number }) =>
+    request<import('../types').Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  dispatchTask: (id: string, agentId?: string) =>
+    request<import('../types').Task>(`/tasks/${id}/dispatch`, { method: 'POST', body: JSON.stringify(agentId ? { agentId } : {}) }),
+  completeTask: (id: string, status: 'done' | 'failed' = 'done', result?: string) =>
+    request<import('../types').Task>(`/tasks/${id}/done`, { method: 'POST', body: JSON.stringify({ status, result }) }),
 };
