@@ -6,6 +6,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
 import { pushNotify, getCartridgeNtfyUrl } from '../lib/push-notify.js';
+import { resolveAgentId } from '../lib/resolve-agent.js';
 
 const router = Router();
 
@@ -56,7 +57,7 @@ export function resolvePendingPoll(id: string, decision: 'allowed' | 'denied', r
 
 // Request a permission decision (called by hook scripts)
 router.post('/request', (req, res) => {
-  const { agentId, sessionId, toolName, toolInput, description } = req.body;
+  const { agentId, sessionId, machine, repoPath, toolName, toolInput, description } = req.body;
   console.log(`[permissions] Permission request: tool=${toolName} sessionId=${sessionId?.slice(0, 20)} agentId=${agentId || 'none'}`);
 
   // Resolve agent — try sessionId first, then fall back to agentId.
@@ -78,7 +79,16 @@ router.post('/request', (req, res) => {
     }
   }
 
-  // Fallback: if sessionId didn't find the agent, try by agentId
+  // Fallback: if sessionId didn't find the agent, try by machine + repoPath
+  // (cross-platform normalized). A relay-launched CLI registers under the
+  // relay's own session_id, so a terminal CLI that only knows its repo — e.g.
+  // gridlight — would otherwise fail to resolve. Mirrors the transcript route.
+  if (!resolvedBySession && !resolvedAgentId && (machine || repoPath)) {
+    const byRepo = resolveAgentId({ machine, repoPath });
+    if (byRepo) resolvedAgentId = byRepo;
+  }
+
+  // Fallback: if still unresolved, try by agentId / the repo-resolved id.
   if (!resolvedBySession && resolvedAgentId) {
     const agent = db.prepare('SELECT trust_mode, agent_mode, plans_included FROM agents WHERE id = ?').get(resolvedAgentId) as { trust_mode: number; agent_mode: string; plans_included: number } | undefined;
     trustMode = agent?.agent_mode === 'trust';
@@ -86,8 +96,8 @@ router.post('/request', (req, res) => {
   }
 
   if (!resolvedAgentId) {
-    console.log(`[permissions] Failed to resolve agent — sessionId=${sessionId} agentId=${agentId}`);
-    return res.status(400).json({ error: 'agentId or valid sessionId required' });
+    console.log(`[permissions] Failed to resolve agent — sessionId=${sessionId} agentId=${agentId} machine=${machine} repoPath=${repoPath}`);
+    return res.status(400).json({ error: 'agentId, valid sessionId, or machine+repoPath required' });
   }
 
   // If trust mode is ON, immediately allow — EXCEPT AskUserQuestion (always needs human answer)
