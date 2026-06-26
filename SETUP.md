@@ -54,6 +54,16 @@ cd neoncore
 NEONCORE_URL=http://<server-ip>:4040 ./agent/install.sh
 ```
 
+> **Unattended machines:** by default a newly-discovered agent starts in **manual**
+> mode, so every Bash/Edit waits for you to click *Approve* on the dashboard (if you
+> don't, the hook long-polls ~10 min then falls back). For a remote machine you want
+> to run hands-off, add `NEONCORE_TRUST=1` so its agents start in **trust** mode
+> (auto-approve). You can still flip any agent back to manual from the dashboard.
+>
+> ```bash
+> NEONCORE_URL=http://<server-ip>:4040 NEONCORE_TRUST=1 ./agent/install.sh
+> ```
+
 ### Option B: Copy just the agent folder
 
 If you don't want the full repo on the remote machine, copy the `agent/` folder:
@@ -158,6 +168,17 @@ Open the dashboard at `http://<server-ip>:4040` in your browser.
 - Ensure the VS Code extension is connected (status bar shows connected)
 - Check the NeonCore output channel in VS Code for delivery logs
 - The agent must have been registered by BOTH the hooks AND the extension for command relay to work
+
+### Bash commands hang ~10 minutes, then run (or time out)
+This is **manual mode**, not a broken hook. Each tool call creates a *pending*
+permission that waits for a human to approve it on the dashboard; with no approval the
+hook long-polls (5 × 120s) and then falls back. Two fixes:
+- **Approve on the dashboard** — open the agent and click *Approve* on each request, or
+- **Switch the agent to Trust mode** on the dashboard (auto-approves everything for that
+  agent, and immediately clears anything currently queued).
+
+To make a remote machine trust-by-default at install time, re-run the installer with
+`NEONCORE_TRUST=1` (see Step 2).
 
 ### Activity missing from feed
 - Ensure hooks are installed for all events (run `install.sh` again to update)

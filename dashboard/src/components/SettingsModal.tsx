@@ -421,19 +421,6 @@ export function SettingsModal({ onClose }: Props) {
               >
                 {saving ? 'Saving...' : isAlreadyAdded ? 'Already Added' : 'Add This Directory'}
               </button>
-              <button
-                onClick={async () => {
-                  if (!currentPath) return;
-                  try {
-                    await api.createVirtualCartridge({ directoryPath: currentPath });
-                    onClose();
-                  } catch { /* ignore */ }
-                }}
-                disabled={!currentPath}
-                className="text-sm px-4 py-2 rounded-md bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 border border-teal-500/30 disabled:opacity-30 transition-colors"
-              >
-                Add as Virtual Cartridge
-              </button>
               {saved && <span className="text-xs text-green-400">Added</span>}
             </div>
           </>

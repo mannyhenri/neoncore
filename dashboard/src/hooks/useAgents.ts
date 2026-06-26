@@ -176,6 +176,24 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }, []);
 
+  const updateTask = useCallback(async (id: string, data: { title?: string; prompt?: string; projectId?: string | null; priority?: number }) => {
+    const updated = await api.updateTask(id, data);
+    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    return updated;
+  }, []);
+
+  const dispatchTask = useCallback(async (id: string, agentId?: string) => {
+    const updated = await api.dispatchTask(id, agentId);
+    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    return updated;
+  }, []);
+
+  const completeTask = useCallback(async (id: string, status: 'done' | 'failed' = 'done', result?: string) => {
+    const updated = await api.completeTask(id, status, result);
+    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    return updated;
+  }, []);
+
   // Group activities by agent for cartridge terminal display
   const activitiesByAgent = useMemo(() => {
     const grouped: Record<string, Activity[]> = {};
@@ -208,5 +226,8 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     dismissWorkflowNotification,
     createTask,
     cancelTask,
+    updateTask,
+    dispatchTask,
+    completeTask,
   };
 }

@@ -7,6 +7,15 @@ interface TasksPageProps {
   agents: Agent[];
   createTask: (data: { title: string; prompt?: string; projectId?: string | null; priority?: number }) => Promise<Task>;
   cancelTask: (id: string) => Promise<void>;
+  updateTask: (id: string, data: { title?: string; prompt?: string; projectId?: string | null; priority?: number }) => Promise<Task>;
+  dispatchTask: (id: string, agentId?: string) => Promise<Task>;
+  completeTask: (id: string, status?: 'done' | 'failed', result?: string) => Promise<Task>;
+}
+
+/** Cross-platform repo-path normalize, mirroring the server's resolve-agent. */
+function normalizeRepoPath(p: string): string {
+  if (!p) return '';
+  return p.replace(/\\/g, '/').replace(/^([a-zA-Z]):\//, '/$1/').replace(/\/+$/, '').toLowerCase();
 }
 
 const STATUS_META: Record<TaskStatus, { label: string; cls: string }> = {
@@ -172,12 +181,304 @@ function CreateTaskModal({
   );
 }
 
-function TaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: (id: string) => void }) {
+function TaskDetailModal({
+  task,
+  agents,
+  goals,
+  projects,
+  onClose,
+  updateTask,
+  dispatchTask,
+  cancelTask,
+  completeTask,
+}: {
+  task: Task;
+  agents: Agent[];
+  goals: Goal[];
+  projects: Project[];
+  onClose: () => void;
+  updateTask: TasksPageProps['updateTask'];
+  dispatchTask: TasksPageProps['dispatchTask'];
+  cancelTask: TasksPageProps['cancelTask'];
+  completeTask: TasksPageProps['completeTask'];
+}) {
+  const editable = task.status === 'queued';
+  const isTerminal = task.status === 'done' || task.status === 'failed' || task.status === 'cancelled';
+
+  const [title, setTitle] = useState(task.title);
+  const [prompt, setPrompt] = useState(task.prompt);
+  const [priority, setPriority] = useState(task.priority);
+  const [projectId, setProjectId] = useState(task.projectId ?? '');
+  const [saving, setSaving] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const project = projects.find((p) => p.id === (editable ? projectId : task.projectId));
+  const assignedAgent = task.assignedAgentId ? agents.find((a) => a.id === task.assignedAgentId) : undefined;
+
+  // Eligible dispatch targets: online agents, narrowed to those serving a pinned
+  // project's repo (the server enforces the same pin and would 403 otherwise).
+  const onlineAgents = agents.filter((a) => a.status !== 'offline');
+  const pinRepo = task.projectId ? projects.find((p) => p.id === task.projectId)?.primaryRepo : undefined;
+  const eligibleAgents = pinRepo
+    ? onlineAgents.filter((a) => normalizeRepoPath(a.repoPath) === normalizeRepoPath(pinRepo))
+    : onlineAgents;
+  const [targetAgentId, setTargetAgentId] = useState('');
+  useEffect(() => {
+    if (!targetAgentId && eligibleAgents.length > 0) setTargetAgentId(eligibleAgents[0].id);
+  }, [eligibleAgents, targetAgentId]);
+
+  const grouped = useMemo(() => {
+    const byGoal = new Map<string | null, Project[]>();
+    for (const p of projects) {
+      const key = p.goalId ?? null;
+      if (!byGoal.has(key)) byGoal.set(key, []);
+      byGoal.get(key)!.push(p);
+    }
+    return byGoal;
+  }, [projects]);
+
+  const dirty = editable && (
+    title.trim() !== task.title || prompt !== task.prompt || priority !== task.priority || (projectId || null) !== task.projectId
+  );
+
+  const save = async () => {
+    if (!title.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await updateTask(task.id, { title: title.trim(), prompt, priority, projectId: projectId || null });
+      setNotice('Saved.');
+      setTimeout(() => setNotice(''), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const markComplete = async (status: 'done' | 'failed') => {
+    setError('');
+    try {
+      await completeTask(task.id, status);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update');
+    }
+  };
+
+  const dispatch = async () => {
+    if (!targetAgentId) return;
+    setDispatching(true);
+    setError('');
+    try {
+      await dispatchTask(task.id, targetAgentId);
+      setNotice('Sent to terminal.');
+      setTimeout(onClose, 900);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to dispatch');
+      setDispatching(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-2xl max-h-[88vh] overflow-y-auto shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <StatusBadge status={task.status} />
+            <h3 className="text-sm font-semibold text-gray-200">{editable ? 'Edit task' : 'Task details'}</h3>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-gray-600 hover:text-gray-300 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Title</label>
+        {editable ? (
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25 mb-3"
+          />
+        ) : (
+          <p className="text-sm text-gray-200 mb-3 whitespace-pre-wrap">{task.title}</p>
+        )}
+
+        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Instructions for the agent</label>
+        {editable ? (
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={8}
+            placeholder="What should the agent that claims this task do?"
+            className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 mb-3 resize-y"
+          />
+        ) : (
+          <p className="text-[13px] text-gray-300 mb-3 whitespace-pre-wrap bg-black/30 border border-white/[0.06] rounded-md px-3 py-2">
+            {task.prompt || <span className="text-gray-600">No instructions.</span>}
+          </p>
+        )}
+
+        {editable && (
+          <div className="flex flex-wrap gap-4 mb-3">
+            <div className="flex-1 min-w-[220px]">
+              <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Cartridge / project</label>
+              <select
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+              >
+                <option value="">— Any agent (unpinned) —</option>
+                {[...grouped.entries()].map(([gid, ps]) => {
+                  const goal = goals.find((g) => g.id === gid);
+                  return (
+                    <optgroup key={gid ?? 'none'} label={goal ? goal.name : 'No goal'}>
+                      {ps.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{p.primaryRepo ? ` (${p.primaryRepo.split('/').filter(Boolean).pop()})` : ' — no repo'}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+            </div>
+            <div className="w-28">
+              <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Priority</label>
+              <input
+                type="number"
+                value={priority}
+                onChange={(e) => setPriority(parseInt(e.target.value) || 0)}
+                className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+              />
+            </div>
+          </div>
+        )}
+
+        {!editable && project && (
+          <p className="text-[12px] text-gray-500 mb-3">
+            Pinned to <span className="text-gray-300">{project.name}</span>
+            {project.primaryRepo ? ` (${project.primaryRepo.split('/').filter(Boolean).pop()})` : ''}
+          </p>
+        )}
+
+        {task.result && (
+          <>
+            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Result</label>
+            <p className="text-[12px] text-emerald-400/90 bg-emerald-950/20 border border-emerald-900/30 rounded px-3 py-2 whitespace-pre-wrap mb-3">{task.result}</p>
+          </>
+        )}
+        {task.error && (
+          <>
+            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Error</label>
+            <p className="text-[12px] text-red-400/90 bg-red-950/20 border border-red-900/30 rounded px-3 py-2 whitespace-pre-wrap mb-3">{task.error}</p>
+          </>
+        )}
+
+        {/* Send to a terminal now */}
+        {!isTerminal && (
+          <div className="border-t border-white/[0.07] pt-3 mt-1 mb-3">
+            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Send to agent</label>
+            {eligibleAgents.length === 0 ? (
+              <p className="text-[12px] text-gray-600">
+                {pinRepo
+                  ? 'No online agent is serving this cartridge’s repo right now.'
+                  : 'No agents are online right now.'}
+              </p>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={targetAgentId}
+                  onChange={(e) => setTargetAgentId(e.target.value)}
+                  className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                >
+                  {eligibleAgents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.repoName || a.name} · {a.status}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={dispatch}
+                  disabled={dispatching || !targetAgentId}
+                  className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors whitespace-nowrap"
+                >
+                  {dispatching ? 'Sending…' : 'Send to terminal'}
+                </button>
+              </div>
+            )}
+            {assignedAgent && (
+              <p className="text-[11px] text-gray-600 mt-1.5">Currently assigned to {assignedAgent.repoName || assignedAgent.name}.</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 text-[11px] text-gray-600 mb-4">
+          <span>created {timeAgo(task.createdAt)}</span>
+          {task.claimedAt && <span>claimed {timeAgo(task.claimedAt)}</span>}
+          {task.completedAt && <span>finished {timeAgo(task.completedAt)}</span>}
+        </div>
+
+        {error && <p className="text-[12px] text-red-400 mb-3">{error}</p>}
+        {notice && <p className="text-[12px] text-emerald-400 mb-3">{notice}</p>}
+
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          {!isTerminal && (
+            <button
+              onClick={() => { cancelTask(task.id); onClose(); }}
+              className="px-4 py-1.5 mr-auto text-gray-500 hover:text-red-400 text-sm rounded-md transition-colors"
+            >
+              Cancel task
+            </button>
+          )}
+          {!isTerminal && (
+            <>
+              <button
+                onClick={() => markComplete('failed')}
+                className="px-3 py-1.5 text-sm rounded-md border border-white/10 text-gray-400 hover:text-red-400 hover:border-red-800/50 transition-colors"
+              >
+                Mark failed
+              </button>
+              <button
+                onClick={() => markComplete('done')}
+                className="px-3 py-1.5 text-sm rounded-md border border-emerald-800/50 text-emerald-400 hover:bg-emerald-900/30 transition-colors"
+              >
+                Mark done
+              </button>
+            </>
+          )}
+          <button onClick={onClose} className="px-4 py-1.5 text-gray-400 hover:text-gray-200 text-sm rounded-md transition-colors">
+            Close
+          </button>
+          {editable && (
+            <button
+              onClick={save}
+              disabled={!title.trim() || !dirty || saving}
+              className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({ task, agents, projects, onCancel, onOpen }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: (id: string) => void; onOpen: (id: string) => void }) {
   const agent = task.assignedAgentId ? agents.find((a) => a.id === task.assignedAgentId) : undefined;
   const project = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
   const isTerminal = task.status === 'done' || task.status === 'failed' || task.status === 'cancelled';
   return (
-    <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2">
+    <div
+      onClick={() => onOpen(task.id)}
+      className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2 cursor-pointer hover:border-white/20 hover:bg-white/[0.05] transition-colors"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -200,7 +501,7 @@ function TaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Ag
         </div>
         {!isTerminal && (
           <button
-            onClick={() => onCancel(task.id)}
+            onClick={(e) => { e.stopPropagation(); onCancel(task.id); }}
             className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-800/50 transition-colors"
           >
             Cancel
@@ -231,11 +532,14 @@ function TaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Ag
   );
 }
 
-export function TasksPage({ tasks, agents, createTask, cancelTask }: TasksPageProps) {
+export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, dispatchTask, completeTask }: TasksPageProps) {
   const [filter, setFilter] = useState<'all' | 'active' | TaskStatus>('active');
   const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+
+  const selectedTask = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
 
   useEffect(() => {
     Promise.all([api.getGoals(), api.getGoalProjects()])
@@ -306,12 +610,25 @@ export function TasksPage({ tasks, agents, createTask, cancelTask }: TasksPagePr
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filtered.map((t) => (
-            <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} />
+            <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} onOpen={setSelectedId} />
           ))}
         </div>
       )}
 
       {creating && <CreateTaskModal onClose={() => setCreating(false)} onCreate={createTask} goals={goals} projects={projects} />}
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          agents={agents}
+          goals={goals}
+          projects={projects}
+          onClose={() => setSelectedId(null)}
+          updateTask={updateTask}
+          dispatchTask={dispatchTask}
+          cancelTask={cancelTask}
+          completeTask={completeTask}
+        />
+      )}
     </div>
   );
 }

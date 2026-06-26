@@ -4,6 +4,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Activity } from '../types.js';
 import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
+import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
 
 const router = Router();
 
@@ -61,6 +62,13 @@ router.post('/', (req, res) => {
   };
 
   getIO().emit('activity_logged', activity);
+
+  // Stop-hook auto-complete (path B): the agent finished a turn — close out any
+  // task we dispatched into its terminal that it didn't self-report (path C).
+  if ((eventType || '') === 'Stop') {
+    try { autoCompleteDispatchedTask(resolvedAgentId); } catch { /* non-fatal */ }
+  }
+
   res.status(201).json(activity);
 });
 

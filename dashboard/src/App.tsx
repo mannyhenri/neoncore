@@ -50,6 +50,9 @@ export default function App() {
     tasks,
     createTask,
     cancelTask,
+    updateTask,
+    dispatchTask,
+    completeTask,
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
@@ -171,7 +174,7 @@ export default function App() {
         {activeView === 'goals' ? (
           <GoalsPage />
         ) : activeView === 'tasks' ? (
-          <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} />
+          <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
         ) : (
         <>
         {/* Workflow Panel */}

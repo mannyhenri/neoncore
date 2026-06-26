@@ -84,3 +84,16 @@ export function agentIdsForRepo(repoPath: string): string[] {
   }[];
   return agents.filter((a) => normalizeRepoPath(a.repo_path) === norm).map((a) => a.id);
 }
+
+/**
+ * Agents that "serve" a project — those whose repo matches the project's
+ * primary_repo (cross-platform normalized). Used to find a connected terminal to
+ * push a task's prompt into when auto- or manually dispatching a pinned task.
+ */
+export function agentIdsForProject(projectId: string): string[] {
+  const project = db.prepare('SELECT primary_repo FROM projects WHERE id = ?').get(projectId) as
+    | { primary_repo: string }
+    | undefined;
+  if (!project || !project.primary_repo) return [];
+  return agentIdsForRepo(project.primary_repo);
+}
