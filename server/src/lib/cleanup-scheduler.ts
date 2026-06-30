@@ -3,6 +3,7 @@
  * Runs on startup and every 6 hours.
  */
 import db from '../db.js';
+import { deleteAgentCascade } from './agent-cleanup.js';
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -11,8 +12,13 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSIONS_PER_PROJECT = 20;
 const MAX_MEMORY_PER_AGENT = 20;
 
+// Agents that have been offline longer than this are deleted outright (cartridge
+// disappears for good). They're already hidden in the grid; this stops the
+// `agents` table from growing without bound as repos come and go.
+const OFFLINE_AGENT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
 function runCleanup() {
-  const stats = { activity: 0, commands: 0, permissions: 0, sessions: 0, memory: 0 };
+  const stats = { activity: 0, commands: 0, permissions: 0, sessions: 0, memory: 0, agents: 0 };
 
   const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
   const oneDayAgo = new Date(Date.now() - ONE_DAY_MS).toISOString();
@@ -58,6 +64,19 @@ function runCleanup() {
         'DELETE FROM agent_memory WHERE agent_id = ? AND created_at < ?'
       ).run(agent_id, cutoff.created_at).changes;
     }
+  }
+
+  // Agents: delete those offline beyond the retention window, along with all
+  // their child rows. Only 'offline' agents qualify — idle/working/waiting are
+  // live, and an offline agent's last_seen is the moment it disconnected.
+  const offlineCutoff = new Date(Date.now() - OFFLINE_AGENT_RETENTION_MS).toISOString();
+  const staleAgents = db.prepare(
+    "SELECT id FROM agents WHERE status = 'offline' AND last_seen < ?"
+  ).all(offlineCutoff) as { id: string }[];
+
+  for (const { id } of staleAgents) {
+    deleteAgentCascade(id);
+    stats.agents++;
   }
 
   const total = Object.values(stats).reduce((a, b) => a + b, 0);

@@ -150,6 +150,21 @@ export function startStuckDetector() {
         console.log(`[stuck] Agent ${id}: unstuck`);
       }
     }
+
+    // Sweep orphaned alerts: an agent that raised an alert while working can
+    // drop to idle/offline, leaving the loop above (which only scans
+    // working/waiting agents) unable to ever clear it. The alert would then
+    // linger in the dashboard bell forever. Clear any active alert whose agent
+    // is no longer in the working/waiting set.
+    for (const agentId of [...activeAlerts.keys()]) {
+      const row = db.prepare('SELECT status FROM agents WHERE id = ?')
+        .get(agentId) as { status: string } | undefined;
+      if (!row || (row.status !== 'working' && row.status !== 'waiting')) {
+        activeAlerts.delete(agentId);
+        getIO().emit('agent_unstuck' as any, { agentId });
+        console.log(`[stuck] Agent ${agentId}: alert cleared (no longer active)`);
+      }
+    }
   }, 30_000); // Check every 30 seconds
 
   console.log('[stuck] Stuck detector started (30s interval)');

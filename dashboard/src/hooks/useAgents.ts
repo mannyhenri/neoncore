@@ -65,6 +65,27 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     return () => clearInterval(interval);
   }, [refreshData]);
 
+  // Reconcile stuck alerts against live agent status. A Stuck alert is orphaned
+  // in the bell when its agent leaves the working/waiting set (drops to
+  // idle/offline) or when a server restart wipes the server's alert state — in
+  // both cases no `agent_unstuck` event ever arrives to clear it. Drop any
+  // alert whose agent is gone or no longer active.
+  useEffect(() => {
+    setStuckAlerts((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const agentId of prev.keys()) {
+        const agent = agents.find((a) => a.id === agentId);
+        if (!agent || (agent.status !== 'working' && agent.status !== 'waiting')) {
+          next.delete(agentId);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [agents]);
+
   // WebSocket event handlers
   const { connected } = useSocket({
     onReconnect: refreshData,
