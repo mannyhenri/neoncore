@@ -108,12 +108,35 @@ function markAgentOffline(agentId: string) {
   }
 }
 
-/** Check if an agent has a live extension socket connected */
+/**
+ * Check if an agent has a live extension socket connected.
+ *
+ * The `socketToAgent` map is only as accurate as the `disconnect` events that
+ * maintain it — a server restart, a missed disconnect, or a half-open socket
+ * can leave a stale entry that would otherwise pin a cartridge as "online"
+ * forever (the idle→offline reaper skips agents this returns true for). So we
+ * don't trust the map alone: every candidate socket is verified against the
+ * live Socket.IO registry, and any entry whose socket is gone or no longer
+ * connected is pruned in place.
+ */
 export function hasActiveSocket(agentId: string): boolean {
-  for (const id of socketToAgent.values()) {
-    if (id === agentId) return true;
+  let live = false;
+  for (const [socketId, mappedAgentId] of socketToAgent) {
+    if (mappedAgentId !== agentId) continue;
+
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket && socket.connected) {
+      live = true;
+      continue;
+    }
+
+    // Stale mapping — the socket is gone but `disconnect` never cleaned it up.
+    socketToAgent.delete(socketId);
+    if (agentPrimarySocket.get(agentId) === socketId) {
+      agentPrimarySocket.delete(agentId);
+    }
   }
-  return false;
+  return live;
 }
 
 /** Upgrade sockets in a path room to also join an agent room (handles race condition) */

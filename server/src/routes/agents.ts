@@ -7,6 +7,7 @@ import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
+import { deleteAgentCascade } from '../lib/agent-cleanup.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
@@ -519,11 +520,7 @@ router.post('/:id/send-context', (req, res) => {
 
 // Delete an agent (cascade related records)
 router.delete('/:id', (req, res) => {
-  const id = req.params.id;
-  db.prepare('DELETE FROM activity WHERE agent_id = ?').run(id);
-  db.prepare('DELETE FROM permissions WHERE agent_id = ?').run(id);
-  db.prepare('DELETE FROM commands WHERE agent_id = ?').run(id);
-  db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+  deleteAgentCascade(req.params.id);
   res.status(204).send();
 });
 
