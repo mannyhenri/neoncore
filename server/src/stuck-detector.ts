@@ -1,6 +1,5 @@
 import db from './db.js';
 import { getIO } from './ws.js';
-import crypto from 'crypto';
 import { pushNotify, getCartridgeNtfyUrl } from './lib/push-notify.js';
 
 export interface StuckAlert {
@@ -22,11 +21,6 @@ const ERROR_PATTERNS = [
 
 function hasError(toolResult: string): boolean {
   return ERROR_PATTERNS.some((p) => p.test(toolResult));
-}
-
-function hashActivity(toolName: string, toolInput: string): string {
-  const key = `${toolName}:${toolInput.slice(0, 200)}`;
-  return crypto.createHash('md5').update(key).digest('hex').slice(0, 12);
 }
 
 export function analyzeAgent(agentId: string): StuckAlert | null {
@@ -59,26 +53,6 @@ export function analyzeAgent(agentId: string): StuckAlert | null {
       suggestion: `The agent is hitting repeated errors. Consider: check if a dependency is missing, verify file paths, or try a different approach.`,
       detectedAt: new Date().toISOString(),
     };
-  }
-
-  // Pattern 2: Repeated tool pattern — same tool+input 3+ times in last 10
-  const recent10 = activities.slice(0, 10);
-  const hashCounts = new Map<string, number>();
-  for (const act of recent10) {
-    const h = hashActivity(act.tool_name, act.tool_input);
-    hashCounts.set(h, (hashCounts.get(h) || 0) + 1);
-  }
-  for (const [, count] of hashCounts) {
-    if (count >= 3) {
-      const repeated = recent10.find((a) => hashActivity(a.tool_name, a.tool_input) === [...hashCounts.entries()].find(([, c]) => c >= 3)?.[0]);
-      return {
-        agentId,
-        pattern: `Repeated action: "${repeated?.tool_name}" called ${count} times with similar input`,
-        severity: 'high',
-        suggestion: `The agent is repeating the same action. It may be stuck in a loop. Try sending a different instruction or hint.`,
-        detectedAt: new Date().toISOString(),
-      };
-    }
   }
 
   // Pattern 3: Long silence — working status but no activity for 3+ minutes
