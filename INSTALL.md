@@ -5,7 +5,7 @@ NeonCore has two roles. Install the one you need:
 | Role | What it is | Install with |
 |---|---|---|
 | **Server host** | Runs the orchestrator + dashboard (port 4040). One per network. | `neoncore-full.zip` → `install-neoncore.sh` / `.ps1` |
-| **Agent machine** | A Mac/Windows box whose Claude Code sessions show up as cartridges. Many per network. | `neoncore-agent-mac.zip` / `neoncore-agent-windows.zip` → `bootstrap.sh` / `.ps1` |
+| **Agent machine** | A Mac/Linux/Windows box whose Claude Code sessions show up as cartridges. Many per network. | `neoncore-agent-mac.zip` / `-linux.zip` / `-windows.zip` → `bootstrap.sh` / `.ps1` |
 
 The three distributable packages are built into `dist/` by [`scripts/package.sh`](scripts/package.sh) (see [Building the packages](#building-the-packages)). Share them directly or attach them to a GitHub Release.
 
@@ -59,7 +59,7 @@ The bootstrap **copies the agent files to a stable home** (`~/.neoncore/agent`) 
 ### Mac / Linux
 
 ```bash
-unzip neoncore-agent-mac.zip
+unzip neoncore-agent-mac.zip         # or neoncore-agent-linux.zip
 cd ~/code/my-project                 # the repo you want the agent to work in
 ~/Downloads/neoncore-agent/bootstrap.sh
 ```
@@ -139,6 +139,7 @@ From a checkout on Mac/Linux:
 Produces into `dist/` (gitignored — these are build artifacts):
 
 - `neoncore-agent-mac.zip`
+- `neoncore-agent-linux.zip`
 - `neoncore-agent-windows.zip`
 - `neoncore-full.zip`
 
