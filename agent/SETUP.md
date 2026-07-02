@@ -2,6 +2,11 @@
 
 Connect any Mac, Linux, or Windows machine on your local network to the NeonCore orchestrator.
 
+> **Prefer the packaged installer.** The one-command path — `neoncore-agent-*.zip` →
+> `bootstrap.sh` / `bootstrap.ps1` — is documented in **[../INSTALL.md](../INSTALL.md)** and installs
+> to a stable home (`~/.neoncore/agent`) so hooks don't break. This file documents the underlying
+> manual `install.py` steps it runs.
+
 ## Prerequisites
 
 - The NeonCore server must be running on your main machine
@@ -98,7 +103,7 @@ You should see a JSON array of agents. If it times out, check:
 The extension enables sending commands from the dashboard to Claude Code. Without it, monitoring and permission control still work.
 
 ```bash
-code --install-extension /path/to/neoncore-extension-0.1.0.vsix
+code --install-extension /path/to/neoncore-extension-0.5.3.vsix
 ```
 
 Then configure the server URL in VS Code settings:

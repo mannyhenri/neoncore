@@ -1,5 +1,11 @@
 # The Agent Orchestrator Landscape in 2026
 
+> **Status note (2026-07):** This is a competitive-landscape/strategy doc. Several of its
+> "suggested improvements" (task board, cost/token tracking, workflow templates) have since
+> **shipped** — see [../FEATURES.md](../FEATURES.md), [TASKS.md](TASKS.md), [GOALS.md](GOALS.md),
+> and [../WORKFLOWS.md](../WORKFLOWS.md). Read the suggestions below as historical context, not a
+> current backlog.
+
 ## Key Competitors
 
 **Conductor** — macOS app that runs Claude Code + Codex agents in parallel, each in isolated git worktrees. Visual dashboard shows what each agent is working on, with centralized PR review and merge.

@@ -104,18 +104,19 @@ console.log(d.prepare('SELECT COUNT(*) rows, SUM(input_tokens) inp, SUM(output_t
 ```bash
 python3 -c "import json;d=json.load(open('$HOME/.claude/settings.json'));print('Stop →', d['hooks']['Stop'][0]['hooks'][0]['command'])"
 ```
-**Expect:** the `Stop` command points at **`reporter.sh`** (not `message-reader.sh`). After a real turn ends, the final assistant message + final usage appear in `messages` / `session_usage`.
+**Expect:** the `Stop` command points at **`reporter.py`** (the Python installer wires all events to `reporter.py` / `permission-proxy.py` / `notification.py`; the `.sh` scripts are legacy). After a real turn ends, the final assistant message + final usage appear in `messages` / `session_usage`.
 
 ---
 
-## 4. Gridlight VS Code extension (manual — needs VS Code)
+## 4. VS Code extension (manual — needs VS Code)
 
 Rebuild + reload first:
 ```bash
-cd ../vscode-extension && npm run compile     # then reload the VS Code window
+npm run extension:package     # builds extension/ ; then reload the VS Code window
 ```
-- **Display:** with the extension connected to NeonCore (`gridlight.neoncore.enabled`), run a Claude Code session in another window — its turns should appear read-only in the Gridlight panel's "observed" lane (text/thinking/tool blocks + a per-turn token line).
-- **Unify:** run a normal Gridlight chat. Confirm rows appear in `messages` with `engine='gridlight'`:
+- **Config keys:** the extension exposes `neoncore.orchestratorUrl`, `neoncore.autoConnect`, and `neoncore.agentType` (no `gridlight.*` keys). Point `neoncore.orchestratorUrl` at the server and connect via the status-bar item.
+- **Display:** with the extension connected, run a Claude Code session in another window — its turns should appear read-only in the panel (text/thinking/tool blocks + a per-turn token line).
+- **Unify:** confirm transcript rows appear in `messages` (Claude sessions use `engine='claude'`; Gridlight sessions use `engine='gridlight'`):
 ```bash
 node -e "const d=require('better-sqlite3')('./neoncore.db',{readonly:true});console.log(d.prepare(\"SELECT COUNT(*) n FROM messages WHERE engine='gridlight'\").get());"
 ```
