@@ -74,9 +74,10 @@ find_server() {
   local prefix="${myip%.*}"
   info "Probing ${prefix}.0/24 on port $PORT ..." >&2
 
+  # -w1 connect timeout works on both BSD/macOS nc and OpenBSD/GNU nc (Linux).
   local tmp; tmp=$(mktemp)
   for h in $(seq 1 254); do
-    ( nc -z -G1 "${prefix}.$h" "$PORT" >/dev/null 2>&1 && echo "${prefix}.$h" >>"$tmp" ) &
+    ( nc -z -w1 "${prefix}.$h" "$PORT" >/dev/null 2>&1 && echo "${prefix}.$h" >>"$tmp" ) &
   done
   wait
   while read -r ip; do

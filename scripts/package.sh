@@ -2,7 +2,8 @@
 #
 # Build the distributable NeonCore packages into dist/:
 #
-#   dist/neoncore-agent-mac.zip      connect a Mac/Linux machine to an existing server
+#   dist/neoncore-agent-mac.zip      connect a Mac machine to an existing server
+#   dist/neoncore-agent-linux.zip    connect a Linux machine (same Unix payload as mac)
 #   dist/neoncore-agent-windows.zip  connect a Windows machine to an existing server
 #   dist/neoncore-full.zip           the whole orchestrator (server + dashboard + installers)
 #
@@ -23,14 +24,15 @@ mkdir -p "$DIST" "$BUILD"
 
 echo "Packaging into $DIST ..."
 
-# --- Agent package: Mac / Linux ----------------------------------------------
-mac="$BUILD/neoncore-agent"
-rm -rf "$mac"; mkdir -p "$mac"
+# --- Agent package: Mac + Linux (same Unix payload, two named zips) -----------
+unix="$BUILD/neoncore-agent"
+rm -rf "$unix"; mkdir -p "$unix"
 rsync -a --exclude node_modules --exclude __pycache__ --exclude '*.pyc' \
-  --exclude '.DS_Store' --exclude 'bootstrap.ps1' "$AGENT"/ "$mac"/
-rm -f "$DIST/neoncore-agent-mac.zip"
+  --exclude '.DS_Store' --exclude 'bootstrap.ps1' "$AGENT"/ "$unix"/
+rm -f "$DIST/neoncore-agent-mac.zip" "$DIST/neoncore-agent-linux.zip"
 ( cd "$BUILD" && zip -rq "$DIST/neoncore-agent-mac.zip" neoncore-agent )
-rm -rf "$mac"
+( cd "$BUILD" && zip -rq "$DIST/neoncore-agent-linux.zip" neoncore-agent )
+rm -rf "$unix"
 
 # --- Agent package: Windows ---------------------------------------------------
 win="$BUILD/neoncore-agent"

@@ -76,7 +76,7 @@ prompts back). You have two ways to get the command channel:
 | **Terminal relay** ("Gridlight terminal") | auto-installed by the relay | `agent/relay` PTY wrapper | bare terminal / headless |
 
 Fastest path — grab the agent package for your OS (`neoncore-agent-mac.zip` /
-`neoncore-agent-windows.zip`) and run the bootstrap. It auto-finds the server,
+`neoncore-agent-linux.zip` / `neoncore-agent-windows.zip`) and run the bootstrap. It auto-finds the server,
 installs hooks into a stable home (`~/.neoncore/agent`), builds the relay, and
 launches a session in the repo you point it at:
 
