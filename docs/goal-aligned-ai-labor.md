@@ -1,6 +1,15 @@
 # NeonCore: Goal-Aligned AI Labor Control Plane
 ## Design Document v0.1 — May 2026
 
+> **Status: design doc, partially implemented.** This describes the target
+> vision; not all of it is built. For what works today, see the user guides
+> ([docs/GOALS.md](GOALS.md), [docs/TASKS.md](TASKS.md)).
+>
+> - **Built today:** goals, projects (cartridges), task queue with dispatch +
+>   completion, and real USD cost rollup to goals.
+> - **Designed, not yet built:** decision checkpoints, typed step outputs
+>   (`outputSchema`), the learnings connector, and scheduled heartbeats.
+
 ---
 
 ### Vision
