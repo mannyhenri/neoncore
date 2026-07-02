@@ -103,7 +103,10 @@ function StuckItem({
 }) {
   const label = agentLabel(alert.agentId, agents);
   return (
-    <div className="p-3 rounded-lg bg-amber-500/[0.07] border border-amber-500/20 space-y-2">
+    <div
+      onClick={() => onDismiss(alert.agentId)}
+      className="p-3 rounded-lg bg-amber-500/[0.07] border border-amber-500/20 space-y-2 cursor-pointer hover:bg-amber-500/[0.12] transition-colors"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -118,12 +121,7 @@ function StuckItem({
           )}
         </div>
       </div>
-      <button
-        onClick={() => onDismiss(alert.agentId)}
-        className="w-full text-xs px-2.5 py-1.5 rounded bg-white/[0.05] text-gray-400 hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
-      >
-        Dismiss
-      </button>
+      <div className="text-center text-[10px] text-gray-500/80">Click to dismiss</div>
     </div>
   );
 }
@@ -136,7 +134,10 @@ function WorkflowNotificationItem({
   onDismiss: (id: string) => void;
 }) {
   return (
-    <div className="p-3 rounded-lg bg-emerald-500/[0.07] border border-emerald-500/20 space-y-2">
+    <div
+      onClick={() => onDismiss(n.id)}
+      className="p-3 rounded-lg bg-emerald-500/[0.07] border border-emerald-500/20 space-y-2 cursor-pointer hover:bg-emerald-500/[0.12] transition-colors"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -155,12 +156,7 @@ function WorkflowNotificationItem({
           )}
         </div>
       </div>
-      <button
-        onClick={() => onDismiss(n.id)}
-        className="w-full text-xs px-2.5 py-1.5 rounded bg-white/[0.05] text-gray-400 hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
-      >
-        Dismiss
-      </button>
+      <div className="text-center text-[10px] text-gray-500/80">Click to dismiss</div>
     </div>
   );
 }
@@ -192,6 +188,14 @@ export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNo
   useEffect(() => {
     if (actionableCount > 0) setOpen(true);
   }, [actionableCount]);
+
+  // Auto-close when the last notification is cleared so the panel doesn't linger
+  // empty. Only on the >0 → 0 transition, so the bell can still open an empty panel.
+  const prevTotal = useRef(total);
+  useEffect(() => {
+    if (prevTotal.current > 0 && total === 0) setOpen(false);
+    prevTotal.current = total;
+  }, [total]);
 
   return (
     <div className="relative">

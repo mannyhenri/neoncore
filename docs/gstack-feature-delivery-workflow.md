@@ -1,6 +1,10 @@
 # AI Feature Delivery Workflow
 # Compound Engineering × gstack — production-ready, project-agnostic
 #
+# NOTE: This is a gstack session *template* (a recipe a Claude Code session can
+# follow), NOT a guide to NeonCore's own canvas workflows. For NeonCore's
+# built-in workflow templates and the Workflows panel, see WORKFLOWS.md.
+#
 # HOW THIS FILE WORKS
 # ─────────────────────────────────────────────────────────────────────────
 # Claude Code reads this file at the start of every session.
