@@ -2,25 +2,37 @@
 
 This guide walks through connecting a new machine (or remote computer) to your NeonCore orchestrator.
 
+> **Fastest path:** use the packaged agent installer in **[INSTALL.md](INSTALL.md)**
+> (`neoncore-agent-*.zip` → `bootstrap.sh` / `bootstrap.ps1`) — it auto-finds the server, installs
+> hooks into a stable home, builds the relay, and launches a session in one command. This document
+> covers the **manual/advanced** flow and the **VS Code extension** in depth. Where they differ,
+> INSTALL.md is canonical.
+
 ## Prerequisites
 
-- **Node.js** (v18+) and **npm** installed on both machines
+- **Node.js** (v18+) and **npm** on both machines
 - **Claude Code** installed on the remote machine
-- **VS Code** with the Claude Code extension on the remote machine
+- **Python 3** on the remote machine (for the hook installer `agent/install.py`)
 - **Network access** from the remote machine to the orchestrator server (same LAN or VPN)
+- *(Optional)* **VS Code** — only if you use the VS Code extension as the command channel instead
+  of the terminal relay (the relay needs no editor)
 
 ## Architecture Overview
 
 ```
-[Remote Machine]                       [Server Machine]
-  VS Code + Claude Code  ──HTTP/WS──▶  NeonCore Server (:4040)
-  NeonCore Extension                    Dashboard UI
-  Claude Code Hooks
+[Remote Machine]                          [Server Machine]
+  Claude Code + Hooks      ──HTTP/WS──▶   NeonCore Server (:4040)
+  + VS Code extension                      Dashboard UI
+    OR terminal relay                      Task queue · Goals · Cost
 ```
 
 The remote machine needs two things installed:
 1. **Claude Code hooks** — report activity and handle permissions
-2. **VS Code extension** — enables command relay from the dashboard
+2. **A command channel** — so the dashboard can send prompts/tasks back to the
+   agent. Pick one:
+   - **VS Code extension** (Step 3) — for working inside VS Code.
+   - **Terminal relay** (Step 3, Option B) — a PTY wrapper for a bare terminal or
+     headless machine. No editor required. See [agent/relay/README.md](agent/relay/README.md).
 
 ---
 
@@ -44,14 +56,18 @@ This is the URL remote machines will use.
 
 The hooks connect Claude Code to the orchestrator. They report tool activity, handle permissions, and capture messages.
 
+The current, cross-platform installer is **`agent/install.py`** (Python 3). The bash
+`agent/install.sh` is legacy — it still works on Mac/Linux but `install.py` is what the packages,
+`bootstrap.*`, and `npm run install:hooks` use.
+
 ### Option A: Clone the repo and run the installer
 
 ```bash
-git clone <your-neoncore-repo-url>
+git clone git@github.com:GRIDLIGHT-INC/neoncore.git
 cd neoncore
 
-# Install with the orchestrator's network URL
-NEONCORE_URL=http://<server-ip>:4040 ./agent/install.sh
+# Install with the orchestrator's network URL (Mac/Linux/Windows)
+NEONCORE_URL=http://<server-ip>:4040 python3 agent/install.py
 ```
 
 > **Unattended machines:** by default a newly-discovered agent starts in **manual**
@@ -61,7 +77,7 @@ NEONCORE_URL=http://<server-ip>:4040 ./agent/install.sh
 > (auto-approve). You can still flip any agent back to manual from the dashboard.
 >
 > ```bash
-> NEONCORE_URL=http://<server-ip>:4040 NEONCORE_TRUST=1 ./agent/install.sh
+> NEONCORE_URL=http://<server-ip>:4040 NEONCORE_TRUST=1 python3 agent/install.py
 > ```
 
 ### Option B: Copy just the agent folder
@@ -72,7 +88,7 @@ If you don't want the full repo on the remote machine, copy the `agent/` folder:
 scp -r agent/ user@remote-machine:~/neoncore-agent/
 
 # On the remote machine:
-NEONCORE_URL=http://<server-ip>:4040 ~/neoncore-agent/install.sh
+NEONCORE_URL=http://<server-ip>:4040 python3 ~/neoncore-agent/install.py
 ```
 
 ### Verify hooks installed
@@ -91,7 +107,13 @@ After installing hooks, restart any running Claude Code sessions so they pick up
 
 ---
 
-## Step 3: Install the VS Code Extension (on the remote machine)
+## Step 3: Install a command channel (on the remote machine)
+
+The dashboard needs a way to send prompts/commands (and dispatched tasks) back to
+the agent. Use **Option A** if you work in VS Code, or **Option B** for a bare
+terminal / headless machine.
+
+### Option A — VS Code Extension
 
 The extension enables the dashboard to send prompts/commands to the Claude Code terminal in VS Code.
 
@@ -100,18 +122,16 @@ The extension enables the dashboard to send prompts/commands to the Claude Code 
 On the machine with the repo:
 
 ```bash
-cd neoncore/extension
-npm install
-npm run compile
-
-# Package as VSIX (requires vsce)
-npx @vscode/vsce package --no-dependencies
+# from the repo root:
+npm run extension:package
 ```
 
-This creates `neoncore-extension-0.1.5.vsix`. Copy it to the remote machine and install:
+This runs the extension's build + `vsce package` and creates a versioned VSIX in `extension/`
+(e.g. `neoncore-extension-0.5.3.vsix` — the version tracks `extension/package.json`). Copy it to
+the remote machine and install:
 
 ```bash
-code --install-extension neoncore-extension-0.1.5.vsix
+code --install-extension neoncore-extension-0.5.3.vsix
 ```
 
 ### Configure the extension
@@ -137,6 +157,23 @@ Look for the **NeonCore** status bar item in the bottom-right of VS Code:
 - `$(debug-disconnect) NeonCore` = disconnected (click to connect)
 
 You can also check the NeonCore output channel: **View → Output → NeonCore**
+
+### Option B — Terminal relay (headless / no editor)
+
+Instead of the VS Code extension, you can launch Claude Code inside the **NeonCore
+relay** — a PTY wrapper (the "Gridlight terminal") that owns the session and types
+dispatched commands and tasks straight into it. One relay = one agent = one
+terminal, so delivery is perfectly addressed.
+
+```bash
+# In the repo you want to work in:
+NEONCORE_URL=http://<server-ip>:4040 node /path/to/neoncore/agent/relay/launch.js
+```
+
+On first run it installs the relay's deps and (best-effort) the hooks, then
+launches `claude` bridged to the dashboard. Everything after a literal `--` is
+forwarded to Claude Code (e.g. `… launch.js -- --resume`). Full details and env
+vars: [agent/relay/README.md](agent/relay/README.md).
 
 ---
 
@@ -193,10 +230,27 @@ When NeonCore is updated, re-run these on each remote machine:
 
 ```bash
 # Re-install hooks (picks up new hook events)
-NEONCORE_URL=http://<server-ip>:4040 ./agent/install.sh
+NEONCORE_URL=http://<server-ip>:4040 python3 agent/install.py
 
 # Re-build and re-install the extension
-cd extension && npm run compile
-npx @vscode/vsce package --no-dependencies
-code --install-extension neoncore-extension-*.vsix
+npm run extension:package
+code --install-extension extension/neoncore-extension-*.vsix
 ```
+
+> Simpler: re-run the packaged `bootstrap.sh` / `bootstrap.ps1` from a fresh agent zip — it
+> refreshes `~/.neoncore/agent` and reinstalls hooks cleanly (see [INSTALL.md](INSTALL.md)).
+
+> Relay users don't need to rebuild anything — the relay picks up new hooks on its
+> next launch (and re-runs the hook installer if they're missing).
+
+---
+
+## What's next
+
+Once a machine is connected, explore the core features:
+
+- **[Task queue](docs/TASKS.md)** — queue work for agents, pin it to a project,
+  dispatch it into a terminal, and track it to completion.
+- **[Goals & cost](docs/GOALS.md)** — group projects under goals, set a budget,
+  and watch real USD spend roll up from agent sessions.
+- **[Workflows](WORKFLOWS.md)** — author multi-step canvas workflows.
