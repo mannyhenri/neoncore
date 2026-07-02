@@ -53,7 +53,7 @@ rm -rf "$full"; mkdir -p "$full"
   printf '%s\n' \
     install-neoncore.sh install-neoncore.ps1 \
     scripts/package.sh \
-    agent/bootstrap.sh agent/bootstrap.ps1 \
+    agent/bootstrap.sh agent/bootstrap.ps1 agent/README.md \
     INSTALL.md FEATURES.md
 } | sort -u | while read -r f; do
   [[ -f "$ROOT/$f" ]] || continue

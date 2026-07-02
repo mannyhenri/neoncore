@@ -2,10 +2,10 @@
 
 Connect any Mac, Linux, or Windows machine on your local network to the NeonCore orchestrator.
 
-> **Prefer the packaged installer.** The one-command path — `neoncore-agent-*.zip` →
-> `bootstrap.sh` / `bootstrap.ps1` — is documented in **[../INSTALL.md](../INSTALL.md)** and installs
+> **Prefer the one-command bootstrap.** See **[README.md](README.md)** in this folder: run
+> `bootstrap.sh` (Mac/Linux) or `bootstrap.ps1` (Windows). It auto-finds the server and installs
 > to a stable home (`~/.neoncore/agent`) so hooks don't break. This file documents the underlying
-> manual `install.py` steps it runs.
+> manual `install.py` steps it runs. (Full server + distribution guide: `INSTALL.md` at the repo root.)
 
 ## Prerequisites
 
