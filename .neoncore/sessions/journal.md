@@ -36,3 +36,15 @@
 
 ### ⏱ 2026-07-03T18:59:21Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: 5 file(s) dirty
+
+## 2026-07-03 — Recovery subsystem design started (via /plan-eng-review)
+- User requirement sharpened across turns: NeonCore must durably keep the full
+  claude/gridlight interaction so a crashed run resumes "as if in terminal".
+- Read agent/relay/{launch.js,index.js}. Relay = PTY byte-pipe; does NOT parse
+  transcript and registers sessionId=relay-<pid> (NOT native session id).
+- Two explore agents run: (1) run/step recovery [done], (2) transcript-capture
+  audit [in progress, agentId a59ef5a7...].
+- Root gap identified: native session id never captured -> resume impossible
+  today, though relay already supports `-- --resume` passthrough.
+- Next: await transcript audit -> present Step 0 scope + key decision (native
+  --resume vs transcript-replay vs hybrid) via AskUserQuestion.
