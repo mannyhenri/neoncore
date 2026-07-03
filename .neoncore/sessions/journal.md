@@ -84,3 +84,6 @@
 - Reconciler runs in the existing 30s sweep + once on startup.
 - Relay now POSTs interrupt on SIGTERM/SIGHUP (not SIGINT) before killing PTY.
 - CODE UNCOMMITTED (awaiting ok). Remaining P1 slice: dashboard Resume button.
+
+### ⏱ 2026-07-03T20:59:38Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: 15 file(s) dirty
