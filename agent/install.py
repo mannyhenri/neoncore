@@ -13,8 +13,10 @@ Usage:
 import json
 import os
 import sys
+import time
 import argparse
 import platform
+import tempfile
 
 
 def get_settings_path() -> str:
@@ -37,6 +39,60 @@ def trust_enabled() -> bool:
 def repo_root() -> str:
     """NeonCore repo root (parent of the agent/ dir holding this script)."""
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def backups_dir() -> str:
+    """Directory for timestamped config backups (sits beside settings.json)."""
+    d = os.path.join(os.path.dirname(get_settings_path()), "backups")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def backup_file(path):
+    """Copy an existing file into ~/.claude/backups/ before we overwrite it.
+
+    Returns the backup path, or None if there was nothing to back up.
+    """
+    if not os.path.exists(path):
+        return None
+    dest = os.path.join(backups_dir(), f"{os.path.basename(path)}.backup.{int(time.time() * 1000)}")
+    with open(path, "rb") as src, open(dest, "wb") as dst:
+        dst.write(src.read())
+    return dest
+
+
+def atomic_write_json(path, data) -> None:
+    """Write JSON to `path` atomically and durably.
+
+    Writes to a temp file in the same directory, flushes + fsyncs it to disk,
+    then atomically renames it over the target. A crash or power loss leaves
+    either the old file or the fully written new file -- never an empty or
+    truncated one. The bare `open(path, "w")` + json.dump pattern this replaces
+    truncates first and never fsyncs, so an unclean shutdown could leave a
+    zero-byte settings.json and silently wipe the installed hooks.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{os.path.basename(path)}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # atomic on POSIX and Windows
+        if platform.system() != "Windows":
+            # fsync the directory so the rename itself survives a power loss
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def install_mcp_server(orchestrator_url: str) -> None:
@@ -69,8 +125,7 @@ def install_mcp_server(orchestrator_url: str) -> None:
     servers = cfg.get("mcpServers", {})
     servers["neoncore"] = entry  # overwrite our own entry; leave others untouched
     cfg["mcpServers"] = servers
-    with open(mcp_json_path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
+    atomic_write_json(mcp_json_path, cfg)
 
     if not os.path.exists(mcp_server_js):
         print(f"  NOTE: {mcp_server_js} not found yet — run 'npm run build' in server/ so the MCP server can launch.")
@@ -154,14 +209,23 @@ def main():
     # Ensure .claude directory exists
     os.makedirs(os.path.dirname(settings_file), exist_ok=True)
 
-    # Load or create settings
+    # Load or create settings, tolerating a corrupt/empty file. An unclean
+    # shutdown (e.g. power outage) can leave settings.json truncated to zero
+    # bytes -- exactly what wipes the hooks. If it won't parse, back it up and
+    # start fresh instead of crashing the reinstall.
+    settings = {}
     if os.path.exists(settings_file):
-        print("Existing settings.json found. Merging hooks...")
-        with open(settings_file, "r", encoding="utf-8") as f:
-            settings = json.load(f)
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+            print("Existing settings.json found. Merging hooks...")
+        except (ValueError, OSError) as e:
+            saved = backup_file(settings_file)
+            print(f"WARNING: settings.json was unreadable ({e}).")
+            print(f"         Backed up to {saved} and recreating from scratch.")
+            settings = {}
     else:
         print("Creating new settings.json...")
-        settings = {}
 
     hooks = settings.get("hooks", {})
 
@@ -194,8 +258,10 @@ def main():
 
     settings["hooks"] = hooks
 
-    with open(settings_file, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
+    # Back up the current settings.json, then write the new one atomically so a
+    # future power loss can't leave it truncated (which is what lost the hooks).
+    backup_file(settings_file)
+    atomic_write_json(settings_file, settings)
 
     # Register the NeonCore MCP coordination server for Claude Code
     install_mcp_server(orchestrator_url)
