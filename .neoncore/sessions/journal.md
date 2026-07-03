@@ -51,3 +51,16 @@
 
 ### ⏱ 2026-07-03T19:23:10Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: 5 file(s) dirty
+
+## 2026-07-03 — D1 decided: transcript-replay backbone
+- Transcript-capture audit result: messages table (db.ts:352-373) ALREADY stores
+  full turn-by-turn transcript keyed by native session id, unified claude+gridlight,
+  but WRITE-ONLY (nothing SELECTs it). Native session id known via hooks. Blocks
+  size-capped (reporter.py:25-27) = lossy copy.
+- User chose A: Transcript replay (NeonCore-owned), NOT native --resume. Rationale:
+  transcript already captured; sidesteps the fragile JSONL that SIGTERM corrupts.
+- Architecture drafted: detection (reconcile running+offline steps -> interrupted),
+  recovery (rebuild context from messages -> dispatch), relay hardening (capture
+  native session id + POST interrupted on SIGTERM before killing PTY).
+- Next decision (D2): automation posture — human-gated Resume vs auto-recover by
+  trust mode vs always auto.
