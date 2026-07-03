@@ -48,3 +48,6 @@
   today, though relay already supports `-- --resume` passthrough.
 - Next: await transcript audit -> present Step 0 scope + key decision (native
   --resume vs transcript-replay vs hybrid) via AskUserQuestion.
+
+### ⏱ 2026-07-03T19:23:10Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: 5 file(s) dirty
