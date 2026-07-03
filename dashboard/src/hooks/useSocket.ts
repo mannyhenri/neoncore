@@ -18,6 +18,15 @@ interface SocketHandlers {
   onWorkflowDeleted?: (data: { id: string }) => void;
   onWorkflowStepUpdated?: (step: WorkflowStep) => void;
   onWorkflowStepLog?: (log: WorkflowStepLog) => void;
+  onWorkflowStepRecovery?: (data: {
+    stepId: string;
+    workflowId: string;
+    name: string;
+    status: string;
+    recoveryStatus: string;
+    interruptedAt: string | null;
+    recoveryAttempts: number;
+  }) => void;
   onMcpServerUpdated?: (server: McpServer) => void;
   onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => void;
   onWorkflowNotification?: (n: WorkflowNotification) => void;
@@ -114,6 +123,13 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('workflow_step_updated' as any, (step: WorkflowStep) => {
       handlersRef.current.onWorkflowStepUpdated?.(step);
+    });
+
+    socket.on('workflow_step_recovery' as any, (data: {
+      stepId: string; workflowId: string; name: string; status: string;
+      recoveryStatus: string; interruptedAt: string | null; recoveryAttempts: number;
+    }) => {
+      handlersRef.current.onWorkflowStepRecovery?.(data);
     });
 
     socket.on('workflow_step_log' as any, (log: WorkflowStepLog) => {

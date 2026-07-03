@@ -79,12 +79,14 @@ interface StepNodeData {
   gateType: string;
   status: StepStatus;
   isRunning: boolean;
+  recoveryStatus: string;
   onSelect: (stepId: string) => void;
   onNameChange: (stepId: string, name: string) => void;
   onAutoAdvanceToggle: (stepId: string) => void;
   onAdvance: (stepId: string) => void;
   onForceComplete: (stepId: string) => void;
   onSkip: (stepId: string) => void;
+  onRecover: (stepId: string) => void;
   [key: string]: unknown;
 }
 
@@ -105,6 +107,7 @@ interface LocalStep {
   dispatchedPrompt: string;
   result?: string;
   error?: string;
+  recoveryStatus?: string;
 }
 
 // ─── Constants ──────────────────────────────────────
@@ -309,14 +312,27 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
           </button>
         )}
 
-        {/* Force complete — shown when step is running */}
-        {data.status === 'running' && (
+        {/* Force complete — shown when step is running (and not interrupted) */}
+        {data.status === 'running' && data.recoveryStatus !== 'interrupted' && data.recoveryStatus !== 'recovery_failed' && data.recoveryStatus !== 'recovering' && (
           <button
             onClick={(e) => { e.stopPropagation(); data.onForceComplete(data.stepId); }}
             className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
           >
             Mark complete
           </button>
+        )}
+
+        {/* Recovery: the agent died mid-run. Resume replays the stored transcript. */}
+        {(data.recoveryStatus === 'interrupted' || data.recoveryStatus === 'recovery_failed') && (
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onRecover(data.stepId); }}
+            className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+          >
+            {data.recoveryStatus === 'recovery_failed' ? 'Retry recovery' : 'Resume interrupted step'}
+          </button>
+        )}
+        {data.recoveryStatus === 'recovering' && (
+          <div className="w-full text-[12px] text-amber-300/80 text-center py-1">Recovering…</div>
         )}
       </div>
 
@@ -645,6 +661,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             dispatchedPrompt: step.dispatchedPrompt || s.dispatchedPrompt,
             result: step.result ?? s.result,
             error: step.error ?? s.error,
+            recoveryStatus: step.recoveryStatus ?? s.recoveryStatus,
           } : s
         ));
 
@@ -655,6 +672,18 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           showToast(`"${step.name}" completed`);
         } else if (step.status === 'failed') {
           showToast(`"${step.name}" failed`);
+        }
+      }
+    },
+    onWorkflowStepRecovery: (data) => {
+      if (savedWorkflowId && data.workflowId === savedWorkflowId) {
+        setSteps((prev) => prev.map((s) =>
+          s.id === data.stepId ? { ...s, status: data.status as StepStatus, recoveryStatus: data.recoveryStatus } : s
+        ));
+        if (data.recoveryStatus === 'interrupted') {
+          showToast(`"${data.name}" was interrupted — Resume to recover`);
+        } else if (data.recoveryStatus === 'recovered') {
+          showToast(`"${data.name}" recovery dispatched`);
         }
       }
     },
@@ -687,6 +716,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         dispatchedPrompt: s.dispatchedPrompt || '',
         result: s.result || '',
         error: s.error || '',
+        recoveryStatus: s.recoveryStatus || '',
       }));
 
       setSteps(localSteps);
@@ -732,6 +762,24 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       showToast('Step marked as completed');
     } catch { /* silent */ }
   }, [savedWorkflowId, showToast]);
+
+  const handleRecover = useCallback(async (stepId: string) => {
+    try {
+      // Optimistic: show "Recovering…" immediately.
+      setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, recoveryStatus: 'recovering' } : s)));
+      const res = await api.recoverStep(stepId);
+      if (res.ok) {
+        setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, status: 'running', recoveryStatus: 'recovered' } : s)));
+        showToast('Recovery dispatched — replaying transcript to the agent');
+      } else {
+        setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, recoveryStatus: res.recoveryStatus || 'recovery_failed' } : s)));
+        showToast(`Recovery failed: ${res.reason}`);
+      }
+    } catch (err) {
+      setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, recoveryStatus: 'recovery_failed' } : s)));
+      showToast(err instanceof Error ? err.message : 'Recovery failed');
+    }
+  }, [showToast]);
 
   const handleSkipStep = useCallback(async (stepId: string) => {
     if (!savedWorkflowId) return;
@@ -787,12 +835,14 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           gateType: (step.executorConfig.gateType as string) || '',
           status: step.status,
           isRunning: isExecuting,
+          recoveryStatus: step.recoveryStatus || '',
           onSelect: handleSelectStep,
           onNameChange: handleNameChange,
           onAutoAdvanceToggle: handleAutoAdvanceToggle,
           onAdvance: handleAdvance,
           onForceComplete: handleForceComplete,
           onSkip: handleSkipStep,
+          onRecover: handleRecover,
         },
       };
     });
@@ -851,7 +901,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       }
     }
     setEdges(newEdges);
-  }, [steps, selectedStepId, isExecuting, agentMap, handleSelectStep, handleNameChange, handleAutoAdvanceToggle, handleAdvance, handleForceComplete, handleSkipStep, setNodes, setEdges]);
+  }, [steps, selectedStepId, isExecuting, agentMap, handleSelectStep, handleNameChange, handleAutoAdvanceToggle, handleAdvance, handleForceComplete, handleSkipStep, handleRecover, setNodes, setEdges]);
 
   // ── Node drag -> update step positions ──────────
 
