@@ -10,6 +10,24 @@
 
 ## Goal
 Dual-runtime parity eval work + NeonCore Guide modal copy accuracy pass.
+NEW THREAD (active): design a crash-recovery subsystem so a run killed
+mid-stream (SIGTERM to relay, power loss) resumes like `claude --resume` in a
+terminal — with NeonCore as the durable store of the agent interaction.
+
+## Recovery design — key findings so far
+- Relay (`agent/relay/index.js`) owns a PTY running `claude`/`gridlight` and
+  just pipes bytes; conversation lives inside the agent's own session JSONL.
+- ROOT GAP: relay registers `sessionId: relay-${pid}` (index.js:115) — it never
+  captures the NATIVE claude session id (e.g. d6106f74-...). So NeonCore cannot
+  resume today; the `claude --resume` hint is printed by claude, not stored.
+- BUT: relay already supports `-- --resume <id>` passthrough (index.js:23,67).
+  On SIGTERM it just kills the PTY + exits (index.js:228) — no capture/relaunch.
+- Fix shape: capture native session id → persist mid-flight step+session →
+  on recovery relaunch relay with `--resume`. Belt-and-suspenders fallback:
+  replay NeonCore-stored transcript into a fresh session if --resume fails
+  (feasibility depends on hook transcript-capture audit — IN PROGRESS).
+- Real crash observed: launch wrapper `node agent/relay/launch.js` got
+  `Terminated: 15` (SIGTERM), dumped resume hint, exited unrecoverably.
 
 ## Done
 - Parity-eval harness landed (commits `c13db0a`, `f8e8d75`).
