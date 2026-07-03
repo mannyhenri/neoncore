@@ -5,6 +5,7 @@ import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { generateWorkflow } from '../lib/workflow-generator.js';
+import { recoverStep } from '../lib/recovery.js';
 
 const router = Router();
 
@@ -974,6 +975,15 @@ router.post('/webhook/:stepId/complete', (req, res) => {
 
   console.log(`[workflow-v2] Step "${step.name}" completed via webhook`);
   res.json(updated);
+});
+
+// Resume an interrupted step (human-gated recovery). Rebuilds context from the
+// stored transcript and re-dispatches it to the step's agent. Idempotent via a
+// CAS on recovery_status inside recoverStep.
+router.post('/steps/:stepId/recover', (req, res) => {
+  const result = recoverStep(req.params.stepId);
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
 });
 
 export default router;

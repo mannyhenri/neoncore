@@ -444,6 +444,24 @@ try {
   db.exec(`ALTER TABLE workflow_steps ADD COLUMN tokens_out INTEGER NOT NULL DEFAULT 0`);
 }
 
+// Migration: crash-recovery columns on workflow_steps.
+// A step 'running' when its agent dies (SIGTERM / power loss) hangs forever —
+// standard steps complete only via webhook. These columns let the reconciler
+// flag such steps and drive transcript-replay recovery without adding a new
+// value to the executor's status state machine (status stays 'running';
+// recovery_status carries the recovery flow). See
+// .neoncore/docs/recovery-subsystem-plan.md.
+//   recovery_status: '' | 'interrupted' | 'recovering' | 'recovered' | 'recovery_failed'
+try {
+  db.prepare('SELECT recovery_status FROM workflow_steps LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN native_session_id TEXT NOT NULL DEFAULT ''`);
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN interrupted_at TEXT`);
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN recovery_status TEXT NOT NULL DEFAULT ''`);
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_workflow_steps_recovery ON workflow_steps(recovery_status)`);
+}
+
 // Migration: add token_budget to goals (replaces budget_usd)
 try {
   db.prepare('SELECT token_budget FROM goals LIMIT 1').get();
