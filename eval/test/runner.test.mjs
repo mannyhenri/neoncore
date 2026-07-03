@@ -36,3 +36,18 @@ test('runTask: fixture isolation — the source fixture is never mutated', async
   const original = readFileSync(path.join(task.fixtureDir, 'config.ts'), 'utf8');
   assert.match(original, /timeout:\s*30\b/); // still 30 in the repo fixture
 });
+
+test('runTask: a correct end-state with exit 1 still scores fail (exit-code gating)', async () => {
+  const [task] = await loadTasks(TASKS, ['edit-timeout']);
+  const r = await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-editfix-exit1.mjs') });
+  assert.equal(r.exitCode, 1);
+  assert.equal(r.pass, false); // edit was correct, but the run reported failure
+});
+
+test('runTask: a hung run is killed and scored fail (timeout gating)', async () => {
+  const [base] = await loadTasks(TASKS, ['edit-timeout']);
+  const task = { ...base, timeoutMs: 800 };
+  const r = await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-sleep.mjs') });
+  assert.equal(r.pass, false);
+  assert.match(String(r.error), /timed out/);
+});
