@@ -23,11 +23,15 @@ Dual-runtime parity eval work + NeonCore Guide modal copy accuracy pass.
   decision-step routing wording).
 
 ## In progress
-- Nothing mid-write. Working tree is coherent + tests green.
+- Worklog system just wired: `Stop` hook in `.claude/settings.json` runs
+  `.neoncore/sessions/snapshot.sh` each turn. Heartbeat verified manually
+  (commit `bef1f3b`). Hook itself may need a session reload to activate.
 
 ## Next step
-- Decide commit strategy for the uncommitted work (one commit vs. split
-  eval-harness / guide-copy). Then set up this worklog system itself.
+- Confirm the Stop hook auto-fires (watch for a `chore(worklog): heartbeat`
+  commit after a turn I did NOT run the script manually).
+- Decide commit strategy for the eval + guide code (one commit vs. split
+  eval-harness / guide-copy).
 
 ## Open questions / blockers
 - None.
