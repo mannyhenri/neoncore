@@ -1,43 +1,57 @@
-// Gateway + model reachability probe.
+// Gateway reachability probe.
 //
-// Runs BEFORE the suite so we can tell an infra failure (server down, or the
-// requested model not loaded) apart from a model failure (server up, model got
-// the task wrong). A server that is up but is NOT serving `model` would make
-// every task fail and be scored as a confident 0% blamed on the model — the
-// exact false signal this probe exists to prevent — so we check both.
+// Runs BEFORE the suite so we can tell an infra failure (Gridlight gateway
+// down) apart from a model failure (gateway up, model got the task wrong). A
+// down gateway would make every task fail and be scored as a confident 0%
+// blamed on the model — the exact false signal this probe exists to prevent.
+//
+// Backend-aware:
+//   - gridlight (default): the terminal talks to the local Gridlight gateway
+//     (default http://localhost:8080), which selects the model server-side.
+//     We can only check liveness — GET /health (any HTTP response = listening).
+//   - openai-compatible: the terminal talks to an external local server
+//     (Ollama / LM Studio / vLLM) where the model id is explicit, so we also
+//     verify GRIDLIGHT_MODEL actually appears in GET /v1/models.
 
 /**
- * @param {string} gatewayUrl e.g. http://localhost:11434 (Ollama) or :8080
- * @param {string} model      the model id the run will request
+ * @param {string} gatewayUrl  e.g. http://localhost:8080 (Gridlight) or :11434 (Ollama)
+ * @param {string} model       the model id the run will request
+ * @param {'gridlight'|'openai-compatible'} backendMode
  * @param {number} timeoutMs
  * @returns {Promise<{ok: boolean, detail: string}>}
  */
-export async function probeGateway(gatewayUrl, model, timeoutMs = 4000) {
-  const url = gatewayUrl.replace(/\/+$/, '') + '/v1/models';
+export async function probeGateway(gatewayUrl, model, backendMode = 'gridlight', timeoutMs = 4000) {
+  const base = gatewayUrl.replace(/\/+$/, '');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) {
-      return { ok: false, detail: `gateway returned ${res.status} at ${url}` };
+    if (backendMode === 'openai-compatible') {
+      const url = `${base}/v1/models`;
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (!res.ok) return { ok: false, detail: `gateway returned ${res.status} at ${url}` };
+      let ids = [];
+      try {
+        ids = ((await res.json())?.data || []).map((m) => m?.id).filter(Boolean);
+      } catch {
+        return { ok: true, detail: `gateway up at ${url} (model list unparseable — could not verify "${model}")` };
+      }
+      if (model && ids.length && !ids.some((id) => id === model || id.startsWith(model) || model.startsWith(id))) {
+        return { ok: false, detail: `model "${model}" not served (has: ${ids.slice(0, 8).join(', ') || 'none'})` };
+      }
+      return { ok: true, detail: `gateway up at ${url}, serving "${model}"` };
     }
-    // Verify the requested model is actually served. Tolerate tag/prefix
-    // differences (Ollama lists "qwen2.5-coder:7b"; a user may pass either form).
-    let ids = [];
-    try {
-      const body = await res.json();
-      ids = (body?.data || []).map((m) => m?.id).filter(Boolean);
-    } catch {
-      // Non-JSON but 200 — can't verify the model list; allow with a warning.
-      return { ok: true, detail: `gateway up at ${url} (model list unparseable — could not verify "${model}")` };
-    }
-    if (model && ids.length && !ids.some((id) => id === model || id.startsWith(model) || model.startsWith(id))) {
-      return { ok: false, detail: `model "${model}" not served by gateway (has: ${ids.slice(0, 8).join(', ') || 'none'})` };
-    }
-    return { ok: true, detail: `gateway up at ${url}, serving "${model}"` };
+
+    // gridlight backend: liveness only (model is chosen server-side).
+    const url = `${base}/health`;
+    const headers = {};
+    if (process.env.GRIDLIGHT_API_TOKEN) headers.Authorization = `Bearer ${process.env.GRIDLIGHT_API_TOKEN}`;
+    const res = await fetch(url, { method: 'GET', headers, signal: ctrl.signal });
+    // Any HTTP status means the gateway is listening (401/404 included) — enough
+    // to rule out "server down". Model correctness is what the suite measures.
+    return { ok: true, detail: `Gridlight gateway responded ${res.status} at ${url}` };
   } catch (err) {
     const msg = err?.name === 'AbortError' ? `timed out after ${timeoutMs}ms` : String(err?.message || err);
-    return { ok: false, detail: `gateway unreachable at ${url}: ${msg}` };
+    return { ok: false, detail: `gateway unreachable at ${base}: ${msg}` };
   } finally {
     clearTimeout(timer);
   }

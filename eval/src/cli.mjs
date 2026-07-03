@@ -45,7 +45,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(HERE, '..');
 
 function parseArgs(argv) {
-  const out = { _: [], k: 3, gateway: 'http://localhost:11434', backend: 'openai-compatible', probe: true, neoncore: false };
+  const out = { _: [], k: 3, gateway: 'http://localhost:8080', backend: 'gridlight', probe: true, neoncore: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--model') out.model = argv[++i];
@@ -91,7 +91,7 @@ async function main() {
 
   // Probe: distinguish "server down / wrong model" from "model got it wrong".
   if (args.probe) {
-    const p = await probeGateway(args.gateway, args.model);
+    const p = await probeGateway(args.gateway, args.model, args.backend);
     if (!p.ok) {
       process.stderr.write(`[probe] ${p.detail}\n`);
       process.stderr.write('[probe] refusing to run — this would score every task as a false failure. Fix the gateway/model or pass --no-probe.\n');
