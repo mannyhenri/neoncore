@@ -41,15 +41,17 @@ terminal — with NeonCore as the durable store of the agent interaction.
   decision-step routing wording).
 
 ## In progress
-- Worklog system just wired: `Stop` hook in `.claude/settings.json` runs
-  `.neoncore/sessions/snapshot.sh` each turn. Heartbeat verified manually
-  (commit `bef1f3b`). Hook itself may need a session reload to activate.
+- Recovery subsystem: DESIGN LOCKED + plan written to
+  `.neoncore/docs/recovery-subsystem-plan.md`. Decisions: D1=transcript-replay
+  backbone, D2=auto-recover by trust mode. Ready to implement P1.
 
 ## Next step
-- Confirm the Stop hook auto-fires (watch for a `chore(worklog): heartbeat`
-  commit after a turn I did NOT run the script manually).
-- Decide commit strategy for the eval + guide code (one commit vs. split
-  eval-harness / guide-copy).
+- Get user's call: implement P1 now, or design/CEO review the plan first.
+- P1 scope: reconciler (detect running+offline steps → interrupted) + messages
+  read path (buildReplayContext) + relay SIGTERM POST /api/agents/interrupted +
+  Resume action (human-gated for all agents in P1). ~6-7 files.
+- Still uncommitted from before: eval probe rewrite + GuideModal copy (green).
+- Worklog Stop hook may still need a session reload to auto-fire.
 
 ## Open questions / blockers
 - None.
