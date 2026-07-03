@@ -223,10 +223,30 @@ async function main() {
     process.stdin.pause();
   }
 
+  // Tell the server this agent is dying so it can flag any in-flight workflow
+  // step as interrupted immediately (fast path; the server's sweep backstops a
+  // missed POST). Best-effort and fire-and-forget — on a hard kill it may not
+  // land, which is exactly what the reconciler exists to cover.
+  function reportInterrupted() {
+    if (!agentId) return;
+    fetch(`${URL}/api/agents/interrupted`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, machine: identity.machine, repoPath: identity.repoPath, agentType: AGENT_TYPE }),
+      keepalive: true,
+    }).catch((err) => log(`reportInterrupted failed: ${err}`));
+  }
+
   // Forward Ctrl-C etc. to the child (raw mode means we receive them as data),
-  // but still clean up the terminal if we're killed directly.
+  // but still clean up the terminal if we're killed directly. SIGTERM/SIGHUP are
+  // the crash/kill signals (parent quit, machine going down) — report those as an
+  // interrupt. SIGINT is a normal user Ctrl-C, so we don't treat it as a crash.
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-    process.on(sig, () => { try { ptyProc.kill(); } catch { /* ignore */ } cleanup(); });
+    process.on(sig, () => {
+      if (sig !== 'SIGINT') reportInterrupted();
+      try { ptyProc.kill(); } catch { /* ignore */ }
+      cleanup();
+    });
   }
 }
 

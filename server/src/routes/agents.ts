@@ -8,9 +8,22 @@ import { injectProjectContext, buildSelectiveContext } from '../lib/context-inje
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { deleteAgentCascade } from '../lib/agent-cleanup.js';
+import { handleAgentInterrupted } from '../lib/recovery.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
+
+// Relay fast-path: the agent's relay caught a SIGTERM (parent quit / kill) and
+// reports it is dying BEFORE the PTY is torn down. We immediately flag any of
+// this agent's running workflow steps as interrupted, instead of waiting for the
+// 5-minute offline sweep. Best-effort: the reconciler backstops a missed POST.
+router.post('/interrupted', (req, res) => {
+  const { agentId, machine, repoPath, sessionId } = req.body || {};
+  const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId });
+  if (!resolved) return res.status(404).json({ error: 'agent not found' });
+  const count = handleAgentInterrupted(resolved);
+  res.json({ agentId: resolved, interruptedSteps: count });
+});
 
 /**
  * Normalize a repo path for cross-platform matching.

@@ -35,6 +35,7 @@ import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
 import { startHeartbeatScheduler } from './lib/heartbeat-scheduler.js';
 import { restoreRunningServers } from './lib/mcp-manager.js';
 import { endSession } from './lib/session-manager.js';
+import { reconcileInterruptedSteps } from './lib/recovery.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
 import { runFirstLaunchSetup } from './lib/first-launch.js';
 
@@ -164,6 +165,11 @@ setInterval(() => {
     if (row) emitAgentUpdate(row);
     console.log(`[stale] Agent ${id} marked offline (no activity for 5min, no active socket)`);
   }
+
+  // Recovery backstop: now that offline agents are marked, flag any running
+  // steps stranded by a dead agent as interrupted (the relay's SIGTERM POST is
+  // the fast path; this catches crashes where that POST never landed).
+  try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] reconcile failed:', err); }
 }, 30_000); // Check every 30 seconds
 
 // Periodically expire stale pending permissions (older than 2 minutes)
@@ -186,6 +192,11 @@ startCleanupScheduler();
 startWorkflowExecutor();
 startWorkflowExecutorV2();
 startHeartbeatScheduler();
+
+// Recover from a crash on boot: flag steps left mid-run by the previous process.
+// (Most take effect once the sweep marks their dead agents offline; this call
+// catches any agent already persisted as offline.)
+try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] startup reconcile failed:', err); }
 
 // Restore MCP servers that were running before restart
 restoreRunningServers().catch((err) => console.error('[mcp] Restore failed:', err));
