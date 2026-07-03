@@ -64,3 +64,11 @@
   native session id + POST interrupted on SIGTERM before killing PTY).
 - Next decision (D2): automation posture — human-gated Resume vs auto-recover by
   trust mode vs always auto.
+
+## 2026-07-03 — D2 decided + plan written
+- D2: auto-recover by trust mode (Trust=auto-replay, Manual/Plan=human-gated Resume).
+- Simplification: relay stays dumb — on SIGTERM it POSTs {machine,repo,type};
+  server resolves agent -> latest session -> messages. No session-id capture in relay.
+- Full plan written: .neoncore/docs/recovery-subsystem-plan.md (architecture,
+  data model, test plan, failure modes, P1/P2/P3 phasing, NOT-in-scope).
+- Next: user decides implement P1 vs review plan further.
