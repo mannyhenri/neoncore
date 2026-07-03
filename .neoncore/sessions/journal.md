@@ -72,3 +72,15 @@
 - Full plan written: .neoncore/docs/recovery-subsystem-plan.md (architecture,
   data model, test plan, failure modes, P1/P2/P3 phasing, NOT-in-scope).
 - Next: user decides implement P1 vs review plan further.
+
+## 2026-07-03 — Recovery P1 built + green
+- Implemented transcript-replay recovery backend. 10 files (2 new lib + 1 new
+  test + db/index/routes/types/package + relay). server tsc clean; 18/18 tests
+  pass; migration ran on real neoncore.db (4 columns confirmed).
+- Design for testability: recovery-core.ts is pure + dependency-injected
+  (database, now, isAlive, dispatch); recovery.ts is the thin production wiring.
+- Endpoints: POST /api/agents/interrupted (relay fast path),
+  POST /api/workflows/steps/:stepId/recover (Resume). Socket: workflow_step_recovery.
+- Reconciler runs in the existing 30s sweep + once on startup.
+- Relay now POSTs interrupt on SIGTERM/SIGHUP (not SIGINT) before killing PTY.
+- CODE UNCOMMITTED (awaiting ok). Remaining P1 slice: dashboard Resume button.

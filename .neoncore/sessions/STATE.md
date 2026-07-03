@@ -41,17 +41,27 @@ terminal — with NeonCore as the durable store of the agent interaction.
   decision-step routing wording).
 
 ## In progress
-- Recovery subsystem: DESIGN LOCKED + plan written to
-  `.neoncore/docs/recovery-subsystem-plan.md`. Decisions: D1=transcript-replay
-  backbone, D2=auto-recover by trust mode. Ready to implement P1.
+- Recovery P1: BUILT + GREEN (18/18 recovery tests, server tsc clean, migration
+  ran on real db). UNCOMMITTED code, awaiting user's ok to commit.
+
+## Recovery P1 — files changed (uncommitted)
+- NEW server/src/lib/recovery-core.ts (pure, DI'd: render/detect/mark/recover)
+- NEW server/src/lib/recovery.ts (wiring: db+sockets+sendCommandToAgent)
+- NEW server/test/recovery-core.test.ts (18 tests, `npm test` in server/)
+- server/src/db.ts (migration: native_session_id, interrupted_at,
+  recovery_status, recovery_attempts + index)
+- server/src/index.ts (reconcile in 30s sweep + on startup)
+- server/src/routes/agents.ts (POST /api/agents/interrupted — relay fast path)
+- server/src/routes/workflows.ts (POST /api/workflows/steps/:stepId/recover)
+- server/src/types.ts (workflow_step_recovery socket event)
+- server/package.json (test script: node --import tsx --test)
+- agent/relay/index.js (SIGTERM/SIGHUP → POST /interrupted before PTY kill)
 
 ## Next step
-- Get user's call: implement P1 now, or design/CEO review the plan first.
-- P1 scope: reconciler (detect running+offline steps → interrupted) + messages
-  read path (buildReplayContext) + relay SIGTERM POST /api/agents/interrupted +
-  Resume action (human-gated for all agents in P1). ~6-7 files.
-- Still uncommitted from before: eval probe rewrite + GuideModal copy (green).
-- Worklog Stop hook may still need a session reload to auto-fire.
+- Offer to commit P1 as a clean commit (separate from eval/guide work).
+- REMAINING P1 slice: dashboard Resume button + interrupted badge (React,
+  consumes `workflow_step_recovery` socket event). Backend fully exposes it.
+- Also still uncommitted from earlier: eval probe rewrite + GuideModal copy (green).
 
 ## Open questions / blockers
 - None.
