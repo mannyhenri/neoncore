@@ -55,7 +55,30 @@ both headless-correctness fixes in `packages/cli/src/bin/gridlight.ts`:
 3. **Step 1 not started** (NeonCore `model_parity_scores` table + route) — by
    design, gated on the spike verdict per the plan.
 
-## Open items for review (Phase 4) / next
+## Phase 4 review + fixes applied
+
+Five specialist reviewers (correctness, security, reliability, simplicity,
+adversarial) ran over the diff. The important finding: three stdout-substring
+tasks were false-positive machines. Fixes landed:
+
+- **Score validity:** converted read/bash/search tasks from stdout-substring to
+  **file-based answers** (model writes to `answer.txt` / `lodash-users.txt`;
+  asserted on file content, with the search task rejecting the distractor).
+  Verdict now **gates on `error`/`exitCode`** — a timed-out or exit-1 run is a
+  hard fail and its assertions don't run. Probe now verifies the **requested
+  model is actually served** (not just that the gateway answers).
+- **Reliability/security:** timeout now **kills the process group and awaits
+  `close`** before asserting/cleanup; child env is **scrubbed** (no
+  ANTHROPIC/AWS/etc. secrets to the auto-approve model); **SIGINT/SIGTERM**
+  handler kills in-flight children and removes temp dirs.
+- **Robustness:** `--k` validated; `loadTasks` validates `class`/`prompt`;
+  gridlight continuation cap now **warns + returns false** instead of exiting 0;
+  `edit-timeout` checks sibling fields survive; dead `fileExists` removed;
+  misleading comment fixed.
+- **Tests:** suite grew 11 → **16, all green** — added exit-code gating,
+  timeout gating, probe-rejects-missing-model, file-answer over-broad rejection.
+
+## Open items / next
 
 - The go/no-go verdict itself needs the real run on qwen2.5-coder (7B/14B/32B).
 - Cross-repo: the Gridlight `bin/gridlight.ts` fix needs its own commit + PR in

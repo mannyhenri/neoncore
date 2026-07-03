@@ -32,10 +32,16 @@ export async function loadTasks(tasksDir, only) {
     const dir = path.join(tasksDir, e.name);
     const metaRaw = await readFile(path.join(dir, 'task.json'), 'utf8');
     const meta = JSON.parse(metaRaw);
+    // Fail loud on a malformed task rather than silently skipping it — a missing
+    // prompt/class/fixture/assertion would otherwise look like a model failure.
+    if (typeof meta.prompt !== 'string' || !meta.prompt.trim()) {
+      throw new Error(`task ${e.name}: task.json missing a non-empty "prompt"`);
+    }
+    if (typeof meta.class !== 'string' || !meta.class.trim()) {
+      throw new Error(`task ${e.name}: task.json missing a non-empty "class"`);
+    }
     const fixtureDir = path.join(dir, 'fixture');
     const assertPath = path.join(dir, 'assert.mjs');
-    // Fail loud on a malformed task rather than silently skipping it — a missing
-    // fixture or assertion would otherwise look like a model failure.
     await stat(fixtureDir);
     await stat(assertPath);
     tasks.push({

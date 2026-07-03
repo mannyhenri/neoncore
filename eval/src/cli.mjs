@@ -15,12 +15,31 @@
 //   --no-probe           skip the gateway reachability probe
 
 import { mkdir, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTasks } from './loadTasks.mjs';
-import { runTaskK } from './runner.mjs';
+import { runTaskK, emergencyCleanup } from './runner.mjs';
 import { buildReport } from './score.mjs';
 import { probeGateway } from './probe.mjs';
+
+// Signals skip `finally`, so kill in-flight children + remove temp dirs here.
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    process.stderr.write(`\n[${sig}] cleaning up…\n`);
+    emergencyCleanup();
+    process.exit(sig === 'SIGINT' ? 130 : 143);
+  });
+}
+
+/** Preflight the Gridlight binary so a missing driver is a clear fatal, not
+ *  every task failing with spawn ENOENT (which reads as "model failed all"). */
+function gridlightResolvable(bin) {
+  if (bin.includes('/') || bin.includes('\\')) return existsSync(bin);
+  const r = spawnSync(bin, ['--version'], { stdio: 'ignore' });
+  return !(r.error && r.error.code === 'ENOENT');
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(HERE, '..');
@@ -55,16 +74,27 @@ async function main() {
     process.stderr.write('error: --model is required\n');
     process.exit(2);
   }
+  if (!Number.isInteger(args.k) || args.k < 1) {
+    process.stderr.write(`error: --k must be a positive integer (got "${args.k}")\n`);
+    process.exit(2);
+  }
 
   const gridlightBin = args.gridlightBin || process.env.GRIDLIGHT_BIN || 'gridlight';
   const tasksDir = args.tasksDir || path.join(PKG_ROOT, 'tasks');
 
-  // Probe first: distinguish "server down" from "model got it wrong".
+  // Driver preflight: a missing gridlight binary would ENOENT every task and
+  // read as "model failed everything" — the exact ambiguity the probe prevents.
+  if (!gridlightResolvable(gridlightBin)) {
+    process.stderr.write(`error: gridlight binary not found: "${gridlightBin}" (set GRIDLIGHT_BIN or --gridlight-bin)\n`);
+    process.exit(1);
+  }
+
+  // Probe: distinguish "server down / wrong model" from "model got it wrong".
   if (args.probe) {
-    const p = await probeGateway(args.gateway);
+    const p = await probeGateway(args.gateway, args.model);
     if (!p.ok) {
       process.stderr.write(`[probe] ${p.detail}\n`);
-      process.stderr.write('[probe] refusing to run — a down gateway would score every task as a false failure. Start the model server or pass --no-probe.\n');
+      process.stderr.write('[probe] refusing to run — this would score every task as a false failure. Fix the gateway/model or pass --no-probe.\n');
       process.exit(1);
     }
     process.stdout.write(`[probe] ${p.detail}\n`);

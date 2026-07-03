@@ -1,3 +1,3 @@
 { "id": "search-imports", "class": "search",
-  "prompt": "Search this project and list every file that imports or requires lodash. Give the file names.",
+  "prompt": "Find every file in this project that imports or requires lodash. Write those file names, one per line and nothing else, to a file named lodash-users.txt in the project root.",
   "timeoutMs": 120000 }
