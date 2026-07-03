@@ -219,6 +219,11 @@ export const api = {
     request<import('../types').Workflow>(`/workflows/${id}/cancel`, { method: 'POST' }),
   deleteWorkflow: (id: string) =>
     request<void>(`/workflows/${id}`, { method: 'DELETE' }),
+  recoverStep: (stepId: string) =>
+    request<{ ok: boolean; reason: string; recoveryStatus?: string; attempts?: number }>(
+      `/workflows/steps/${stepId}/recover`,
+      { method: 'POST' }
+    ),
   getAvailableModels: () =>
     request<{ openai: string[]; gridlight: string[] }>('/workflows/models'),
 

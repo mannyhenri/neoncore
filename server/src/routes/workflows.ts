@@ -285,6 +285,9 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     createdAt: row.created_at as string,
     startedAt: (row.started_at as string) || null,
     completedAt: (row.completed_at as string) || null,
+    recoveryStatus: (row.recovery_status as string) || '',
+    interruptedAt: (row.interrupted_at as string) || null,
+    recoveryAttempts: (row.recovery_attempts as number) || 0,
   };
 }
 

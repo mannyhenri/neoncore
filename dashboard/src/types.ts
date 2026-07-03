@@ -397,6 +397,9 @@ export interface WorkflowStep {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  recoveryStatus: string; // '' | 'interrupted' | 'recovering' | 'recovered' | 'recovery_failed'
+  interruptedAt: string | null;
+  recoveryAttempts: number;
 }
 
 // Workflow step execution log
