@@ -575,6 +575,23 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     [steps],
   );
 
+  // ── Workflow-level cartridge ────────────────────
+  // 99% of workflows run every step on the same cartridge, so rather than
+  // picking one per step we pick it once for the whole workflow and fan it
+  // out to all steps. Derived from the steps (single source of truth): if
+  // every step shares one cartridge we show it, otherwise the selector reads
+  // as unset until the user picks one (which then unifies all steps).
+  const workflowCartridge = useMemo(() => {
+    const ids = new Set(
+      steps.map((s) => s.executorId).filter((id) => id && id !== '__deferred__'),
+    );
+    return ids.size === 1 ? [...ids][0] : '';
+  }, [steps]);
+
+  const setWorkflowCartridge = useCallback((executorId: string) => {
+    setSteps((prev) => prev.map((s) => ({ ...s, executorId })));
+  }, []);
+
   // ── Auto-zoom to running step ───────────────────
   const prevRunningIdRef = useRef<string | null>(null);
 
@@ -937,7 +954,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       positionX: Math.round(centerX - 110),
       positionY: Math.round(centerY - 60),
       executorType: 'claude-code',
-      executorId: '',
+      executorId: workflowCartridge,
       executorConfig: { role: 'general' },
       autoAdvance: true,
       status: 'pending',
@@ -947,7 +964,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
     setSteps((prev) => [...prev, newStep]);
     setSelectedStepId(id);
-  }, [steps.length, reactFlowInstance]);
+  }, [steps.length, reactFlowInstance, workflowCartridge]);
 
   // ── Delete step ─────────────────────────────────
 
@@ -1232,11 +1249,23 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 placeholder="Description (optional)"
                 className="text-xs text-gray-400 bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 flex-1 max-w-sm transition-colors"
               />
-              {assignedProjects.length > 0 && assignedProjects.map((p) => (
-                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.06] shrink-0">
-                  {p}
-                </span>
-              ))}
+              {/* One cartridge for the whole workflow — every step runs on it */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[11px] text-gray-500">Cartridge</span>
+                <select
+                  value={workflowCartridge}
+                  onChange={(e) => setWorkflowCartridge(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  disabled={isExecuting}
+                  title="Every step in this workflow runs on this cartridge"
+                  className="text-xs glass-input text-gray-300 rounded-md px-2 py-1 max-w-[180px] focus:outline-none focus:border-gl-purple disabled:opacity-50"
+                >
+                  <option value="">-- Select cartridge --</option>
+                  {onlineAgents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                  ))}
+                </select>
+              </div>
             </>
           )}
 
@@ -1481,25 +1510,29 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* Deferred cartridge selections */}
+              {/* One cartridge for every deferred step — all steps run on the same one */}
               {deferredPopup.agentSteps.length > 0 && (
-                <div className="space-y-3">
-                  <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge Selection</span>
-                  {deferredPopup.agentSteps.map((s) => (
-                    <div key={s.stepId}>
-                      <label className="block text-sm text-gray-400 mb-1">{s.stepName}</label>
-                      <select
-                        value={deferredAssignments[s.stepId] || ''}
-                        onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
-                        className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
-                      >
-                        <option value="">Select cartridge...</option>
-                        {onlineAgents.map((a) => (
-                          <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
+                <div className="space-y-2">
+                  <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge</span>
+                  <select
+                    value={deferredAssignments[deferredPopup.agentSteps[0].stepId] || ''}
+                    onChange={(e) => {
+                      const agentId = e.target.value;
+                      setDeferredAssignments(
+                        Object.fromEntries(deferredPopup.agentSteps.map((s) => [s.stepId, agentId])),
+                      );
+                    }}
+                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                  >
+                    <option value="">Select cartridge...</option>
+                    {onlineAgents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[13px] text-gray-600">
+                    Runs all {deferredPopup.agentSteps.length} step{deferredPopup.agentSteps.length > 1 ? 's' : ''} on this cartridge
+                    {deferredPopup.agentSteps.length <= 6 && `: ${deferredPopup.agentSteps.map((s) => s.stepName).join(', ')}`}
+                  </p>
                 </div>
               )}
 
@@ -1937,12 +1970,10 @@ const QUALITY_GATE_PRESETS = [
 
 function CommandStepConfig({
   step,
-  agentOptions,
   onUpdate,
   isExecuting,
 }: {
   step: LocalStep;
-  agentOptions: { id: string; label: string }[];
   onUpdate: (patch: Partial<LocalStep>) => void;
   isExecuting: boolean;
 }) {
@@ -1963,21 +1994,7 @@ function CommandStepConfig({
 
   return (
     <>
-      {/* Agent selector */}
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Cartridge</label>
-        <select
-          value={step.executorId}
-          onChange={(e) => onUpdate({ executorId: e.target.value })}
-          disabled={isExecuting}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
-        >
-          <option value="">Select cartridge...</option>
-          {agentOptions.map((a) => (
-            <option key={a.id} value={a.id}>{a.label}</option>
-          ))}
-        </select>
-      </div>
+      {/* Cartridge is selected once at the workflow level (toolbar). */}
 
       {/* Command template selector */}
       <div>
@@ -2018,12 +2035,10 @@ function CommandStepConfig({
 
 function QualityGateConfig({
   step,
-  agentOptions,
   onUpdate,
   isExecuting,
 }: {
   step: LocalStep;
-  agentOptions: { id: string; label: string }[];
   onUpdate: (patch: Partial<LocalStep>) => void;
   isExecuting: boolean;
 }) {
@@ -2062,22 +2077,7 @@ function QualityGateConfig({
         </div>
       </div>
 
-      {/* Agent selector */}
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Cartridge</label>
-        <select
-          value={step.executorId}
-          onChange={(e) => onUpdate({ executorId: e.target.value })}
-          disabled={isExecuting}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
-        >
-          <option value="">-- Select cartridge --</option>
-          {agentOptions.map((opt) => (
-            <option key={opt.id} value={opt.id}>{opt.label}</option>
-          ))}
-        </select>
-        <p className="text-[13px] text-gray-600 mt-1">Cartridge runs the quality check on its own codebase</p>
-      </div>
+      {/* Cartridge is selected once at the workflow level (toolbar). */}
 
       {/* Custom prompt (only for 'custom' gate type) */}
       {gateType === 'custom' && (
@@ -2319,6 +2319,7 @@ function ConnectorStepConfig({
           <option value="http">Generic HTTP</option>
           <option value="system-notify">System Notify</option>
           <option value="capture-learnings">Capture Learnings</option>
+          <option value="save-to-project">Save to Project</option>
         </select>
       </div>
 
@@ -2595,6 +2596,13 @@ function ConnectorStepConfig({
             />
           </div>
         </>
+      )}
+
+      {connectorType === 'save-to-project' && (
+        <p className="text-[11px] text-gray-500 leading-relaxed">
+          Writes all completed step results from this run as a Markdown file to{' '}
+          <span className="font-mono text-gray-400">{'{primary_repo}/.neoncore/docs/'}</span>. No config required — it works automatically when the workflow is assigned to a project with a primary repo.
+        </p>
       )}
     </div>
   );
@@ -3102,7 +3110,7 @@ function SidePanel({
 
         {/* ── Command template step config ── */}
         {step.executorType === 'command' && (
-          <CommandStepConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
+          <CommandStepConfig step={step} onUpdate={onUpdate} isExecuting={isExecuting} />
         )}
 
         {/* ── Output Schema — typed result rendering ── */}
@@ -3167,24 +3175,8 @@ function SidePanel({
               </div>
             </div>
 
-            {/* Agent selector */}
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Cartridge</label>
-              <select
-                value={step.executorId}
-                onChange={(e) => onUpdate({ executorId: e.target.value })}
-                disabled={isExecuting}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
-              >
-                <option value="">-- Select cartridge --</option>
-                {agentOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>{opt.label}</option>
-                ))}
-              </select>
-              {agentOptions.length === 0 && (
-                <p className="text-[13px] text-gray-600 mt-1 italic">No online cartridges</p>
-              )}
-            </div>
+            {/* Cartridge is selected once at the workflow level (toolbar) and
+                applies to every step — no per-step cartridge picker. */}
 
             {/* Intent toggle */}
             <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
@@ -3239,7 +3231,7 @@ function SidePanel({
 
         {/* ── Quality gate config ── */}
         {step.executorType === 'quality-gate' && (
-          <QualityGateConfig step={step} agentOptions={agentOptions} onUpdate={onUpdate} isExecuting={isExecuting} />
+          <QualityGateConfig step={step} onUpdate={onUpdate} isExecuting={isExecuting} />
         )}
 
         {/* Loop */}
