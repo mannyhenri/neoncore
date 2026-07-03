@@ -98,3 +98,7 @@
 - Stop hook confirmed auto-firing (saw c64cd03 heartbeat I didn't run manually).
 - `local` remote offline (localhost:3000) — only pushed to github.
 - Left for later: P2 trust-auto-recover + throttle; P3 native --resume; live e2e verify.
+
+### ⏱ 2026-07-03T21:07:55Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: 0
+0 file(s) dirty
