@@ -41,8 +41,8 @@ terminal — with NeonCore as the durable store of the agent interaction.
   decision-step routing wording).
 
 ## In progress
-- Recovery P1: BUILT + GREEN (18/18 recovery tests, server tsc clean, migration
-  ran on real db). UNCOMMITTED code, awaiting user's ok to commit.
+- Nothing mid-write. Recovery P1 COMPLETE (backend + dashboard), committed +
+  pushed to github. Working tree clean except worklog.
 
 ## Recovery P1 — files changed (uncommitted)
 - NEW server/src/lib/recovery-core.ts (pure, DI'd: render/detect/mark/recover)
@@ -57,11 +57,21 @@ terminal — with NeonCore as the durable store of the agent interaction.
 - server/package.json (test script: node --import tsx --test)
 - agent/relay/index.js (SIGTERM/SIGHUP → POST /interrupted before PTY kill)
 
-## Next step
-- Offer to commit P1 as a clean commit (separate from eval/guide work).
-- REMAINING P1 slice: dashboard Resume button + interrupted badge (React,
-  consumes `workflow_step_recovery` socket event). Backend fully exposes it.
-- Also still uncommitted from earlier: eval probe rewrite + GuideModal copy (green).
+## Shipped this session (branch feature/dual-runtime-parity-eval, pushed to github)
+- 516058c recovery P1 backend (transcript-replay, reconciler, relay SIGTERM POST,
+  endpoints, 18 tests)
+- 3a77d76 eval probe backend-aware
+- 17c851f GuideModal copy fixes
+- dec3195 dashboard Resume button + recovery fields on step API
+
+## Next step (future sessions)
+- P2: auto-recover Trust-mode agents in the reconciler (call recoverStep for
+  trust agents) + mass-crash throttle (cap K auto-recoveries/sweep). Core already
+  supports it; just wire the trust branch in recovery.ts reconcile path.
+- P3 (optional): native `claude --resume` fast-path as fidelity boost, replay fallback.
+- Verify end-to-end against a live server + real interrupted run (only unit-tested
+  + typechecked so far).
+- `local` remote (localhost:3000) was offline — re-push when it's up.
 
 ## Open questions / blockers
 - None.

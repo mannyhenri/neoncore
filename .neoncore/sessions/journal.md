@@ -87,3 +87,14 @@
 
 ### ⏱ 2026-07-03T20:59:38Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: 15 file(s) dirty
+
+## 2026-07-03 — Recovery P1 shipped (backend + UI) + committed + pushed
+- 4 commits pushed to github: 516058c (recovery backend), 3a77d76 (eval probe),
+  17c851f (guide copy), dec3195 (dashboard Resume button).
+- Dashboard: WorkflowStep API now carries recoveryStatus/interruptedAt/
+  recoveryAttempts (both normalizeStep sites); useSocket onWorkflowStepRecovery;
+  api.recoverStep; canvas node shows red Resume/Retry button + Recovering state.
+- Verified: server tsc clean, dashboard tsc clean, 18/18 server tests pass.
+- Stop hook confirmed auto-firing (saw c64cd03 heartbeat I didn't run manually).
+- `local` remote offline (localhost:3000) — only pushed to github.
+- Left for later: P2 trust-auto-recover + throttle; P3 native --resume; live e2e verify.
