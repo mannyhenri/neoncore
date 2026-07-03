@@ -1,0 +1,3 @@
+{ "id": "search-imports", "class": "search",
+  "prompt": "Search this project and list every file that imports or requires lodash. Give the file names.",
+  "timeoutMs": 120000 }

@@ -1,0 +1,3 @@
+{ "id": "read-port", "class": "read",
+  "prompt": "Read server.ts and tell me which TCP port the server listens on.",
+  "timeoutMs": 120000 }

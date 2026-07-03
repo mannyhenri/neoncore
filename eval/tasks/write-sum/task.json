@@ -1,0 +1,3 @@
+{ "id": "write-sum", "class": "write",
+  "prompt": "In math.js, add a function sum(a, b) that returns a + b, and export it via CommonJS so that require('./math.js').sum works.",
+  "timeoutMs": 120000 }

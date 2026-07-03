@@ -1,0 +1,3 @@
+{ "id": "refactor-rename", "class": "refactor",
+  "prompt": "Rename the function getUser to fetchUser across this entire project — its definition in user.js and every call site and import. After the change, the name getUser must not appear anywhere.",
+  "timeoutMs": 180000 }

@@ -1,0 +1,3 @@
+{ "id": "edit-timeout", "class": "edit",
+  "prompt": "In config.ts, change the timeout value from 30 to 60. Change nothing else.",
+  "timeoutMs": 120000 }

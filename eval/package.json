@@ -1,0 +1,17 @@
+{
+  "name": "@neoncore/parity-eval",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Behavioral parity eval: score a Gridlight-served local model against hard outcome assertions, per capability class. Feeds hardware-aware routing (see docs/plans/dual-runtime-routing.md).",
+  "bin": {
+    "parity-eval": "src/cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "run-eval": "node src/cli.mjs run"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

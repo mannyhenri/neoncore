@@ -1,0 +1,3 @@
+{ "id": "bash-count-ts", "class": "bash",
+  "prompt": "Using the shell, count how many .ts files exist anywhere under the src directory, then tell me the exact number.",
+  "timeoutMs": 120000 }
