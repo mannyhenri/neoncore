@@ -161,9 +161,9 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
           >
             <SectionHeader>Agents</SectionHeader>
             <BodyText>
-              Agents are Claude Code instances registered with NeonCore via a PostToolUse hook in your{' '}
+              Agents are Claude Code instances registered with NeonCore via a PreToolUse hook in your{' '}
               <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">~/.claude/settings.json</code>.
-              Each agent card shows status (working / idle / offline), current task, last message, and trust mode.
+              Each agent card shows status (working / idle / waiting / offline), repo, branch, and trust mode.
             </BodyText>
             <p className="text-[12px] font-medium text-gray-400 mb-2">Trust modes</p>
             <FeatureCard name="Manual" desc="You approve every tool use via the Permissions panel." />
@@ -171,7 +171,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <FeatureCard name="Plan" desc="Agent produces a plan before executing." />
             <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Agent types supported</p>
             <div className="flex flex-wrap gap-2 mb-4">
-              {['Claude Code', 'Cursor', 'Codex', 'Amazon Q', 'Gemini'].map((t) => (
+              {['Claude Code', 'Cursor', 'Codex', 'Amazon Q', 'Gemini', 'Gridlight'].map((t) => (
                 <span key={t} className="text-[11px] bg-white/[0.04] border border-white/[0.08] text-gray-400 rounded-md px-2 py-0.5">
                   {t}
                 </span>
@@ -213,7 +213,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             />
             <FeatureCard
               name="Command"
-              desc="Runs a shell command directly on the server."
+              desc="Dispatches a saved command template's prompt to a registered agent."
             />
             <FeatureCard
               name="Connector"
@@ -237,7 +237,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3 mb-4">
               <p className="text-[12px] font-medium text-gray-400 mb-1">The cascade</p>
               <div className="flex items-center gap-2 flex-wrap">
-                {['Mission', 'Goal', 'Project', 'Workflow', 'Step'].map((item, i, arr) => (
+                {['Goal', 'Project', 'Workflow', 'Step'].map((item, i, arr) => (
                   <span key={item} className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-300 font-medium">{item}</span>
                     {i < arr.length - 1 && (
@@ -250,8 +250,8 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <BodyText>
-              Assign any workflow run to a project. Costs are estimated from dispatched prompt lengths and step
-              results using Claude Sonnet pricing as a proxy (shown as "~$X spent"). Budget caps appear as
+              Assign any workflow run to a project. Costs are real USD rollups computed from actual token usage
+              per session, priced at each model's own rate (shown as "$X spent"). Budget caps appear as
               color-coded progress bars — yellow at 70%, red at 90%.
             </BodyText>
           </div>
@@ -306,12 +306,11 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <BodyText>
               Decision steps pause a workflow and present a structured choice to the human. Configure a
               question with a plain-English ELI10 explanation, the stakes if the wrong option is chosen, and
-              2–4 options each with pros, cons, and a recommended choice. Each option can route to a different
-              next step in the graph.
+              two or more options each with a label, description, and an optional recommended choice.
             </BodyText>
             <BodyText>
-              The human's choice, rationale, and the full decision brief are stored as the step's result —
-              making every decision auditable.
+              The human's chosen option is stored as the step's result. To branch the graph on that choice,
+              add routing rules to the step.
             </BodyText>
           </div>
 
@@ -362,6 +361,10 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               name="Capture Learnings"
               desc="Synthesize run results into project memory for future runs."
             />
+            <FeatureCard
+              name="Save to Project"
+              desc="Write completed step results as a Markdown file to {primary_repo}/.neoncore/docs/."
+            />
           </div>
 
           {/* ── Section 9: Permissions & Trust ── */}
@@ -373,12 +376,13 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <BodyText>
               When trust mode is <strong className="text-gray-300 font-medium">Manual</strong>, Claude Code routes
               tool permission requests through NeonCore. A notification appears in the bell icon menu. Approve
-              or deny — the agent waits for your response (up to 5 minutes).
+              or deny — the agent waits for your response (up to ~10 minutes).
             </BodyText>
             <BodyText>
-              Set an agent to <strong className="text-gray-300 font-medium">Trust</strong> mode to let all tools
-              run automatically. Useful for agents in a controlled project environment where you trust the
-              workflow.
+              Set an agent to <strong className="text-gray-300 font-medium">Trust</strong> mode to let tools
+              run automatically — except <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">AskUserQuestion</code> and{' '}
+              <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">ExitPlanMode</code>, which still wait for a human. Useful for agents
+              in a controlled project environment where you trust the workflow.
             </BodyText>
           </div>
         </div>
