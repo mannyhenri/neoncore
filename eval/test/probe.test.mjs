@@ -10,32 +10,42 @@ function server(handler) {
   });
 }
 
-test('probe: accepts a gateway serving the requested model', async () => {
+test('probe (gridlight): up when /health responds', async () => {
+  const { s, url } = await server((req, res) => {
+    if (req.url === '/health') { res.end('ok'); } else { res.statusCode = 404; res.end(); }
+  });
+  try {
+    const p = await probeGateway(url, 'gridlight-default', 'gridlight');
+    assert.equal(p.ok, true, p.detail);
+    assert.match(p.detail, /\/health/);
+  } finally { s.close(); }
+});
+
+test('probe (gridlight): down gateway is rejected', async () => {
+  const p = await probeGateway('http://127.0.0.1:1', 'gridlight-default', 'gridlight', 500);
+  assert.equal(p.ok, false);
+  assert.match(p.detail, /unreachable/);
+});
+
+test('probe (openai-compatible): accepts a gateway serving the requested model', async () => {
   const { s, url } = await server((_req, res) => {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ data: [{ id: 'qwen2.5-coder:7b' }, { id: 'llama3.1' }] }));
   });
   try {
-    const p = await probeGateway(url, 'qwen2.5-coder:7b');
+    const p = await probeGateway(url, 'qwen2.5-coder:7b', 'openai-compatible');
     assert.equal(p.ok, true, p.detail);
   } finally { s.close(); }
 });
 
-test('probe: REJECTS a live gateway that is not serving the model (the false-0% guard)', async () => {
+test('probe (openai-compatible): REJECTS a live gateway not serving the model (false-0% guard)', async () => {
   const { s, url } = await server((_req, res) => {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ data: [{ id: 'llama3.1' }] }));
   });
   try {
-    const p = await probeGateway(url, 'qwen2.5-coder:7b');
+    const p = await probeGateway(url, 'qwen2.5-coder:7b', 'openai-compatible');
     assert.equal(p.ok, false);
     assert.match(p.detail, /not served/);
   } finally { s.close(); }
-});
-
-test('probe: rejects a down gateway', async () => {
-  // nothing listening on this port
-  const p = await probeGateway('http://127.0.0.1:1', 'any-model', 500);
-  assert.equal(p.ok, false);
-  assert.match(p.detail, /unreachable/);
 });

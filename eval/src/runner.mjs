@@ -85,7 +85,7 @@ export async function runTask(task, runEnv) {
       env: scrubbedEnv({
         GRIDLIGHT_MODEL: runEnv.model,
         GRIDLIGHT_GATEWAY_URL: runEnv.gatewayUrl,
-        GRIDLIGHT_BACKEND_MODE: runEnv.backendMode || 'openai-compatible',
+        GRIDLIGHT_BACKEND_MODE: runEnv.backendMode || 'gridlight',
         GRIDLIGHT_PERMISSION_MODE: 'auto', // never block on approvals headlessly
         GRIDLIGHT_TUI: '0', // force the plain, capturable path (never the Ink TUI)
         GRIDLIGHT_NEONCORE_ENABLED: runEnv.neoncore ? 'true' : 'false',
