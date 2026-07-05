@@ -19,7 +19,10 @@ TS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || exit 0
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 
 # Count dirty tracked/untracked paths, excluding the worklog itself.
-DIRTY_COUNT="$(git status --porcelain 2>/dev/null | grep -vc "$SESSIONS" || echo 0)"
+# grep -c prints "0" and exits non-zero on no matches; the assignment captures
+# "0" cleanly — do NOT add `|| echo 0`, which appends a second 0 and breaks -eq.
+DIRTY_COUNT="$(git status --porcelain 2>/dev/null | grep -vc "$SESSIONS")"
+case "$DIRTY_COUNT" in ''|*[!0-9]*) DIRTY_COUNT=0 ;; esac
 if [ "$DIRTY_COUNT" -eq 0 ]; then STATE="clean"; else STATE="${DIRTY_COUNT} file(s) dirty"; fi
 
 printf '\n### ⏱ %s — heartbeat\n- branch `%s` — working tree: %s\n' \
