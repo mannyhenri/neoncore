@@ -18,8 +18,18 @@
       }
     },
     "android": {
-      "package": "ai.gridlight.neoncore",
-      "usesCleartextTraffic": true
-    }
+      "package": "ai.gridlight.neoncore"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-asset"
+    ]
   }
 }
