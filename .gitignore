@@ -12,6 +12,10 @@ server/public/
 .gstack/
 .gridlight/
 
+# Expo (mobile app)
+.expo/
+mobile/.expo/
+
 # Editor
 .vscode/
 

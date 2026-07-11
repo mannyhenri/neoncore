@@ -413,6 +413,45 @@ router.post('/transcript', (req, res) => {
   res.status(201).json({ inserted });
 });
 
+/** Map a `messages` row to the TranscriptEvent shape clients already consume. */
+function normalizeMessage(row: Record<string, unknown>): TranscriptEvent {
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    sessionId: (row.session_id as string) ?? '',
+    seq: (row.seq as number) ?? 0,
+    role: (row.role as TranscriptRole) ?? 'assistant',
+    content: (row.content as string) ?? '[]',
+    model: (row.model as string) ?? '',
+    inputTokens: (row.input_tokens as number) ?? 0,
+    outputTokens: (row.output_tokens as number) ?? 0,
+    cacheReadTokens: (row.cache_read_tokens as number) ?? 0,
+    cacheCreationTokens: (row.cache_creation_tokens as number) ?? 0,
+    engine: ((row.engine as string) ?? 'claude') as TranscriptEngine,
+    ts: (row.ts as string) ?? '',
+  };
+}
+
+// Transcript history for an agent — the mobile/web client's "load messages on
+// open" path (live updates still arrive via the `transcript_event` socket event).
+// Returns the most recent `limit` messages in chronological order (oldest first).
+// Pass `before` (an ISO ts cursor) to page further back for infinite scroll.
+router.get('/:id/messages', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+  const before = (req.query.before as string) || '';
+
+  const rows = before
+    ? db.prepare(
+        'SELECT * FROM messages WHERE agent_id = ? AND ts < ? ORDER BY ts DESC, seq DESC LIMIT ?'
+      ).all(req.params.id, before, limit) as Record<string, unknown>[]
+    : db.prepare(
+        'SELECT * FROM messages WHERE agent_id = ? ORDER BY ts DESC, seq DESC LIMIT ?'
+      ).all(req.params.id, limit) as Record<string, unknown>[];
+
+  // Reverse to chronological (oldest first) for direct rendering.
+  res.json(rows.reverse().map(normalizeMessage));
+});
+
 /** Pull plain text out of a transcript content value (string or block array). */
 function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content.trim().slice(0, 4000);
