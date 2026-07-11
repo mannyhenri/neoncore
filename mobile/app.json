@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "NeonCore",
+    "slug": "neoncore-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "neoncore",
+    "backgroundColor": "#0d0f12",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.gridlight.neoncore",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "NeonCore connects to your orchestrator server on the local network."
+      }
+    },
+    "android": {
+      "package": "ai.gridlight.neoncore",
+      "usesCleartextTraffic": true
+    }
+  }
+}
