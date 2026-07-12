@@ -143,3 +143,20 @@
 
 ### ⏱ 2026-07-11T18:18:46Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
+
+## 2026-07-12 — Mobile app: first real run against a live server
+- Ran the Expo app for real (iOS sim + server on :4040). It had only ever been
+  proven to *bundle*; this is the first time it talked to NeonCore.
+- Curl-verified the API contract first. Two things LOOKED like bugs and were not:
+  `content` is a JSON string by design (socket + REST agree), and message ordering
+  is correct (route reverses to chronological; `seq` restarts per session).
+- Real bugs found + fixed: ConnectScreen prefilled the example IP as a VALUE (dead
+  placeholder underneath); detail header wrapped "‹ Cartridges" onto two lines.
+- Built to user's asks: live-only cartridge list (4 of 23), tap-to-expand full
+  messages (with auto-scroll gated so expanding doesn't yank the list), and a
+  Workflows screen that runs any of the 20 templates.
+- Commits d253484, c5202a6. Working tree clean; 8 commits unpushed.
+- KEY CONSTRAINT for physical phone: app is SDK 52, App Store Expo Go is SDK 57 →
+  Expo Go on hardware cannot work. EAS dev build path set up (expo-dev-client +
+  eas.json); remaining steps are interactive and need a paid Apple Dev account.
+- NOT tested (would mutate real agents): send command, mode toggle, RUN WORKFLOW.
