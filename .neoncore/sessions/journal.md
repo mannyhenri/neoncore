@@ -204,3 +204,6 @@
   discoverability bug, not a missing feature), live-only cartridge list,
   tap-to-expand messages, workflow launcher.
 - TestFlight: EAS linked (@gridlight/neoncore-mobile). User running eas build now.
+
+### ⏱ 2026-07-12T23:39:10Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: clean
