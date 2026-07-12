@@ -172,17 +172,48 @@ setInterval(() => {
   try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] reconcile failed:', err); }
 }, 30_000); // Check every 30 seconds
 
-// Periodically expire stale pending permissions (older than 2 minutes)
+// Expire pending permissions that no agent is waiting on any more.
+//
+// This MUST outlive the agent's own wait. The hook (agent/hooks/permission-proxy.py)
+// long-polls for POLL_TIMEOUT(120s) x MAX_POLL_RETRIES(5) ~= 10 minutes. This sweep
+// used to expire at 2 minutes, so from minute 2 to minute 10 the agent sat blocked on
+// a question that had already vanished from /api/permissions/pending — unanswerable
+// from the dashboard OR the phone. Keep this comfortably above the hook's max wait.
+const PERMISSION_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * `agents.pending_question` is set by the hook when AskUserQuestion fires. Nothing used
+ * to clear it, so cartridges showed "❓ <already-answered question>" forever, and the
+ * detail screen pointed at an approvals inbox that had nothing in it. The invariant is
+ * simple: a question banner is only meaningful while a permission is actually open to
+ * answer. Enforce it rather than trusting every write path to clean up after itself.
+ */
+function clearOrphanedQuestions(): number {
+  return db.prepare(
+    `UPDATE agents SET pending_question = ''
+      WHERE pending_question != ''
+        AND id NOT IN (SELECT agent_id FROM permissions WHERE status = 'pending')`
+  ).run().changes;
+}
+
 setInterval(() => {
-  const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - PERMISSION_TTL_MS).toISOString();
   const expired = db.prepare(
     `UPDATE permissions SET status = 'expired', decided_at = ? WHERE status = 'pending' AND created_at < ?`
-  ).run(new Date().toISOString(), twoMinAgo);
+  ).run(new Date().toISOString(), cutoff);
   if (expired.changes > 0) {
     console.log(`[cleanup] Expired ${expired.changes} stale pending permission(s)`);
     getSocketIO().emit('permissions_expired', { count: expired.changes });
   }
+  const cleared = clearOrphanedQuestions();
+  if (cleared > 0) console.log(`[cleanup] Cleared ${cleared} orphaned question banner(s)`);
 }, 120_000);
+
+// Also on boot — a crash mid-question would otherwise leave the banner stuck forever.
+{
+  const cleared = clearOrphanedQuestions();
+  if (cleared > 0) console.log(`[startup] Cleared ${cleared} orphaned question banner(s)`);
+}
 
 // Start stuck detector and memory analyzer
 startStuckDetector();
