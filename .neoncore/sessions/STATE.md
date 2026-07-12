@@ -4,80 +4,64 @@
 > "where we are right now." If its **Next step** looks stale, cross-check the
 > tail of `journal.md` (append-only) to see what actually happened last.
 
-- **Updated:** 2026-07-03
+- **Updated:** 2026-07-12
 - **Branch:** `feature/dual-runtime-parity-eval`
 - **Base:** `main`
 
 ## Goal
-Dual-runtime parity eval work + NeonCore Guide modal copy accuracy pass.
-NEW THREAD (active): design a crash-recovery subsystem so a run killed
-mid-stream (SIGTERM to relay, power loss) resumes like `claude --resume` in a
-terminal — with NeonCore as the durable store of the agent interaction.
+ACTIVE THREAD: **NeonCore mobile companion (Expo app in `mobile/`)** — mirror the
+terminals and drive the orchestrator from a phone. Phase 2 (grid / detail /
+approvals) was built on 07-11 but had only ever been proven to *bundle*. This
+session ran it for real against a live server and extended it.
 
-## Recovery design — key findings so far
-- Relay (`agent/relay/index.js`) owns a PTY running `claude`/`gridlight` and
-  just pipes bytes; conversation lives inside the agent's own session JSONL.
-- ROOT GAP: relay registers `sessionId: relay-${pid}` (index.js:115) — it never
-  captures the NATIVE claude session id (e.g. d6106f74-...). So NeonCore cannot
-  resume today; the `claude --resume` hint is printed by claude, not stored.
-- BUT: relay already supports `-- --resume <id>` passthrough (index.js:23,67).
-  On SIGTERM it just kills the PTY + exits (index.js:228) — no capture/relaunch.
-- Fix shape: capture native session id → persist mid-flight step+session →
-  on recovery relaunch relay with `--resume`. Belt-and-suspenders fallback:
-  replay NeonCore-stored transcript into a fresh session if --resume fails
-  (feasibility depends on hook transcript-capture audit — IN PROGRESS).
-- Real crash observed: launch wrapper `node agent/relay/launch.js` got
-  `Terminated: 15` (SIGTERM), dumped resume hint, exited unrecoverably.
+## Done this session (2026-07-12)
+First real end-to-end run: iOS simulator (iPhone 16 Pro) + live NeonCore server
+on :4040. History loads, socket `transcript_event`s stream in, all screens render.
 
-## Done
-- Parity-eval harness landed (commits `c13db0a`, `f8e8d75`).
-- Backend-aware probe rewrite (`eval/src/probe.mjs`): `gridlight` backend does
-  liveness-only via `GET /health`; `openai-compatible` verifies the model via
-  `GET /v1/models`. Defaults flipped to Gridlight gateway (`localhost:8080`,
-  backend `gridlight`) in `cli.mjs` + `runner.mjs`. **All 17 eval tests pass.**
-- `dashboard/src/components/GuideModal.tsx`: doc-copy accuracy pass (PreToolUse
-  hook, `waiting` status, real-USD cost rollups, Gridlight agent type,
-  Save-to-Project step, Trust-mode `AskUserQuestion`/`ExitPlanMode` carve-out,
-  decision-step routing wording).
+- API contract verified by curl against the live server: `/api/health`,
+  `/api/agents`, `/api/agents/:id/messages` (the Phase-2 endpoint), and
+  `/api/permissions/pending` all correct. `content` being a JSON *string* and the
+  message ordering both looked like bugs and are NOT — the route reverses to
+  chronological and `seq` restarts per session.
+- **Bug fixed:** `ConnectScreen.tsx:8` seeded the input *value* with the example IP
+  `http://192.168.1.50:4040`, so first launch always pre-filled an unreachable URL.
+  The correct `placeholder` was already there, dead. Now starts empty.
+- **Bug fixed:** detail header clamped the back button to 80px → "‹ Cartridges"
+  wrapped to two lines. Widened to 96px + `numberOfLines={1}`.
+- **Feature:** cartridge list shows **live agents only** (4 of 23 here; 19 offline),
+  with a "Show N offline" toggle.
+- **Feature:** **tap any message to expand it** — tool bodies were hard-clamped at 6
+  lines with no escape. Expanded = unclamped + selectable. Auto-scroll is gated on
+  new messages so expanding no longer yanks the list to the bottom.
+- **Feature:** **Workflows screen (⚡)** — lists the 20 templates, launches any with an
+  optional brief, shows active runs. Server already had the whole contract
+  (`GET /api/workflows?templates=true`, `POST /api/workflows/v2/:id/start` clones a
+  template into a run); this was purely the missing client.
+- EAS set up for physical-device builds: `expo-dev-client` + `eas.json`.
 
-## In progress
-- Nothing mid-write. Recovery P1 COMPLETE (backend + dashboard), committed +
-  pushed to github. Working tree clean except worklog.
+## Commits (branch feature/dual-runtime-parity-eval, NOT yet pushed)
+- `d253484` mobile: live-only cartridges, full-message expand, workflow launcher
+- `c5202a6` mobile: expo-dev-client + EAS config
+- (plus 6 older unpushed commits incl. the 07-11 mobile app + heartbeats)
 
-## Recovery P1 — files changed (uncommitted)
-- NEW server/src/lib/recovery-core.ts (pure, DI'd: render/detect/mark/recover)
-- NEW server/src/lib/recovery.ts (wiring: db+sockets+sendCommandToAgent)
-- NEW server/test/recovery-core.test.ts (18 tests, `npm test` in server/)
-- server/src/db.ts (migration: native_session_id, interrupted_at,
-  recovery_status, recovery_attempts + index)
-- server/src/index.ts (reconcile in 30s sweep + on startup)
-- server/src/routes/agents.ts (POST /api/agents/interrupted — relay fast path)
-- server/src/routes/workflows.ts (POST /api/workflows/steps/:stepId/recover)
-- server/src/types.ts (workflow_step_recovery socket event)
-- server/package.json (test script: node --import tsx --test)
-- agent/relay/index.js (SIGTERM/SIGHUP → POST /interrupted before PTY kill)
+## Next step
+- **Physical iPhone:** app is SDK 52; App Store Expo Go only supports the latest
+  (57), so Expo Go on hardware will NOT work. Chosen path = EAS dev build on
+  `manny@gridlight.com`. Remaining steps are interactive and need the user:
+  `eas login` → `eas device:create` → `eas build -p ios --profile development`.
+  **Blocker: needs a paid Apple Developer membership ($99/yr)** for iOS internal
+  distribution. Free fallback: `npx expo run:ios --device` (7-day expiry).
+- Untested because it mutates real agents: **Send command**, **mode toggle**, and
+  **RUN WORKFLOW** were all deliberately not fired against live cartridges.
+  Approvals inbox is unexercised (no pending permissions existed).
+- `git push` — 8 unpushed commits.
 
-## Shipped this session (branch feature/dual-runtime-parity-eval, pushed to github)
-- 516058c recovery P1 backend (transcript-replay, reconciler, relay SIGTERM POST,
-  endpoints, 18 tests)
-- 3a77d76 eval probe backend-aware
-- 17c851f GuideModal copy fixes
-- dec3195 dashboard Resume button + recovery fields on step API
-
-## Next step (future sessions)
-- P2: auto-recover Trust-mode agents in the reconciler (call recoverStep for
-  trust agents) + mass-crash throttle (cap K auto-recoveries/sweep). Core already
-  supports it; just wire the trust branch in recovery.ts reconcile path.
-- P3 (optional): native `claude --resume` fast-path as fidelity boost, replay fallback.
-- Verify end-to-end against a live server + real interrupted run (only unit-tested
-  + typechecked so far).
-- `local` remote (localhost:3000) was offline — re-push when it's up.
+## Older thread (parked): crash-recovery subsystem
+Recovery P1 shipped + pushed (`516058c`, `dec3195`). Parked next steps:
+- P2: auto-recover Trust-mode agents in the reconciler + mass-crash throttle.
+- P3 (optional): native `claude --resume` fast-path.
+- Recovery was only unit-tested + typechecked; never verified against a live
+  interrupted run.
 
 ## Open questions / blockers
-- None.
-
-## Uncommitted files
-- `dashboard/src/components/GuideModal.tsx`
-- `eval/src/cli.mjs`, `eval/src/probe.mjs`, `eval/src/runner.mjs`
-- `eval/test/probe.test.mjs`
-- (new) `.neoncore/sessions/*` — this worklog system
+- Apple Developer membership required for the EAS device build (see Next step).
