@@ -4,16 +4,8 @@ import { theme, statusColor, statusLabel, type AgentStatus } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import type { Agent } from '../types';
 
-export function CartridgeListScreen({
-  onOpen,
-  onOpenApprovals,
-  onOpenWorkflows,
-}: {
-  onOpen: (agent: Agent) => void;
-  onOpenApprovals: () => void;
-  onOpenWorkflows: () => void;
-}) {
-  const { agents, permissions, connected, refresh } = useNeonCore();
+export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
+  const { agents, connected, refresh } = useNeonCore();
   const [refreshing, setRefreshing] = useState(false);
   const [showOffline, setShowOffline] = useState(false);
 
@@ -42,17 +34,6 @@ export function CartridgeListScreen({
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? theme.teal : theme.danger }]} />
           <Text style={styles.conn}>{connected ? 'live' : 'offline'}</Text>
-          <TouchableOpacity style={styles.bell} onPress={onOpenWorkflows}>
-            <Text style={styles.bellIcon}>⚡</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.bell} onPress={onOpenApprovals}>
-            <Text style={styles.bellIcon}>🔔</Text>
-            {permissions.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{permissions.length}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
         </View>
       </View>
 

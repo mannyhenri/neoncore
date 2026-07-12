@@ -22,7 +22,7 @@ function parseQuestions(toolInput: string): Question[] {
   return [];
 }
 
-export function ApprovalsScreen({ onBack }: { onBack: () => void }) {
+export function ApprovalsScreen() {
   const { baseUrl, permissions, agents } = useNeonCore();
 
   const agentName = (id: string) => {
@@ -40,12 +40,8 @@ export function ApprovalsScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.back}>
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Approvals</Text>
-        <View style={{ width: 60 }} />
+      <View style={styles.tabHeader}>
+        <Text style={styles.screenTitle}>Approvals</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 12 }}>
@@ -173,13 +169,8 @@ function QuestionAnswers({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border,
-  },
-  back: { width: 60 },
-  backText: { color: theme.accentSoft, fontSize: 15 },
-  title: { color: theme.text, fontSize: 18, fontWeight: '700' },
+  tabHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  screenTitle: { color: theme.text, fontSize: 26, fontWeight: '800' },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 80 },
   card: {
     backgroundColor: theme.bgCard, borderWidth: 1, borderColor: theme.border,
