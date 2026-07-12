@@ -7,18 +7,30 @@
     "userInterfaceStyle": "dark",
     "scheme": "neoncore",
     "backgroundColor": "#0d0f12",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d0f12"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ai.gridlight.neoncore",
+      "buildNumber": "1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "NeonCore connects to your orchestrator server on the local network."
+        "NSLocalNetworkUsageDescription": "NeonCore connects to your orchestrator server on the local network.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "ai.gridlight.neoncore"
+      "package": "ai.gridlight.neoncore",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d0f12"
+      }
     },
     "plugins": [
       [

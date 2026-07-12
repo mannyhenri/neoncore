@@ -18,35 +18,45 @@ npx expo start          # then scan the QR with Expo Go, or press i / a
 On first launch, enter your server URL — the `Network:` line from the NeonCore server's
 startup banner, e.g. `http://192.168.1.50:4040`. Phone and server must be on the same Wi-Fi.
 
-## Run it on a physical iPhone
+## Run it on a physical iPhone (TestFlight)
 
 **You cannot use App Store Expo Go.** Expo Go only ever supports the *latest* SDK (57);
 this app is on SDK 52. (The iOS simulator works because `expo start --ios` silently
 downloads a legacy SDK-52 Expo Go build — that path doesn't exist for real hardware.)
 
-So you need a **development build** — your own Expo Go, pinned to this SDK, installed
-once on the phone. After that, JS reloads over Wi-Fi exactly like Expo Go.
+Ship it to TestFlight instead:
 
 ```bash
 npm i -g eas-cli
-eas login                                  # manny@gridlight.com
-eas device:create                          # register the iPhone (UDID, via QR)
-eas build -p ios --profile development     # ~15 min in the cloud; prompts for Apple creds
+eas login                            # manny@gridlight.com
+eas build -p ios --profile production   # ~15-20 min in the cloud
+eas submit -p ios --latest              # uploads to App Store Connect
 ```
 
-> **Requires a paid Apple Developer Program membership ($99/yr).** iOS ad-hoc /
-> internal distribution can't provision a device without one. Free alternative:
-> `npx expo run:ios --device` signs with a free personal team via Xcode — installs
-> straight to the phone but the app **expires after 7 days** and must be re-signed.
+`eas build` prompts for your Apple credentials and provisions signing itself — you do
+not need to touch Xcode or certificates. `eas submit` creates the App Store Connect app
+record for `ai.gridlight.neoncore` on first run if it does not exist.
 
-The build finishes with a QR/link — open it *on the phone* to install. Then:
+Then in App Store Connect → TestFlight, add yourself under **Internal Testing**.
+Internal testing (your own team, ≤100 testers) needs **no App Review** — only the few
+minutes of build processing. External testers *do* require review.
 
-```bash
-npx expo start --dev-client   # scan the QR with the Camera app
-```
+### What TestFlight changes
 
-In the app, enter the Mac's LAN address (`http://<mac-ip>:4040`). The phone and the
-NeonCore server must be on the same Wi-Fi — `--tunnel` tunnels *Metro*, not your server.
+A TestFlight build is a **release** build: the JS is bundled in, so it does **not**
+hot-reload from Metro. Rebuild + resubmit to ship changes. `version`/`buildNumber` live
+in `app.json`; the `production` profile auto-increments the build number per build.
+
+The app still talks to your NeonCore server over **plain HTTP on the LAN**, so the phone
+must be on the same Wi-Fi as the Mac. This works in a release build only because
+`NSAllowsLocalNetworking` + `NSLocalNetworkUsageDescription` are set in `app.json` — iOS
+will show a one-time "allow local network access" prompt on first launch. Say yes, or
+nothing will connect.
+
+### Iterating without a rebuild
+
+For day-to-day work, keep using the simulator (`npx expo start --ios`) — it reloads
+instantly. Use TestFlight when you want the real thing in your hand.
 
 ## What it does
 
