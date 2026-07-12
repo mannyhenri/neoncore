@@ -186,3 +186,21 @@
 
 ### ⏱ 2026-07-12T22:06:05Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
+
+## 2026-07-12 — "Can't answer questions on mobile" (root-caused, verified)
+- FIRST DIAGNOSIS WAS WRONG. I blamed the server's 2-min permission TTL vs the
+  hook's ~10-min wait. That IS a real bug (fixed, d313882) but the user pushed back
+  ("no the approvals weren't showing it before") and was right.
+- ACTUAL BUG (8436e77): NeonCoreProvider refresh()'d only on MOUNT. socket 'connect'
+  set connected=true but never refetched. Socket events have no replay → any question
+  raised while the phone slept was lost; on reconnect the UI said "live" while
+  `permissions` was the stale mount array → Approvals empty, agent blocked.
+- LESSON: a fresh app launch is NOT a valid test of a reconnect bug — mount always
+  refetched. Had to insert a permission directly into the DB (no socket emit), prove
+  the app stayed blind, then bounce the server to force reconnect WITHOUT remount.
+- Also: questions now answerable inline in cartridge detail; pending_question
+  invariant sweep kills stale "❓" banners.
+- Earlier this session: tab bar (Workflows was hidden behind an unlabeled ⚡ emoji —
+  discoverability bug, not a missing feature), live-only cartridge list,
+  tap-to-expand messages, workflow launcher.
+- TestFlight: EAS linked (@gridlight/neoncore-mobile). User running eas build now.

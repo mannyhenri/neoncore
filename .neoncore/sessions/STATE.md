@@ -44,32 +44,57 @@ on :4040. History loads, socket `transcript_event`s stream in, all screens rende
 - `c5202a6` mobile: expo-dev-client + EAS config
 - (plus 6 older unpushed commits incl. the 07-11 mobile app + heartbeats)
 
+## Bug thread — "I can't answer questions on the phone" (FIXED, verified)
+Two independent bugs; the FIRST diagnosis was wrong and the user correctly pushed back.
+
+1. **THE actual cause** (`8436e77`): `NeonCoreProvider` called `refresh()` only on
+   MOUNT. The socket `connect` handler just set `connected = true` and never
+   re-fetched. Socket events are fire-and-forget (no replay), so any question raised
+   while the phone was asleep/backgrounded was emitted into the void — on reconnect
+   the UI said "live" but `permissions` was the stale mount-time array, so Approvals
+   was EMPTY while the agent sat blocked. A phone drops its socket constantly, so
+   this fired nearly every time. Fixed: refresh() on every reconnect + on AppState
+   'active' + pull-to-refresh on Approvals.
+   VERIFIED by inserting a pending permission straight into the DB (no socket emit),
+   confirming the app stayed blind (no badge), then bouncing the server to force a
+   reconnect WITHOUT remounting → badge appeared, answered from phone, server stored
+   decision=allowed. (A fresh app launch proves nothing here — mount always refetched.)
+
+2. **Real but NOT the reported symptom** (`d313882`): the hook waits ~10 min
+   (POLL_TIMEOUT 120s x MAX_POLL_RETRIES 5) but the server expired pending permissions
+   at **2 min**, so minutes 2-10 the agent blocked on a question no client could see.
+   Raised server TTL to 15 min. Also `agents.pending_question` was never cleared →
+   stale "❓" forever; now cleared on decide + an invariant sweep on boot/every 2 min.
+   Also: questions are now answerable INLINE in the cartridge detail (PermissionCard
+   extracted out of ApprovalsScreen), not just in the Approvals tab.
+
+DECISION: user chose to LEAVE the agent wait at ~10 min (not extend for async phone
+use). Server TTL 15 min correctly sits above it.
+
 ## Next step — TestFlight (IN PROGRESS)
-User HAS a paid Apple Developer account (already used with Xcode for a prior app,
-different bundle id). Decision: ship to **TestFlight**, not a dev-client build.
+EAS logged in as **gridlight / manny@gridlight.ai**. Project created + linked:
+`@gridlight/neoncore-mobile` (projectId 58c8efd5-84b8-4476-8f92-fca6bf3bf691,
+owner `gridlight` — stamped into app.json, commit `889aff5`).
 
-Repo is TestFlight-ready (commit `8671d89`): app icon (was missing entirely — ASC
-rejects builds without a 1024x1024 no-alpha icon), splash, `ios.buildNumber`,
+Repo is TestFlight-ready (`8671d89`): app icon (was MISSING entirely — ASC rejects
+builds without a 1024x1024 no-alpha icon), splash, `ios.buildNumber`,
 `ITSAppUsesNonExemptEncryption: false`, EAS production profile + submit block.
-`expo export --platform ios` bundles clean.
 
-Remaining steps are INTERACTIVE (Expo password, then Apple ID + 2FA) — the user must
-run them; `eas-cli` 20.5.1 works via `npx`, currently NOT logged in:
-1. `cd mobile && npx eas-cli login`            (manny@gridlight.com)
-2. `npx eas-cli build -p ios --profile production`   (~15-20 min; registers the new
-   bundle id `ai.gridlight.neoncore`)
-3. `npx eas-cli submit -p ios --latest`        (creates the ASC app record if absent)
-4. App Store Connect → TestFlight → Internal Testing (no App Review needed).
+Remaining (INTERACTIVE — needs Apple ID + 2FA, user runs it):
+1. `cd mobile && npx eas-cli build -p ios --profile production`  ← user running now
+   (~15-20 min; registers the new bundle id `ai.gridlight.neoncore`)
+2. `npx eas-cli submit -p ios --latest`   (creates the ASC app record if absent)
+3. App Store Connect → TestFlight → Internal Testing (no App Review needed).
 
-Note: TestFlight = RELEASE build, so no Metro hot-reload. Keep using the simulator
-for iteration. The app still needs the phone on the same Wi-Fi as the server; iOS
-will show a one-time local-network prompt on first launch (must be accepted).
+Note: TestFlight = RELEASE build → no Metro hot-reload; rebuild to ship changes. Keep
+using the simulator for iteration. Phone must be on the same Wi-Fi as the server; iOS
+shows a one-time local-network prompt on first launch that MUST be accepted (this
+never appears in the simulator).
 
 ## Also outstanding
 - Untested because it mutates real agents: **Send command**, **mode toggle**, and
-  **RUN WORKFLOW** were all deliberately not fired against live cartridges.
-  Approvals inbox is unexercised (no pending permissions existed).
-- `git push` — 10 unpushed commits (remote is named `github`, not `origin`).
+  **RUN WORKFLOW** deliberately never fired against live cartridges.
+- `git push` — 14 unpushed commits (remote is named `github`, not `origin`).
 
 ## Older thread (parked): crash-recovery subsystem
 Recovery P1 shipped + pushed (`516058c`, `dec3195`). Parked next steps:
