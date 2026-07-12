@@ -214,8 +214,13 @@ router.post('/decide', (req, res) => {
   const perm = db.prepare('SELECT * FROM permissions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   if (!perm) return res.status(404).json({ error: 'Permission not found' });
 
-  // Update agent status back to working
-  db.prepare(`UPDATE agents SET status = 'working', last_seen = ? WHERE id = ?`).run(now, perm.agent_id);
+  // Update agent status back to working, and clear the question banner. `pending_question`
+  // is set by the hook when AskUserQuestion fires; nothing used to clear it, so a cartridge
+  // kept showing "❓ <already-answered question>" indefinitely and the detail screen pointed
+  // at an approvals inbox that no longer had anything in it.
+  db.prepare(
+    `UPDATE agents SET status = 'working', pending_question = '', last_seen = ? WHERE id = ?`
+  ).run(now, perm.agent_id);
 
   const normalized = normalizePermission(perm);
   getIO().emit('permission_decided', normalized);

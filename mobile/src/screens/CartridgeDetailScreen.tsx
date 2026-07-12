@@ -7,14 +7,28 @@ import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { MessageBlocks } from '../components/MessageBlocks';
+import { PermissionCard } from '../components/PermissionCard';
 import type { Agent, AgentMode, TranscriptEvent } from '../types';
 
 const MODES: AgentMode[] = ['manual', 'plan', 'trust'];
 
 export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack: () => void }) {
-  const { baseUrl, agents, onTranscript } = useNeonCore();
+  const { baseUrl, agents, permissions, onTranscript } = useNeonCore();
   // Prefer the live agent object so status/mode stay current.
   const live = agents.find((a) => a.id === agent.id) ?? agent;
+  // Anything this agent is currently blocked on — answerable inline, below.
+  const myPermissions = permissions.filter((p) => p.agentId === agent.id);
+
+  const decide = useCallback(
+    async (id: string, decision: 'allowed' | 'denied', response?: string | object) => {
+      try {
+        await api.decidePermission(baseUrl, id, decision, response);
+      } catch {
+        /* socket permission_decided will reconcile */
+      }
+    },
+    [baseUrl],
+  );
 
   const [messages, setMessages] = useState<TranscriptEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,10 +121,21 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
         ))}
       </View>
 
-      {live.pendingQuestion ? (
+      {/* Answer right here — this is where you are when you see the agent asking.
+          Falls back to the raw banner only if the agent claims a pending question
+          but no permission is actually open to answer (e.g. it already timed out). */}
+      {myPermissions.length > 0 ? (
+        <View style={styles.permBox}>
+          {myPermissions.map((p) => (
+            <PermissionCard key={p.id} perm={p} onDecide={decide} />
+          ))}
+        </View>
+      ) : live.pendingQuestion ? (
         <View style={styles.questionBanner}>
           <Text style={styles.questionText}>❓ {live.pendingQuestion}</Text>
-          <Text style={styles.questionHint}>Answer from the 🔔 approvals inbox.</Text>
+          <Text style={styles.questionHint}>
+            No longer answerable — the agent stopped waiting.
+          </Text>
         </View>
       ) : null}
 
@@ -178,6 +203,7 @@ const styles = StyleSheet.create({
   },
   questionText: { color: theme.amber, fontSize: 14, fontWeight: '600' },
   questionHint: { color: theme.textDim, fontSize: 12, marginTop: 4 },
+  permBox: { paddingHorizontal: 12, paddingTop: 4 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 60 },
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 6 },
   inputBar: {
