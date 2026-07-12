@@ -18,6 +18,36 @@ npx expo start          # then scan the QR with Expo Go, or press i / a
 On first launch, enter your server URL — the `Network:` line from the NeonCore server's
 startup banner, e.g. `http://192.168.1.50:4040`. Phone and server must be on the same Wi-Fi.
 
+## Run it on a physical iPhone
+
+**You cannot use App Store Expo Go.** Expo Go only ever supports the *latest* SDK (57);
+this app is on SDK 52. (The iOS simulator works because `expo start --ios` silently
+downloads a legacy SDK-52 Expo Go build — that path doesn't exist for real hardware.)
+
+So you need a **development build** — your own Expo Go, pinned to this SDK, installed
+once on the phone. After that, JS reloads over Wi-Fi exactly like Expo Go.
+
+```bash
+npm i -g eas-cli
+eas login                                  # manny@gridlight.com
+eas device:create                          # register the iPhone (UDID, via QR)
+eas build -p ios --profile development     # ~15 min in the cloud; prompts for Apple creds
+```
+
+> **Requires a paid Apple Developer Program membership ($99/yr).** iOS ad-hoc /
+> internal distribution can't provision a device without one. Free alternative:
+> `npx expo run:ios --device` signs with a free personal team via Xcode — installs
+> straight to the phone but the app **expires after 7 days** and must be re-signed.
+
+The build finishes with a QR/link — open it *on the phone* to install. Then:
+
+```bash
+npx expo start --dev-client   # scan the QR with the Camera app
+```
+
+In the app, enter the Mac's LAN address (`http://<mac-ip>:4040`). The phone and the
+NeonCore server must be on the same Wi-Fi — `--tunnel` tunnels *Metro*, not your server.
+
 ## What it does
 
 | Screen | Backed by |
