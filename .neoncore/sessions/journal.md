@@ -160,3 +160,6 @@
   Expo Go on hardware cannot work. EAS dev build path set up (expo-dev-client +
   eas.json); remaining steps are interactive and need a paid Apple Dev account.
 - NOT tested (would mutate real agents): send command, mode toggle, RUN WORKFLOW.
+
+### ⏱ 2026-07-12T20:20:16Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: clean
