@@ -44,17 +44,32 @@ on :4040. History loads, socket `transcript_event`s stream in, all screens rende
 - `c5202a6` mobile: expo-dev-client + EAS config
 - (plus 6 older unpushed commits incl. the 07-11 mobile app + heartbeats)
 
-## Next step
-- **Physical iPhone:** app is SDK 52; App Store Expo Go only supports the latest
-  (57), so Expo Go on hardware will NOT work. Chosen path = EAS dev build on
-  `manny@gridlight.com`. Remaining steps are interactive and need the user:
-  `eas login` → `eas device:create` → `eas build -p ios --profile development`.
-  **Blocker: needs a paid Apple Developer membership ($99/yr)** for iOS internal
-  distribution. Free fallback: `npx expo run:ios --device` (7-day expiry).
+## Next step — TestFlight (IN PROGRESS)
+User HAS a paid Apple Developer account (already used with Xcode for a prior app,
+different bundle id). Decision: ship to **TestFlight**, not a dev-client build.
+
+Repo is TestFlight-ready (commit `8671d89`): app icon (was missing entirely — ASC
+rejects builds without a 1024x1024 no-alpha icon), splash, `ios.buildNumber`,
+`ITSAppUsesNonExemptEncryption: false`, EAS production profile + submit block.
+`expo export --platform ios` bundles clean.
+
+Remaining steps are INTERACTIVE (Expo password, then Apple ID + 2FA) — the user must
+run them; `eas-cli` 20.5.1 works via `npx`, currently NOT logged in:
+1. `cd mobile && npx eas-cli login`            (manny@gridlight.com)
+2. `npx eas-cli build -p ios --profile production`   (~15-20 min; registers the new
+   bundle id `ai.gridlight.neoncore`)
+3. `npx eas-cli submit -p ios --latest`        (creates the ASC app record if absent)
+4. App Store Connect → TestFlight → Internal Testing (no App Review needed).
+
+Note: TestFlight = RELEASE build, so no Metro hot-reload. Keep using the simulator
+for iteration. The app still needs the phone on the same Wi-Fi as the server; iOS
+will show a one-time local-network prompt on first launch (must be accepted).
+
+## Also outstanding
 - Untested because it mutates real agents: **Send command**, **mode toggle**, and
   **RUN WORKFLOW** were all deliberately not fired against live cartridges.
   Approvals inbox is unexercised (no pending permissions existed).
-- `git push` — 8 unpushed commits.
+- `git push` — 10 unpushed commits (remote is named `github`, not `origin`).
 
 ## Older thread (parked): crash-recovery subsystem
 Recovery P1 shipped + pushed (`516058c`, `dec3195`). Parked next steps:

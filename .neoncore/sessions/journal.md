@@ -163,3 +163,14 @@
 
 ### ⏱ 2026-07-12T20:20:16Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
+
+## 2026-07-12 — TestFlight prep
+- User has a paid Apple Dev account → chose TestFlight over a dev-client build.
+- Blocker found before burning a cloud build: **no app icon existed at all**.
+  App Store Connect rejects builds without a 1024x1024 no-alpha icon, so this
+  would have failed at processing. Generated icon/adaptive-icon/splash from the
+  app palette. Also added ios.buildNumber + ITSAppUsesNonExemptEncryption:false
+  (else every submission stops to ask) and an EAS production/submit profile.
+- Verified `expo config` resolves it all and `expo export --platform ios` is clean.
+- Commit 8671d89. Handoff: `eas login` / `eas build` / `eas submit` are interactive
+  (Expo password + Apple 2FA) — user runs them.
