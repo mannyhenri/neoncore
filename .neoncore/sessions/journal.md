@@ -174,3 +174,6 @@
 - Verified `expo config` resolves it all and `expo export --platform ios` is clean.
 - Commit 8671d89. Handoff: `eas login` / `eas build` / `eas submit` are interactive
   (Expo password + Apple 2FA) — user runs them.
+
+### ⏱ 2026-07-12T20:28:29Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: clean
