@@ -18,7 +18,7 @@ const runColor: Record<string, string> = {
   pending: theme.textDim,
 };
 
-export function WorkflowsScreen({ onBack }: { onBack: () => void }) {
+export function WorkflowsScreen() {
   const { baseUrl } = useNeonCore();
 
   const [templates, setTemplates] = useState<Workflow[]>([]);
@@ -77,7 +77,7 @@ export function WorkflowsScreen({ onBack }: { onBack: () => void }) {
   if (loading) {
     return (
       <View style={styles.root}>
-        <Header onBack={onBack} />
+        <Header />
         <ActivityIndicator color={theme.accent} style={{ marginTop: 40 }} />
       </View>
     );
@@ -130,7 +130,7 @@ export function WorkflowsScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <View style={styles.root}>
-      <Header onBack={onBack} />
+      <Header />
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
       <FlatList
@@ -178,20 +178,20 @@ export function WorkflowsScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
-function Header({ onBack }: { onBack: () => void }) {
+function Header() {
   return (
-    <View style={styles.header}>
-      <TouchableOpacity style={styles.back} onPress={onBack}>
-        <Text style={styles.backText} numberOfLines={1}>‹ Cartridges</Text>
-      </TouchableOpacity>
-      <Text style={styles.title} numberOfLines={1}>Workflows</Text>
-      <View style={{ width: 96 }} />
+    <View style={styles.tabHeader}>
+      <Text style={styles.screenTitle}>Workflows</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  // Top-level tab screen: big title, matching the Cartridges list.
+  tabHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  screenTitle: { color: theme.text, fontSize: 26, fontWeight: '800' },
+  // Pushed "Run" sheet: centered title with a back affordance.
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 10,

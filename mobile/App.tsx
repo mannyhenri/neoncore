@@ -8,6 +8,7 @@ import { CartridgeListScreen } from './src/screens/CartridgeListScreen';
 import { CartridgeDetailScreen } from './src/screens/CartridgeDetailScreen';
 import { ApprovalsScreen } from './src/screens/ApprovalsScreen';
 import { WorkflowsScreen } from './src/screens/WorkflowsScreen';
+import { TabBar, type TabName } from './src/components/TabBar';
 import type { Agent } from './src/types';
 
 type Route =
@@ -39,21 +40,23 @@ export default function App() {
         <ConnectScreen onConnected={(url) => { setServerUrl(url); setRoute({ name: 'list' }); }} />
       ) : (
         <NeonCoreProvider baseUrl={serverUrl}>
-          {route.name === 'list' && (
-            <CartridgeListScreen
-              onOpen={(agent) => setRoute({ name: 'detail', agent })}
-              onOpenApprovals={() => setRoute({ name: 'approvals' })}
-              onOpenWorkflows={() => setRoute({ name: 'workflows' })}
+          <View style={styles.body}>
+            {route.name === 'list' && (
+              <CartridgeListScreen onOpen={(agent) => setRoute({ name: 'detail', agent })} />
+            )}
+            {route.name === 'detail' && (
+              <CartridgeDetailScreen agent={route.agent} onBack={() => setRoute({ name: 'list' })} />
+            )}
+            {route.name === 'approvals' && <ApprovalsScreen />}
+            {route.name === 'workflows' && <WorkflowsScreen />}
+          </View>
+
+          {/* Detail is a pushed screen — it owns the full surface and has its own back. */}
+          {route.name !== 'detail' && (
+            <TabBar
+              active={route.name as TabName}
+              onSelect={(t) => setRoute({ name: t } as Route)}
             />
-          )}
-          {route.name === 'detail' && (
-            <CartridgeDetailScreen agent={route.agent} onBack={() => setRoute({ name: 'list' })} />
-          )}
-          {route.name === 'approvals' && (
-            <ApprovalsScreen onBack={() => setRoute({ name: 'list' })} />
-          )}
-          {route.name === 'workflows' && (
-            <WorkflowsScreen onBack={() => setRoute({ name: 'list' })} />
           )}
         </NeonCoreProvider>
       )}
@@ -63,5 +66,6 @@ export default function App() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.bg, paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  body: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
