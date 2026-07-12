@@ -1,4 +1,4 @@
-import type { Agent, AgentMode, PermissionRequest, TranscriptEvent } from './types';
+import type { Agent, AgentMode, PermissionRequest, TranscriptEvent, Workflow } from './types';
 
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
 async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
@@ -43,6 +43,20 @@ export const api = {
 
   pendingPermissions: (base: string) =>
     req<PermissionRequest[]>(base, '/api/permissions/pending'),
+
+  // Workflow templates (templateId === null) — the library you can launch from.
+  listWorkflowTemplates: (base: string) =>
+    req<Workflow[]>(base, '/api/workflows?templates=true'),
+
+  // Active/recent runs (cloned from a template).
+  listWorkflowRuns: (base: string) => req<Workflow[]>(base, '/api/workflows?runs=true'),
+
+  // Starting a template clones it into a fresh run and kicks it off.
+  startWorkflow: (base: string, id: string, initialContext?: string) =>
+    req<{ id?: string }>(base, `/api/workflows/v2/${id}/start`, {
+      method: 'POST',
+      body: JSON.stringify(initialContext ? { initialContext } : {}),
+    }),
 
   // decision: 'allowed' | 'denied'. `response` carries AskUserQuestion answers
   // or ExitPlanMode feedback (string or object).

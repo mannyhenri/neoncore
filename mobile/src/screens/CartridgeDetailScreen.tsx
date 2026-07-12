@@ -21,7 +21,21 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const listRef = useRef<FlatList<TranscriptEvent>>(null);
+  // Auto-scroll only when a NEW message arrives — not when the user expands one
+  // (expanding changes content size too, and yanking them to the bottom would
+  // defeat the point of opening it).
+  const scrolledCount = useRef(0);
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // Load history, then merge live events (dedup by id).
   useEffect(() => {
@@ -75,10 +89,10 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
     >
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.back}>
-          <Text style={styles.backText}>‹ Cartridges</Text>
+          <Text style={styles.backText} numberOfLines={1}>‹ Cartridges</Text>
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{live.repoName || live.name}</Text>
-        <View style={{ width: 80 }} />
+        <View style={{ width: 96 }} />
       </View>
 
       <View style={styles.modeRow}>
@@ -107,9 +121,17 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
           ref={listRef}
           data={messages}
           keyExtractor={(m) => m.id}
-          renderItem={({ item }) => <MessageBlocks ev={item} />}
+          renderItem={({ item }) => (
+            <TouchableOpacity activeOpacity={0.8} onPress={() => toggleExpanded(item.id)}>
+              <MessageBlocks ev={item} expanded={expanded.has(item.id)} />
+            </TouchableOpacity>
+          )}
           contentContainerStyle={{ paddingVertical: 8 }}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          onContentSizeChange={() => {
+            if (messages.length === scrolledCount.current) return; // an expand/collapse, not a new message
+            scrolledCount.current = messages.length;
+            listRef.current?.scrollToEnd({ animated: true });
+          }}
           ListEmptyComponent={<Text style={styles.empty}>No messages yet.</Text>}
         />
       )}
@@ -139,7 +161,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border,
   },
-  back: { width: 80 },
+  back: { width: 96 },
   backText: { color: theme.accentSoft, fontSize: 15 },
   title: { color: theme.text, fontSize: 16, fontWeight: '700', flex: 1, textAlign: 'center' },
   modeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },

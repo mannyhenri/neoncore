@@ -5,7 +5,7 @@ import { api } from '../api';
 import { normalizeUrl, saveServerUrl } from '../config';
 
 export function ConnectScreen({ onConnected }: { onConnected: (url: string) => void }) {
-  const [input, setInput] = useState('http://192.168.1.50:4040');
+  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
