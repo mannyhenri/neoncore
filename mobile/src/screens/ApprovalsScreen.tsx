@@ -1,12 +1,19 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { PermissionCard } from '../components/PermissionCard';
 
 export function ApprovalsScreen() {
-  const { baseUrl, permissions, agents } = useNeonCore();
+  const { baseUrl, permissions, agents, refresh } = useNeonCore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const doRefresh = async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
+  };
 
   const agentName = (id: string) => {
     const a = agents.find((x) => x.id === id);
@@ -27,7 +34,12 @@ export function ApprovalsScreen() {
         <Text style={styles.screenTitle}>Approvals</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 12 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 12 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />
+        }
+      >
         {permissions.length === 0 && <Text style={styles.empty}>Nothing waiting. 🎉</Text>}
         {permissions.map((p) => (
           <PermissionCard key={p.id} perm={p} agentName={agentName(p.agentId)} onDecide={decide} />
