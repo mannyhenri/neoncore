@@ -7,12 +7,14 @@ import { ConnectScreen } from './src/screens/ConnectScreen';
 import { CartridgeListScreen } from './src/screens/CartridgeListScreen';
 import { CartridgeDetailScreen } from './src/screens/CartridgeDetailScreen';
 import { ApprovalsScreen } from './src/screens/ApprovalsScreen';
+import { WorkflowsScreen } from './src/screens/WorkflowsScreen';
 import type { Agent } from './src/types';
 
 type Route =
   | { name: 'list' }
   | { name: 'detail'; agent: Agent }
-  | { name: 'approvals' };
+  | { name: 'approvals' }
+  | { name: 'workflows' };
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -41,6 +43,7 @@ export default function App() {
             <CartridgeListScreen
               onOpen={(agent) => setRoute({ name: 'detail', agent })}
               onOpenApprovals={() => setRoute({ name: 'approvals' })}
+              onOpenWorkflows={() => setRoute({ name: 'workflows' })}
             />
           )}
           {route.name === 'detail' && (
@@ -48,6 +51,9 @@ export default function App() {
           )}
           {route.name === 'approvals' && (
             <ApprovalsScreen onBack={() => setRoute({ name: 'list' })} />
+          )}
+          {route.name === 'workflows' && (
+            <WorkflowsScreen onBack={() => setRoute({ name: 'list' })} />
           )}
         </NeonCoreProvider>
       )}

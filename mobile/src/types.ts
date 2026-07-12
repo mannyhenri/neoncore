@@ -54,6 +54,26 @@ export interface PermissionRequest {
   response: string;
 }
 
+export type WorkflowStatus =
+  | 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+// A workflow with templateId === null is a *template*; one with a templateId is a
+// *run* cloned from it. POST /workflows/v2/:id/start on a template makes a new run.
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  status: WorkflowStatus;
+  currentPhase: number;
+  initialContext: string;
+  createdAt: string;
+  startedAt: string;
+  completedAt: string | null;
+  error: string;
+  templateId: string | null;
+  runNumber: number;
+}
+
 // Parsed content block shapes (from the JSON string in TranscriptEvent.content)
 export type ContentBlock =
   | { type: 'text'; text: string }

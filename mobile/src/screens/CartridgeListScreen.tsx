@@ -7,12 +7,15 @@ import type { Agent } from '../types';
 export function CartridgeListScreen({
   onOpen,
   onOpenApprovals,
+  onOpenWorkflows,
 }: {
   onOpen: (agent: Agent) => void;
   onOpenApprovals: () => void;
+  onOpenWorkflows: () => void;
 }) {
   const { agents, permissions, connected, refresh } = useNeonCore();
   const [refreshing, setRefreshing] = useState(false);
+  const [showOffline, setShowOffline] = useState(false);
 
   const doRefresh = async () => {
     setRefreshing(true);
@@ -20,8 +23,13 @@ export function CartridgeListScreen({
     setRefreshing(false);
   };
 
+  // The phone is a glanceable surface: show only the cartridges that are actually
+  // running. Offline ones are still reachable behind the toggle below.
+  const offlineCount = agents.filter((a) => a.status === 'offline').length;
+  const visible = showOffline ? agents : agents.filter((a) => a.status !== 'offline');
+
   // Live agents first, then by most-recently-seen.
-  const sorted = [...agents].sort((a, b) => {
+  const sorted = [...visible].sort((a, b) => {
     const rank = (s: string) => (s === 'offline' ? 1 : 0);
     if (rank(a.status) !== rank(b.status)) return rank(a.status) - rank(b.status);
     return (b.lastSeen || '').localeCompare(a.lastSeen || '');
@@ -34,6 +42,9 @@ export function CartridgeListScreen({
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? theme.teal : theme.danger }]} />
           <Text style={styles.conn}>{connected ? 'live' : 'offline'}</Text>
+          <TouchableOpacity style={styles.bell} onPress={onOpenWorkflows}>
+            <Text style={styles.bellIcon}>⚡</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.bell} onPress={onOpenApprovals}>
             <Text style={styles.bellIcon}>🔔</Text>
             {permissions.length > 0 && (
@@ -51,7 +62,20 @@ export function CartridgeListScreen({
         contentContainerStyle={{ paddingVertical: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />}
         ListEmptyComponent={
-          <Text style={styles.empty}>No cartridges yet.{'\n'}Connect an agent to your server.</Text>
+          <Text style={styles.empty}>
+            {offlineCount > 0
+              ? `No live cartridges.\n${offlineCount} offline.`
+              : 'No cartridges yet.\nConnect an agent to your server.'}
+          </Text>
+        }
+        ListFooterComponent={
+          offlineCount > 0 ? (
+            <TouchableOpacity style={styles.toggle} onPress={() => setShowOffline((v) => !v)}>
+              <Text style={styles.toggleText}>
+                {showOffline ? 'Hide offline' : `Show ${offlineCount} offline`}
+              </Text>
+            </TouchableOpacity>
+          ) : null
         }
         renderItem={({ item }) => <CartridgeCard agent={item} onPress={() => onOpen(item)} />}
       />
@@ -135,4 +159,6 @@ const styles = StyleSheet.create({
   last: { color: theme.textDim, fontSize: 13, marginTop: 8, lineHeight: 18 },
   question: { color: theme.amber, fontSize: 13, marginTop: 8, lineHeight: 18, fontWeight: '600' },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 80, lineHeight: 22 },
+  toggle: { alignItems: 'center', paddingVertical: 16 },
+  toggleText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
 });

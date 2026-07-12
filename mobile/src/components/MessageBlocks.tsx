@@ -3,11 +3,31 @@ import { View, Text, StyleSheet } from 'react-native';
 import { theme } from '../theme';
 import { parseBlocks, type TranscriptEvent } from '../types';
 
-/** Render one transcript event as its typed content blocks, styled by role/type. */
-export function MessageBlocks({ ev }: { ev: TranscriptEvent }) {
+/** Lines of a tool body shown before it is clamped. Tap the message to see it all. */
+const CLAMP_LINES = 6;
+
+/**
+ * Render one transcript event as its typed content blocks, styled by role/type.
+ * When `expanded`, tool bodies drop their line clamp and text becomes selectable —
+ * this is the "see the whole thing, like in the terminal" view.
+ */
+export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; expanded?: boolean }) {
   const blocks = parseBlocks(ev.content);
   const roleColor =
     ev.role === 'assistant' ? theme.accentSoft : ev.role === 'user' ? theme.teal : theme.textDim;
+  const clamp = expanded ? undefined : CLAMP_LINES;
+
+  // Only advertise "tap to expand" when there is actually more to reveal.
+  const clampable = blocks.some((b) => {
+    if (b.type !== 'tool_use' && b.type !== 'tool_result') return false;
+    const body =
+      b.type === 'tool_use'
+        ? safeJson((b as { input?: unknown }).input)
+        : typeof (b as { content?: unknown }).content === 'string'
+          ? ((b as { content?: string }).content as string)
+          : safeJson((b as { content?: unknown }).content);
+    return body.split('\n').length > CLAMP_LINES || body.length > 300;
+  });
 
   return (
     <View style={styles.wrap}>
@@ -19,13 +39,13 @@ export function MessageBlocks({ ev }: { ev: TranscriptEvent }) {
         switch (b.type) {
           case 'text':
             return (
-              <Text key={i} style={styles.text}>
+              <Text key={i} style={styles.text} selectable={expanded}>
                 {(b as { text?: string }).text || ''}
               </Text>
             );
           case 'thinking':
             return (
-              <Text key={i} style={styles.thinking}>
+              <Text key={i} style={styles.thinking} selectable={expanded}>
                 {((b as { thinking?: string; text?: string }).thinking ||
                   (b as { text?: string }).text ||
                   '')}
@@ -35,7 +55,7 @@ export function MessageBlocks({ ev }: { ev: TranscriptEvent }) {
             return (
               <View key={i} style={styles.tool}>
                 <Text style={styles.toolLabel}>⚙ {(b as { name?: string }).name || 'tool'}</Text>
-                <Text style={styles.toolBody} numberOfLines={6}>
+                <Text style={styles.toolBody} numberOfLines={clamp} selectable={expanded}>
                   {safeJson((b as { input?: unknown }).input)}
                 </Text>
               </View>
@@ -44,7 +64,7 @@ export function MessageBlocks({ ev }: { ev: TranscriptEvent }) {
             return (
               <View key={i} style={[styles.tool, (b as { is_error?: boolean }).is_error && styles.toolError]}>
                 <Text style={styles.toolLabel}>↳ result</Text>
-                <Text style={styles.toolBody} numberOfLines={6}>
+                <Text style={styles.toolBody} numberOfLines={clamp} selectable={expanded}>
                   {typeof (b as { content?: unknown }).content === 'string'
                     ? ((b as { content?: string }).content as string)
                     : safeJson((b as { content?: unknown }).content)}
@@ -59,6 +79,9 @@ export function MessageBlocks({ ev }: { ev: TranscriptEvent }) {
             );
         }
       })}
+      {clampable && (
+        <Text style={styles.expandHint}>{expanded ? 'tap to collapse' : 'tap to see full message'}</Text>
+      )}
     </View>
   );
 }
@@ -97,4 +120,5 @@ const styles = StyleSheet.create({
   toolError: { borderLeftColor: theme.danger },
   toolLabel: { color: theme.blue, fontSize: 11, fontWeight: '600', marginBottom: 2 },
   toolBody: { color: theme.textDim, fontSize: 12, fontFamily: 'monospace' },
+  expandHint: { color: theme.textFaint, fontSize: 11, marginTop: 8, fontStyle: 'italic' },
 });
