@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { AppState } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { api } from './api';
 import type { Agent, PermissionRequest, TranscriptEvent } from './types';
@@ -57,7 +58,17 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
-    socket.on('connect', () => setConnected(true));
+    // Re-sync on every (re)connect, not just the first one.
+    //
+    // A phone drops its socket constantly — screen lock, backgrounding, Wi-Fi/cell
+    // handoff. Any `permission_requested` emitted while we were away is gone: socket
+    // events are fire-and-forget, there is no replay. Without this refetch the client
+    // reconnects, cheerfully renders "live", and shows an EMPTY approvals inbox while
+    // an agent sits blocked on a question. That is the whole point of the app failing.
+    socket.on('connect', () => {
+      setConnected(true);
+      refresh();
+    });
     socket.on('disconnect', () => setConnected(false));
 
     const upsertAgent = (agent: Agent) =>
@@ -88,7 +99,15 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
       if (set) set.forEach((cb) => cb(ev));
     });
 
+    // Belt-and-braces: iOS can suspend the app without the socket ever firing
+    // `disconnect`, so a reconnect refetch alone can miss events. Any time we come
+    // back to the foreground — the exact moment you look at the phone — re-sync.
+    const appStateSub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') refresh();
+    });
+
     return () => {
+      appStateSub.remove();
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;
