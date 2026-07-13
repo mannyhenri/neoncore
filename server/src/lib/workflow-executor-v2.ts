@@ -1057,7 +1057,18 @@ async function executeStep(step: WorkflowStep): Promise<void> {
     } else if (step.executorType === 'decision') {
       await executeDecisionStep(step);
     } else {
-      if (!step.executorId) throw new Error('Step requires an agent ID');
+      // '__deferred__' means "the user picks the cartridge at launch". It is a TRUTHY string,
+      // so it used to sail past a bare `!step.executorId` check, get handed to
+      // sendCommandToAgent('__deferred__'), which finds no such agent and returns null
+      // SILENTLY — leaving the step marked `running` forever. Recovery skips deferred steps by
+      // design, so nothing ever reaped it: the run just hung at step 1 with no error anywhere.
+      // That is what happened to every workflow launched without an agent (e.g. from mobile).
+      // Treat it as unset and fail loudly; the catch below marks the step failed.
+      if (!step.executorId || step.executorId === '__deferred__') {
+        throw new Error(
+          `Step "${step.name}" has no cartridge assigned. Pick one when you start the workflow.`,
+        );
+      }
       await executeStandardStep(step);
     }
   } catch (err) {

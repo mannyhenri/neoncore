@@ -754,7 +754,40 @@ router.post('/v2/:id/start', (req, res) => {
     }
   }
 
-  // Apply deferred agent overrides to the run's steps
+  // ── Run-level cartridge: "run the whole thing on this one" ────────────────────────────
+  // A workflow's steps are each assigned an executor, and a template can mark a step
+  // `__deferred__` = "ask me at launch". Requiring the caller to name a cartridge for every
+  // deferred step is busywork: in practice you pick one cartridge and the whole workflow runs
+  // there. So `agentId` fills every step that hasn't got one.
+  //
+  // Applied BEFORE agentOverrides, so a per-step override still wins — the escape hatch for
+  // the genuine cross-cartridge case survives.
+  const runAgentId = (req.body?.agentId as string) || '';
+  if (runAgentId) {
+    const steps = db.prepare('SELECT id, executor_type, executor_id, executor_config FROM workflow_steps WHERE workflow_id = ?')
+      .all(runId) as { id: string; executor_type: string; executor_id: string; executor_config: string }[];
+
+    let filled = 0;
+    for (const s of steps) {
+      const needsExecutor = !s.executor_id || s.executor_id === '__deferred__';
+
+      // A review-gate carries a SECOND agent in its config (the reviewer), which can be
+      // deferred independently of the executor. Fill that too, or the run stalls at the gate
+      // with no reviewer even though the user did pick a cartridge.
+      const config = JSON.parse(s.executor_config || '{}') as Record<string, unknown>;
+      const needsReviewer = config.reviewAgentId === '__deferred__';
+      if (needsReviewer) config.reviewAgentId = runAgentId;
+
+      if (!needsExecutor && !needsReviewer) continue;
+
+      db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+        .run(needsExecutor ? runAgentId : s.executor_id, JSON.stringify(config), s.id);
+      filled++;
+    }
+    console.log(`[workflow] Run ${runId}: assigned cartridge ${runAgentId} to ${filled} unassigned step(s)`);
+  }
+
+  // Apply deferred agent overrides to the run's steps (per-step; wins over agentId above)
   const agentOverrides = req.body?.agentOverrides as Record<string, string> | undefined;
   if (agentOverrides && Object.keys(agentOverrides).length > 0) {
     console.log(`[workflow] Applying ${Object.keys(agentOverrides).length} agent overrides for run ${runId}`);

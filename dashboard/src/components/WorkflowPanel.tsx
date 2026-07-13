@@ -640,6 +640,10 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     promptSteps: { stepId: string; stepName: string; field: string; label: string }[];
   } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
+  // One cartridge for the whole run — the common case. Per-step assignment is the opt-in
+  // exception, not the default the modal is built around.
+  const [runAgentId, setRunAgentId] = useState('');
+  const [perStepAgents, setPerStepAgents] = useState(false);
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
   const [initialContext, setInitialContext] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -695,7 +699,11 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
 
   async function handleDeferredRun() {
     if (!deferredPopup) return;
-    const allAgentsAssigned = deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]);
+    const allAgentsAssigned =
+      deferredPopup.agentSteps.length === 0 ||
+      (perStepAgents
+        ? deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])
+        : !!runAgentId);
     const allPromptsAssigned = deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim());
     if (!allAgentsAssigned || !allPromptsAssigned) return;
 
@@ -704,10 +712,13 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     try {
       const result = await api.startWorkflowV2(
         wf.id,
-        deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
+        perStepAgents && deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
         initialContext.trim() || undefined,
         selectedProjectId || null,
+        // The run-level cartridge fills every unassigned step server-side, so we don't have to
+        // fan it out into a per-step map here.
+        !perStepAgents ? runAgentId || undefined : undefined,
       );
       const runId = result?.workflow?.id;
       if (runId && runId !== wf.id && onRunCreated) {
@@ -826,13 +837,25 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
 
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
-              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge Selection</span>
-              {deferredPopup.agentSteps.map((s) => (
-                <div key={s.stepId}>
-                  <label className="block text-sm text-gray-400 mb-1">{s.stepName}</label>
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] text-gray-500 uppercase tracking-wider">Run on</span>
+                {/* The escape hatch. Almost nobody wants a different cartridge per step, so
+                    that's opt-in rather than the default the whole modal is built around. */}
+                {deferredPopup.agentSteps.length > 1 && (
+                  <button
+                    onClick={() => setPerStepAgents((v) => !v)}
+                    className="text-[11px] text-gray-500 hover:text-gl-purple transition-colors"
+                  >
+                    {perStepAgents ? '← use one cartridge' : 'assign per step →'}
+                  </button>
+                )}
+              </div>
+
+              {!perStepAgents ? (
+                <>
                   <select
-                    value={deferredAssignments[s.stepId] || ''}
-                    onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
+                    value={runAgentId}
+                    onChange={(e) => setRunAgentId(e.target.value)}
                     className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
                   >
                     <option value="">Select cartridge...</option>
@@ -840,8 +863,28 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                       <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
                     ))}
                   </select>
-                </div>
-              ))}
+                  <p className="text-[11px] text-gray-600">
+                    All {deferredPopup.agentSteps.length} step
+                    {deferredPopup.agentSteps.length === 1 ? '' : 's'} run here.
+                  </p>
+                </>
+              ) : (
+                deferredPopup.agentSteps.map((s) => (
+                  <div key={s.stepId}>
+                    <label className="block text-sm text-gray-400 mb-1">{s.stepName}</label>
+                    <select
+                      value={deferredAssignments[s.stepId] || ''}
+                      onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
+                      className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                    >
+                      <option value="">Select cartridge...</option>
+                      {onlineAgents.map((a) => (
+                        <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))
+              )}
             </div>
           )}
           {deferredPopup.promptSteps.length > 0 && (
