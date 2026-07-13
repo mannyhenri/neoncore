@@ -159,6 +159,19 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN plans_included INTEGER NOT NULL DEFAULT 0`);
 }
 
+// Migration: add dismissed_at to agents — "I'm done with this one for now, hide it."
+//
+// Deliberately a SEPARATE column from `status`, not a new status value. `status` is about
+// liveness (is this session alive?); dismissal is about *your view* (do you want to look at
+// it?). They are orthogonal — a dismissed cartridge is very often still running.
+// Folding them together is precisely the bug that made live cartridges vanish from the grid:
+// `offline` had come to mean both "gone quiet" and "hide it". Never again.
+try {
+  db.prepare('SELECT dismissed_at FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN dismissed_at TEXT`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (

@@ -41,6 +41,14 @@ export const api = {
       body: JSON.stringify({ mode }),
     }),
 
+  // Put a cartridge away / bring it back. NOT a delete, and NOT a status change — the session
+  // keeps running. It reappears on its own the next time the agent does anything.
+  dismissAgent: (base: string, agentId: string) =>
+    req<Agent>(base, `/api/agents/${agentId}/dismiss`, { method: 'POST' }),
+
+  restoreAgent: (base: string, agentId: string) =>
+    req<Agent>(base, `/api/agents/${agentId}/restore`, { method: 'POST' }),
+
   pendingPermissions: (base: string) =>
     req<PermissionRequest[]>(base, '/api/permissions/pending'),
 

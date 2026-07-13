@@ -122,6 +122,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
     pendingQuestion: (row.pending_question ?? '') as string,
+    dismissedAt: (row.dismissed_at ?? '') as string,
   };
 }
 

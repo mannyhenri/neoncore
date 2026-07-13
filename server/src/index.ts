@@ -145,6 +145,7 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     sessionId: (row.session_id as string) ?? '',
     lastMessage: (row.last_message as string) ?? '',
     pendingQuestion: (row.pending_question as string) ?? '',
+    dismissedAt: (row.dismissed_at as string) ?? '',
   });
 }
 

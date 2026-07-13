@@ -18,6 +18,12 @@ export interface Agent {
   sessionId: string;
   lastMessage: string;
   pendingQuestion: string;
+  /**
+   * When the user put this cartridge away ('' = visible). Orthogonal to `status`: a
+   * dismissed agent is often still alive and working. Any activity from the session
+   * clears it automatically, so it comes back the moment you use it again.
+   */
+  dismissedAt: string;
 }
 
 export interface Activity {
