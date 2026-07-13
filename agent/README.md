@@ -33,7 +33,7 @@ That's it. The bootstrap:
 ### Point it at the server's hostname, not its IP
 
 ```bash
-./bootstrap.sh --server-url http://YOUR-SERVER.local:4040
+./bootstrap.sh --server-url http://<SERVER>:4040
 ```
 
 > **Use `--server-url` with the server's `.local` (mDNS) hostname — not `--server-ip`.**
@@ -41,7 +41,7 @@ That's it. The bootstrap:
 > re-reads it. A LAN IP is a DHCP lease, so the day it changes, every hook POST on this
 > machine silently goes nowhere: the cartridge just stops appearing, with no error anywhere.
 > The `.local` name follows the machine. Check it answers first:
-> `curl http://YOUR-SERVER.local:4040/api/health`
+> `curl http://<SERVER>:4040/api/health`
 
 Useful flags: `--trust` / `-Trust` (auto-approve permissions), `--repo-path` / `-RepoPath`,
 `--skip-relay` / `-SkipRelay`.
@@ -52,11 +52,11 @@ The agent home is permanent, so just start a relay in any repo:
 
 ```bash
 # Mac/Linux
-NEONCORE_URL=http://YOUR-SERVER.local:4040 node ~/.neoncore/agent/relay/index.js
+NEONCORE_URL=http://<SERVER>:4040 node ~/.neoncore/agent/relay/index.js
 ```
 ```powershell
 # Windows
-$env:NEONCORE_URL="http://YOUR-SERVER.local:4040"; node "$HOME\.neoncore\agent\relay\index.js"
+$env:NEONCORE_URL="http://<SERVER>:4040"; node "$HOME\.neoncore\agent\relay\index.js"
 ```
 
 ## Troubleshooting
@@ -64,7 +64,7 @@ $env:NEONCORE_URL="http://YOUR-SERVER.local:4040"; node "$HOME\.neoncore\agent\r
 - **Windows: "running scripts is disabled"** — `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `npm.cmd` for installs.
 - **Windows: relay dies with `File not found:`** — Claude Code isn't on PATH. Install it, reopen PowerShell, re-run.
 - **macOS: "Operation not permitted"** — grant your terminal **Full Disk Access** (System Settings → Privacy & Security), then `Cmd-Q` and reopen. Or keep repos under `~/code` (not Desktop/Documents/Downloads).
-- **Agent doesn't appear** — first check the server is reachable *from this machine*: `curl http://YOUR-SERVER.local:4040/api/health`. If that works but the cartridge still never shows, the hooks are pointed somewhere else: `grep -o 'NEONCORE_URL=[^ ]*' ~/.claude/settings.json`. A stale IP baked in at install time is the most common cause — re-run the bootstrap with `--server-url`.
+- **Agent doesn't appear** — first check the server is reachable *from this machine*: `curl http://<SERVER>:4040/api/health`. If that works but the cartridge still never shows, the hooks are pointed somewhere else: `grep -o 'NEONCORE_URL=[^ ]*' ~/.claude/settings.json`. A stale IP baked in at install time is the most common cause — re-run the bootstrap with `--server-url`.
 - **Cartridge never goes offline** — this machine predates the `SessionEnd` hook. Re-run the bootstrap, then restart Claude Code (hooks load at session start).
 
 More detail: **[SETUP.md](SETUP.md)** in this folder.
