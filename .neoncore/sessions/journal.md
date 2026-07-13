@@ -291,3 +291,6 @@
 - Note: piping `eas submit` through `tee|tail` hides progress — the CLI spinner uses
   carriage returns and only renders on a TTY. The process staying alive IS the signal
   (the CLI exits only on a terminal submission state).
+
+### ⏱ 2026-07-13T16:13:03Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: clean
