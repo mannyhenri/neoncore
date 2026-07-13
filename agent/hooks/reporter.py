@@ -93,6 +93,22 @@ def main():
         activity["toolName"] = ""
         activity["toolInput"] = user_text[:4000] if user_text else ""
 
+    # SessionEnd = the session is really gone (quit, /clear, logout). Report the death
+    # and stop — must return BEFORE the register below, which unconditionally marks the
+    # agent 'working' and would otherwise resurrect the very session that just exited.
+    #
+    # This is the only honest death signal a hooks-only agent has: `Stop` fires at the
+    # end of every assistant turn, so it can never mean "dead". Without it the server had
+    # to guess by timeout, which is what made cartridges disappear while still in use.
+    if hook_event == "SessionEnd":
+        post_json(f"{ORCHESTRATOR_URL}/api/agents/session-end", json.dumps({
+            "sessionId": session_id,
+            "machine": machine,
+            "repoPath": cwd,
+            "reason": d.get("reason", ""),
+        }))
+        sys.exit(0)
+
     # Build register body — always mark 'working' since a hook firing means activity
     register = {
         "sessionId": session_id,

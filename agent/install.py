@@ -252,6 +252,13 @@ def main():
     hooks["SubagentStop"] = [h for h in hooks.get("SubagentStop", []) if not is_neoncore_hook(h)]
     hooks["SubagentStop"].append(make_hook_entry(reporter_cmd))
 
+    # SessionEnd → reporter (the session actually exited — mark the cartridge offline).
+    # Distinct from Stop, which fires at the end of EVERY assistant turn. Without this,
+    # the server can only guess at death by timeout, which is what used to make idle
+    # cartridges disappear out of the grid while their session was still open.
+    hooks["SessionEnd"] = [h for h in hooks.get("SessionEnd", []) if not is_neoncore_hook(h)]
+    hooks["SessionEnd"].append(make_hook_entry(reporter_cmd))
+
     # UserPromptSubmit → reporter
     hooks["UserPromptSubmit"] = [h for h in hooks.get("UserPromptSubmit", []) if not is_neoncore_hook(h)]
     hooks["UserPromptSubmit"].append(make_hook_entry(reporter_cmd))
@@ -275,6 +282,7 @@ def main():
     print("  - Stop             → reporter.py (final turn + token usage)")
     print("  - Notification     → notification.py (Claude notifications)")
     print("  - SubagentStop     → reporter.py (subagent completion)")
+    print("  - SessionEnd       → reporter.py (session exited → cartridge offline)")
     print("  - UserPromptSubmit → reporter.py (user prompts)")
     print()
     print(f"To verify, check: {settings_file}")

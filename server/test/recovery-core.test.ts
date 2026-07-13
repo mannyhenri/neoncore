@@ -7,6 +7,7 @@ import {
   detectInterruptedSteps,
   markAgentStepsInterrupted,
   recoverStep,
+  EXECUTOR_STALE_MS,
 } from '../src/lib/recovery-core.ts';
 
 const NOW = 1_700_000_000_000;
@@ -21,7 +22,7 @@ function freshDb() {
       native_session_id TEXT NOT NULL DEFAULT '', interrupted_at TEXT,
       recovery_status TEXT NOT NULL DEFAULT '', recovery_attempts INTEGER NOT NULL DEFAULT 0
     );
-    CREATE TABLE agents (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'idle');
+    CREATE TABLE agents (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'idle', last_seen TEXT);
     CREATE TABLE messages (
       id TEXT, agent_id TEXT, session_id TEXT, seq INTEGER, role TEXT, content TEXT, ts TEXT
     );
@@ -39,7 +40,10 @@ function addStep(db, o) {
     recovery_status: o.recovery_status ?? '', recovery_attempts: o.recovery_attempts ?? 0,
   });
 }
-const addAgent = (db, id, status) => db.prepare('INSERT INTO agents (id, status) VALUES (?, ?)').run(id, status);
+// lastSeen defaults to NOW — i.e. "this agent just did something". Tests that want a
+// dead-but-not-yet-flagged executor pass an old timestamp explicitly.
+const addAgent = (db, id, status, lastSeen = new Date(NOW).toISOString()) =>
+  db.prepare('INSERT INTO agents (id, status, last_seen) VALUES (?, ?, ?)').run(id, status, lastSeen);
 function addMsg(db, agentId, sessionId, seq, role, blocks, ts) {
   db.prepare('INSERT INTO messages (id, agent_id, session_id, seq, role, content, ts) VALUES (?,?,?,?,?,?,?)')
     .run(`m${seq}-${sessionId}`, agentId, sessionId, seq, role, JSON.stringify(blocks), ts);
@@ -123,6 +127,28 @@ test('detect: running + offline agent + past grace → interrupted', () => {
 test('detect: agent still working → left alone', () => {
   const db = freshDb();
   addAgent(db, 'a1', 'working');
+  addStep(db, { id: 's1', status: 'running', executor_id: 'a1', started_at: oldStart });
+  assert.deepEqual(detectInterruptedSteps(db, { now: NOW, graceMs: GRACE, isAlive: aliveNo }), []);
+});
+
+// The whole point of decoupling recovery from the `offline` flag. Agents that merely go
+// quiet must stay VISIBLE in the grid, so `offline` is now only set by a real death signal
+// (SessionEnd / socket drop / 24h zombie reap). A hard-killed executor fires NONE of those
+// and can sit as 'working' for a day — recovery must still catch it, via activity staleness.
+// If this ever regresses, crashed workflow steps silently hang for 24h.
+test('detect: executor stuck "working" but silent past EXECUTOR_STALE_MS → interrupted', () => {
+  const db = freshDb();
+  const longDead = new Date(NOW - EXECUTOR_STALE_MS - 60_000).toISOString();
+  addAgent(db, 'a1', 'working', longDead); // never marked offline — no death signal fired
+  addStep(db, { id: 's1', status: 'running', executor_id: 'a1', started_at: oldStart });
+  addMsg(db, 'a1', 'sess-1', 0, 'user', [{ type: 'text', text: 'hi' }], '2024-06-01T00:00:00Z');
+  assert.deepEqual(detectInterruptedSteps(db, { now: NOW, graceMs: GRACE, isAlive: aliveNo }), ['s1']);
+});
+
+test('detect: executor quiet but within EXECUTOR_STALE_MS → left alone (just idling)', () => {
+  const db = freshDb();
+  const recentlyQuiet = new Date(NOW - 60_000).toISOString();
+  addAgent(db, 'a1', 'idle', recentlyQuiet);
   addStep(db, { id: 's1', status: 'running', executor_id: 'a1', started_at: oldStart });
   assert.deepEqual(detectInterruptedSteps(db, { now: NOW, graceMs: GRACE, isAlive: aliveNo }), []);
 });
