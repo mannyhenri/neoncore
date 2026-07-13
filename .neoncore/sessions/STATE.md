@@ -143,6 +143,48 @@ non-interactively from here — no more Apple 2FA gate.**
 - Simulator now needs `npx expo start --go --ios` — expo-dev-client otherwise targets a
   dev build that isn't installed.
 
+## OTA update shipped 2026-07-13 (runtime 0.2.0) — UNVERIFIED ON DEVICE
+`eas update --branch production --environment production` → update group
+`30404d49`. Runtime 0.2.0 matches build 5, so the phone picks it up.
+⚠️ `--environment` is REQUIRED in --non-interactive mode (undocumented gotcha).
+⚠️ `fallbackToCacheTimeout: 0` → app launches from cache and downloads in the
+BACKGROUND, so you must **relaunch TWICE** to actually run a new bundle.
+
+Three fixes (`a56a695`), all pure JS (that's WHY they could go OTA — a native dep
+would have forced a whole new binary + Apple round trip):
+1. **Transcript is newest-first.** Latest at top, no scrolling. History reversed on
+   load, live events prepend. Auto-snap to top only if already near top.
+   (User explicitly chose this over inverted-chat; tradeoff accepted: a tool result
+   now renders ABOVE the call that produced it.)
+2. **Tab bar / input bar bottom gap.** RN's SafeAreaView reserves the home-indicator
+   inset and paints it the PAGE color, so the bars floated above a ~34px band. Fixed
+   with two stacked SafeAreaViews so the bottom strip takes the BAR color.
+   NOTE: `react-native-safe-area-context` is the correct tool but ships NATIVE code —
+   deliberately avoided to keep this OTA-able.
+3. **Keyboard covered the prompt input.** Real bug: KeyboardAvoidingView measures its
+   frame relative to its PARENT but compares against the keyboard's SCREEN coords.
+   Inside a SafeAreaView those differ by the top inset (~59px), so RN under-computed
+   the overlap and left the input buried. `keyboardVerticalOffset` was hardcoded 0;
+   now a zero-height probe measures the real screen offset and feeds it back.
+
+**STATUS: typecheck-clean, NOT device-verified.** Simulator run was cut short. Fix #3
+especially is a reasoned diagnosis, not an observed one. Confirm on the phone.
+
+## Second agent machine (Emmanuels-MacBook-Pro.local) — stale, needs re-bootstrap
+Its 3 agents last checked in 69h/145h/240h ago. NOT a live connection failure —
+nothing on that Mac is talking to the server at all.
+ROOT CAUSE: `NEONCORE_URL` defaults to `http://localhost:4040`, and `agent/install.py:152`
+**bakes the URL as a literal string** into `~/.claude/settings.json` at install time.
+It is never re-read, so a server IP change silently orphans the machine forever.
+FIX: fresh zip built at `dist/neoncore-agent-mac.zip` (`./scripts/package.sh`), then on
+that Mac re-run bootstrap against the **mDNS name, not the IP**:
+`NEONCORE_URL=http://Mannys-Mac-Pro.local:4040 ./bootstrap.sh --server-ip Mannys-Mac-Pro.local`
+**Use `Mannys-Mac-Pro.local`, never `192.168.4.24`** — the IP is a DHCP lease and will
+rot the hooks again. Verified `http://Mannys-Mac-Pro.local:4040/api/health` → ok.
+ALSO: hooks alone only write `last_seen` when a tool fires → an idle session drops to
+offline after 5 min. The **relay** holds the socket that keeps it green (and receives
+Send-command from the phone). Stale rows self-delete after 14 days offline.
+
 ## Also outstanding
 - **iOS first launch shows a one-time "allow local network access" prompt — MUST be
   accepted** or the app can't reach the server. Never appears in the simulator.

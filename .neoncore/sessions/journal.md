@@ -306,3 +306,23 @@
 
 ### ⏱ 2026-07-13T16:58:06Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: 1 file(s) dirty
+
+## 2026-07-13 — mobile OTA #1 + second-machine diagnosis
+- Build 5 (0.2.0, SDK 57) accepted by Apple and installed on the phone. From here JS
+  ships OTA in ~30s. First OTA out: update group 30404d49, runtime 0.2.0.
+- 3 fixes, all deliberately PURE JS to stay OTA-able (a native dep = new binary +
+  another Apple round trip): newest-first transcript; tab bar/input bar safe-area gap;
+  keyboard covering the prompt input.
+- The keyboard bug had a real, non-obvious cause: KeyboardAvoidingView measures its
+  frame PARENT-relative but compares against the keyboard's SCREEN coords. Inside a
+  SafeAreaView those differ by the top inset (~59px), so RN under-computes the overlap.
+  keyboardVerticalOffset was hardcoded 0 → now measured via a zero-height probe.
+- NOT device-verified — user cut the simulator run to test on the real phone instead.
+  Said so plainly rather than claiming it works.
+- SECOND MACHINE: agents on Emmanuels-MacBook-Pro.local are stale (69-240h), not
+  failing-to-connect. `NEONCORE_URL` defaults to localhost AND install.py BAKES it into
+  ~/.claude/settings.json permanently → a server IP change orphans an agent machine
+  silently, forever. Fix = re-bootstrap from a fresh zip using the **mDNS hostname**
+  (Mannys-Mac-Pro.local), never the DHCP IP.
+- Gotchas found: `eas update --non-interactive` REQUIRES `--environment`; running eas
+  from the repo root (bad `npx --prefix`) silently writes a junk `{"expo":{}}` app.json.
