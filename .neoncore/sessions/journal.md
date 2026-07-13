@@ -442,3 +442,26 @@
 
 ### ⏱ 2026-07-13T21:50:57Z — heartbeat
 - branch `main` — working tree: clean
+
+## 2026-07-13 (late) — "workflows run but nothing happens": the relay was never installed
+- ROOT CAUSE: `~/.neoncore/agent/relay` had **no node_modules**. The relay crashed on
+  `socket.io-client` the instant anyone ran it → **no relay has ever run on this Mac.**
+  One `npm install` fixed it. Verified: a command now comes back `delivered` (socket path).
+- With no relay, `sendCommandToAgent` falls back to `typeIntoTerminal(text)` — AppleScript
+  into the **frontmost** Terminal window. That function takes ONLY text: no agent, no repo.
+  It cannot address a terminal. Hand-typed prompts looked fine (the right window was in
+  front); async workflow dispatches went wherever. The user's dashboard/mobile messages kept
+  landing in the Claude Code session doing the work — that was the tell, and I misread it.
+- I WAS WRONG TWICE and the user was right to push back:
+  1. Claimed "0 delivered = nothing arrived". FALSE — `delivered_at` is stamped only on the
+     socket path; the AppleScript path never stamps it.
+  2. Started building AppleScript tab-addressing (match repo_path → tty → Terminal tab).
+     Over-engineering: the relay already solves this correctly, per-agent, with bracketed
+     paste for multiline. User said "stop over-complicating, just use the relay." Correct.
+- Workflows and simple prompts use the SAME dispatch (`workflow-executor-v2.ts:249` →
+  `sendCommandToAgent`). There is no separate workflow path. Don't hunt for one again.
+- Also shipped: run-level `agentId` (pick ONE cartridge for a whole workflow); the
+  `__deferred__` truthy-string silent hang (every mobile-launched workflow hung at step 1
+  forever with no error); mobile workflow-sheet keyboard trap.
+- LESSON: the system's worst failure mode is that it LIES — it queues into the void and says
+  "running". Making that loud is the top of the next session's list.
