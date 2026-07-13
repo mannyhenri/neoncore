@@ -64,6 +64,42 @@ on either side, the cartridge just stops appearing.
 → Always install with `--server-url http://<hostname>:4040`, never a raw IP.
 Diagnose: `grep -o 'NEONCORE_URL=[^ ]*' ~/.claude/settings.json`
 
+## Dismiss a cartridge — SHIPPED + device-verified (2026-07-13)
+Swipe right on mobile / ✕ on the web card = "I'm done with this one for now." Does NOT stop
+the agent or end the session. It comes back **automatically** on any activity from that
+session, or when you send it a command / start a workflow. Manual restore from a "Hidden"
+section on both clients.
+
+**KEY DESIGN — do not undo this.** Dismissal is a SEPARATE COLUMN (`agents.dismissed_at`),
+not a new `status` value. `status` = liveness; `dismissed_at` = the user's view preference.
+They are orthogonal — a hidden cartridge is very often still `working`, and the Hidden list
+shows "still working" beside it to make that visible. Conflating them is exactly the bug
+that made live cartridges vanish mid-session (`offline` meaning both "quiet" and "hide it").
+
+Auto-revive hangs off two choke points:
+- `register()` — every hook tool call passes through it → clears `dismissed_at`.
+- `sendCommandToAgent()` — activity YOU originate, which lands before any hook fires. Must
+  ALSO emit `agent_updated`, or the agent un-hides in the DB while the grid keeps hiding it.
+
+Two traps found and fixed while building it:
+- The web ✕ **already existed and ran a cascading DELETE with no confirm**, sitting exactly
+  where a user expects "close". ✕ is now dismiss; delete moved to a trash icon + confirm.
+- The empty-grid early-return rendered BEFORE the Hidden section → dismissing everything
+  would have stranded the user with "INSERT CARTRIDGE" and no way to restore.
+
+**MOBILE SWIPE GOTCHA (cost a round trip):** the card is a `TouchableOpacity`, which grabs
+the responder the instant a finger lands. A PanResponder that only asks in the BUBBLING
+phase (`onMoveShouldSetPanResponder`) is never consulted → every swipe silently did nothing.
+Must claim in the **CAPTURE** phase (`onMoveShouldSetPanResponderCapture`), plus
+`onPanResponderTerminationRequest: () => false` so the FlatList can't yank it back mid-swipe.
+Built on RN core PanResponder + Animated, NOT react-native-gesture-handler — that ships
+native code and would force a new binary. Stays pure JS → OTA-able.
+
+**DEBUGGING TRICK WORTH REUSING:** to tell "the OTA didn't land" apart from "the feature is
+broken", create a throwaway agent and dismiss it server-side. The "Show N put away" UI only
+exists in the new bundle, so seeing it *proves* the phone is running the new code. Separated
+the two failure modes in one shot.
+
 ## Outstanding (not blocking)
 - **Other Mac + Windows box need re-bootstrapping** from the fresh zips in `dist/`
   (`./scripts/package.sh`). They carry BOTH the `SessionEnd` hook and the corrected URL.
