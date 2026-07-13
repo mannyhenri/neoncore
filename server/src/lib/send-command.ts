@@ -59,11 +59,24 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
     .get(agentId) as { id: string; repo_name: string; status: string; agent_type: string; session_id: string } | undefined;
   if (!agentCheck) return null;
 
+  // Driving an agent un-dismisses it. Sending it a prompt (from the dashboard, the phone, or
+  // a workflow step) is an unambiguous "I'm working on this again" — it must not stay hidden
+  // while you're actively talking to it. The register() hook path covers activity the agent
+  // originates; this covers activity YOU originate, which lands before any hook fires.
+  const revived = db
+    .prepare('UPDATE agents SET dismissed_at = NULL WHERE id = ? AND dismissed_at IS NOT NULL')
+    .run(agentId).changes > 0;
+
   // Clear 'waiting' status when user responds from dashboard
-  if (agentCheck.status === 'waiting') {
+  const cleared = agentCheck.status === 'waiting';
+  if (cleared) {
     const now2 = new Date().toISOString();
     db.prepare(`UPDATE agents SET status = 'working', pending_question = '', last_seen = ? WHERE id = ?`).run(now2, agentId);
-    // Broadcast the status change
+  }
+
+  // Broadcast if we changed anything the grid renders. Reviving MUST emit too — otherwise the
+  // agent un-hides in the DB but the grid keeps hiding it until the next refresh.
+  if (cleared || revived) {
     const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
     const mode = (updated.agent_mode ?? 'manual') as Agent['mode'];
     const normalized: Agent = {
@@ -82,7 +95,8 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
       lastSeen: (updated.last_seen ?? '') as string,
       sessionId: (updated.session_id ?? '') as string,
       lastMessage: (updated.last_message ?? '') as string,
-      pendingQuestion: '',
+      pendingQuestion: (updated.pending_question ?? '') as string,
+      dismissedAt: (updated.dismissed_at ?? '') as string,
     };
     getIO().emit('agent_updated', normalized);
   }

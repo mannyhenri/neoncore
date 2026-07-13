@@ -37,6 +37,8 @@ interface CartridgeGridProps {
   onSetMode: (agentId: string, mode: AgentMode) => void;
   onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
   onDelete: (agentId: string) => void;
+  onDismiss: (agentId: string) => void;
+  onRestore: (agentId: string) => void;
   onDismissStuck: (agentId: string) => void;
   onActivityClick?: (activity: Activity) => void;
   virtualCartridges?: VirtualCartridge[];
@@ -65,6 +67,8 @@ export function CartridgeGrid({
   onSetMode,
   onSendCommand,
   onDelete,
+  onDismiss,
+  onRestore,
   virtualCartridges = [],
   mcpServers = [],
   onVirtualCartridgeUpdate,
@@ -73,6 +77,7 @@ export function CartridgeGrid({
   onActivityClick,
 }: CartridgeGridProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [showHidden, setShowHidden] = useState(false);
   const [tick, setTick] = useState(Date.now());
 
   // Re-evaluate every 15s (same cadence as CartridgeCard)
@@ -90,8 +95,13 @@ export function CartridgeGrid({
     return map;
   }, [agents, activitiesByAgent, tick]);
 
-  // Only show online agents (filter out offline)
-  let visible = agents.filter((a) => agentStatuses.get(a.id) !== 'offline');
+  // The grid shows agents that are alive AND not put away. `dismissedAt` is the user's view
+  // preference; `status` is liveness. Both must be clear for a card to be on screen — but a
+  // dismissed agent may well still be 'working', which is why these are two separate checks.
+  const dismissed = agents.filter((a) => a.dismissedAt);
+  let visible = agents.filter(
+    (a) => agentStatuses.get(a.id) !== 'offline' && !a.dismissedAt,
+  );
 
   // Apply status filter
   if (statusFilter !== 'all') {
@@ -144,7 +154,9 @@ export function CartridgeGrid({
     waiting: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'waiting').length,
     idle: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'idle').length,
   };
-  const onlineAgents = agents.filter((a) => agentStatuses.get(a.id) !== 'offline');
+  const onlineAgents = agents.filter(
+    (a) => agentStatuses.get(a.id) !== 'offline' && !a.dismissedAt,
+  );
 
   // Build a lookup for stuck alerts by agentId
   const stuckByAgent = new Map<string, StuckAlert>();
@@ -152,22 +164,66 @@ export function CartridgeGrid({
     stuckByAgent.set(alert.agentId, alert);
   }
 
+  // Empty grid. Note the two very different reasons it can be empty — if the user simply put
+  // everything away, saying "no cartridges inserted" would be a lie, and (worse) this early
+  // return would render BEFORE the Hidden section, stranding them with no way to restore.
   if (onlineAgents.length === 0) {
+    const allHidden = dismissed.length > 0;
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-500">
         <div className="font-pixel text-2xl text-gl-purple/40 mb-6" style={{ imageRendering: 'pixelated' }}>
-          INSERT CARTRIDGE
+          {allHidden ? 'ALL PUT AWAY' : 'INSERT CARTRIDGE'}
         </div>
-        <h3 className="text-lg font-medium text-gray-400 mb-2">No cartridges inserted</h3>
-        <p className="text-sm text-center max-w-md text-gray-500">
-          Install the NeonCore hooks on your machines to connect Claude Code agents.
-          <br />
-          Run{' '}
-          <code className="text-gl-purple bg-white/[0.06] px-1.5 py-0.5 rounded text-xs font-mono">
-            ./agent/install.sh
-          </code>{' '}
-          to get started.
-        </p>
+
+        {allHidden ? (
+          <>
+            <h3 className="text-lg font-medium text-gray-400 mb-2">
+              {dismissed.length} cartridge{dismissed.length === 1 ? '' : 's'} hidden
+            </h3>
+            <p className="text-sm text-center max-w-md text-gray-500 mb-5">
+              They'll come back on their own the moment an agent does anything — or restore one
+              now.
+            </p>
+            <div className="w-full max-w-md space-y-1">
+              {dismissed.map((a) => {
+                const live = agentStatuses.get(a.id) ?? a.status;
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-3 px-3 py-2 rounded border border-white/[0.06] bg-white/[0.02]"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_CONFIG_DOT[live] ?? 'bg-gray-600'}`} />
+                    <span className="text-sm text-gray-300 font-mono truncate flex-1">
+                      {a.repoName || a.name}
+                    </span>
+                    {live !== 'offline' && (
+                      <span className="text-[10px] text-green-500/70 font-mono shrink-0">still {live}</span>
+                    )}
+                    <button
+                      onClick={() => onRestore(a.id)}
+                      className="text-[11px] text-gl-purple hover:text-white transition-colors shrink-0"
+                    >
+                      restore
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="text-lg font-medium text-gray-400 mb-2">No cartridges inserted</h3>
+            <p className="text-sm text-center max-w-md text-gray-500">
+              Install the NeonCore hooks on your machines to connect Claude Code agents.
+              <br />
+              Run{' '}
+              <code className="text-gl-purple bg-white/[0.06] px-1.5 py-0.5 rounded text-xs font-mono">
+                ./agent/install.sh
+              </code>{' '}
+              to get started.
+            </p>
+          </>
+        )}
       </div>
     );
   }
@@ -238,6 +294,7 @@ export function CartridgeGrid({
                 onSetMode={onSetMode}
                 onSendCommand={onSendCommand}
                 onDelete={onDelete}
+                onDismiss={onDismiss}
                 onDismissStuck={onDismissStuck}
                 onActivityClick={onActivityClick}
               />
@@ -256,6 +313,76 @@ export function CartridgeGrid({
           ))}
         </div>
       )}
+
+      {/* ── Hidden ─────────────────────────────────────────────────────────────
+          Cartridges you put away. Kept SEPARATE from offline on purpose: offline means
+          the session ended, hidden means you stopped looking at it — and a hidden agent
+          is frequently still running, which is why we show its live status here. */}
+      {dismissed.length > 0 && (
+        <div className="mt-8">
+          <button
+            onClick={() => setShowHidden((v) => !v)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors font-mono"
+          >
+            {showHidden ? '▾' : '▸'} Hidden ({dismissed.length})
+          </button>
+
+          {showHidden && (
+            <div className="mt-3 space-y-1">
+              {dismissed.map((a) => {
+                const live = agentStatuses.get(a.id) ?? a.status;
+                const stillRunning = live !== 'offline';
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-3 px-3 py-2 rounded border border-white/[0.06] bg-white/[0.02]"
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        STATUS_CONFIG_DOT[live] ?? 'bg-gray-600'
+                      }`}
+                    />
+                    <span className="text-sm text-gray-300 font-mono truncate flex-1">
+                      {a.repoName || a.name}
+                    </span>
+                    <span className="text-[11px] text-gray-500 font-mono shrink-0">
+                      {shortMachineName(a.machine)}
+                    </span>
+                    {/* The point of the separate column: this one is hidden AND alive. */}
+                    {stillRunning && (
+                      <span className="text-[10px] text-green-500/70 font-mono shrink-0">
+                        still {live}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => onRestore(a.id)}
+                      className="text-[11px] text-gl-purple hover:text-white transition-colors shrink-0"
+                      title="Bring this cartridge back to the grid"
+                    >
+                      restore
+                    </button>
+                  </div>
+                );
+              })}
+              <p className="text-[11px] text-gray-600 pt-1">
+                These come back on their own the moment the agent does anything, or when you
+                send it a command or start a workflow.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+const STATUS_CONFIG_DOT: Record<string, string> = {
+  working: 'bg-green-500',
+  waiting: 'bg-yellow-500',
+  idle: 'bg-gray-500',
+  offline: 'bg-red-500/60',
+};
+
+function shortMachineName(machine: string): string {
+  return machine.replace(/\.local$/, '');
 }

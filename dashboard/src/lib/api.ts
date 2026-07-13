@@ -23,6 +23,12 @@ export const api = {
   // Agents
   getAgents: () => request<import('../types').Agent[]>('/agents'),
   deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
+  // Put a cartridge away / bring it back. NOT a delete and NOT a status change — the
+  // session keeps running; this only controls whether you're looking at it.
+  dismissAgent: (id: string) =>
+    request<import('../types').Agent>(`/agents/${id}/dismiss`, { method: 'POST' }),
+  restoreAgent: (id: string) =>
+    request<import('../types').Agent>(`/agents/${id}/restore`, { method: 'POST' }),
   updateAgent: (id: string, data: Record<string, unknown>) =>
     request<import('../types').Agent>(`/agents/${id}`, {
       method: 'PATCH',

@@ -173,6 +173,19 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     setAgents((prev) => prev.filter((a) => a.id !== agentId));
   }, []);
 
+  // Dismiss/restore just flips dismissedAt. The server also emits agent_updated, but we
+  // patch locally so the card leaves the grid immediately rather than on the socket
+  // round-trip.
+  const dismissAgent = useCallback(async (agentId: string) => {
+    const updated = await api.dismissAgent(agentId);
+    setAgents((prev) => prev.map((a) => (a.id === agentId ? updated : a)));
+  }, []);
+
+  const restoreAgent = useCallback(async (agentId: string) => {
+    const updated = await api.restoreAgent(agentId);
+    setAgents((prev) => prev.map((a) => (a.id === agentId ? updated : a)));
+  }, []);
+
   const dismissStuckAlert = useCallback((agentId: string) => {
     setStuckAlerts((prev) => {
       const next = new Map(prev);
@@ -243,6 +256,8 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     setMode,
     sendCommand,
     deleteAgent,
+    dismissAgent,
+    restoreAgent,
     dismissStuckAlert,
     dismissWorkflowNotification,
     createTask,

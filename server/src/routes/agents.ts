@@ -26,6 +26,37 @@ router.post('/interrupted', (req, res) => {
 });
 
 /**
+ * Dismiss / restore — "I'm done with this one for now, put it away."
+ *
+ * This is a VIEW preference, not a lifecycle event: it does not touch `status`, does not
+ * end the session, and does not stop the agent. A dismissed cartridge is very often still
+ * running. It is hidden from the grid until either the user restores it, or the session
+ * does literally anything — see the `dismissed_at = NULL` in register() above.
+ *
+ * Keeping this out of `status` is deliberate. `status` conflating "quiet" with "hide it"
+ * is exactly what made live cartridges disappear from the grid mid-session.
+ */
+router.post('/:id/dismiss', (req, res) => {
+  const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'agent not found' });
+
+  db.prepare('UPDATE agents SET dismissed_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+  getIO().emit('agent_updated', normalizeAgent(updated));
+  res.json(normalizeAgent(updated));
+});
+
+router.post('/:id/restore', (req, res) => {
+  const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'agent not found' });
+
+  db.prepare('UPDATE agents SET dismissed_at = NULL WHERE id = ?').run(req.params.id);
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+  getIO().emit('agent_updated', normalizeAgent(updated));
+  res.json(normalizeAgent(updated));
+});
+
+/**
  * Claude Code's SessionEnd hook: the session is genuinely gone (quit, /clear,
  * logout). This is the ONLY honest death signal a hooks-only agent has — `Stop`
  * fires at the end of every assistant turn, so it can never mean "dead".
@@ -118,10 +149,14 @@ router.post('/register', (req, res) => {
     // (hooks default to 'claude' but shouldn't overwrite 'gridlight')
     const typeToSet = agentType ? resolvedType : (existing.agent_type as string) || resolvedType;
 
+    // Auto-revive: any hook firing means this session is in use again, so a cartridge the
+    // user put away comes straight back. Every tool call passes through register(), which
+    // makes this the one choke point that reliably means "this agent is being used".
+    // `dismissed_at = NULL` below is what does it.
     db.prepare(`
       UPDATE agents SET name = ?, machine = ?, repo_path = ?, repo_name = ?,
         branch = ?, current_task = ?, status = ?, pending_question = ?, last_seen = ?, session_id = ?,
-        agent_type = ?
+        agent_type = ?, dismissed_at = NULL
       WHERE id = ?
     `).run(
       name || existing.name, machine || existing.machine,
@@ -618,6 +653,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     sessionId: (row.session_id ?? row.sessionId ?? '') as string,
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
     pendingQuestion: (row.pending_question ?? '') as string,
+    dismissedAt: (row.dismissed_at ?? '') as string,
   };
 }
 

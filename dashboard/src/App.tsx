@@ -45,6 +45,8 @@ export default function App() {
     setMode,
     sendCommand,
     deleteAgent,
+    dismissAgent,
+    restoreAgent,
     dismissStuckAlert,
     dismissWorkflowNotification,
     tasks,
@@ -228,6 +230,8 @@ export default function App() {
             onSetMode={setMode}
             onSendCommand={sendCommand}
             onDelete={deleteAgent}
+            onDismiss={dismissAgent}
+            onRestore={restoreAgent}
             onDismissStuck={dismissStuckAlert}
             onActivityClick={setSelectedActivity}
             virtualCartridges={virtualCartridges}

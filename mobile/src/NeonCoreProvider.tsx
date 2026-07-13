@@ -12,6 +12,9 @@ interface NeonCoreValue {
   agents: Agent[];
   permissions: PermissionRequest[];
   refresh: () => Promise<void>;
+  /** Put a cartridge away / bring it back. Does NOT stop the agent — see api.dismissAgent. */
+  dismissAgent: (agentId: string) => Promise<void>;
+  restoreAgent: (agentId: string) => Promise<void>;
   /** Subscribe to live transcript events for one agent. Returns an unsubscribe fn. */
   onTranscript: (agentId: string, cb: TranscriptListener) => () => void;
 }
@@ -40,6 +43,26 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
     setAgents(a);
     setPermissions(p);
   }, [baseUrl]);
+
+  // Patch the agent locally as well as relying on the server's agent_updated broadcast, so
+  // the row leaves (or rejoins) the list immediately rather than after a socket round-trip.
+  const dismissAgent = useCallback(async (agentId: string) => {
+    setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, dismissedAt: new Date().toISOString() } : a)));
+    try {
+      await api.dismissAgent(baseUrl, agentId);
+    } catch {
+      refresh(); // put it back if the server disagreed
+    }
+  }, [baseUrl, refresh]);
+
+  const restoreAgent = useCallback(async (agentId: string) => {
+    setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, dismissedAt: '' } : a)));
+    try {
+      await api.restoreAgent(baseUrl, agentId);
+    } catch {
+      refresh();
+    }
+  }, [baseUrl, refresh]);
 
   const onTranscript = useCallback((agentId: string, cb: TranscriptListener) => {
     let set = listeners.current.get(agentId);
@@ -115,8 +138,8 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
   }, [baseUrl, refresh]);
 
   const value = useMemo<NeonCoreValue>(
-    () => ({ baseUrl, connected, agents, permissions, refresh, onTranscript }),
-    [baseUrl, connected, agents, permissions, refresh, onTranscript],
+    () => ({ baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent, onTranscript }),
+    [baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent, onTranscript],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
