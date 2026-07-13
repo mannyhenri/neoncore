@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { theme } from '../theme';
 import { ToolIcon, ResultIcon } from './Icons';
+import { Markdown } from './Markdown';
 import { parseBlocks, type TranscriptEvent } from '../types';
 
 /** Lines of a tool body shown before it is clamped. Tap the message to see it all. */
@@ -39,18 +40,20 @@ export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; e
       {blocks.map((b, i) => {
         switch (b.type) {
           case 'text':
+            // Agents write markdown. Rendering it raw meant you read the syntax
+            // (**bold**, backticks, fences) instead of the formatting.
             return (
-              <Text key={i} style={styles.text} selectable={expanded}>
+              <Markdown key={i} selectable={expanded}>
                 {(b as { text?: string }).text || ''}
-              </Text>
+              </Markdown>
             );
           case 'thinking':
             return (
-              <Text key={i} style={styles.thinking} selectable={expanded}>
+              <Markdown key={i} selectable={expanded} style={styles.thinking}>
                 {((b as { thinking?: string; text?: string }).thinking ||
                   (b as { text?: string }).text ||
                   '')}
-              </Text>
+              </Markdown>
             );
           case 'tool_use':
             return (
