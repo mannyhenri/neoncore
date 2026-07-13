@@ -4,200 +4,70 @@
 > "where we are right now." If its **Next step** looks stale, cross-check the
 > tail of `journal.md` (append-only) to see what actually happened last.
 
-- **Updated:** 2026-07-12
-- **Branch:** `feature/dual-runtime-parity-eval`
-- **Base:** `main`
+- **Updated:** 2026-07-13
+- **Branch:** `main` (feature branch merged + deleted; `dev` deleted — main is the default)
+- **Working tree:** clean, pushed
 
-## Goal
-ACTIVE THREAD: **NeonCore mobile companion (Expo app in `mobile/`)** — mirror the
-terminals and drive the orchestrator from a phone. Phase 2 (grid / detail /
-approvals) was built on 07-11 but had only ever been proven to *bundle*. This
-session ran it for real against a live server and extended it.
+## Where we are
+Mobile companion is **DONE and user-tested** (~2h of real device testing, 2026-07-13).
+The mobile thread is CLOSED unless bugs surface.
 
-## Done this session (2026-07-12)
-First real end-to-end run: iOS simulator (iPhone 16 Pro) + live NeonCore server
-on :4040. History loads, socket `transcript_event`s stream in, all screens render.
+**NEXT THREAD (user's words): test NeonCore driving *Gridlight* — their own AI —
+"to see how it breathes with our own ai." Nothing started yet. More detail coming
+from the user.**
 
-- API contract verified by curl against the live server: `/api/health`,
-  `/api/agents`, `/api/agents/:id/messages` (the Phase-2 endpoint), and
-  `/api/permissions/pending` all correct. `content` being a JSON *string* and the
-  message ordering both looked like bugs and are NOT — the route reverses to
-  chronological and `seq` restarts per session.
-- **Bug fixed:** `ConnectScreen.tsx:8` seeded the input *value* with the example IP
-  `http://192.168.1.50:4040`, so first launch always pre-filled an unreachable URL.
-  The correct `placeholder` was already there, dead. Now starts empty.
-- **Bug fixed:** detail header clamped the back button to 80px → "‹ Cartridges"
-  wrapped to two lines. Widened to 96px + `numberOfLines={1}`.
-- **Feature:** cartridge list shows **live agents only** (4 of 23 here; 19 offline),
-  with a "Show N offline" toggle.
-- **Feature:** **tap any message to expand it** — tool bodies were hard-clamped at 6
-  lines with no escape. Expanded = unclamped + selectable. Auto-scroll is gated on
-  new messages so expanding no longer yanks the list to the bottom.
-- **Feature:** **Workflows screen (⚡)** — lists the 20 templates, launches any with an
-  optional brief, shows active runs. Server already had the whole contract
-  (`GET /api/workflows?templates=true`, `POST /api/workflows/v2/:id/start` clones a
-  template into a run); this was purely the missing client.
-- EAS set up for physical-device builds: `expo-dev-client` + `eas.json`.
+## Shipped 2026-07-13
+### Apple / TestFlight — the actual blocker
+Build 4 was **rejected by Apple** (ITMS-90725: built with iOS 18.2 SDK, requires iOS 26).
+It never reached TestFlight — that's why it never appeared on the phone. NOT a
+tester/group problem. **The EAS build image follows the Expo SDK**: SDK 52 →
+`macos-sequoia-15.3-xcode-16.2`. No eas.json tweak fixes it (RN 0.76 can't compile
+against the iOS 26 SDK) — the SDK had to move.
+→ **Expo SDK 52 → 57** (React 19, RN 0.86, New Arch mandatory). Zero source changes.
+Build 5 (0.2.0) accepted, installed, working.
+**HABIT WORTH KEEPING:** before submitting, `unzip` the IPA and PlistBuddy
+`Payload/*.app/Info.plist` → check `DTSDKName` / `DTXcode`. Turns a 30-min round trip
+through Apple's email into a 5-second local check. That's how build 5 was verified.
 
-## Commits (branch feature/dual-runtime-parity-eval, NOT yet pushed)
-- `d253484` mobile: live-only cartridges, full-message expand, workflow launcher
-- `c5202a6` mobile: expo-dev-client + EAS config
-- (plus 6 older unpushed commits incl. the 07-11 mobile app + heartbeats)
+### Mobile OTA loop (works, use it)
+`cd mobile && npx eas-cli update --branch production --environment production`
+- ⚠️ `--environment` is REQUIRED in `--non-interactive` (undocumented).
+- ⚠️ `fallbackToCacheTimeout: 0` → **relaunch the app TWICE** (1st downloads, 2nd runs).
+- ⚠️ Native dep = new binary + Apple round trip. **Keep everything pure JS.** This is why
+  the markdown renderer was hand-written (`src/components/Markdown.tsx`) and why
+  `react-native-safe-area-context` was avoided.
+- ⚠️ RULE: bump `version` in app.json on any NATIVE change (runtimeVersion policy is
+  appVersion) or OTA ships incompatible JS to the old binary → crash.
 
-## Bug thread — "I can't answer questions on the phone" (FIXED, verified)
-Two independent bugs; the FIRST diagnosis was wrong and the user correctly pushed back.
+Shipped OTA: newest-first transcript, tab-bar/input-bar safe-area gap, keyboard covering
+the prompt input, markdown rendering. All user-verified on device.
+**Approvals scrolling was NOT broken** — simulated 7 pending approvals incl. a
+4-question AskUserQuestion; both intra-card and list scrolling work. No fix needed.
 
-1. **THE actual cause** (`8436e77`): `NeonCoreProvider` called `refresh()` only on
-   MOUNT. The socket `connect` handler just set `connected = true` and never
-   re-fetched. Socket events are fire-and-forget (no replay), so any question raised
-   while the phone was asleep/backgrounded was emitted into the void — on reconnect
-   the UI said "live" but `permissions` was the stale mount-time array, so Approvals
-   was EMPTY while the agent sat blocked. A phone drops its socket constantly, so
-   this fired nearly every time. Fixed: refresh() on every reconnect + on AppState
-   'active' + pull-to-refresh on Approvals.
-   VERIFIED by inserting a pending permission straight into the DB (no socket emit),
-   confirming the app stayed blind (no badge), then bouncing the server to force a
-   reconnect WITHOUT remounting → badge appeared, answered from phone, server stored
-   decision=allowed. (A fresh app launch proves nothing here — mount always refetched.)
+### Agent lifecycle — cartridges no longer vanish while in use
+Death is now **reported, not inferred from silence**:
+- NEW **`SessionEnd` hook** → `POST /api/agents/session-end`. (`Stop` fires every TURN —
+  it can never mean "dead". That's why a 5-min timeout was standing in for a death signal.)
+- socket disconnect / relay SIGTERM (already existed)
+- **24h zombie reaper** for sessions killed without firing any of the above.
+The 5-min idle→offline sweep is DELETED. Idle agents stay visible.
+Two things this surfaced, both fixed:
+1. `last_seen` was being CORRUPTED (the idle sweep overwrote it with now()).
+2. Recovery was COUPLED to `status='offline'` — stretching that to 24h would have blinded
+   crash recovery for a day. Now keys off activity staleness (`EXECUTOR_STALE_MS`).
+   **2 regression tests pin this.** 20/20 server tests pass.
 
-2. **Real but NOT the reported symptom** (`d313882`): the hook waits ~10 min
-   (POLL_TIMEOUT 120s x MAX_POLL_RETRIES 5) but the server expired pending permissions
-   at **2 min**, so minutes 2-10 the agent blocked on a question no client could see.
-   Raised server TTL to 15 min. Also `agents.pending_question` was never cleared →
-   stale "❓" forever; now cleared on decide + an invariant sweep on boot/every 2 min.
-   Also: questions are now answerable INLINE in the cartridge detail (PermissionCard
-   extracted out of ApprovalsScreen), not just in the Approvals tab.
+### The DHCP footgun (cost ~3 days of a Mac being silently offline)
+`NEONCORE_URL` is **baked as a literal string** into `~/.claude/settings.json` at install
+time and NEVER re-read. A DHCP lease change silently orphans an agent machine — no error
+on either side, the cartridge just stops appearing.
+→ Always install with `--server-url http://<hostname>:4040`, never a raw IP.
+Diagnose: `grep -o 'NEONCORE_URL=[^ ]*' ~/.claude/settings.json`
 
-DECISION: user chose to LEAVE the agent wait at ~10 min (not extend for async phone
-use). Server TTL 15 min correctly sits above it.
-
-## ⚠️ Build 4 was REJECTED BY APPLE (ITMS-90725) — SDK 57 upgrade in flight (2026-07-13)
-The submit worked; **Apple rejected the binary**. It never reached TestFlight, which is
-why it never appeared on the phone — no amount of tester/group config would have helped.
-
-> ITMS-90725: This app was built with the iOS 18.2 SDK. All iOS apps must be built with
-> the iOS 26 SDK or later (Xcode 26+) to be uploaded to App Store Connect.
-
-ROOT CAUSE: **the EAS build image follows the Expo SDK.** SDK 52's default image is
-`macos-sequoia-15.3-xcode-16.2` → Xcode 16.2 → iOS 18.2 SDK. No `eas.json` tweak can fix
-it: RN 0.76 does not compile against the iOS 26 SDK. The SDK itself had to move.
-
-FIX (`e00f353`): **Expo SDK 52 → 57** (default image `macos-tahoe-26.5-xcode-26.6`).
-- react 18.3→19.2, react-native 0.76.9→0.86.0 (**New Arch now mandatory**; svg /
-  async-storage / socket.io all had New-Arch-ready versions — nothing to port)
-- expo-* now **unified versioning** (all 57.x). typescript 5.6→6.0.
-- top-level `splash` key REMOVED in SDK 57 → moved to `expo-splash-screen` plugin
-- version 0.1.0 → **0.2.0** (runtimeVersion policy is appVersion; native change MUST
-  bump it). buildNumber auto-incremented to **5**.
-- Verified: `tsc --noEmit` clean, expo-doctor 20/20, iOS bundle exports (738 modules).
-- Deliberately did NOT pin `image` in eas.json — `auto` tracks the SDK, so a pin would
-  go stale the next time Apple raises the bar (the same trap that caused this).
-
-LESSON: "submitted successfully" ≠ "on TestFlight". EAS scheduling the submit only means
-Apple *received* it. Apple then validates the binary and can reject it by email. Always
-confirm the build reaches **Ready to Test** in App Store Connect.
-
-### Build 5 (0.2.0) — SUBMITTED 2026-07-13, awaiting Apple processing
-`eas submit` exit 0, non-interactive (ascAppId pin working — no 2FA).
-Build id `55d796b5`, submission `ac0a76b7-5d7d-4d03-a4bd-dbb17d2622b7`.
-**PROVED the fix from the artifact itself** (not from docs) — unzipped the IPA and read
-`Payload/NeonCore.app/Info.plist`:
-- `DTSDKName: iphoneos26.5` (was `iphoneos18.2`) ✅ satisfies ITMS-90725
-- `DTXcode: 2660` → Xcode 26.6 ✅
-- `ITSAppUsesNonExemptEncryption: false` ✅ (won't stall on Missing Compliance)
-This is the definitive check — those are the exact fields Apple's validator reads.
-TIP: `unzip` the IPA + PlistBuddy the Info.plist BEFORE submitting to catch this class
-of rejection in seconds instead of waiting on an Apple email.
-
-**STILL TO DO (nothing automates this):** Ready to Test ≠ on your phone. In ASC →
-TestFlight → Internal Testing: add yourself as a tester with the Apple ID **signed in to
-TestFlight on the phone** (often NOT the developer account email), then assign build 5 to
-that group. Internal testers need no Apple review.
-
-## TestFlight — build 4 (SUPERSEDED, rejected — see above)
-EAS: **gridlight / manny@gridlight.ai**. Project `@gridlight/neoncore-mobile`
-(projectId 58c8efd5-84b8-4476-8f92-fca6bf3bf691).
-**Build 4 submitted to TestFlight.** App Store Connect app id **6790428906**
-(bundle `ai.gridlight.neoncore`). ASC API key stored on EAS servers by the first
-interactive submit ([Expo] EAS Submit HFuZptwEYS / P37RNR78AB).
-
-`ascAppId` is now pinned in eas.json (`d21e74c`), so **build AND submit both run
-non-interactively from here — no more Apple 2FA gate.**
-
-### Update loop from now on
-- **JS/UI/logic (≈everything): `eas update --branch production` → ~30s**, no rebuild.
-- Native change (new module, SDK bump, app.json native keys): `eas build` + `eas submit`
-  (~20 min).
-- ⚠️ **RULE: bump `version` in app.json on any NATIVE change.** runtimeVersion policy is
-  `appVersion`, so skipping it lets `eas update` push JS needing native code the
-  installed binary lacks → crash on launch.
-
-### Build failures worth remembering
-- Build 3 died in CONFIGURE_EXPO_UPDATES: **`autoIncrement: true` is incompatible with
-  `runtimeVersion.policy: "fingerprint"`**. EAS bumps `ios.buildNumber` server-side
-  mid-build; buildNumber is an input to the fingerprint; local ≠ EAS fingerprint, always.
-  Proved it with @expo/fingerprint (changing buildNumber changes the hash). Fixed by
-  switching to the `appVersion` policy (`3ccb2f6`).
-- The app had **no icon at all** — ASC rejects builds without a 1024x1024 no-alpha icon.
-  Generated one (`8671d89`).
-- Simulator now needs `npx expo start --go --ios` — expo-dev-client otherwise targets a
-  dev build that isn't installed.
-
-## OTA update shipped 2026-07-13 (runtime 0.2.0) — UNVERIFIED ON DEVICE
-`eas update --branch production --environment production` → update group
-`30404d49`. Runtime 0.2.0 matches build 5, so the phone picks it up.
-⚠️ `--environment` is REQUIRED in --non-interactive mode (undocumented gotcha).
-⚠️ `fallbackToCacheTimeout: 0` → app launches from cache and downloads in the
-BACKGROUND, so you must **relaunch TWICE** to actually run a new bundle.
-
-Three fixes (`a56a695`), all pure JS (that's WHY they could go OTA — a native dep
-would have forced a whole new binary + Apple round trip):
-1. **Transcript is newest-first.** Latest at top, no scrolling. History reversed on
-   load, live events prepend. Auto-snap to top only if already near top.
-   (User explicitly chose this over inverted-chat; tradeoff accepted: a tool result
-   now renders ABOVE the call that produced it.)
-2. **Tab bar / input bar bottom gap.** RN's SafeAreaView reserves the home-indicator
-   inset and paints it the PAGE color, so the bars floated above a ~34px band. Fixed
-   with two stacked SafeAreaViews so the bottom strip takes the BAR color.
-   NOTE: `react-native-safe-area-context` is the correct tool but ships NATIVE code —
-   deliberately avoided to keep this OTA-able.
-3. **Keyboard covered the prompt input.** Real bug: KeyboardAvoidingView measures its
-   frame relative to its PARENT but compares against the keyboard's SCREEN coords.
-   Inside a SafeAreaView those differ by the top inset (~59px), so RN under-computed
-   the overlap and left the input buried. `keyboardVerticalOffset` was hardcoded 0;
-   now a zero-height probe measures the real screen offset and feeds it back.
-
-**STATUS: typecheck-clean, NOT device-verified.** Simulator run was cut short. Fix #3
-especially is a reasoned diagnosis, not an observed one. Confirm on the phone.
-
-## Second agent machine (Emmanuels-MacBook-Pro.local) — stale, needs re-bootstrap
-Its 3 agents last checked in 69h/145h/240h ago. NOT a live connection failure —
-nothing on that Mac is talking to the server at all.
-ROOT CAUSE: `NEONCORE_URL` defaults to `http://localhost:4040`, and `agent/install.py:152`
-**bakes the URL as a literal string** into `~/.claude/settings.json` at install time.
-It is never re-read, so a server IP change silently orphans the machine forever.
-FIX: fresh zip built at `dist/neoncore-agent-mac.zip` (`./scripts/package.sh`), then on
-that Mac re-run bootstrap against the **mDNS name, not the IP**:
-`NEONCORE_URL=http://Mannys-Mac-Pro.local:4040 ./bootstrap.sh --server-ip Mannys-Mac-Pro.local`
-**Use `Mannys-Mac-Pro.local`, never `192.168.4.24`** — the IP is a DHCP lease and will
-rot the hooks again. Verified `http://Mannys-Mac-Pro.local:4040/api/health` → ok.
-ALSO: hooks alone only write `last_seen` when a tool fires → an idle session drops to
-offline after 5 min. The **relay** holds the socket that keeps it green (and receives
-Send-command from the phone). Stale rows self-delete after 14 days offline.
-
-## Also outstanding
-- **iOS first launch shows a one-time "allow local network access" prompt — MUST be
-  accepted** or the app can't reach the server. Never appears in the simulator.
-- Untested because they mutate real agents: **Send command**, **mode toggle**, and
-  **RUN WORKFLOW** deliberately never fired against live cartridges. Test from the phone.
-- `local` remote (localhost:3000) may be offline; `github` is the real one.
-
-## Older thread (parked): crash-recovery subsystem
-Recovery P1 shipped + pushed (`516058c`, `dec3195`). Parked next steps:
-- P2: auto-recover Trust-mode agents in the reconciler + mass-crash throttle.
-- P3 (optional): native `claude --resume` fast-path.
-- Recovery was only unit-tested + typechecked; never verified against a live
-  interrupted run.
-
-## Open questions / blockers
-- Apple Developer membership required for the EAS device build (see Next step).
+## Outstanding (not blocking)
+- **Other Mac + Windows box need re-bootstrapping** from the fresh zips in `dist/`
+  (`./scripts/package.sh`). They carry BOTH the `SessionEnd` hook and the corrected URL.
+  Existing sessions keep old hooks — hooks load at session start.
+- **Never fired against live cartridges:** Send command, mode toggle, RUN WORKFLOW.
+- Parked: crash-recovery P2 (auto-recover Trust-mode agents in the reconciler + mass-crash
+  throttle). P1 shipped. Never verified against a live interrupted run.

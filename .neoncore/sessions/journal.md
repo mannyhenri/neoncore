@@ -371,3 +371,17 @@
 
 ### ⏱ 2026-07-13T19:40:06Z — heartbeat
 - branch `main` — working tree: clean
+
+## 2026-07-13 — session close: mobile DONE, merged to main
+- User tested on-device for ~2h. Mobile thread CLOSED. Approvals scrolling turned out NOT
+  to be broken — simulated 7 pending approvals (incl. a 4-question AskUserQuestion) and both
+  intra-card and list scrolling worked. Good thing we reproduced instead of "fixing" it.
+- Merged 118 commits to main (fast-forward), deleted the feature branch + the stale `dev`
+  remote (main is the default; dev's only unique content was package-lock churn — its real
+  fixes were already cherry-picked into main).
+- Docs rewritten: SessionEnd, the agent lifecycle (documented NOWHERE before, and the #1
+  source of "my cartridge vanished"), a single <SERVER> placeholder taking hostname OR IP,
+  and the mobile app (mobile/README.md existed but was ORPHANED — zero inbound links).
+  Deleted docs/mobile-app-research.md (pre-build proposal reading as current docs).
+- NEXT THREAD: user will test NeonCore driving **Gridlight** — their own AI — "to see how
+  it breathes with our own ai." Nothing started. Awaiting their detail.
