@@ -10,15 +10,30 @@ _(not active)_ have caveats called out inline.
 
 - **Cartridge grid** — every connected agent (a Claude Code / CLI session in a repo) shows up
   as a live card with status (working / waiting / idle / offline), an activity feed, token +
-  USD cost, and a command box. Filter by status; offline cards auto-hide.
+  USD cost, and a command box. Filter by status; offline cards are hidden from the grid.
 - **Machine+repo dedup** — multiple agents on the same `machine:repoPath` merge into one
   cartridge; sibling sessions are aggregated (activity, permissions, cost).
 - **Send a prompt/command** — type into a cartridge's box to inject a prompt into the live
   session (via the relay PTY, the VS Code extension, or macOS terminal typing).
 - **Focus** — bring the agent's VS Code/terminal window to the front _(macOS)_.
 - **Delete/remove** — tear down a cartridge and all its child data.
-- **Auto-reaping** — agents offline > 14 days are deleted; activity/commands/sessions/memory
-  are pruned on a 6-hour schedule.
+- **Agent lifecycle** — a cartridge leaves the grid when its session **actually ends**, not
+  when it goes quiet:
+
+  | Transition | Trigger | Note |
+  |---|---|---|
+  | `working → idle` | 2 min with no tool activity | Display only. **An idle cartridge stays visible.** |
+  | `→ offline` | `SessionEnd` hook (session exited) | The normal path. Requires the hook — re-run the installer on older machines. |
+  | `→ offline` | socket disconnect | Relay / VS Code extension. |
+  | `→ offline` | relay caught SIGTERM | Fast path; also flags interrupted workflow steps. |
+  | `→ offline` | **24h zombie reaper** | Backstop only, for sessions killed without firing any of the above (`kill -9`, terminal closed, laptop slept). |
+
+  Death is **reported, not inferred from silence**. Earlier versions guessed by timeout —
+  idle 5 minutes meant offline, and offline cards are hidden — so live sessions vanished
+  out of the grid while you were still sitting in them. That timeout is gone.
+- **Auto-reaping** — agents offline > 14 days are deleted outright; activity/commands/
+  sessions/memory are pruned on a 6-hour schedule. (Distinct from the 24h zombie reaper
+  above: that one *marks* a stranded agent offline, this one *deletes* long-dead rows.)
 
 ## Permission gating & autonomy modes
 
@@ -89,8 +104,10 @@ codex · cursor**.
 - **Command delivery** — Claude/Gridlight receive commands over the socket (relay/extension);
   Gemini/Codex/Amazon Q receive them by **typing into iTerm2/Terminal via AppleScript** _(macOS
   only)_.
-- The Claude hook installer (`agent/install.py`, used by `bootstrap.sh/.ps1`) wires 6 events:
-  `PreToolUse, PostToolUse, Stop, Notification, SubagentStop, UserPromptSubmit`.
+- The Claude hook installer (`agent/install.py`, used by `bootstrap.sh/.ps1`) wires 7 events:
+  `PreToolUse, PostToolUse, Stop, Notification, SubagentStop, UserPromptSubmit, SessionEnd`.
+  `SessionEnd` fires once when a session actually exits and is what marks the cartridge
+  offline. (`Stop` is **not** that signal — it fires at the end of every assistant turn.)
 
 ## MCP servers & tools
 

@@ -28,7 +28,7 @@ Ship it to TestFlight instead:
 
 ```bash
 npm i -g eas-cli
-eas login                            # manny@gridlight.com
+eas login                            # manny@gridlight.ai
 eas build -p ios --profile production   # ~15-20 min in the cloud
 eas submit -p ios --latest              # uploads to App Store Connect
 ```
@@ -91,14 +91,20 @@ npx expo start --go --ios    # --go is required: expo-dev-client otherwise targe
 
 | Screen | Backed by |
 |---|---|
-| **Cartridge grid** — live cartridges only (offline behind a toggle), status, last message / pending question, approvals badge | `GET /api/agents` + `agent_updated` socket |
+| **Cartridge grid** — live cartridges (offline behind a toggle), status, last message / pending question, approvals badge | `GET /api/agents` + `agent_updated` socket |
 | **Cartridge detail** — message stream (tap any message for the full, unclamped content), command box, manual/plan/trust toggle | `GET /api/agents/:id/messages`, `transcript_event`, `POST /api/commands/send`, `PUT /api/trust/:id/mode` |
 | **Approvals inbox** — allow/deny tool calls, approve plans, answer AskUserQuestion | `GET /api/permissions/pending`, `permission_requested`, `POST /api/permissions/decide` |
 | **Workflows** (⚡) — run any workflow template with an optional brief; shows active runs | `GET /api/workflows?templates=true`, `?runs=true`, `POST /api/workflows/v2/:id/start` |
 
-Messages render oldest → newest, newest at the bottom, auto-scrolling as they arrive —
-the same reading order as the terminal. Expanding a message does not steal your scroll
-position.
+Messages render **newest-first, at the top** — the latest message is the one you opened the
+screen to read, so it costs no scrolling. History is reversed on load and live events prepend.
+The list auto-snaps to the top for a new message only if you're already near the top; if
+you've scrolled back into history you are left where you are. Expanding a message does not
+steal your scroll position either.
+
+Message text is rendered as **markdown** (`src/components/Markdown.tsx` — hand-written, no
+dependency: `react-native-markdown-display` still uses `defaultProps` on function components,
+which React 19 removed, and any native dep would cost a rebuild instead of an OTA update).
 
 Live updates arrive over one Socket.io connection (`src/NeonCoreProvider.tsx`); REST calls
 live in `src/api.ts`. Types are ported from `server/src/types.ts` into `src/types.ts`.
@@ -109,8 +115,13 @@ live in `src/api.ts`. Types are ported from `server/src/types.ts` into `src/type
   server before any off-network (Tailscale/public) reach.
 - **Message history** relies on `GET /api/agents/:id/messages` (added in Phase 2). Live
   events (`transcript_event`) are merged on top, deduped by id.
-- **Navigation** is a lightweight state machine in `App.tsx` (no router dependency) — three
-  screens don't warrant one. Swap for Expo Router if the surface grows.
+- **Navigation** is a lightweight state machine in `App.tsx` (no router dependency) — five
+  screens (Connect, Cartridges, Detail, Approvals, Workflows) plus a tab bar. Swap for Expo
+  Router if the surface grows further.
+- **Safe area** is handled with two stacked `SafeAreaView`s so the bottom inset can be painted
+  the *bar* colour rather than the page colour — otherwise the tab bar and input bar float
+  above a band of background. `react-native-safe-area-context` is the tidier tool but ships
+  native code, which would break the OTA path.
 
 ## Not yet (Phase 3+)
 

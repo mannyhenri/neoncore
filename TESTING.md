@@ -48,7 +48,7 @@ TSTATE_DIR=$(python3 -c "import tempfile;print(tempfile.gettempdir())")   # wher
 **Goal:** every turn of a Claude Code session lands in the `messages` table with full content blocks + token usage, and streams over `transcript_event`.
 
 ### 1a. Live test (real session)
-1. Make sure the hooks are installed (`~/.claude/settings.json` has NeonCore entries for PreToolUse / PostToolUse / UserPromptSubmit / Stop / Notification / SubagentStop). If not: `cd agent && python3 install.py`.
+1. Make sure the hooks are installed (`~/.claude/settings.json` has NeonCore entries for PreToolUse / PostToolUse / UserPromptSubmit / Stop / Notification / SubagentStop / **SessionEnd**). If not: `cd agent && python3 install.py`.
 2. In any repo, run a normal Claude Code session — ask it to read a file and make an edit.
 3. Inspect what landed (run from `server/`):
 ```bash

@@ -67,7 +67,7 @@ git clone git@github.com:GRIDLIGHT-INC/neoncore.git
 cd neoncore
 
 # Install with the orchestrator's network URL (Mac/Linux/Windows)
-NEONCORE_URL=http://<server-ip>:4040 python3 agent/install.py
+NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
 ```
 
 > **Unattended machines:** by default a newly-discovered agent starts in **manual**
@@ -77,7 +77,7 @@ NEONCORE_URL=http://<server-ip>:4040 python3 agent/install.py
 > (auto-approve). You can still flip any agent back to manual from the dashboard.
 >
 > ```bash
-> NEONCORE_URL=http://<server-ip>:4040 NEONCORE_TRUST=1 python3 agent/install.py
+> NEONCORE_URL=http://<server>.local:4040 NEONCORE_TRUST=1 python3 agent/install.py
 > ```
 
 ### Option B: Copy just the agent folder
@@ -88,7 +88,7 @@ If you don't want the full repo on the remote machine, copy the `agent/` folder:
 scp -r agent/ user@remote-machine:~/neoncore-agent/
 
 # On the remote machine:
-NEONCORE_URL=http://<server-ip>:4040 python3 ~/neoncore-agent/install.py
+NEONCORE_URL=http://<server>.local:4040 python3 ~/neoncore-agent/install.py
 ```
 
 ### Verify hooks installed
@@ -99,7 +99,12 @@ Check that hooks were added to Claude Code's settings:
 cat ~/.claude/settings.json
 ```
 
-You should see entries for `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SubagentStop`, and `UserPromptSubmit`.
+You should see entries for `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SubagentStop`, `UserPromptSubmit`, and `SessionEnd`.
+
+> **`SessionEnd` is the one to check on an existing machine.** It was added later, and it is
+> what tells the server a session actually exited. Without it the cartridge never goes
+> offline on its own — it lingers until the 24-hour zombie reaper. If it's missing, re-run
+> the installer (below); hooks are read at session start, so restart Claude Code afterwards.
 
 ### Restart Claude Code
 
@@ -138,14 +143,14 @@ code --install-extension neoncore-extension-0.5.3.vsix
 
 In VS Code on the remote machine, open Settings and search for "NeonCore":
 
-- **Orchestrator URL**: Set to `http://<server-ip>:4040`
+- **Orchestrator URL**: Set to `http://<server>.local:4040`
 - **Auto Connect**: Leave enabled (default: true)
 
 Or edit VS Code's `settings.json` directly:
 
 ```json
 {
-  "neoncore.orchestratorUrl": "http://<server-ip>:4040",
+  "neoncore.orchestratorUrl": "http://<server>.local:4040",
   "neoncore.autoConnect": true
 }
 ```
@@ -167,7 +172,7 @@ terminal, so delivery is perfectly addressed.
 
 ```bash
 # In the repo you want to work in:
-NEONCORE_URL=http://<server-ip>:4040 node /path/to/neoncore/agent/relay/launch.js
+NEONCORE_URL=http://<server>.local:4040 node /path/to/neoncore/agent/relay/launch.js
 ```
 
 On first run it installs the relay's deps and (best-effort) the hooks, then
@@ -179,7 +184,7 @@ vars: [agent/relay/README.md](agent/relay/README.md).
 
 ## Step 4: Verify on the Dashboard
 
-Open the dashboard at `http://<server-ip>:4040` in your browser.
+Open the dashboard at `http://<server>.local:4040` in your browser.
 
 1. **Agent appears** — The remote machine's agent should show up with the repo name
 2. **Activity flows** — Start using Claude Code; tool calls and messages should appear in the activity feed
@@ -192,7 +197,7 @@ Open the dashboard at `http://<server-ip>:4040` in your browser.
 ### Agent doesn't appear on dashboard
 - Check that hooks are installed: `cat ~/.claude/settings.json`
 - Check the orchestrator URL in the hooks matches the server's network address
-- Make sure the server is reachable: `curl http://<server-ip>:4040/api/health`
+- Make sure the server is reachable: `curl http://<server>.local:4040/api/health`
 - Restart Claude Code after installing hooks
 
 ### Extension shows "Disconnected"
@@ -230,7 +235,7 @@ When NeonCore is updated, re-run these on each remote machine:
 
 ```bash
 # Re-install hooks (picks up new hook events)
-NEONCORE_URL=http://<server-ip>:4040 python3 agent/install.py
+NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
 
 # Re-build and re-install the extension
 npm run extension:package
