@@ -222,3 +222,14 @@
 
 ### ⏱ 2026-07-13T13:54:24Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
+
+## 2026-07-13 — Mobile app SHIPPED to TestFlight (build 4)
+- Build 4 submitted. ASC app id 6790428906. ascAppId pinned in eas.json → build AND
+  submit are now both non-interactive (the Apple 2FA gate was one-time only).
+- Build 3 failed first: autoIncrement is INCOMPATIBLE with runtimeVersion fingerprint
+  policy (EAS bumps ios.buildNumber server-side; buildNumber feeds the fingerprint, so
+  local≠EAS every time). Proved with @expo/fingerprint, then switched to appVersion policy.
+- Also fixed this session: no app icon existed at all (ASC rejects that); emoji icon set
+  replaced with SVG matching the dashboard's Heroicons-outline language (bell → inbox).
+- OTA (EAS Update) wired: JS changes now ship in ~30s via `eas update`, no rebuild.
+  RULE: bump `version` on native changes or OTA pushes incompatible JS → crash.

@@ -71,30 +71,41 @@ Two independent bugs; the FIRST diagnosis was wrong and the user correctly pushe
 DECISION: user chose to LEAVE the agent wait at ~10 min (not extend for async phone
 use). Server TTL 15 min correctly sits above it.
 
-## Next step — TestFlight (IN PROGRESS)
-EAS logged in as **gridlight / manny@gridlight.ai**. Project created + linked:
-`@gridlight/neoncore-mobile` (projectId 58c8efd5-84b8-4476-8f92-fca6bf3bf691,
-owner `gridlight` — stamped into app.json, commit `889aff5`).
+## TestFlight — SHIPPED (build 4)
+EAS: **gridlight / manny@gridlight.ai**. Project `@gridlight/neoncore-mobile`
+(projectId 58c8efd5-84b8-4476-8f92-fca6bf3bf691).
+**Build 4 submitted to TestFlight.** App Store Connect app id **6790428906**
+(bundle `ai.gridlight.neoncore`). ASC API key stored on EAS servers by the first
+interactive submit ([Expo] EAS Submit HFuZptwEYS / P37RNR78AB).
 
-Repo is TestFlight-ready (`8671d89`): app icon (was MISSING entirely — ASC rejects
-builds without a 1024x1024 no-alpha icon), splash, `ios.buildNumber`,
-`ITSAppUsesNonExemptEncryption: false`, EAS production profile + submit block.
+`ascAppId` is now pinned in eas.json (`d21e74c`), so **build AND submit both run
+non-interactively from here — no more Apple 2FA gate.**
 
-Remaining (INTERACTIVE — needs Apple ID + 2FA, user runs it):
-1. `cd mobile && npx eas-cli build -p ios --profile production`  ← user running now
-   (~15-20 min; registers the new bundle id `ai.gridlight.neoncore`)
-2. `npx eas-cli submit -p ios --latest`   (creates the ASC app record if absent)
-3. App Store Connect → TestFlight → Internal Testing (no App Review needed).
+### Update loop from now on
+- **JS/UI/logic (≈everything): `eas update --branch production` → ~30s**, no rebuild.
+- Native change (new module, SDK bump, app.json native keys): `eas build` + `eas submit`
+  (~20 min).
+- ⚠️ **RULE: bump `version` in app.json on any NATIVE change.** runtimeVersion policy is
+  `appVersion`, so skipping it lets `eas update` push JS needing native code the
+  installed binary lacks → crash on launch.
 
-Note: TestFlight = RELEASE build → no Metro hot-reload; rebuild to ship changes. Keep
-using the simulator for iteration. Phone must be on the same Wi-Fi as the server; iOS
-shows a one-time local-network prompt on first launch that MUST be accepted (this
-never appears in the simulator).
+### Build failures worth remembering
+- Build 3 died in CONFIGURE_EXPO_UPDATES: **`autoIncrement: true` is incompatible with
+  `runtimeVersion.policy: "fingerprint"`**. EAS bumps `ios.buildNumber` server-side
+  mid-build; buildNumber is an input to the fingerprint; local ≠ EAS fingerprint, always.
+  Proved it with @expo/fingerprint (changing buildNumber changes the hash). Fixed by
+  switching to the `appVersion` policy (`3ccb2f6`).
+- The app had **no icon at all** — ASC rejects builds without a 1024x1024 no-alpha icon.
+  Generated one (`8671d89`).
+- Simulator now needs `npx expo start --go --ios` — expo-dev-client otherwise targets a
+  dev build that isn't installed.
 
 ## Also outstanding
-- Untested because it mutates real agents: **Send command**, **mode toggle**, and
-  **RUN WORKFLOW** deliberately never fired against live cartridges.
-- `git push` — 14 unpushed commits (remote is named `github`, not `origin`).
+- **iOS first launch shows a one-time "allow local network access" prompt — MUST be
+  accepted** or the app can't reach the server. Never appears in the simulator.
+- Untested because they mutate real agents: **Send command**, **mode toggle**, and
+  **RUN WORKFLOW** deliberately never fired against live cartridges. Test from the phone.
+- `local` remote (localhost:3000) may be offline; `github` is the real one.
 
 ## Older thread (parked): crash-recovery subsystem
 Recovery P1 shipped + pushed (`516058c`, `dec3195`). Parked next steps:
