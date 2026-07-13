@@ -280,3 +280,14 @@
 
 ### ⏱ 2026-07-13T15:43:32Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
+
+### 2026-07-13 — build 5 (0.2.0) submitted to Apple
+- `eas submit` exit 0, fully non-interactive. Submission ac0a76b7. Awaiting Apple processing.
+- Verified the ITMS-90725 fix FROM THE IPA, not the docs: unzipped it and read
+  Info.plist → `DTSDKName: iphoneos26.5`, `DTXcode: 2660` (Xcode 26.6). Those are the
+  exact fields Apple's validator reads. Build 4 had `iphoneos18.2`.
+- NEW HABIT: unzip the IPA + PlistBuddy Info.plist before submitting. Turns a 30-min
+  round trip through Apple's email into a 5-second local check.
+- Note: piping `eas submit` through `tee|tail` hides progress — the CLI spinner uses
+  carriage returns and only renders on a TTY. The process staying alive IS the signal
+  (the CLI exits only on a terminal submission state).
