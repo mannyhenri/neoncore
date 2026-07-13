@@ -26,6 +26,29 @@ router.post('/interrupted', (req, res) => {
 });
 
 /**
+ * Claude Code's SessionEnd hook: the session is genuinely gone (quit, /clear,
+ * logout). This is the ONLY honest death signal a hooks-only agent has — `Stop`
+ * fires at the end of every assistant turn, so it can never mean "dead".
+ *
+ * Having it is what lets us delete the old 5-minute idle→offline timer, which
+ * was a crude proxy for death and made cartridges vanish out of the grid while
+ * the session was still sitting right there, open.
+ */
+router.post('/session-end', (req, res) => {
+  const { agentId, machine, repoPath, sessionId, reason } = req.body || {};
+  const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId });
+  if (!resolved) return res.status(404).json({ error: 'agent not found' });
+
+  endSession(resolved);
+  db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(resolved);
+  const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(resolved) as Record<string, unknown>;
+  if (row) getIO().emit('agent_updated', normalizeAgent(row));
+
+  console.log(`[session-end] Agent ${resolved} offline (reason: ${reason || 'unspecified'})`);
+  res.json({ agentId: resolved, reason: reason ?? '' });
+});
+
+/**
  * Normalize a repo path for cross-platform matching.
  * Handles Windows backslashes vs POSIX forward slashes and drive-letter formats:
  *   c:\Users\Manny\repo  →  /c/users/manny/repo

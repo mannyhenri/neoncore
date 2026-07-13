@@ -24,6 +24,16 @@ import type { Database } from 'better-sqlite3';
 
 export const DEFAULT_GRACE_MS = 90_000;
 export const DEFAULT_MAX_ATTEMPTS = 3;
+
+/**
+ * How long an executor can go silent before recovery treats it as dead.
+ *
+ * This is deliberately decoupled from the agent's user-facing `offline` flag. An agent
+ * that goes quiet stays VISIBLE in the grid (it may just be idle), but a workflow step
+ * whose executor has produced nothing for this long is stranded and must be reconciled.
+ * Matches the 5 minutes that the old idle→offline sweep used to give us for free.
+ */
+export const EXECUTOR_STALE_MS = 5 * 60 * 1000;
 const VERBATIM_TURNS = 10;
 const MAX_CONTEXT_CHARS = 12_000;
 
@@ -147,10 +157,22 @@ export function detectInterruptedSteps(
 
   const marked: string[] = [];
   for (const r of rows) {
-    const agent = database.prepare('SELECT status FROM agents WHERE id = ?')
-      .get(r.executor_id) as { status?: string } | undefined;
-    const offline = !agent || agent.status === 'offline';
-    if (!offline) continue;               // agent still alive/working
+    const agent = database.prepare('SELECT status, last_seen FROM agents WHERE id = ?')
+      .get(r.executor_id) as { status?: string; last_seen?: string } | undefined;
+
+    // Recovery must NOT key off `status === 'offline'` alone. The user-facing offline
+    // flag is now only set by a real death signal (SessionEnd / socket drop / 24h zombie
+    // reap), because agents that merely go quiet must stay visible in the grid. A crashed
+    // executor fires none of those, so waiting for the flag would blind recovery for a
+    // full day. Judge death here on ACTIVITY staleness instead — that's what "this step's
+    // executor stopped executing" actually means.
+    const lastSeenAge = agent?.last_seen ? opts.now - Date.parse(agent.last_seen) : Infinity;
+    const dead =
+      !agent ||
+      agent.status === 'offline' ||
+      (Number.isFinite(lastSeenAge) && lastSeenAge > EXECUTOR_STALE_MS);
+
+    if (!dead) continue;                       // agent still alive/working
     if (opts.isAlive(r.executor_id)) continue; // live socket → not actually dead
     if (r.started_at) {
       const age = opts.now - Date.parse(r.started_at);

@@ -110,9 +110,21 @@ initWebSocket(server);
 import db from './db.js';
 import { getIO as getSocketIO, hasActiveSocket } from './ws.js';
 
-// Staleness check: working → idle after 2min, idle → offline after 5min
+// working → idle after 2min of no tool activity. This is a *display* state, not a
+// death sentence — an idle agent stays visible in the grid.
 const IDLE_THRESHOLD_MS = 2 * 60 * 1000;
-const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
+
+// An agent going quiet does NOT mean it died. Death is reported, not inferred:
+//   - SessionEnd hook  → POST /api/agents/session-end (the honest signal)
+//   - socket disconnect → markAgentOffline (relay / VS Code extension)
+//   - relay SIGTERM    → POST /api/agents/interrupted
+// This timer only reaps ZOMBIES — sessions killed in a way that fires none of the
+// above (kill -9, terminal window closed, laptop slept). At 24h it can only ever
+// catch the genuinely dead, never someone who stepped away for coffee.
+//
+// It used to be 5 minutes, which is why cartridges vanished out of the grid while
+// their session was still sitting open in a terminal.
+const ZOMBIE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 function emitAgentUpdate(row: Record<string, unknown>) {
   const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
@@ -139,31 +151,36 @@ function emitAgentUpdate(row: Record<string, unknown>) {
 setInterval(() => {
   const now = new Date().toISOString();
 
-  // working → idle after 2 minutes of no activity
+  // working → idle after 2 minutes of no activity.
+  // NB: do NOT touch last_seen here. It means "when did this agent last actually do
+  // something", and the old code overwrote it with now() on this transition — which
+  // destroyed the real timestamp (the UI's "last seen" was really "when we noticed it
+  // went quiet") and restarted every staleness clock that reads it.
   const idleCutoff = new Date(Date.now() - IDLE_THRESHOLD_MS).toISOString();
   const staleWorking = db.prepare(
     "SELECT id FROM agents WHERE status = 'working' AND last_seen < ?"
   ).all(idleCutoff) as { id: string }[];
 
   for (const { id } of staleWorking) {
-    db.prepare("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?").run(now, id);
+    db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(id);
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
     if (row) emitAgentUpdate(row);
   }
 
-  // idle/waiting → offline after 5 minutes (only if no active extension socket)
-  const offlineCutoff = new Date(Date.now() - OFFLINE_THRESHOLD_MS).toISOString();
-  const staleIdle = db.prepare(
-    "SELECT id FROM agents WHERE status IN ('idle', 'waiting') AND last_seen < ?"
-  ).all(offlineCutoff) as { id: string }[];
+  // Zombie reaper — see ZOMBIE_THRESHOLD_MS. Sessions that died without firing any of
+  // the real death signals would otherwise sit in the grid forever.
+  const zombieCutoff = new Date(Date.now() - ZOMBIE_THRESHOLD_MS).toISOString();
+  const zombies = db.prepare(
+    "SELECT id FROM agents WHERE status IN ('idle', 'waiting', 'working') AND last_seen < ?"
+  ).all(zombieCutoff) as { id: string }[];
 
-  for (const { id } of staleIdle) {
-    if (hasActiveSocket(id)) continue; // extension still connected — skip
+  for (const { id } of zombies) {
+    if (hasActiveSocket(id)) continue; // still connected — demonstrably not dead
     endSession(id);
     db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(id);
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
     if (row) emitAgentUpdate(row);
-    console.log(`[stale] Agent ${id} marked offline (no activity for 5min, no active socket)`);
+    console.log(`[zombie] Agent ${id} reaped (no activity for 24h, no socket, no SessionEnd)`);
   }
 
   // Recovery backstop: now that offline agents are marked, flag any running
