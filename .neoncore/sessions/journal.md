@@ -406,3 +406,18 @@
 
 ### ⏱ 2026-07-13T21:02:14Z — heartbeat
 - branch `main` — working tree: clean
+
+## 2026-07-13 — dismiss a cartridge (swipe / ✕), shipped + device-verified
+- New `agents.dismissed_at` column — deliberately NOT a status value. status = liveness,
+  dismissed = view preference; a hidden cartridge is often still `working`. Conflating them
+  is the exact bug that made live cartridges vanish this morning.
+- Auto-revive on any hook activity (register()) or any command you send (sendCommandToAgent).
+- Web ✕ previously ran a cascading DELETE with no confirm, right where users expect "close".
+  Now ✕ = dismiss, trash icon + confirm = delete.
+- Mobile swipe silently did nothing at first: the card is a TouchableOpacity and grabs the
+  responder on touch-down, so a bubbling-phase PanResponder is never consulted. Fixed with
+  onMoveShouldSetPanResponderCapture. Pure JS (PanResponder/Animated), so still OTA-able.
+- TRICK: dismissed a throwaway agent server-side to prove whether the phone had the new
+  bundle at all ("Show N put away" only exists in the new code) — separated "OTA didn't
+  land" from "gesture broken" in one step instead of guessing.
+- Note: user's `luna` cartridge is currently dismissed from testing; it self-revives on activity.
