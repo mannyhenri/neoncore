@@ -18,8 +18,13 @@ server management, and canvas workflows.
 
 - **Cartridge grid** — every connected agent (a Claude Code session in a repo)
   shows up as a live "cartridge" with status, activity feed, and a command box.
+  A cartridge leaves the grid when its session actually **ends** — going quiet doesn't
+  remove it. See [Agent lifecycle](FEATURES.md#cartridges-connected-agents).
+- **Mobile app (iOS)** — the same cartridges on your phone: read transcripts, answer
+  approvals, launch workflows, send prompts. LAN-only. See [mobile/README.md](mobile/README.md).
 - **Permission gating** — `PreToolUse` hooks pause risky tool calls until you
-  approve them on the dashboard, or run an agent in **trust mode** to auto-approve.
+  approve them on the dashboard, **or from your phone**, or run an agent in
+  **trust mode** to auto-approve.
 - **Task queue** — queue work for agents, pin it to a project/cartridge, dispatch
   it straight into a terminal, and track it to completion. See [docs/TASKS.md](docs/TASKS.md).
 - **Goals & cost** — group projects under goals, set a budget, and watch real USD
@@ -51,9 +56,14 @@ npm run build      # builds the dashboard into server/public/
 npm start          # serves dashboard + API on http://localhost:4040
 ```
 
-Open **http://localhost:4040**. The server also listens on `0.0.0.0`, so it prints
-a **Network URL** (e.g. `http://192.168.1.50:4040`) that other machines on your LAN
-can connect to.
+Open **http://localhost:4040**. The server also listens on `0.0.0.0`, so other machines
+on your LAN can reach it too.
+
+> **Give agent machines and your phone the server's `.local` hostname, not its LAN IP.**
+> Run `hostname` on the server — `http://Studio.local:4040` works anywhere on the LAN.
+> The IP is a DHCP lease, and agent installers bake the URL into `~/.claude/settings.json`
+> permanently, so when the lease changes that machine silently stops reporting, with no
+> error on either side.
 
 > **Distributing to a team?** Build the packages with `./scripts/package.sh` (creates
 > `neoncore-full.zip` plus per-OS agent zips in `dist/`). Full guide: **[INSTALL.md](INSTALL.md)**.
@@ -93,7 +103,7 @@ Or wire it up by hand in a repo:
 
 ```bash
 # point at your server (omit for localhost:4040)
-NEONCORE_URL=http://<server-ip>:4040 python3 agent/install.py
+NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
 node agent/relay/launch.js          # launches Claude Code, bridged to the dashboard
 ```
 
@@ -109,11 +119,12 @@ scripts/package.sh         Builds the distributable zips into dist/
 server/        Express + better-sqlite3 API and Socket.io (port 4040)
 dashboard/     React + Tailwind dashboard (Vite, built into server/public/)
 agent/
-  hooks/       Claude Code hook scripts (activity, permissions, messages)
+  hooks/       Claude Code hook scripts (activity, permissions, messages, session lifecycle)
   relay/       Standalone PTY relay — the "Gridlight terminal" CLI
   install.py   Cross-platform hook installer  (install.sh = bash legacy)
   bootstrap.sh/.ps1   One-shot agent setup (hooks + relay + launch)
 extension/     VS Code extension (optional command channel)
+mobile/        iOS app (Expo) — cartridges, transcripts, approvals, workflows
 docs/          TASKS.md, GOALS.md, design notes
 ```
 
@@ -122,6 +133,7 @@ docs/          TASKS.md, GOALS.md, design notes
 - [FEATURES.md](FEATURES.md) — complete map of what NeonCore does
 - [INSTALL.md](INSTALL.md) — install & distribute (full server + per-OS agent packages)
 - [SETUP.md](SETUP.md) — connect machines (hooks, extension, relay, trust mode)
+- [mobile/README.md](mobile/README.md) — the iOS app (TestFlight, builds, OTA updates)
 - [docs/TASKS.md](docs/TASKS.md) — the agent task queue
 - [docs/GOALS.md](docs/GOALS.md) — goals, projects, and cost tracking
 - [WORKFLOWS.md](WORKFLOWS.md) — canvas workflow reference
