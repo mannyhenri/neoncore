@@ -2,13 +2,16 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { theme } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
+import { CartridgesIcon, WorkflowsIcon, ApprovalsIcon } from './Icons';
 
 export type TabName = 'list' | 'workflows' | 'approvals';
 
-const TABS: { name: TabName; icon: string; label: string }[] = [
-  { name: 'list', icon: '▣', label: 'Cartridges' },
-  { name: 'workflows', icon: '⚡', label: 'Workflows' },
-  { name: 'approvals', icon: '🔔', label: 'Approvals' },
+type IconCmp = (p: { size?: number; color?: string; strokeWidth?: number }) => React.JSX.Element;
+
+const TABS: { name: TabName; Icon: IconCmp; label: string }[] = [
+  { name: 'list', Icon: CartridgesIcon, label: 'Cartridges' },
+  { name: 'workflows', Icon: WorkflowsIcon, label: 'Workflows' },
+  { name: 'approvals', Icon: ApprovalsIcon, label: 'Approvals' },
 ];
 
 /**
@@ -29,10 +32,11 @@ export function TabBar({
       {TABS.map((t) => {
         const on = t.name === active;
         const badge = t.name === 'approvals' ? permissions.length : 0;
+        const { Icon } = t;
         return (
           <TouchableOpacity key={t.name} style={styles.tab} onPress={() => onSelect(t.name)}>
             <View>
-              <Text style={[styles.icon, on && styles.iconActive]}>{t.icon}</Text>
+              <Icon size={22} color={on ? theme.accent : theme.textFaint} strokeWidth={on ? 2 : 1.5} />
               {badge > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{badge}</Text>
@@ -57,8 +61,6 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   tab: { flex: 1, alignItems: 'center', gap: 3 },
-  icon: { fontSize: 18, color: theme.textFaint },
-  iconActive: { color: theme.accent },
   label: { fontSize: 11, color: theme.textFaint, fontWeight: '600' },
   labelActive: { color: theme.accent },
   badge: {

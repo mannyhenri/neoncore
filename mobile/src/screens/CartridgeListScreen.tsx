@@ -3,6 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } fr
 import { theme, statusColor, statusLabel, type AgentStatus } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import type { Agent } from '../types';
+import { QuestionIcon } from '../components/Icons';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
   const { agents, connected, refresh } = useNeonCore();
@@ -82,9 +83,12 @@ function CartridgeCard({ agent, onPress }: { agent: Agent; onPress: () => void }
         {agent.machine} · {agent.branch || 'no branch'} · {agent.mode}
       </Text>
       {hasQuestion ? (
-        <Text style={styles.question} numberOfLines={2}>
-          ❓ {agent.pendingQuestion}
-        </Text>
+        <View style={styles.questionRow}>
+          <QuestionIcon size={15} color={theme.amber} strokeWidth={2} />
+          <Text style={styles.question} numberOfLines={2}>
+            {agent.pendingQuestion}
+          </Text>
+        </View>
       ) : (
         <Text style={styles.last} numberOfLines={2}>
           {agent.lastMessage || '—'}
@@ -108,21 +112,6 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   conn: { color: theme.textDim, fontSize: 12, marginRight: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  bell: { padding: 6 },
-  bellIcon: { fontSize: 20 },
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: theme.pink,
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   card: {
     backgroundColor: theme.bgCard,
     borderWidth: 1,
@@ -138,7 +127,8 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   meta: { color: theme.textFaint, fontSize: 12, marginTop: 6 },
   last: { color: theme.textDim, fontSize: 13, marginTop: 8, lineHeight: 18 },
-  question: { color: theme.amber, fontSize: 13, marginTop: 8, lineHeight: 18, fontWeight: '600' },
+  questionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8 },
+  question: { color: theme.amber, fontSize: 13, lineHeight: 18, fontWeight: '600', flex: 1 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 80, lineHeight: 22 },
   toggle: { alignItems: 'center', paddingVertical: 16 },
   toggleText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
