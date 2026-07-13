@@ -60,10 +60,14 @@ export const api = {
   listWorkflowRuns: (base: string) => req<Workflow[]>(base, '/api/workflows?runs=true'),
 
   // Starting a template clones it into a fresh run and kicks it off.
-  startWorkflow: (base: string, id: string, initialContext?: string) =>
+  //
+  // `agentId` is REQUIRED in practice: template steps ship with executor `__deferred__`
+  // ("ask at launch"). Without it those steps have no cartridge and the run used to hang
+  // silently at step 1 forever. The server now fills every unassigned step with this one.
+  startWorkflow: (base: string, id: string, agentId: string, initialContext?: string) =>
     req<{ id?: string }>(base, `/api/workflows/v2/${id}/start`, {
       method: 'POST',
-      body: JSON.stringify(initialContext ? { initialContext } : {}),
+      body: JSON.stringify({ agentId, ...(initialContext ? { initialContext } : {}) }),
     }),
 
   // decision: 'allowed' | 'denied'. `response` carries AskUserQuestion answers

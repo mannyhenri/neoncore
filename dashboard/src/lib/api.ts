@@ -353,10 +353,13 @@ export const api = {
     }),
   deleteWorkflowStep: (workflowId: string, stepId: string) =>
     request<void>(`/workflows/v2/${workflowId}/steps/${stepId}`, { method: 'DELETE' }),
-  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null) =>
+  // `agentId` is the run-level cartridge: it fills every step that hasn't got one, so you
+  // pick once instead of naming a cartridge for each step. `agentOverrides` still wins
+  // per-step, for the genuine cross-cartridge case.
+  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null, agentId?: string) =>
     request<{ workflow: import('../types').Workflow; steps: import('../types').WorkflowStep[] }>(`/workflows/v2/${workflowId}/start`, {
       method: 'POST',
-      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId }),
+      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId, agentId }),
     }),
   completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
     request<import('../types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {

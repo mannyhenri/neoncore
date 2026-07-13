@@ -20,7 +20,12 @@ const runColor: Record<string, string> = {
 };
 
 export function WorkflowsScreen() {
-  const { baseUrl } = useNeonCore();
+  const { baseUrl, agents } = useNeonCore();
+
+  // Only cartridges that can actually execute. Offering a dead one would just hand the user
+  // a run that fails at step 1. Hidden ones are fine — running a workflow on a dismissed
+  // cartridge un-hides it anyway.
+  const liveAgents = agents.filter((a) => a.status !== 'offline');
 
   const [templates, setTemplates] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<Workflow[]>([]);
@@ -33,6 +38,9 @@ export function WorkflowsScreen() {
   const [selected, setSelected] = useState<Workflow | null>(null);
   const [context, setContext] = useState('');
   const [starting, setStarting] = useState(false);
+  // Which cartridge the workflow runs on. Template steps ship as `__deferred__` ("ask at
+  // launch"), so without this every mobile-launched run hung silently at step 1.
+  const [agentId, setAgentId] = useState('');
 
   const load = useCallback(async () => {
     const [t, r] = await Promise.all([
@@ -61,12 +69,17 @@ export function WorkflowsScreen() {
 
   const start = async () => {
     if (!selected) return;
+    if (!agentId) {
+      flash('Pick a cartridge to run this on.');
+      return;
+    }
     setStarting(true);
     try {
-      await api.startWorkflow(baseUrl, selected.id, context.trim() || undefined);
+      await api.startWorkflow(baseUrl, selected.id, agentId, context.trim() || undefined);
       flash(`Started "${selected.name}"`);
       setSelected(null);
       setContext('');
+      setAgentId('');
       await load();
     } catch (e) {
       flash(`Start failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -105,6 +118,31 @@ export function WorkflowsScreen() {
             <Text style={styles.sheetDesc}>{selected.description}</Text>
           ) : null}
 
+          <Text style={styles.label}>RUN ON</Text>
+          {liveAgents.length === 0 ? (
+            <Text style={styles.noAgents}>
+              No live cartridges. Start an agent first — a workflow needs one to run on.
+            </Text>
+          ) : (
+            <View style={styles.agentWrap}>
+              {liveAgents.map((a) => {
+                const on = a.id === agentId;
+                return (
+                  <TouchableOpacity
+                    key={a.id}
+                    style={[styles.agentChip, on && styles.agentChipOn]}
+                    onPress={() => setAgentId(a.id)}
+                  >
+                    <Text style={[styles.agentChipText, on && styles.agentChipTextOn]} numberOfLines={1}>
+                      {a.repoName || a.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+          <Text style={styles.hint}>Every step of the workflow runs on this cartridge.</Text>
+
           <Text style={styles.label}>BRIEF (optional)</Text>
           <TextInput
             value={context}
@@ -116,7 +154,11 @@ export function WorkflowsScreen() {
           />
           <Text style={styles.hint}>Passed to the workflow as its initial context.</Text>
 
-          <TouchableOpacity style={styles.runBtn} onPress={start} disabled={starting}>
+          <TouchableOpacity
+            style={[styles.runBtn, (!agentId || starting) && styles.runBtnOff]}
+            onPress={start}
+            disabled={starting || !agentId}
+          >
             {starting ? (
               <ActivityIndicator color="#0d0f12" />
             ) : (
@@ -191,6 +233,16 @@ function Header() {
 }
 
 const styles = StyleSheet.create({
+  agentWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  agentChip: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.border,
+  },
+  agentChipOn: { borderColor: theme.accent, backgroundColor: theme.bgCard },
+  agentChipText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
+  agentChipTextOn: { color: theme.accentSoft },
+  noAgents: { color: theme.amber, fontSize: 13, marginBottom: 4 },
+  runBtnOff: { opacity: 0.4 },
   root: { flex: 1, backgroundColor: theme.bg },
   // Top-level tab screen: big title, matching the Cartridges list.
   tabHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
