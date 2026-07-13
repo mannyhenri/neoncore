@@ -59,11 +59,26 @@ npm start          # serves dashboard + API on http://localhost:4040
 Open **http://localhost:4040**. The server also listens on `0.0.0.0`, so other machines
 on your LAN can reach it too.
 
-> **Give agent machines and your phone the server's `.local` hostname, not its LAN IP.**
-> Run `hostname` on the server — `http://Studio.local:4040` works anywhere on the LAN.
-> The IP is a DHCP lease, and agent installers bake the URL into `~/.claude/settings.json`
-> permanently, so when the lease changes that machine silently stops reporting, with no
-> error on either side.
+### `<SERVER>` — the address agent machines and your phone connect to
+
+Everywhere the docs say `http://<SERVER>:4040`, substitute **either** your server's
+hostname **or** its IP — whichever works on your network:
+
+| `<SERVER>` | Get it | Notes |
+|---|---|---|
+| **Hostname** — `studio.local`, `desktop-abc` | run `hostname` on the server | **Preferred.** Survives DHCP changes. `.local` (mDNS) is automatic on macOS; usually fine on Windows/Linux. |
+| **IP** — `192.168.4.24` | `ipconfig getifaddr en0` (Mac) · `ipconfig` (Windows) · `hostname -I` (Linux) | Use if mDNS is blocked on your network. **Set a DHCP reservation** on your router, or it will change. |
+
+Whichever you pick, confirm it answers *from the other machine* before installing anything:
+
+```bash
+curl http://<SERVER>:4040/api/health     # → {"status":"ok"}
+```
+
+> **Why this matters:** the agent installer **bakes this URL as a literal string** into
+> `~/.claude/settings.json` and never re-reads it. If the address later changes, every hook
+> POST from that machine silently goes nowhere — the cartridge just stops appearing, with no
+> error on either side. A hostname (or a reserved IP) avoids this entirely.
 
 > **Distributing to a team?** Build the packages with `./scripts/package.sh` (creates
 > `neoncore-full.zip` plus per-OS agent zips in `dist/`). Full guide: **[INSTALL.md](INSTALL.md)**.
@@ -103,7 +118,7 @@ Or wire it up by hand in a repo:
 
 ```bash
 # point at your server (omit for localhost:4040)
-NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
+NEONCORE_URL=http://<SERVER>:4040 python3 agent/install.py
 node agent/relay/launch.js          # launches Claude Code, bridged to the dashboard
 ```
 

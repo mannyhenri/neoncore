@@ -43,16 +43,30 @@ The installer checks Node, runs `npm install`, `npm run build`, and offers to st
 - **Local:** `http://localhost:4040` — open this in your browser for the dashboard.
 - **Network:** `http://<lan-ip>:4040` — reachable from other machines on the LAN.
 
-> **Give agent machines and your phone the server's `.local` hostname, not that LAN IP.**
-> Run `hostname` on the server: you'll get something like `Studio.local`, and
-> `http://Studio.local:4040` works anywhere on the LAN via mDNS.
->
-> The IP is a DHCP lease. Agent installers **bake the URL as a literal string** into
-> `~/.claude/settings.json` and never re-read it, so when the lease changes, every hook POST
-> from that machine silently goes nowhere — the cartridge just stops appearing, with no error
-> on either side. The `.local` name follows the machine. (If mDNS won't resolve on your
-> network — it's occasionally blocked, and is less reliable on Windows — use the IP, but set
-> a DHCP reservation for the server on your router.)
+### `<SERVER>` — the one value you need everywhere else
+
+The rest of this guide writes the server address as `http://<SERVER>:4040`. Substitute
+**either** the server's hostname **or** its IP — whichever works on your network:
+
+| `<SERVER>` | How to get it | Notes |
+|---|---|---|
+| **Hostname** — `studio.local`, `desktop-abc` | run `hostname` on the server | **Preferred.** Survives DHCP changes. `.local` (mDNS) is automatic on macOS, and usually works on Windows 10+/Linux. |
+| **IP** — `192.168.4.24` | `ipconfig getifaddr en0` (Mac) · `ipconfig` (Windows) · `hostname -I` (Linux) | Use if mDNS is blocked on your network. **Set a DHCP reservation** on your router, or the address will eventually change. |
+
+Confirm it answers **from the machine you're installing on**, before you install anything:
+
+```bash
+curl http://<SERVER>:4040/api/health           # Mac / Linux
+Invoke-RestMethod http://<SERVER>:4040/api/health   # Windows
+```
+
+You should get `{"status":"ok"}`. If the hostname doesn't resolve, fall back to the IP.
+
+> **Why it matters which one you pick:** the agent installer **bakes this URL as a literal
+> string** into `~/.claude/settings.json` and never re-reads it. If the address later changes
+> — which a DHCP lease eventually will — every hook POST from that machine silently goes
+> nowhere. The cartridge simply stops appearing, with no error on either side. A hostname, or
+> a reserved IP, avoids this permanently.
 
 Flags: `--start` (start without prompting), `--no-start` (build only), `--dev` (hot-reload dev mode). On Windows use `-Start` / `-NoStart` / `-Dev`.
 
@@ -91,7 +105,7 @@ Either script: auto-finds the server, installs the Claude Code hooks, builds the
 
 | Flag | Effect |
 |---|---|
-| `--server-url <url>` / `-ServerUrl` | **Preferred.** Full server URL, e.g. `http://Studio.local:4040`. Survives DHCP changes; see the warning above. |
+| `--server-url <url>` / `-ServerUrl` | **Preferred.** Full server URL, e.g. `http://<SERVER>:4040`. Survives DHCP changes; see the warning above. |
 | `--server-ip <ip>` / `-ServerIp` | Skip discovery, use this IP. Works, but rots when the lease changes. |
 | `--repo-path <dir>` / `-RepoPath` | Which repo the session runs in. |
 | `--trust` / `-Trust` | Auto-approve this agent's permissions (no manual dashboard approval). |
@@ -103,18 +117,18 @@ The agent home is permanent, so you don't re-run the whole bootstrap — just st
 
 ```bash
 # Mac/Linux
-NEONCORE_URL=http://<server>.local:4040 node ~/.neoncore/agent/relay/index.js
+NEONCORE_URL=http://<SERVER>:4040 node ~/.neoncore/agent/relay/index.js
 ```
 ```powershell
 # Windows
-$env:NEONCORE_URL="http://<server>.local:4040"; node "$HOME\.neoncore\agent\relay\index.js"
+$env:NEONCORE_URL="http://<SERVER>:4040"; node "$HOME\.neoncore\agent\relay\index.js"
 ```
 
 ---
 
 ## Verify
 
-Open `http://<server>.local:4040`. The agent machine appears as a cartridge with its repo name; tool activity flows into its feed; a prompt typed into its command box is typed into the live session.
+Open `http://<SERVER>:4040`. The agent machine appears as a cartridge with its repo name; tool activity flows into its feed; a prompt typed into its command box is typed into the live session.
 
 ---
 
@@ -128,7 +142,7 @@ approvals, launch workflows, send prompts.
    Internal Testing, add the Apple ID **that is signed in to the TestFlight app on the
    phone** (often not your developer account email), then assign the build to that group.
 2. **Put the phone on the same Wi-Fi as the server.** It's a LAN app — no cloud, no auth.
-3. **Launch it and enter the server URL:** `http://<server>.local:4040` (the `.local`
+3. **Launch it and enter the server URL:** `http://<SERVER>:4040` (the `.local`
    hostname, for the DHCP reason above).
 4. **Accept the one-time iOS "allow local network access" prompt.** If you decline it, the
    app cannot reach the server at all and simply looks broken, with no useful error. Recover
@@ -167,7 +181,7 @@ Development, builds, and OTA updates: **[mobile/README.md](mobile/README.md)**.
 
 **Windows relay dies with `File not found:`.** Claude Code isn't on PATH. `npm install -g @anthropic-ai/claude-code`, reopen PowerShell, re-run the bootstrap.
 
-**Agent doesn't appear.** First confirm the server is reachable *from the agent machine*: `curl http://<server>.local:4040/api/health` (Mac) or `Invoke-RestMethod http://<server>.local:4040/api/health` (Windows). Check the firewall and that both are on the same subnet.
+**Agent doesn't appear.** First confirm the server is reachable *from the agent machine*: `curl http://<SERVER>:4040/api/health` (Mac) or `Invoke-RestMethod http://<SERVER>:4040/api/health` (Windows). Check the firewall and that both are on the same subnet.
 
 If the server *is* reachable but the cartridge still never shows, the hooks are pointed somewhere else. The URL is baked into the settings file at install time and never re-read, so a server IP change orphans the machine silently:
 
@@ -175,7 +189,7 @@ If the server *is* reachable but the cartridge still never shows, the hooks are 
 grep -o 'NEONCORE_URL=[^ ]*' ~/.claude/settings.json    # is this still your server?
 ```
 
-Re-run the bootstrap with `--server-url http://<server>.local:4040` to repoint it.
+Re-run the bootstrap with `--server-url http://<SERVER>:4040` to repoint it.
 
 **Cartridge never goes offline / lingers for a day.** That machine predates the `SessionEnd` hook (`grep -c SessionEnd ~/.claude/settings.json` → 0). Re-bootstrap it, then restart Claude Code.
 

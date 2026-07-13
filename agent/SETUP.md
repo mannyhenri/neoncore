@@ -14,22 +14,27 @@ Connect any Mac, Linux, or Windows machine on your local network to the NeonCore
 - Claude Code must be installed on the external machine
 - **Python 3** must be available (pre-installed on macOS; install from python.org on Windows)
 
-## Step 1: Find the server IP
+## Step 1: Find `<SERVER>`
 
-On the machine running the NeonCore server, find its LAN IP:
+Everything below writes the server address as `http://<SERVER>:4040` (port **4040** is the
+default). Substitute **either** the server's hostname **or** its IP — whichever works on your
+network:
+
+| `<SERVER>` | How to get it (run on the SERVER) | Notes |
+|---|---|---|
+| **Hostname** — `studio.local`, `desktop-abc` | `hostname` | **Preferred.** Survives DHCP changes. |
+| **IP** — `192.168.4.24` | `ipconfig getifaddr en0` (macOS) · `hostname -I \| awk '{print $1}'` (Linux) · `ipconfig` (Windows) | Use if mDNS is blocked. **Set a DHCP reservation**, or it will change. |
+
+Verify from *this* machine before going further:
 
 ```bash
-# macOS
-ipconfig getifaddr en0
-
-# Linux
-hostname -I | awk '{print $1}'
-
-# Windows (PowerShell)
-(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike '*Loopback*' }).IPAddress
+curl http://<SERVER>:4040/api/health     # -> {"status":"ok"}
 ```
 
-The server runs on port **4040** by default.
+> **Why the choice matters:** the installer **bakes this URL as a literal string** into
+> `~/.claude/settings.json` and never re-reads it. If the address later changes, every hook
+> POST from this machine silently goes nowhere — the cartridge just stops appearing, with no
+> error on either side. A hostname (or a reserved IP) avoids this permanently.
 
 ## Step 2: Copy the agent folder
 
@@ -61,21 +66,21 @@ agent/
 
 ### Mac / Linux
 ```bash
-NEONCORE_URL=http://<server-ip>:4040 python3 ~/neoncore-agent/install.py
+NEONCORE_URL=http://<SERVER>:4040 python3 ~/neoncore-agent/install.py
 ```
 
 ### Windows (PowerShell)
 ```powershell
-$env:NEONCORE_URL = "http://<server-ip>:4040"
+$env:NEONCORE_URL = "http://<SERVER>:4040"
 python ~/neoncore-agent/install.py
 ```
 
 Or use the `--url` flag on any platform:
 ```
-python install.py --url http://<server-ip>:4040
+python install.py --url http://<SERVER>:4040
 ```
 
-Replace `<server-ip>` with the IP from Step 1 (e.g., `192.168.4.192`).
+Replace `<SERVER>` with the value from Step 1.
 
 This merges NeonCore hooks into `~/.claude/settings.json` without overwriting your existing settings.
 
@@ -85,10 +90,10 @@ From the external machine, test that it can reach the server:
 
 ```bash
 # Mac / Linux
-curl http://<server-ip>:4040/api/agents
+curl http://<SERVER>:4040/api/agents
 
 # Windows (PowerShell)
-Invoke-RestMethod http://<server-ip>:4040/api/agents
+Invoke-RestMethod http://<SERVER>:4040/api/agents
 ```
 
 You should see a JSON array of agents. If it times out, check:
@@ -109,7 +114,7 @@ code --install-extension /path/to/neoncore-extension-0.5.3.vsix
 Then configure the server URL in VS Code settings:
 - Open VS Code Settings (Cmd+, or Ctrl+,)
 - Search for "neoncore"
-- Set **Server URL** to `http://<server-ip>:4040`
+- Set **Server URL** to `http://<SERVER>:4040`
 
 ## Uninstalling
 
@@ -122,18 +127,18 @@ Or re-run the installer — it replaces existing NeonCore hooks cleanly.
 **Hooks not reporting**: Run a hook manually to check for errors:
 ```bash
 # Mac / Linux
-echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{}}' | NEONCORE_URL=http://<server-ip>:4040 python3 ~/neoncore-agent/hooks/reporter.py
+echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{}}' | NEONCORE_URL=http://<SERVER>:4040 python3 ~/neoncore-agent/hooks/reporter.py
 ```
 
 ```powershell
 # Windows (PowerShell)
-$env:NEONCORE_URL = "http://<server-ip>:4040"
+$env:NEONCORE_URL = "http://<SERVER>:4040"
 '{"session_id":"test","cwd":"C:\\temp","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{}}' | python ~/neoncore-agent/hooks/reporter.py
 ```
 
 **Permission prompts not appearing on dashboard**: Test the permission proxy:
 ```bash
-echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hello"}}' | NEONCORE_URL=http://<server-ip>:4040 python3 ~/neoncore-agent/hooks/permission-proxy.py
+echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hello"}}' | NEONCORE_URL=http://<SERVER>:4040 python3 ~/neoncore-agent/hooks/permission-proxy.py
 ```
 
 If the server is unreachable, it falls back to normal Claude Code permission behavior.

@@ -47,8 +47,23 @@ npm run build
 npm start
 ```
 
-Note the **Network URL** printed at startup (e.g., `http://192.168.1.50:4040`).
-This is the URL remote machines will use.
+### `<SERVER>` — the address remote machines will use
+
+This guide writes it as `http://<SERVER>:4040`. Substitute **either** the server's hostname
+**or** its IP — whichever works on your network:
+
+| `<SERVER>` | How to get it | Notes |
+|---|---|---|
+| **Hostname** — `studio.local`, `desktop-abc` | run `hostname` on the server | **Preferred.** Survives DHCP changes. |
+| **IP** — `192.168.4.24` | `ipconfig getifaddr en0` (Mac) · `ipconfig` (Windows) · `hostname -I` (Linux) | Use if mDNS is blocked on your network. **Set a DHCP reservation**, or it will change. |
+
+Verify from the *remote* machine before installing anything:
+`curl http://<SERVER>:4040/api/health` → `{"status":"ok"}`
+
+> **Why the choice matters:** the installer **bakes this URL as a literal string** into
+> `~/.claude/settings.json` and never re-reads it. If the address later changes, every hook
+> POST from that machine silently goes nowhere — the cartridge just stops appearing, with no
+> error on either side. A hostname (or a reserved IP) avoids this permanently.
 
 ---
 
@@ -67,7 +82,7 @@ git clone git@github.com:GRIDLIGHT-INC/neoncore.git
 cd neoncore
 
 # Install with the orchestrator's network URL (Mac/Linux/Windows)
-NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
+NEONCORE_URL=http://<SERVER>:4040 python3 agent/install.py
 ```
 
 > **Unattended machines:** by default a newly-discovered agent starts in **manual**
@@ -77,7 +92,7 @@ NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
 > (auto-approve). You can still flip any agent back to manual from the dashboard.
 >
 > ```bash
-> NEONCORE_URL=http://<server>.local:4040 NEONCORE_TRUST=1 python3 agent/install.py
+> NEONCORE_URL=http://<SERVER>:4040 NEONCORE_TRUST=1 python3 agent/install.py
 > ```
 
 ### Option B: Copy just the agent folder
@@ -88,7 +103,7 @@ If you don't want the full repo on the remote machine, copy the `agent/` folder:
 scp -r agent/ user@remote-machine:~/neoncore-agent/
 
 # On the remote machine:
-NEONCORE_URL=http://<server>.local:4040 python3 ~/neoncore-agent/install.py
+NEONCORE_URL=http://<SERVER>:4040 python3 ~/neoncore-agent/install.py
 ```
 
 ### Verify hooks installed
@@ -143,14 +158,14 @@ code --install-extension neoncore-extension-0.5.3.vsix
 
 In VS Code on the remote machine, open Settings and search for "NeonCore":
 
-- **Orchestrator URL**: Set to `http://<server>.local:4040`
+- **Orchestrator URL**: Set to `http://<SERVER>:4040`
 - **Auto Connect**: Leave enabled (default: true)
 
 Or edit VS Code's `settings.json` directly:
 
 ```json
 {
-  "neoncore.orchestratorUrl": "http://<server>.local:4040",
+  "neoncore.orchestratorUrl": "http://<SERVER>:4040",
   "neoncore.autoConnect": true
 }
 ```
@@ -172,7 +187,7 @@ terminal, so delivery is perfectly addressed.
 
 ```bash
 # In the repo you want to work in:
-NEONCORE_URL=http://<server>.local:4040 node /path/to/neoncore/agent/relay/launch.js
+NEONCORE_URL=http://<SERVER>:4040 node /path/to/neoncore/agent/relay/launch.js
 ```
 
 On first run it installs the relay's deps and (best-effort) the hooks, then
@@ -184,7 +199,7 @@ vars: [agent/relay/README.md](agent/relay/README.md).
 
 ## Step 4: Verify on the Dashboard
 
-Open the dashboard at `http://<server>.local:4040` in your browser.
+Open the dashboard at `http://<SERVER>:4040` in your browser.
 
 1. **Agent appears** — The remote machine's agent should show up with the repo name
 2. **Activity flows** — Start using Claude Code; tool calls and messages should appear in the activity feed
@@ -197,7 +212,7 @@ Open the dashboard at `http://<server>.local:4040` in your browser.
 ### Agent doesn't appear on dashboard
 - Check that hooks are installed: `cat ~/.claude/settings.json`
 - Check the orchestrator URL in the hooks matches the server's network address
-- Make sure the server is reachable: `curl http://<server>.local:4040/api/health`
+- Make sure the server is reachable: `curl http://<SERVER>:4040/api/health`
 - Restart Claude Code after installing hooks
 
 ### Extension shows "Disconnected"
@@ -235,7 +250,7 @@ When NeonCore is updated, re-run these on each remote machine:
 
 ```bash
 # Re-install hooks (picks up new hook events)
-NEONCORE_URL=http://<server>.local:4040 python3 agent/install.py
+NEONCORE_URL=http://<SERVER>:4040 python3 agent/install.py
 
 # Re-build and re-install the extension
 npm run extension:package

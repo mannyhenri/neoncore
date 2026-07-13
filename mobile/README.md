@@ -4,8 +4,8 @@ A React Native (Expo) companion app for the NeonCore orchestrator. Mirror what y
 terminals are showing (Claude's live messages and questions) and control agents from your
 phone — send prompts, switch autonomy mode, and answer approvals/questions.
 
-**Scope (Phase 2 MVP):** LAN-only · mirror + full control · iOS + Android via Expo.
-See [`../docs/mobile-app-research.md`](../docs/mobile-app-research.md) for the design.
+**Scope:** LAN-only · mirror + full control · iOS (shipped to TestFlight) + Android via Expo.
+Install instructions for users: [INSTALL.md → Phone (iOS)](../INSTALL.md#phone-ios).
 
 ## Run it
 
