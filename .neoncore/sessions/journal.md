@@ -233,3 +233,6 @@
   replaced with SVG matching the dashboard's Heroicons-outline language (bell → inbox).
 - OTA (EAS Update) wired: JS changes now ship in ~30s via `eas update`, no rebuild.
   RULE: bump `version` on native changes or OTA pushes incompatible JS → crash.
+
+### ⏱ 2026-07-13T13:59:34Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: clean
