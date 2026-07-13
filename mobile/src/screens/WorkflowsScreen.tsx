@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput,
   ActivityIndicator, RefreshControl, KeyboardAvoidingView, Platform,
+  ScrollView, Keyboard, TouchableWithoutFeedback,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -41,6 +42,13 @@ export function WorkflowsScreen() {
   // Which cartridge the workflow runs on. Template steps ship as `__deferred__` ("ask at
   // launch"), so without this every mobile-launched run hung silently at step 1.
   const [agentId, setAgentId] = useState('');
+  // KeyboardAvoidingView measures its frame relative to its PARENT but compares it against
+  // the keyboard's SCREEN coords. Inside the app's SafeAreaView those differ by the top
+  // inset, so RN under-computes the overlap and leaves the RUN button buried under the
+  // keyboard. Measure the real screen offset and feed it back — that's what
+  // keyboardVerticalOffset is for. (Same bug, same fix, as the cartridge prompt input.)
+  const probeRef = useRef<View>(null);
+  const [kbOffset, setKbOffset] = useState(0);
 
   const load = useCallback(async () => {
     const [t, r] = await Promise.all([
@@ -103,16 +111,38 @@ export function WorkflowsScreen() {
       <KeyboardAvoidingView
         style={styles.root}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={kbOffset}
       >
+        {/* Measures this screen's true offset from the top of the window — see kbOffset. */}
+        <View
+          ref={probeRef}
+          onLayout={() =>
+            probeRef.current?.measureInWindow((_x, y) => {
+              if (Number.isFinite(y)) setKbOffset(y);
+            })
+          }
+        />
+
         <View style={styles.header}>
           <TouchableOpacity style={styles.back} onPress={() => setSelected(null)}>
             <Text style={styles.backText} numberOfLines={1}>‹ Workflows</Text>
           </TouchableOpacity>
           <Text style={styles.title} numberOfLines={1}>Run</Text>
-          <View style={{ width: 96 }} />
+          <TouchableOpacity style={styles.done} onPress={() => Keyboard.dismiss()}>
+            <Text style={styles.doneText}>Done</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.sheet}>
+        {/* The brief is multiline, so there's no return key to dismiss with. Tapping anywhere
+            outside the field closes the keyboard; scrolling does too. Without this you could
+            get stuck with the keyboard up and RUN unreachable behind it. */}
+        <ScrollView
+          contentContainerStyle={styles.sheet}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()} accessible={false}>
+            <View>
           <Text style={styles.sheetName}>{selected.name}</Text>
           {selected.description ? (
             <Text style={styles.sheetDesc}>{selected.description}</Text>
@@ -168,7 +198,9 @@ export function WorkflowsScreen() {
               </View>
             )}
           </TouchableOpacity>
-        </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </ScrollView>
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
       </KeyboardAvoidingView>
     );
@@ -282,7 +314,9 @@ const styles = StyleSheet.create({
   runIcon: { color: theme.accent, fontSize: 14, fontWeight: '700' },
   cardDesc: { color: theme.textDim, fontSize: 13, marginTop: 6, lineHeight: 18 },
 
-  sheet: { padding: 16 },
+  sheet: { padding: 16, paddingBottom: 40 },
+  done: { width: 96, alignItems: 'flex-end' },
+  doneText: { color: theme.accentSoft, fontSize: 15, fontWeight: '700' },
   sheetName: { color: theme.text, fontSize: 22, fontWeight: '800' },
   sheetDesc: { color: theme.textDim, fontSize: 14, marginTop: 8, lineHeight: 20 },
   label: {
