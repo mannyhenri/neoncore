@@ -54,16 +54,31 @@ export function SwipeToDismiss({
     });
   };
 
+  // Is this gesture ours? Clearly horizontal, in our direction, past a small deadzone.
+  // Anything vertical is left alone so the FlatList scrolls normally.
+  const isOurs = (g: { dx: number; dy: number }) =>
+    !disabled &&
+    Math.abs(g.dx) > CLAIM_DX &&
+    Math.abs(g.dx) > Math.abs(g.dy) * 1.5 &&
+    g.dx * sign > 0;
+
   const pan = useRef(
     PanResponder.create({
-      // Never claim on touch-start — that would eat taps meant for the row itself.
+      // Never claim on touch-START — that would eat taps meant for the card.
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_e, g) => {
-        if (disabled) return false;
-        // Only take the gesture if it's clearly horizontal AND in our direction. Otherwise
-        // the FlatList keeps it and vertical scrolling stays smooth.
-        return Math.abs(g.dx) > CLAIM_DX && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && g.dx * sign > 0;
-      },
+      onStartShouldSetPanResponderCapture: () => false,
+
+      // CAPTURE phase is essential here. The child card is a TouchableOpacity, which takes
+      // the responder the moment you touch down. Once a child owns the touch, the bubbling
+      // `onMoveShouldSetPanResponder` below is never consulted — so the swipe silently did
+      // nothing. Capture runs top-down and lets us take the gesture back off the Touchable
+      // as soon as the movement is clearly horizontal.
+      onMoveShouldSetPanResponderCapture: (_e, g) => isOurs(g),
+      onMoveShouldSetPanResponder: (_e, g) => isOurs(g),
+
+      // Don't let the enclosing FlatList yank the gesture back mid-swipe.
+      onPanResponderTerminationRequest: () => false,
+
       onPanResponderMove: (_e, g) => {
         const dx = g.dx * sign;
         if (dx < 0) return;                    // don't drag the wrong way
