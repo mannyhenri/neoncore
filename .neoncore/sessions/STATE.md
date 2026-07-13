@@ -97,6 +97,23 @@ LESSON: "submitted successfully" ≠ "on TestFlight". EAS scheduling the submit 
 Apple *received* it. Apple then validates the binary and can reject it by email. Always
 confirm the build reaches **Ready to Test** in App Store Connect.
 
+### Build 5 (0.2.0) — SUBMITTED 2026-07-13, awaiting Apple processing
+`eas submit` exit 0, non-interactive (ascAppId pin working — no 2FA).
+Build id `55d796b5`, submission `ac0a76b7-5d7d-4d03-a4bd-dbb17d2622b7`.
+**PROVED the fix from the artifact itself** (not from docs) — unzipped the IPA and read
+`Payload/NeonCore.app/Info.plist`:
+- `DTSDKName: iphoneos26.5` (was `iphoneos18.2`) ✅ satisfies ITMS-90725
+- `DTXcode: 2660` → Xcode 26.6 ✅
+- `ITSAppUsesNonExemptEncryption: false` ✅ (won't stall on Missing Compliance)
+This is the definitive check — those are the exact fields Apple's validator reads.
+TIP: `unzip` the IPA + PlistBuddy the Info.plist BEFORE submitting to catch this class
+of rejection in seconds instead of waiting on an Apple email.
+
+**STILL TO DO (nothing automates this):** Ready to Test ≠ on your phone. In ASC →
+TestFlight → Internal Testing: add yourself as a tester with the Apple ID **signed in to
+TestFlight on the phone** (often NOT the developer account email), then assign build 5 to
+that group. Internal testers need no Apple review.
+
 ## TestFlight — build 4 (SUPERSEDED, rejected — see above)
 EAS: **gridlight / manny@gridlight.ai**. Project `@gridlight/neoncore-mobile`
 (projectId 58c8efd5-84b8-4476-8f92-fca6bf3bf691).
