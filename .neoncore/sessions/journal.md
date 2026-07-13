@@ -242,3 +242,20 @@
 
 ### ⏱ 2026-07-13T14:23:48Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
+
+## 2026-07-13 — Apple REJECTED build 4 (ITMS-90725) → Expo SDK 52→57
+- The mystery "app never showed up in TestFlight" was NOT a distribution/tester-group
+  problem. The submit succeeded; **Apple rejected the binary by email**. It never became
+  a TestFlight build at all.
+- ITMS-90725: built with iOS 18.2 SDK; Apple now requires the **iOS 26 SDK (Xcode 26+)**.
+- ROOT CAUSE: the **EAS build image is chosen by the Expo SDK version.** SDK 52 →
+  `macos-sequoia-15.3-xcode-16.2` → iOS 18.2 SDK. Pinning a newer image in eas.json does
+  NOT work: RN 0.76 can't compile against the iOS 26 SDK. The SDK had to move.
+- Upgraded 52 → 57 (e00f353). SDK 57 default image = `macos-tahoe-26.5-xcode-26.6`.
+  React 19, RN 0.86, New Arch mandatory. All 3 native deps (svg, async-storage,
+  socket.io) already New-Arch-ready → zero source changes; tsc clean first try.
+  `splash` key removed in SDK 57 → expo-splash-screen plugin. version → 0.2.0 (native).
+- Chose NOT to pin an eas.json `image`: `auto` follows the SDK, so a pin would rot the
+  next time Apple raises the bar — precisely this failure mode.
+- LESSON: "✔ Scheduled iOS submission" only means Apple RECEIVED it. Verify the build
+  reaches **Ready to Test** in App Store Connect before believing it shipped.

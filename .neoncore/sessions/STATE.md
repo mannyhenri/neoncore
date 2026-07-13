@@ -71,7 +71,33 @@ Two independent bugs; the FIRST diagnosis was wrong and the user correctly pushe
 DECISION: user chose to LEAVE the agent wait at ~10 min (not extend for async phone
 use). Server TTL 15 min correctly sits above it.
 
-## TestFlight — SHIPPED (build 4)
+## ⚠️ Build 4 was REJECTED BY APPLE (ITMS-90725) — SDK 57 upgrade in flight (2026-07-13)
+The submit worked; **Apple rejected the binary**. It never reached TestFlight, which is
+why it never appeared on the phone — no amount of tester/group config would have helped.
+
+> ITMS-90725: This app was built with the iOS 18.2 SDK. All iOS apps must be built with
+> the iOS 26 SDK or later (Xcode 26+) to be uploaded to App Store Connect.
+
+ROOT CAUSE: **the EAS build image follows the Expo SDK.** SDK 52's default image is
+`macos-sequoia-15.3-xcode-16.2` → Xcode 16.2 → iOS 18.2 SDK. No `eas.json` tweak can fix
+it: RN 0.76 does not compile against the iOS 26 SDK. The SDK itself had to move.
+
+FIX (`e00f353`): **Expo SDK 52 → 57** (default image `macos-tahoe-26.5-xcode-26.6`).
+- react 18.3→19.2, react-native 0.76.9→0.86.0 (**New Arch now mandatory**; svg /
+  async-storage / socket.io all had New-Arch-ready versions — nothing to port)
+- expo-* now **unified versioning** (all 57.x). typescript 5.6→6.0.
+- top-level `splash` key REMOVED in SDK 57 → moved to `expo-splash-screen` plugin
+- version 0.1.0 → **0.2.0** (runtimeVersion policy is appVersion; native change MUST
+  bump it). buildNumber auto-incremented to **5**.
+- Verified: `tsc --noEmit` clean, expo-doctor 20/20, iOS bundle exports (738 modules).
+- Deliberately did NOT pin `image` in eas.json — `auto` tracks the SDK, so a pin would
+  go stale the next time Apple raises the bar (the same trap that caused this).
+
+LESSON: "submitted successfully" ≠ "on TestFlight". EAS scheduling the submit only means
+Apple *received* it. Apple then validates the binary and can reject it by email. Always
+confirm the build reaches **Ready to Test** in App Store Connect.
+
+## TestFlight — build 4 (SUPERSEDED, rejected — see above)
 EAS: **gridlight / manny@gridlight.ai**. Project `@gridlight/neoncore-mobile`
 (projectId 58c8efd5-84b8-4476-8f92-fca6bf3bf691).
 **Build 4 submitted to TestFlight.** App Store Connect app id **6790428906**
