@@ -385,3 +385,6 @@
   Deleted docs/mobile-app-research.md (pre-build proposal reading as current docs).
 - NEXT THREAD: user will test NeonCore driving **Gridlight** — their own AI — "to see how
   it breathes with our own ai." Nothing started. Awaiting their detail.
+
+### ⏱ 2026-07-13T19:43:46Z — heartbeat
+- branch `main` — working tree: clean
