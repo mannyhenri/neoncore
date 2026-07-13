@@ -4,6 +4,7 @@ import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { PermissionCard } from '../components/PermissionCard';
+import { CheckCircleIcon } from '../components/Icons';
 
 export function ApprovalsScreen() {
   const { baseUrl, permissions, agents, refresh } = useNeonCore();
@@ -40,7 +41,12 @@ export function ApprovalsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />
         }
       >
-        {permissions.length === 0 && <Text style={styles.empty}>Nothing waiting. 🎉</Text>}
+        {permissions.length === 0 && (
+          <View style={styles.emptyBox}>
+            <CheckCircleIcon size={40} color={theme.textFaint} />
+            <Text style={styles.empty}>Nothing waiting.</Text>
+          </View>
+        )}
         {permissions.map((p) => (
           <PermissionCard key={p.id} perm={p} agentName={agentName(p.agentId)} onDecide={decide} />
         ))}
@@ -53,5 +59,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   tabHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   screenTitle: { color: theme.text, fontSize: 26, fontWeight: '800' },
-  empty: { color: theme.textFaint, textAlign: 'center', marginTop: 80 },
+  emptyBox: { alignItems: 'center', marginTop: 80, gap: 12 },
+  empty: { color: theme.textFaint, textAlign: 'center' },
 });

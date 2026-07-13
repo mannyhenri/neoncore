@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { theme } from '../theme';
 import type { PermissionRequest } from '../types';
+import { QuestionIcon } from './Icons';
 
 export type QOption = { label: string; description?: string };
 export type Question = {
@@ -55,9 +56,12 @@ export function PermissionCard({
   return (
     <View style={[styles.card, isQuestion && styles.cardQuestion]}>
       {!!agentName && <Text style={styles.agent}>{agentName}</Text>}
-      <Text style={[styles.tool, isQuestion && styles.toolQuestion]}>
-        {isQuestion ? '❓ Question' : perm.toolName}
-      </Text>
+      <View style={styles.toolHead}>
+        {isQuestion && <QuestionIcon size={17} color={theme.amber} strokeWidth={2} />}
+        <Text style={[styles.tool, isQuestion && styles.toolQuestion]}>
+          {isQuestion ? 'Question' : perm.toolName}
+        </Text>
+      </View>
       {!!perm.description && !isQuestion && <Text style={styles.desc}>{perm.description}</Text>}
 
       {isQuestion && questions.length > 0 ? (
@@ -165,7 +169,8 @@ const styles = StyleSheet.create({
   },
   cardQuestion: { borderColor: theme.amber },
   agent: { color: theme.textFaint, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-  tool: { color: theme.text, fontSize: 16, fontWeight: '700', marginTop: 2 },
+  toolHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  tool: { color: theme.text, fontSize: 16, fontWeight: '700' },
   toolQuestion: { color: theme.amber },
   desc: { color: theme.textDim, fontSize: 13, marginTop: 6 },
   input: { color: theme.textFaint, fontSize: 12, fontFamily: 'monospace', marginTop: 6 },

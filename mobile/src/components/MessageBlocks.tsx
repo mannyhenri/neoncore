@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { theme } from '../theme';
+import { ToolIcon, ResultIcon } from './Icons';
 import { parseBlocks, type TranscriptEvent } from '../types';
 
 /** Lines of a tool body shown before it is clamped. Tap the message to see it all. */
@@ -54,7 +55,10 @@ export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; e
           case 'tool_use':
             return (
               <View key={i} style={styles.tool}>
-                <Text style={styles.toolLabel}>⚙ {(b as { name?: string }).name || 'tool'}</Text>
+                <View style={styles.toolHead}>
+                  <ToolIcon size={13} color={theme.blue} strokeWidth={2} />
+                  <Text style={styles.toolLabel}>{(b as { name?: string }).name || 'tool'}</Text>
+                </View>
                 <Text style={styles.toolBody} numberOfLines={clamp} selectable={expanded}>
                   {safeJson((b as { input?: unknown }).input)}
                 </Text>
@@ -63,7 +67,21 @@ export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; e
           case 'tool_result':
             return (
               <View key={i} style={[styles.tool, (b as { is_error?: boolean }).is_error && styles.toolError]}>
-                <Text style={styles.toolLabel}>↳ result</Text>
+                <View style={styles.toolHead}>
+                  <ResultIcon
+                    size={13}
+                    color={(b as { is_error?: boolean }).is_error ? theme.danger : theme.blue}
+                    strokeWidth={2}
+                  />
+                  <Text
+                    style={[
+                      styles.toolLabel,
+                      (b as { is_error?: boolean }).is_error && { color: theme.danger },
+                    ]}
+                  >
+                    result
+                  </Text>
+                </View>
                 <Text style={styles.toolBody} numberOfLines={clamp} selectable={expanded}>
                   {typeof (b as { content?: unknown }).content === 'string'
                     ? ((b as { content?: string }).content as string)
@@ -118,7 +136,8 @@ const styles = StyleSheet.create({
     borderLeftColor: theme.blue,
   },
   toolError: { borderLeftColor: theme.danger },
-  toolLabel: { color: theme.blue, fontSize: 11, fontWeight: '600', marginBottom: 2 },
+  toolHead: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
+  toolLabel: { color: theme.blue, fontSize: 11, fontWeight: '600' },
   toolBody: { color: theme.textDim, fontSize: 12, fontFamily: 'monospace' },
   expandHint: { color: theme.textFaint, fontSize: 11, marginTop: 8, fontStyle: 'italic' },
 });

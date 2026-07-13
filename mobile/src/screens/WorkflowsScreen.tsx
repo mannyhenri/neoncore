@@ -7,6 +7,7 @@ import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import type { Workflow } from '../types';
+import { PlayIcon } from '../components/Icons';
 
 /** Colors for a run's lifecycle. Templates themselves are always 'pending'. */
 const runColor: Record<string, string> = {
@@ -119,7 +120,10 @@ export function WorkflowsScreen() {
             {starting ? (
               <ActivityIndicator color="#0d0f12" />
             ) : (
-              <Text style={styles.runBtnText}>▶ RUN WORKFLOW</Text>
+              <View style={styles.runBtnInner}>
+                <PlayIcon size={16} color="#0d0f12" strokeWidth={2.5} />
+                <Text style={styles.runBtnText}>RUN WORKFLOW</Text>
+              </View>
             )}
           </TouchableOpacity>
         </View>
@@ -166,7 +170,7 @@ export function WorkflowsScreen() {
           <TouchableOpacity style={styles.card} activeOpacity={0.7} onPress={() => setSelected(item)}>
             <View style={styles.cardTop}>
               <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-              <Text style={styles.runIcon}>▶</Text>
+              <PlayIcon size={16} color={theme.accent} strokeWidth={2} />
             </View>
             {item.description ? (
               <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text>
@@ -243,6 +247,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent, borderRadius: 12,
     paddingVertical: 16, alignItems: 'center', marginTop: 24,
   },
+  runBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   runBtnText: { color: '#0d0f12', fontWeight: '800', letterSpacing: 1 },
 
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 8 },

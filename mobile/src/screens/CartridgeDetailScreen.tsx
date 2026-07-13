@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { MessageBlocks } from '../components/MessageBlocks';
 import { PermissionCard } from '../components/PermissionCard';
+import { QuestionIcon } from '../components/Icons';
 import type { Agent, AgentMode, TranscriptEvent } from '../types';
 
 const MODES: AgentMode[] = ['manual', 'plan', 'trust'];
@@ -132,7 +133,10 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
         </View>
       ) : live.pendingQuestion ? (
         <View style={styles.questionBanner}>
-          <Text style={styles.questionText}>❓ {live.pendingQuestion}</Text>
+          <View style={styles.questionRow}>
+            <QuestionIcon size={15} color={theme.amber} strokeWidth={2} />
+            <Text style={styles.questionText}>{live.pendingQuestion}</Text>
+          </View>
           <Text style={styles.questionHint}>
             No longer answerable — the agent stopped waiting.
           </Text>
@@ -201,7 +205,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 12, marginBottom: 4, padding: 12, borderRadius: 10,
     backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: theme.amber,
   },
-  questionText: { color: theme.amber, fontSize: 14, fontWeight: '600' },
+  questionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  questionText: { color: theme.amber, fontSize: 14, fontWeight: '600', flex: 1 },
   questionHint: { color: theme.textDim, fontSize: 12, marginTop: 4 },
   permBox: { paddingHorizontal: 12, paddingTop: 4 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 60 },
