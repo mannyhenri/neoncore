@@ -326,3 +326,6 @@
   (Mannys-Mac-Pro.local), never the DHCP IP.
 - Gotchas found: `eas update --non-interactive` REQUIRES `--environment`; running eas
   from the repo root (bad `npx --prefix`) silently writes a junk `{"expo":{}}` app.json.
+
+### ⏱ 2026-07-13T17:02:53Z — heartbeat
+- branch `feature/dual-runtime-parity-eval` — working tree: clean
