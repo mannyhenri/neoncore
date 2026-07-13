@@ -53,10 +53,39 @@ must be on the same Wi-Fi as the Mac. This works in a release build only because
 will show a one-time "allow local network access" prompt on first launch. Say yes, or
 nothing will connect.
 
-### Iterating without a rebuild
+### Shipping a change without a rebuild (EAS Update / OTA)
 
-For day-to-day work, keep using the simulator (`npx expo start --ios`) — it reloads
-instantly. Use TestFlight when you want the real thing in your hand.
+JS and asset changes go straight to installed apps — no rebuild, no resubmit, no Apple
+review:
+
+```bash
+eas update --branch production -m "what changed"   # ~30s; picked up on next app launch
+```
+
+**A rebuild is still required for native changes** — a new native module, anything under
+`ios`/`android`/`plugins` in `app.json`, or an Expo SDK bump.
+
+> ⚠️ **When you make a native change, bump `version` in `app.json`.**
+>
+> `runtimeVersion.policy` is `appVersion`, so the runtime version *is* `version` (0.1.0).
+> OTA updates are only delivered to builds with a matching runtime version. If you ship a
+> native change without bumping `version`, `eas update` will happily push JS that needs
+> native code the installed binary does not have — and the app crashes on launch.
+> Bumping `version` gives the new build a new runtime version, so old builds correctly
+> stop receiving the incompatible JS.
+>
+> (The `fingerprint` policy automates this, but it is incompatible with
+> `autoIncrement` — EAS bumps `ios.buildNumber` server-side mid-build, `buildNumber` is
+> an input to the fingerprint, so local and EAS fingerprints never match and the build
+> fails in the `Configure expo-updates` phase.)
+
+### Iterating without any of this
+
+For day-to-day work, use the simulator — it reloads instantly:
+
+```bash
+npx expo start --go --ios    # --go is required: expo-dev-client otherwise targets a dev build
+```
 
 ## What it does
 
