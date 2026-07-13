@@ -39,9 +39,12 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const listRef = useRef<FlatList<TranscriptEvent>>(null);
   // Auto-scroll only when a NEW message arrives — not when the user expands one
-  // (expanding changes content size too, and yanking them to the bottom would
-  // defeat the point of opening it).
+  // (expanding changes content size too, and yanking them away would defeat the
+  // point of opening it).
   const scrolledCount = useRef(0);
+  const atTop = useRef(true);
+  const rootRef = useRef<View>(null);
+  const [kbOffset, setKbOffset] = useState(0);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -52,17 +55,19 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
     });
   }, []);
 
-  // Load history, then merge live events (dedup by id).
+  // Newest-first: the latest message is the one you came to read, so it sits at the
+  // top and costs no scrolling. The API returns history oldest-first, so reverse it,
+  // and live events PREPEND rather than append.
   useEffect(() => {
     let active = true;
     api
       .getMessages(baseUrl, agent.id, { limit: 100 })
-      .then((h) => { if (active) setMessages(h); })
+      .then((h) => { if (active) setMessages([...h].reverse()); })
       .catch(() => {})
       .finally(() => { if (active) setLoading(false); });
 
     const unsub = onTranscript(agent.id, (ev) => {
-      setMessages((prev) => (prev.some((m) => m.id === ev.id) ? prev : [...prev, ev]));
+      setMessages((prev) => (prev.some((m) => m.id === ev.id) ? prev : [ev, ...prev]));
     });
     return () => { active = false; unsub(); };
   }, [baseUrl, agent.id, onTranscript]);
@@ -100,8 +105,21 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      // KeyboardAvoidingView measures its own frame relative to its PARENT, but compares
+      // it against the keyboard's SCREEN coords. We sit inside a SafeAreaView, so the two
+      // differ by the top inset — RN then under-computes the overlap by exactly that much
+      // and the input stays buried under the keyboard. The probe below measures our real
+      // screen offset; feeding it back is precisely what keyboardVerticalOffset is for.
+      keyboardVerticalOffset={kbOffset}
     >
+      <View
+        ref={rootRef}
+        onLayout={() =>
+          rootRef.current?.measureInWindow((_x, y) => {
+            if (Number.isFinite(y)) setKbOffset(y);
+          })
+        }
+      />
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.back}>
           <Text style={styles.backText} numberOfLines={1}>‹ Cartridges</Text>
@@ -156,10 +174,14 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
             </TouchableOpacity>
           )}
           contentContainerStyle={{ paddingVertical: 8 }}
+          onScroll={(e) => { atTop.current = e.nativeEvent.contentOffset.y < 120; }}
+          scrollEventThrottle={100}
           onContentSizeChange={() => {
             if (messages.length === scrolledCount.current) return; // an expand/collapse, not a new message
             scrolledCount.current = messages.length;
-            listRef.current?.scrollToEnd({ animated: true });
+            // A new message lands at the top. Snap to it only if they're already up
+            // there — if they've scrolled back into history, leave them where they are.
+            if (atTop.current) listRef.current?.scrollToOffset({ offset: 0, animated: true });
           }}
           ListEmptyComponent={<Text style={styles.empty}>No messages yet.</Text>}
         />

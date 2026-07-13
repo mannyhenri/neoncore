@@ -30,7 +30,15 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    // Two stacked SafeAreaViews so the top and bottom insets can be painted
+    // different colors. The bottom strip (home indicator) takes the SAME color as
+    // the tab bar / input bar, so those bars read as running to the screen edge
+    // instead of floating above a band of page background.
+    // (react-native-safe-area-context would be the tidier tool, but it ships
+    // native code — this stays pure JS so it can go out over EAS Update.)
+    <>
+      <SafeAreaView style={styles.safeTop} />
+      <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
       {booting ? (
         <View style={styles.center}>
@@ -60,12 +68,22 @@ export default function App() {
           )}
         </NeonCoreProvider>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.bg, paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  body: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Takes only the top inset (flex:0), painted in the page background.
+  safeTop: { flex: 0, backgroundColor: theme.bg },
+  // Takes the rest. Its bottom inset padding is painted in the bar color, which is
+  // what closes the gap under the tab bar / input bar.
+  safe: {
+    flex: 1,
+    backgroundColor: theme.bgElevated,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  // The page itself keeps the normal background; only the inset strip is elevated.
+  body: { flex: 1, backgroundColor: theme.bg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg },
 });
