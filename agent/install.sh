@@ -33,7 +33,6 @@ echo ""
 # Make hook scripts executable
 chmod +x "$HOOKS_DIR/reporter.sh"
 chmod +x "$HOOKS_DIR/permission-proxy.sh"
-chmod +x "$HOOKS_DIR/message-reader.sh"
 chmod +x "$HOOKS_DIR/notification.sh"
 
 # Ensure .claude directory exists
@@ -58,7 +57,6 @@ with open(settings_file, 'r') as f:
 env_prefix = f"NEONCORE_URL={orchestrator_url} {trust_env}"
 reporter_cmd = f"{env_prefix}{hooks_dir}/reporter.sh"
 permission_cmd = f"{env_prefix}{hooks_dir}/permission-proxy.sh"
-message_cmd = f"{env_prefix}{hooks_dir}/message-reader.sh"
 notification_cmd = f"{env_prefix}{hooks_dir}/notification.sh"
 
 # Helper to clean and add a neoncore hook entry

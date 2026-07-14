@@ -8,7 +8,7 @@ import {
   listMcpTools,
   getAllServers,
 } from '../lib/mcp-manager.js';
-import type { McpServer, McpTool, McpRegistryEntry } from '../types.js';
+import type { McpServer, McpRegistryEntry } from '../types.js';
 import registryData from '../data/mcp-registry.json' with { type: 'json' };
 
 const registry = registryData as McpRegistryEntry[];

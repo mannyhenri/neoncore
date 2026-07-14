@@ -140,7 +140,7 @@ export function fireHeartbeat(heartbeatId: string): { runId: string } | { error:
     getIO().emit('heartbeat_fired', {
       heartbeatId, runId, projectId, templateId, label: hb.label, firedAt: now, nextRunAt,
     });
-  }).catch(() => {});
+  }).catch((err) => console.error('[heartbeat] emit failed:', err));
 
   console.log(`[heartbeat] Manual fire: ${hb.label || heartbeatId} → run ${runId}`);
   return { runId };
@@ -189,7 +189,7 @@ function checkDueHeartbeats(): void {
                   label: `⚠️ Skipped — budget exceeded ($${spent.toFixed(2)} / $${goal.budget_usd!.toFixed(2)})`,
                   firedAt: new Date().toISOString(), nextRunAt: computeNextRunAt(schedule),
                 });
-              }).catch(() => {});
+              }).catch((err) => console.error('[heartbeat] emit failed:', err));
               db.prepare('UPDATE heartbeats SET next_run_at = ? WHERE id = ?')
                 .run(computeNextRunAt(schedule), hb.id);
               continue;
@@ -220,7 +220,7 @@ function checkDueHeartbeats(): void {
           firedAt: now,
           nextRunAt,
         });
-      }).catch(() => {});
+      }).catch((err) => console.error('[heartbeat] emit failed:', err));
 
     } catch (err) {
       console.error(`[heartbeat] Error firing ${hb.id}:`, err instanceof Error ? err.message : err);

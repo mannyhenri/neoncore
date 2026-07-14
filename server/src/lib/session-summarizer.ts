@@ -50,7 +50,7 @@ interface Activity {
 }
 
 export function summarizeSession(
-  sessionDbId: string,
+  _sessionDbId: string,
   agentId: string,
   startedAt: string,
   endedAt: string,

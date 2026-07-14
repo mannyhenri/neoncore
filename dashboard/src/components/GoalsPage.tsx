@@ -474,7 +474,7 @@ function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats, onR
   );
 }
 
-function ProjectLearningsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+function ProjectLearningsPanel({ project }: { project: Project; onClose: () => void }) {
   const [learnings, setLearnings] = useState<ProjectLearning[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -650,7 +650,7 @@ const EMPTY_FORM: HeartbeatFormData = {
   scheduleTime: '09:00', scheduleDay: 1, label: '', active: true,
 };
 
-function HeartbeatsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+function HeartbeatsPanel({ project }: { project: Project; onClose: () => void }) {
   const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string; repoName: string }[]>([]);

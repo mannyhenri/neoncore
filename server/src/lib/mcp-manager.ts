@@ -182,11 +182,6 @@ export async function listMcpTools(serverId: string): Promise<McpTool[]> {
   }
 }
 
-export function getMcpServerStatus(serverId: string): McpServer['status'] {
-  if (runningServers.has(serverId)) return 'running';
-  const row = db.prepare('SELECT status FROM mcp_servers WHERE id = ?').get(serverId) as { status: string } | undefined;
-  return (row?.status as McpServer['status']) || 'stopped';
-}
 
 export function getAllServers(): McpServer[] {
   const rows = db.prepare('SELECT * FROM mcp_servers ORDER BY is_preconfigured DESC, name ASC').all() as Record<string, unknown>[];

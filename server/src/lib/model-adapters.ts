@@ -64,12 +64,6 @@ export function createGridLightAdapter(modelId: string): ModelAdapter {
 
 // ─── Helpers ─────────────────────────────────────────
 
-export function getFirstGridlightModel(): string | null {
-  const models = getSetting('gridlight_models');
-  if (!models) return null;
-  const first = models.split(',').map((m) => m.trim()).filter(Boolean)[0];
-  return first || null;
-}
 
 // ─── Factory ─────────────────────────────────────────
 

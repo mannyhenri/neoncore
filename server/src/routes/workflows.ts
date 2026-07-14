@@ -6,6 +6,7 @@ import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, Work
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { generateWorkflow } from '../lib/workflow-generator.js';
 import { recoverStep } from '../lib/recovery.js';
+import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
 
 const router = Router();
 
@@ -970,10 +971,27 @@ router.post('/v2/:id/steps/:stepId/skip', (req, res) => {
   res.json(updated);
 });
 
-// Webhook: external process marks a step as complete (only needs step ID)
+/** Cap on a reported result. Long enough for a full review; short enough that a runaway
+ *  agent (or a bad actor) can't wedge a multi-megabyte blob into SQLite. */
+const MAX_RESULT_CHARS = 200_000;
+
+/** Validate the `result` field of a completion signal. Returns an error string, or null. */
+function validateResult(result: unknown): string | null {
+  if (result === undefined || result === null) return null; // optional — a default is used
+  if (typeof result !== 'string') return 'result must be a string';
+  if (result.length > MAX_RESULT_CHARS) return `result exceeds ${MAX_RESULT_CHARS} characters`;
+  return null;
+}
+
+// Webhook: the agent reports that a step is complete (only needs step ID).
+// This is THE completion path — steps are never completed by inferring it from agent idleness.
+// Gate verdicts (PASS/FAIL), retries and loop re-dispatch are all routed by completeStepFromSignal.
 // Usage: curl -X POST http://localhost:4040/api/workflows/webhook/<stepId>/complete -H 'Content-Type: application/json' -d '{"result": "done"}'
 router.post('/webhook/:stepId/complete', (req, res) => {
   const { result } = req.body || {};
+  const invalid = validateResult(result);
+  if (invalid) return res.status(400).json({ error: invalid });
+
   const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?')
     .get(req.params.stepId) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Step not found' });
@@ -983,34 +1001,49 @@ router.post('/webhook/:stepId/complete', (req, res) => {
     return res.status(400).json({ error: `Step is not running (current status: ${step.status})` });
   }
 
-  const now = new Date().toISOString();
   // Prepend captured plan content (from ExitPlanMode with plansIncluded) if present
   const planContent = (row.plan_content as string) || '';
   const finalResult = planContent
     ? `[Plan]\n${planContent}\n\n[Implementation Summary]\n${result || 'Completed via webhook'}`
     : (result || 'Completed via webhook');
+
   const tokensIn = Math.round(((row.dispatched_prompt as string) || '').length / 4);
   const tokensOut = Math.round(finalResult.length / 4);
-  db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ?, tokens_in = ?, tokens_out = ? WHERE id = ?')
-    .run('completed', finalResult, now, tokensIn, tokensOut, step.id);
+  db.prepare('UPDATE workflow_steps SET tokens_in = ?, tokens_out = ? WHERE id = ?')
+    .run(tokensIn, tokensOut, step.id);
+
+  if (!completeStepFromSignal(step.id, finalResult)) {
+    return res.status(409).json({ error: 'Step could not be completed (no longer running)' });
+  }
 
   const updated = normalizeStep(
     db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>
   );
-  getIO().emit('workflow_step_updated', updated);
-
-  // Emit log
-  getIO().emit('workflow_step_log', {
-    workflowId: step.workflowId,
-    stepId: step.id,
-    stepName: step.name,
-    message: 'Completed via external webhook',
-    type: 'success',
-    timestamp: now,
-  });
-
-  console.log(`[workflow-v2] Step "${step.name}" completed via webhook`);
   res.json(updated);
+});
+
+// Webhook: one member of a deliberation panel submits its response. Panel members all
+// report against the same step, so each gets its own channel — otherwise the first to
+// answer would complete the step on everyone else's behalf.
+// Usage: curl -X POST http://localhost:4040/api/workflows/webhook/<stepId>/panel/<agentId>/complete -d '{"result": "..."}'
+router.post('/webhook/:stepId/panel/:agentId/complete', (req, res) => {
+  const { result } = req.body || {};
+  const invalid = validateResult(result);
+  if (invalid) return res.status(400).json({ error: invalid });
+
+  const accepted = recordPanelResult(
+    req.params.stepId,
+    req.params.agentId,
+    (result as string) || 'Panel member reported no output',
+  );
+  if (!accepted) {
+    return res.status(400).json({
+      error: 'Not an active deliberation step awaiting this panel member',
+    });
+  }
+
+  const updated = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown>;
+  res.json(normalizeStep(updated));
 });
 
 // Resume an interrupted step (human-gated recovery). Rebuilds context from the

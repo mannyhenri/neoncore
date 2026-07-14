@@ -41,7 +41,6 @@ import { WorkflowExecutionLog } from './WorkflowExecutionLog';
 import type {
   Agent,
   AgentType,
-  WorkflowStep,
   WorkflowStepLog,
   StepExecutorType,
   StepStatus,
@@ -364,7 +363,6 @@ function DeletableEdge({
   targetPosition,
   style,
   markerEnd,
-  animated,
   selected,
 }: EdgeProps) {
   const [hovered, setHovered] = useState(false);
@@ -2828,7 +2826,7 @@ interface DecisionConfig {
   options?: DecisionOption[];
 }
 
-function DecisionStepConfig({ step, onUpdate, isExecuting, steps }: {
+function DecisionStepConfig({ step, onUpdate, isExecuting }: {
   step: LocalStep;
   onUpdate: (patch: Partial<LocalStep>) => void;
   isExecuting: boolean;

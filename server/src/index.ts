@@ -29,10 +29,9 @@ import heartbeatsRouter from './routes/heartbeats.js';
 import tasksRouter from './routes/tasks.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
-import { startEpicExecutor } from './routes/epics.js';
 import { startWorkflowExecutor } from './lib/workflow-executor.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
-import { startHeartbeatScheduler } from './lib/heartbeat-scheduler.js';
+import { startHeartbeatScheduler, stopHeartbeatScheduler } from './lib/heartbeat-scheduler.js';
 import { restoreRunningServers } from './lib/mcp-manager.js';
 import { endSession } from './lib/session-manager.js';
 import { reconcileInterruptedSteps } from './lib/recovery.js';
@@ -150,8 +149,6 @@ function emitAgentUpdate(row: Record<string, unknown>) {
 }
 
 setInterval(() => {
-  const now = new Date().toISOString();
-
   // working → idle after 2 minutes of no activity.
   // NB: do NOT touch last_seen here. It means "when did this agent last actually do
   // something", and the old code overwrote it with now() on this transition — which
@@ -233,14 +230,34 @@ setInterval(() => {
   if (cleared > 0) console.log(`[startup] Cleared ${cleared} orphaned question banner(s)`);
 }
 
+// Last-resort backstops. Several schedulers run inside setInterval callbacks, where an
+// unhandled synchronous throw is an uncaught exception that takes the whole process down —
+// and since the offending row is still there on restart, it crash-loops. NeonCore is the
+// thing that watches everything else; it must not be the first thing to die. Log loudly
+// and keep serving rather than exiting.
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] Uncaught exception — server staying up:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] Unhandled promise rejection — server staying up:', reason);
+});
+
 // Start stuck detector and memory analyzer
 startStuckDetector();
 startMemoryAnalyzer();
 startCleanupScheduler();
-// startEpicExecutor(); // TODO: disabled — autopilot not working yet
 startWorkflowExecutor();
 startWorkflowExecutorV2();
 startHeartbeatScheduler();
+
+// Graceful shutdown — stop the schedulers that own intervals.
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    console.log(`[shutdown] ${sig} received — stopping schedulers`);
+    stopHeartbeatScheduler();
+    process.exit(0);
+  });
+}
 
 // Recover from a crash on boot: flag steps left mid-run by the previous process.
 // (Most take effect once the sweep marks their dead agents offline; this call

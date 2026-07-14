@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
-import type { Agent, Workflow, PlayerRole, PlayerType, StepSummary, WorkflowStep, Project } from '../types';
+import type { Agent, Workflow, StepSummary, WorkflowStep, Project } from '../types';
 
 // ─── Browser notification helper ────────────────────
 
@@ -30,13 +30,6 @@ interface Props {
   agents: Agent[];
 }
 
-interface SelectedPlayer {
-  playerType: PlayerType;
-  agentId?: string;
-  modelId?: string;
-  name: string;
-  roles: PlayerRole[];
-}
 
 const PHASE_LABELS = { research: 'Research', coding: 'Coding', review: 'Review' } as const;
 
@@ -83,14 +76,12 @@ const TAB_COLORS: Record<TemplateTab, string> = {
   compound:    'bg-cyan-900/60 text-cyan-300',
 };
 const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
-const ROLE_OPTIONS: PlayerRole[] = ['research', 'coding', 'review'];
 
 // ─── WorkflowPanel ──────────────────────────────────
 
 export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [expanded, setExpanded] = useState(true);
-  const [showCreator, setShowCreator] = useState(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -353,272 +344,9 @@ export function WorkflowPanel({ agents }: Props) {
   );
 }
 
-// ─── WorkflowCreator ────────────────────────────────
-
-function WorkflowCreator({ agents, onCreated, onCancel }: {
-  agents: Agent[];
-  onCreated: () => void;
-  onCancel: () => void;
-}) {
-  const [jiraTaskId, setJiraTaskId] = useState('');
-  const [description, setDescription] = useState('');
-  const [selectedPlayers, setSelectedPlayers] = useState<SelectedPlayer[]>([]);
-  const [maxIterations, setMaxIterations] = useState(3);
-  const [availableModels, setAvailableModels] = useState<{ openai: string[]; gridlight: string[] }>({ openai: [], gridlight: [] });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api.getAvailableModels().then(setAvailableModels).catch(() => {});
-  }, []);
-
-  const onlineAgents = agents.filter((a) => a.status !== 'offline');
-
-  function toggleAgent(agent: Agent) {
-    setSelectedPlayers((prev) => {
-      const exists = prev.find((p) => p.agentId === agent.id);
-      if (exists) return prev.filter((p) => p.agentId !== agent.id);
-      return [...prev, {
-        playerType: 'vscode-agent' as PlayerType,
-        agentId: agent.id,
-        name: agent.repoName || agent.name,
-        roles: ['research', 'coding', 'review'] as PlayerRole[],
-      }];
-    });
-  }
-
-  function toggleApiModel(type: PlayerType, modelId: string) {
-    setSelectedPlayers((prev) => {
-      const exists = prev.find((p) => p.modelId === modelId && p.playerType === type);
-      if (exists) return prev.filter((p) => !(p.modelId === modelId && p.playerType === type));
-      return [...prev, {
-        playerType: type,
-        modelId,
-        name: modelId,
-        roles: ['research', 'coding', 'review'] as PlayerRole[],
-      }];
-    });
-  }
-
-  function toggleRole(playerId: string, role: PlayerRole) {
-    setSelectedPlayers((prev) => prev.map((p) => {
-      const id = p.agentId || p.modelId;
-      if (id !== playerId) return p;
-      const hasRole = p.roles.includes(role);
-      const newRoles = hasRole ? p.roles.filter((r) => r !== role) : [...p.roles, role];
-      return { ...p, roles: newRoles };
-    }));
-  }
-
-  const hasVsCodeCoder = selectedPlayers.some(
-    (p) => p.playerType === 'vscode-agent' && p.roles.includes('coding'),
-  );
-
-  async function handleSubmit() {
-    if (!description.trim() || selectedPlayers.length === 0) return;
-    if (!hasVsCodeCoder) {
-      setError('At least one VS Code agent must have the Coding role');
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-    try {
-      await api.startWorkflow({
-        jiraTaskId: jiraTaskId.trim() || undefined,
-        description: description.trim(),
-        players: selectedPlayers.map((p) => ({
-          playerType: p.playerType,
-          agentId: p.agentId,
-          name: p.name,
-          modelId: p.modelId,
-          roles: p.roles,
-        })),
-        maxIterations,
-      });
-      onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start workflow');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="glass rounded-xl p-4 space-y-4 border border-white/10">
-      <div className="text-sm font-semibold text-gray-300 uppercase tracking-wider">New Workflow</div>
-
-      {/* Task info */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <input
-          type="text"
-          value={jiraTaskId}
-          onChange={(e) => setJiraTaskId(e.target.value)}
-          placeholder="GRD-427 (optional)"
-          className="text-sm glass-input text-gray-300 rounded-md px-3 py-2 font-mono placeholder-gray-600 focus:outline-none focus:border-gl-purple w-full sm:w-32"
-        />
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe what needs to be done..."
-          rows={3}
-          className="text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none focus:border-gl-purple flex-1 resize-none"
-        />
-      </div>
-
-      {/* Player Selection */}
-      <div>
-        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Players</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* VS Code Agents */}
-          <div className="space-y-1.5">
-            <div className="text-xs text-gray-400 font-medium">VS Code Agents</div>
-            {onlineAgents.length === 0 ? (
-              <div className="text-xs text-gray-600 italic">No online agents</div>
-            ) : (
-              onlineAgents.map((agent) => {
-                const selected = selectedPlayers.find((p) => p.agentId === agent.id);
-                return (
-                  <PlayerRow
-                    key={agent.id}
-                    name={agent.repoName || agent.name}
-                    badge={agent.agentType === 'gridlight' ? 'GL' : 'CC'}
-                    badgeColor={agent.agentType === 'gridlight' ? 'text-pink-400' : 'text-blue-400'}
-                    selected={!!selected}
-                    roles={selected?.roles || []}
-                    onToggle={() => toggleAgent(agent)}
-                    onToggleRole={(role) => toggleRole(agent.id, role)}
-                  />
-                );
-              })
-            )}
-          </div>
-
-          {/* API Models */}
-          <div className="space-y-1.5">
-            <div className="text-xs text-gray-400 font-medium">API Models</div>
-            {availableModels.openai.map((m) => {
-              const selected = selectedPlayers.find((p) => p.modelId === m && p.playerType === 'openai');
-              return (
-                <PlayerRow
-                  key={`openai-${m}`}
-                  name={m}
-                  badge="OAI"
-                  badgeColor="text-green-400"
-                  selected={!!selected}
-                  roles={selected?.roles || []}
-                  onToggle={() => toggleApiModel('openai', m)}
-                  onToggleRole={(role) => toggleRole(m, role)}
-                />
-              );
-            })}
-            {availableModels.gridlight.map((m) => {
-              const selected = selectedPlayers.find((p) => p.modelId === m && p.playerType === 'gridlight-gateway');
-              return (
-                <PlayerRow
-                  key={`gl-${m}`}
-                  name={m}
-                  badge="GL"
-                  badgeColor="text-pink-400"
-                  selected={!!selected}
-                  roles={selected?.roles || []}
-                  onToggle={() => toggleApiModel('gridlight-gateway', m)}
-                  onToggleRole={(role) => toggleRole(m, role)}
-                />
-              );
-            })}
-            {availableModels.openai.length === 0 && availableModels.gridlight.length === 0 && (
-              <div className="text-xs text-gray-600 italic">Configure API keys in Settings</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Max iterations */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-gray-500">Max review iterations:</span>
-        <input
-          type="range"
-          min={1}
-          max={5}
-          value={maxIterations}
-          onChange={(e) => setMaxIterations(Number(e.target.value))}
-          className="w-24 accent-purple-500"
-        />
-        <span className="text-xs text-gray-400 font-mono">{maxIterations}</span>
-      </div>
-
-      {/* Validation */}
-      {!hasVsCodeCoder && selectedPlayers.length > 0 && (
-        <div className="text-xs text-amber-400">At least one VS Code agent needs the Coding role</div>
-      )}
-      {error && <div className="text-xs text-red-400">{error}</div>}
-
-      {/* Actions */}
-      <div className="flex gap-2">
-        <button
-          onClick={handleSubmit}
-          disabled={!description.trim() || selectedPlayers.length === 0 || !hasVsCodeCoder || submitting}
-          className="text-sm px-4 py-2 rounded-md font-medium gl-gradient text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
-        >
-          {submitting ? 'Starting...' : 'Start Workflow'}
-        </button>
-        <button
-          onClick={onCancel}
-          className="text-sm px-4 py-2 rounded-md text-gray-400 hover:text-white transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── PlayerRow ──────────────────────────────────────
 
-function PlayerRow({ name, badge, badgeColor, selected, roles, onToggle, onToggleRole }: {
-  name: string;
-  badge: string;
-  badgeColor: string;
-  selected: boolean;
-  roles: PlayerRole[];
-  onToggle: () => void;
-  onToggleRole: (role: PlayerRole) => void;
-}) {
-  return (
-    <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors ${selected ? 'bg-white/[0.06] border border-white/10' : 'hover:bg-white/[0.03]'}`}>
-      <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          className="accent-purple-500 shrink-0"
-        />
-        <span className={`text-[13px] font-bold ${badgeColor} shrink-0`}>{badge}</span>
-        <span className="text-xs text-gray-300 truncate">{name}</span>
-      </label>
-      {selected && (
-        <div className="flex gap-1 shrink-0">
-          {ROLE_OPTIONS.map((role) => (
-            <button
-              key={role}
-              onClick={() => onToggleRole(role)}
-              className={`text-[13px] px-1.5 py-0.5 rounded transition-colors ${
-                roles.includes(role)
-                  ? role === 'research' ? 'bg-blue-900/50 text-blue-300'
-                    : role === 'coding' ? 'bg-green-900/50 text-green-300'
-                    : 'bg-purple-900/50 text-purple-300'
-                  : 'bg-white/[0.04] text-gray-600'
-              }`}
-            >
-              {role.charAt(0).toUpperCase()}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── WorkflowRunCard ────────────────────────────────
 

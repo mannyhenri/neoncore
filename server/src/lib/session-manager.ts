@@ -3,7 +3,6 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Session } from '../types.js';
 import { summarizeSession, updateKnowledgeFromSession } from './session-summarizer.js';
-import { injectProjectContext } from './context-injector.js';
 
 // ── Helpers ──────────────────────────────────────────
 
@@ -124,13 +123,6 @@ export function endSession(agentId: string): void {
   });
 }
 
-export function getActiveSession(agentId: string): Session | null {
-  const row = db.prepare(
-    "SELECT * FROM sessions WHERE agent_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1"
-  ).get(agentId) as Record<string, unknown> | undefined;
-
-  return row ? normalizeSession(row) : null;
-}
 
 export function getProjectSessions(project: string, limit = 20): Session[] {
   const rows = db.prepare(

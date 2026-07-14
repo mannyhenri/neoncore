@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
@@ -6,7 +6,7 @@ import { GitPanel } from './GitPanel';
 import ProjectMemoryPanel from './ProjectMemoryPanel';
 import SendContextModal from './SendContextModal';
 import { api } from '../lib/api';
-import { SPRITES, SPRITE_COLORS, hashStr, spriteToSvg, generateFrame2, generatePixelSprites } from '../lib/sprites';
+import { generatePixelSprites } from '../lib/sprites';
 
 // ---------------------------------------------------------------------------
 // Props

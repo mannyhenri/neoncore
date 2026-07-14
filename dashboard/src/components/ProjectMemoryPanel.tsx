@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { Agent, Session, ProjectKnowledge } from '../types';
+import type { Agent, Session } from '../types';
 import SendToCartridgeModal from './SendToCartridgeModal';
 
 interface Props {
@@ -21,7 +21,7 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
   const [fileContent, setFileContent] = useState('');
   const [fileDirty, setFileDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{
     sessions: { id: string; project: string; startedAt: string; summary: string }[];
@@ -302,8 +302,6 @@ function SessionTimeline({
     <div className="space-y-2">
       {sessions.map((s) => {
         const isExpanded = expandedSession === s.id;
-        // Extract first line of summary as title
-        const firstLine = s.summary?.split('\n').find((l) => l.startsWith('### Task'));
         const taskLine = s.summary?.split('\n')[(s.summary?.split('\n').findIndex((l) => l.startsWith('### Task')) ?? -1) + 1] || '';
 
         return (
