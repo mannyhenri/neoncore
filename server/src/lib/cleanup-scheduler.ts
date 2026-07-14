@@ -12,13 +12,20 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSIONS_PER_PROJECT = 20;
 const MAX_MEMORY_PER_AGENT = 20;
 
+// Finished workflow RUNS (template_id IS NOT NULL) are kept this long, then pruned with
+// their steps. Runs used to be hard-deleted 30 seconds after finishing, which destroyed
+// every step result — the whole output of a review workflow was gone before anyone could
+// read it, and both UIs had nothing left to show. Keep the history; prune it on a window.
+// Templates (template_id IS NULL) are never pruned.
+const WORKFLOW_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 // Agents that have been offline longer than this are deleted outright (cartridge
 // disappears for good). They're already hidden in the grid; this stops the
 // `agents` table from growing without bound as repos come and go.
 const OFFLINE_AGENT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 function runCleanup() {
-  const stats = { activity: 0, commands: 0, permissions: 0, sessions: 0, memory: 0, agents: 0 };
+  const stats = { activity: 0, commands: 0, permissions: 0, sessions: 0, memory: 0, agents: 0, workflowRuns: 0 };
 
   const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
   const oneDayAgo = new Date(Date.now() - ONE_DAY_MS).toISOString();
@@ -77,6 +84,24 @@ function runCleanup() {
   for (const { id } of staleAgents) {
     deleteAgentCascade(id);
     stats.agents++;
+  }
+
+  // Workflow runs: prune finished runs (and their steps) past the retention window.
+  // Only runs — a template has no template_id and must survive forever. An unfinished run
+  // (no completed_at) is never pruned, however old, so a hung run stays visible.
+  const runCutoff = new Date(Date.now() - WORKFLOW_RUN_RETENTION_MS).toISOString();
+  const staleRuns = db.prepare(
+    `SELECT id FROM workflows
+     WHERE template_id IS NOT NULL
+       AND status IN ('completed', 'failed')
+       AND completed_at IS NOT NULL
+       AND completed_at < ?`
+  ).all(runCutoff) as { id: string }[];
+
+  for (const { id } of staleRuns) {
+    db.prepare('DELETE FROM workflow_steps WHERE workflow_id = ?').run(id);
+    db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+    stats.workflowRuns++;
   }
 
   const total = Object.values(stats).reduce((a, b) => a + b, 0);

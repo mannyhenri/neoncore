@@ -62,7 +62,6 @@ function analyzeAgentMemory(agentId: string) {
   // Look for: error in position N, then success (no error) in position N-1 or N-2
   for (let i = 2; i < activities.length; i++) {
     const errorAct = activities[i];
-    const nextAct = activities[i - 1];
     const successAct = activities[i - 2]; // most recent
 
     if (

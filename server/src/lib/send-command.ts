@@ -37,7 +37,11 @@ function typeIntoTerminal(text: string): boolean {
       { timeout: 5000 }
     );
     return true;
-  } catch { /* fall through */ }
+  } catch (err) {
+    // Do NOT swallow this. A silently-failed dispatch is how commands vanish into the void
+    // while the workflow still reports the step as "running".
+    console.warn(`[send-command] iTerm2 delivery failed, trying Terminal.app: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Try Terminal.app
   try {
@@ -49,7 +53,9 @@ function typeIntoTerminal(text: string): boolean {
       { timeout: 5000 }
     );
     return true;
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.error(`[send-command] Terminal.app delivery failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   return false;
 }
@@ -165,8 +171,10 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
   if (CLI_AGENT_TYPES.has(agentCheck.agent_type)) {
     if (typeIntoTerminal(finalText)) {
       console.log(`[cmd] Typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
-    } else if (process.platform === 'darwin') {
-      console.warn(`[cmd] Could not send command to terminal — no supported terminal found`);
+      command.delivered = true;
+    } else {
+      console.error(`[cmd] NO COMMAND CHANNEL for ${agentCheck.agent_type} agent ${agentId} — command was not delivered`);
+      command.delivered = false;
     }
     return command;
   }
@@ -180,17 +188,25 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
   if (primarySocket) {
     console.log(`[cmd] Emitting command_send to primary socket ${primarySocketId} for agent ${agentId}`);
     primarySocket.emit('command_send', command);
+    command.delivered = true;
   } else {
     const agentRoomSize = getIO().sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
     if (agentRoomSize > 0) {
       console.log(`[cmd] No primary socket — falling back to room ${agentRoom} (${agentRoomSize} socket(s))`);
       getIO().to(agentRoom).emit('command_send', command);
+      command.delivered = true;
     } else if (agentCheck.agent_type === 'claude' && typeIntoTerminal(finalText)) {
-      // No VS Code extension connected for this claude agent — it's running in a bare
-      // terminal. Fall back to typing the command directly into the frontmost terminal.
+      // No relay/extension socket for this claude agent — it's in a bare terminal. Fall back
+      // to typing into the FRONTMOST terminal. NB: this is unaddressed — it cannot target a
+      // specific window, so it lands wherever focus happens to be.
       console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for claude: ${finalText.slice(0, 80)}`);
+      command.delivered = true;
     } else {
-      console.log(`[cmd] Agent room ${agentRoom} empty — command queued as pending (will drain on reconnect)`);
+      // Nothing is listening. The command row stays 'pending' and will drain if a socket
+      // reconnects — but nothing guarantees that, and callers must be able to tell the
+      // difference between "delivered" and "queued into the void".
+      console.error(`[cmd] NO COMMAND CHANNEL for agent ${agentId} (${agentCheck.repo_name}) — command queued as pending, nothing is listening. Start a relay for this cartridge.`);
+      command.delivered = false;
     }
   }
 

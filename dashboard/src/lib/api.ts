@@ -1,4 +1,3 @@
-import type { AgentType } from '../types';
 
 const BASE_URL = '/api';
 

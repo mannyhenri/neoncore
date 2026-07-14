@@ -10,14 +10,68 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
-import { execSync, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { pushNotify } from './push-notify.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 
 const POLL_INTERVAL_MS = 12_000;
-/** Minimum time (ms) a step must be running before idle-detection can auto-complete it.
- *  This prevents the race condition where the agent hasn't picked up the command yet. */
-const MIN_RUNNING_BEFORE_COMPLETE_MS = 60_000;
+
+/**
+ * A step completes ONLY when its agent explicitly says so.
+ *
+ * This used to infer completion from agent status === 'idle'. That was wrong and it
+ * corrupted results: 'idle' means "no hook has fired for IDLE_THRESHOLD_MS" (see
+ * index.ts), and hooks only fire *after a tool returns*. An agent running one long
+ * operation — a test suite, a build, a big grep, or parked on a permission prompt —
+ * emits nothing and gets marked idle *while it is still working*. The executor then
+ * completed the step and harvested the last assistant message, so a review gate would
+ * parse PASS/FAIL out of mid-work chatter like "Let me check the files...".
+ *
+ * Every dispatched prompt now carries a completion instruction, and the step stays
+ * `running` until the agent calls it. Silence is never a completion signal.
+ */
+function buildCompletionSuffix(stepId: string): string {
+  const port = process.env.PORT || '4040';
+  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${stepId}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${stepId}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+}
+
+/**
+ * Panel members in a deliberation each report against the SAME step, so they need a
+ * per-agent channel — otherwise the first one to answer would complete the step for
+ * everyone. Their verdicts land in executor_config.panelResults[agentId].
+ */
+function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
+  const port = process.env.PORT || '4040';
+  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by running:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${stepId}/panel/${agentId}/complete -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'\nYou are one member of a panel; the deliberation cannot advance until you submit. Do NOT submit until your work is finished.`;
+}
+
+/**
+ * Dispatch a step's command and FAIL THE STEP if it went nowhere.
+ *
+ * Previously a command sent to a cartridge with no relay/extension socket was queued as
+ * 'pending' into the void, and the step sat `running` forever with no error — the workflow
+ * cheerfully reported itself as in-progress while nothing was listening. A step whose
+ * command was never delivered is a failed step, and it says so.
+ *
+ * Returns false if delivery failed (the step has already been marked failed).
+ */
+function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, includeMemory: boolean): boolean {
+  const command = sendCommandToAgent(agentId, text, includeMemory);
+
+  if (!command || command.delivered === false) {
+    const reason = !command
+      ? `agent ${agentId} not found`
+      : `no command channel for "${getAgentName(agentId)}" — nothing is listening (start a relay for that cartridge)`;
+    const now = new Date().toISOString();
+    db.prepare('UPDATE workflow_steps SET status = ?, error = ?, completed_at = ? WHERE id = ?')
+      .run('failed', `Command not delivered: ${reason}`, now, step.id);
+    emitStepUpdate(step.id);
+    emitStepLog(step.workflowId, step.id, step.name, `Command not delivered: ${reason}`, 'error');
+    console.error(`[workflow-v2] Step "${step.name}" failed — ${reason}`);
+    return false;
+  }
+  return true;
+}
 
 /** Expert role prompt prefixes — keyed by role ID */
 const ROLE_PROMPTS: Record<string, string> = {
@@ -33,6 +87,23 @@ const ROLE_PROMPTS: Record<string, string> = {
   planner: '[PLAN MODE] You are a technical planner. Analyze requirements and create a detailed, step-by-step implementation plan with clear milestones, dependencies, and acceptance criteria.\n\n',
 };
 
+/**
+ * executor_config is written as JSON by every code path, but a truncated write (the repo
+ * has already been bitten by power-loss truncating settings.json) or a hand-edited row
+ * would make this throw — inside a setInterval callback, which kills the process. A bad
+ * config should degrade one step, not crash the orchestrator.
+ */
+function parseExecutorConfig(raw: string | null | undefined, stepId: string): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    console.error(`[workflow-v2] Step ${stepId}: executor_config is not valid JSON — treating as empty. Raw: ${String(raw).slice(0, 120)}`);
+    return {};
+  }
+}
+
 function normalizeStep(row: Record<string, unknown>): WorkflowStep {
   return {
     id: row.id as string,
@@ -43,7 +114,7 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     positionY: row.position_y as number,
     executorType: row.executor_type as WorkflowStep['executorType'],
     executorId: (row.executor_id as string) || '',
-    executorConfig: JSON.parse((row.executor_config as string) || '{}'),
+    executorConfig: parseExecutorConfig(row.executor_config as string, row.id as string),
     autoAdvance: (row.auto_advance as number) === 1,
     status: (row.status as WorkflowStep['status']) || 'pending',
     result: (row.result as string) || '',
@@ -220,11 +291,10 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   };
   const formatSuffix = outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[outputSchema] || '') : '';
 
-  // Always append completion instructions so the agent signals a structured summary
-  // when done. MCP tool is primary (reliable, works for agents on other machines);
-  // the curl webhook is a same-machine fallback; idle-detection is the final backstop.
-  const port = process.env.PORT || '4040';
-  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${step.id}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+  // Always append completion instructions so the agent signals when done. The MCP tool is
+  // primary (works for agents on other machines); the curl webhook is a same-machine
+  // fallback. There is no idle-detection backstop any more — see buildCompletionSuffix.
+  const webhookSuffix = buildCompletionSuffix(step.id);
 
   const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
 
@@ -245,7 +315,7 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   console.log(`[workflow-v2] Step "${step.name}" prompt (${finalPrompt.length} chars): role=${role}, webhook=true, memory=${includeMemory}, deps=${step.dependsOn.length}`);
 
   db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(finalPrompt, step.id);
-  sendCommandToAgent(step.executorId, finalPrompt, includeMemory);
+  if (!dispatchStepCommand(step, step.executorId, finalPrompt, includeMemory)) return;
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
 }
@@ -272,7 +342,7 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
     `Dispatching command template "${template.name}" to cartridge "${agentName}"`, 'info');
 
   const includeMemory = isMemoryEnabled(step.executorId);
-  sendCommandToAgent(step.executorId, finalPrompt, includeMemory);
+  if (!dispatchStepCommand(step, step.executorId, finalPrompt, includeMemory)) return;
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step`, 'warn');
 }
@@ -291,14 +361,16 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const currentRetry = (step.executorConfig.currentRetry as number) || 0;
   const maxRetries = (step.executorConfig.maxRetries as number) || 3;
 
-  const reviewPrompt = `You are a code review critic. Evaluate the following work against these criteria:\n\n**Criteria:** ${criteria}\n\n---\n${depContext || 'No dependency output available.'}\n---\n\nYou MUST respond with exactly **PASS** or **FAIL** on the FIRST line of your response.\nThen provide your detailed reasoning.\nIf FAIL, provide specific actionable feedback for improvement.\n\nRetry ${currentRetry + 1} of ${maxRetries + 1}.`;
+  const reviewPrompt = `You are a code review critic. Evaluate the following work against these criteria:\n\n**Criteria:** ${criteria}\n\n---\n${depContext || 'No dependency output available.'}\n---\n\nYou MUST respond with exactly **PASS** or **FAIL** on the FIRST line of your response.\nThen provide your detailed reasoning.\nIf FAIL, provide specific actionable feedback for improvement.\n\nRetry ${currentRetry + 1} of ${maxRetries + 1}.`
+    + buildCompletionSuffix(step.id)
+    + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
   const agentName = getAgentName(reviewAgentId);
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching critic review to "${agentName}" (retry ${currentRetry}/${maxRetries})`, 'info');
 
   db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(reviewPrompt, step.id);
   const includeMemory = isMemoryEnabled(reviewAgentId);
-  sendCommandToAgent(reviewAgentId, reviewPrompt, includeMemory);
+  dispatchStepCommand(step, reviewAgentId, reviewPrompt, includeMemory);
 }
 
 /** Find online agents matching a repo path */
@@ -376,7 +448,8 @@ function dispatchDeliberationPrompts(step: WorkflowStep, panelAgentIds: string[]
     const agentName = getAgentName(agentId);
     const includeMemory = isMemoryEnabled(agentId);
     emitStepLog(step.workflowId, step.id, step.name, `Panel dispatch → "${agentName}"`, 'info');
-    sendCommandToAgent(agentId, fullPrompt, includeMemory);
+    // Each panel member reports on its own channel — see buildPanelCompletionSuffix.
+    dispatchStepCommand(step, agentId, fullPrompt + buildPanelCompletionSuffix(step.id, agentId), includeMemory);
   }
 
   // Set phase to collecting — processWorkflow will monitor panel agents
@@ -577,7 +650,9 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
     : '';
 
   const depContext = gatherDependencyContext(step);
-  const finalPrompt = depContext + feedbackBlock + basePrompt;
+  const finalPrompt = depContext + feedbackBlock + basePrompt
+    + buildCompletionSuffix(step.id)
+    + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
   const agentName = getAgentName(agentId);
   const gateLabel = preset?.label ?? gateType;
@@ -585,7 +660,7 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
 
   db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(finalPrompt, step.id);
   const includeMemory = isMemoryEnabled(agentId);
-  sendCommandToAgent(agentId, finalPrompt, includeMemory);
+  dispatchStepCommand(step, agentId, finalPrompt, includeMemory);
 }
 
 /** Handle quality-gate result: PASS completes, FAIL triggers retry or fails */
@@ -1083,6 +1158,77 @@ async function executeStep(step: WorkflowStep): Promise<void> {
 }
 
 /** Handle review-gate result: PASS completes, FAIL triggers retry or fails */
+/**
+ * The single completion path for a running step: the agent has explicitly reported.
+ *
+ * Gates must keep their PASS/FAIL + retry semantics, and looped steps must still
+ * re-dispatch — that logic used to hang off idle-detection, so it lives here now.
+ * Returns false if the step doesn't exist or isn't running (already completed, etc).
+ */
+export function completeStepFromSignal(stepId: string, result: string): boolean {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+  if (!row) return false;
+
+  const step = normalizeStep(row);
+  if (step.status !== 'running') return false;
+
+  const workflowId = step.workflowId;
+  const allSteps = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as Record<string, unknown>[])
+    .map(normalizeStep);
+
+  // ── Gates: the reported result carries the verdict ──
+  if (step.executorType === 'review-gate') {
+    processReviewGateResult(workflowId, step, result, allSteps);
+    return true;
+  }
+  if (step.executorType === 'quality-gate') {
+    processQualityGateResult(workflowId, step, result, allSteps);
+    return true;
+  }
+
+  const now = new Date().toISOString();
+
+  // ── Looped steps: re-dispatch until the loop count is exhausted ──
+  const loopCount = (step.executorConfig.loopCount as number) || 1;
+  const currentLoop = (step.executorConfig._currentLoop as number) || 1;
+  if (loopCount > 1 && currentLoop < loopCount) {
+    const nextLoop = currentLoop + 1;
+    db.prepare('UPDATE workflow_steps SET executor_config = ?, started_at = ? WHERE id = ?')
+      .run(JSON.stringify({ ...step.executorConfig, _currentLoop: nextLoop }), now, step.id);
+    emitStepLog(workflowId, step.id, step.name, `Loop ${nextLoop}/${loopCount} — re-dispatching`, 'info');
+
+    const freshStep = normalizeStep(
+      db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>
+    );
+    executeStep(freshStep).catch((err) => {
+      console.error(`[workflow-v2] Loop re-dispatch failed for "${step.name}": ${err}`);
+    });
+    return true;
+  }
+
+  // ── Deliberation synthesis finishing ──
+  const extraConfig = step.executorType === 'deliberation'
+    ? JSON.stringify({ ...step.executorConfig, deliberationPhase: 'done' })
+    : null;
+
+  if (extraConfig) {
+    db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ?, executor_config = ? WHERE id = ?')
+      .run('completed', result, now, extraConfig, step.id);
+  } else {
+    db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
+      .run('completed', result, now, step.id);
+  }
+
+  emitStepUpdate(step.id);
+  if (step.autoAdvance) {
+    emitStepLog(workflowId, step.id, step.name, 'Completed', 'success');
+  } else {
+    emitStepLog(workflowId, step.id, step.name, 'Step completed — waiting for manual advance before continuing', 'warn');
+  }
+  console.log(`[workflow-v2] Step "${step.name}" completed (agent reported)`);
+  return true;
+}
+
 function processReviewGateResult(
   workflowId: string,
   step: WorkflowStep,
@@ -1123,11 +1269,6 @@ function processReviewGateResult(
       const dep = allSteps.find((s) => s.id === depId);
       if (!dep) continue;
 
-      const depConfig = JSON.stringify({
-        ...dep.executorConfig,
-        retryFeedback: `[Critic feedback from retry ${nextRetry}]\n${result}`,
-      });
-
       // Prepend feedback to the next prompt
       const feedbackPrompt = dep.executorConfig.prompt
         ? `${dep.executorConfig.prompt}\n\n[FEEDBACK FROM REVIEW — please address these issues]\n${result}`
@@ -1154,12 +1295,16 @@ function processReviewGateResult(
   }
 }
 
-/** Handle deliberation step phases: launching → collecting → synthesis → done */
+/**
+ * Deliberation phases: launching → collecting → synthesis → done.
+ *
+ * Only `launching` is polled — it waits for the panel's agents to come online. `collecting`
+ * and `synthesis` are event-driven: panel members report via recordPanelResult() and the
+ * synthesis agent via the normal step webhook. Nothing here infers progress from idleness.
+ */
 function processDeliberationStep(workflowId: string, step: WorkflowStep) {
   const config = step.executorConfig;
   const phase = (config.deliberationPhase as string) || 'dispatch';
-  const panelAgentIds = (config.panelAgentIds as string[]) || [];
-  const panelResults = (config.panelResults as Record<string, string>) || {};
 
   if (phase === 'launching') {
     // Auto-launch mode: waiting for agents to come online
@@ -1188,94 +1333,73 @@ function processDeliberationStep(workflowId: string, step: WorkflowStep) {
     return;
   }
 
-  if (phase === 'collecting') {
-    // Check if all panel agents are idle and collect their results
-    let allCollected = true;
-    const updatedResults = { ...panelResults };
+  // 'collecting' and 'synthesis' are event-driven, not polled: panel members report via
+  // recordPanelResult() (the /panel/:agentId/complete webhook) and the synthesis agent
+  // reports via the normal step webhook. Nothing to poll — we wait for those signals.
+}
 
-    for (const agentId of panelAgentIds) {
-      if (!agentId) continue;
-      if (updatedResults[agentId]) continue; // Already collected
+/**
+ * Record one panel member's response. When the last member reports, dispatch synthesis
+ * (or, with no synthesis agent, combine and complete). Called by the panel webhook.
+ *
+ * Returns false if the step isn't an active deliberation or the agent isn't on the panel.
+ */
+export function recordPanelResult(stepId: string, agentId: string, result: string): boolean {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+  if (!row) return false;
 
-      const agent = db.prepare('SELECT status, last_message FROM agents WHERE id = ?')
-        .get(agentId) as { status: string; last_message: string } | undefined;
+  const step = normalizeStep(row);
+  if (step.status !== 'running') return false;
 
-      if (agent && agent.status === 'idle' && agent.last_message) {
-        updatedResults[agentId] = agent.last_message;
-        const agentName = getAgentName(agentId);
-        emitStepLog(workflowId, step.id, step.name, `Collected response from "${agentName}"`, 'info');
-      } else {
-        allCollected = false;
-      }
-    }
+  const config = step.executorConfig;
+  if ((config.deliberationPhase as string) !== 'collecting') return false;
 
-    // Persist any newly collected results
-    if (Object.keys(updatedResults).length > Object.keys(panelResults).length) {
-      const updatedConfig = JSON.stringify({ ...config, panelResults: updatedResults });
-      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
-        .run(updatedConfig, step.id);
-    }
+  const panelAgentIds = (config.panelAgentIds as string[]) || [];
+  if (!panelAgentIds.includes(agentId)) return false;
 
-    if (allCollected) {
-      // All panel results collected — dispatch synthesis
-      const synthesisAgentId = (config.synthesisAgentId as string) || '';
-      if (!synthesisAgentId) {
-        // No synthesis agent — just combine results and complete
-        const combined = Object.entries(updatedResults)
-          .map(([id, r]) => `[${getAgentName(id)}]\n${r}`)
-          .join('\n\n---\n\n');
-        const now = new Date().toISOString();
-        db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
-          .run('completed', combined, now, step.id);
-        emitStepUpdate(step.id);
-        emitStepLog(workflowId, step.id, step.name, `All ${panelAgentIds.length} responses collected — no synthesis agent, combining directly`, 'success');
-        return;
-      }
+  const panelResults = { ...((config.panelResults as Record<string, string>) || {}) };
+  panelResults[agentId] = result;
 
-      // Build synthesis prompt
-      const responsesBlock = Object.entries(updatedResults)
-        .map(([id, r]) => `### ${getAgentName(id)}\n${r}`)
-        .join('\n\n---\n\n');
+  const workflowId = step.workflowId;
+  emitStepLog(workflowId, step.id, step.name,
+    `Collected response from "${getAgentName(agentId)}" (${Object.keys(panelResults).length}/${panelAgentIds.length})`, 'info');
 
-      const synthesisPrompt = `You are synthesizing multiple expert perspectives into a unified consensus.\n\nHere are the independent responses:\n\n${responsesBlock}\n\nProvide a unified recommendation that:\n1. Identifies areas of agreement\n2. Resolves conflicting viewpoints with reasoning\n3. Combines the best elements from each perspective\n4. Provides a clear, actionable conclusion`;
+  const allCollected = panelAgentIds.filter(Boolean).every((id) => panelResults[id]);
 
-      const agentName = getAgentName(synthesisAgentId);
-      emitStepLog(workflowId, step.id, step.name, `Dispatching synthesis to "${agentName}"`, 'info');
-
-      const includeMemory = isMemoryEnabled(synthesisAgentId);
-      sendCommandToAgent(synthesisAgentId, synthesisPrompt, includeMemory);
-
-      const updatedConfig = JSON.stringify({
-        ...config,
-        panelResults: updatedResults,
-        deliberationPhase: 'synthesis',
-      });
-      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
-        .run(updatedConfig, step.id);
-    }
-  } else if (phase === 'synthesis') {
-    // Check if synthesis agent is idle
-    const synthesisAgentId = (config.synthesisAgentId as string) || '';
-    if (!synthesisAgentId) return;
-
-    const agent = db.prepare('SELECT status, last_message FROM agents WHERE id = ?')
-      .get(synthesisAgentId) as { status: string; last_message: string } | undefined;
-
-    if (agent && agent.status === 'idle') {
-      const now = new Date().toISOString();
-      const result = agent.last_message || 'Synthesis completed';
-      db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
-        .run('completed', result, now, step.id);
-
-      const updatedConfig = JSON.stringify({ ...config, deliberationPhase: 'done' });
-      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
-        .run(updatedConfig, step.id);
-
-      emitStepUpdate(step.id);
-      emitStepLog(workflowId, step.id, step.name, `Deliberation complete — synthesis finalized`, 'success');
-      console.log(`[workflow-v2] Deliberation "${step.name}" completed`);
-    }
+  if (!allCollected) {
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+      .run(JSON.stringify({ ...config, panelResults }), step.id);
+    return true;
   }
+
+  const synthesisAgentId = (config.synthesisAgentId as string) || '';
+
+  if (!synthesisAgentId) {
+    // No synthesis agent — combine the panel responses and complete.
+    const combined = Object.entries(panelResults)
+      .map(([id, r]) => `[${getAgentName(id)}]\n${r}`)
+      .join('\n\n---\n\n');
+    const now = new Date().toISOString();
+    db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ?, executor_config = ? WHERE id = ?')
+      .run('completed', combined, now, JSON.stringify({ ...config, panelResults, deliberationPhase: 'done' }), step.id);
+    emitStepUpdate(step.id);
+    emitStepLog(workflowId, step.id, step.name,
+      `All ${panelAgentIds.length} responses collected — no synthesis agent, combining directly`, 'success');
+    return true;
+  }
+
+  const responsesBlock = Object.entries(panelResults)
+    .map(([id, r]) => `### ${getAgentName(id)}\n${r}`)
+    .join('\n\n---\n\n');
+
+  const synthesisPrompt = `You are synthesizing multiple expert perspectives into a unified consensus.\n\nHere are the independent responses:\n\n${responsesBlock}\n\nProvide a unified recommendation that:\n1. Identifies areas of agreement\n2. Resolves conflicting viewpoints with reasoning\n3. Combines the best elements from each perspective\n4. Provides a clear, actionable conclusion`
+    + buildCompletionSuffix(step.id);
+
+  emitStepLog(workflowId, step.id, step.name, `Dispatching synthesis to "${getAgentName(synthesisAgentId)}"`, 'info');
+  db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+    .run(JSON.stringify({ ...config, panelResults, deliberationPhase: 'synthesis' }), step.id);
+  dispatchStepCommand(step, synthesisAgentId, synthesisPrompt, isMemoryEnabled(synthesisAgentId));
+  return true;
 }
 
 function processWorkflow(workflowId: string) {
@@ -1284,95 +1408,14 @@ function processWorkflow(workflowId: string) {
 
   if (steps.length === 0) return;
 
-  // Auto-complete running steps when the assigned agent goes idle.
-  // This bridges the gap: agent finishes work → goes idle → workflow detects completion.
-  // Steps with waitForWebhook skip this — they complete only via the webhook endpoint.
+  // Steps are NEVER completed by inferring it from agent idleness — see buildCompletionSuffix.
+  // A running step completes only when its agent explicitly reports (report_step_done / the
+  // webhook), which routes through completeStepFromSignal(). The only thing still polled here
+  // is a deliberation waiting for its panel agents to come online.
   for (const step of steps) {
     if (step.status !== 'running') continue;
-
-    // Standard and command steps always use webhooks for completion — skip idle-based auto-complete.
-    // Only review-gate, quality-gate, and deliberation use idle detection (they have their own completion logic).
-    // Decision steps wait for explicit human choice via /decide endpoint — never auto-complete.
-    if (step.executorConfig.waitForWebhook) continue;
-    if (step.executorType === 'claude-code' || step.executorType === 'command' || step.executorType === 'connector' || step.executorType === 'decision' || !step.executorType) continue;
-
-    // Don't auto-complete steps that just started — the agent may not have picked up
-    // the command yet. Wait at least MIN_RUNNING_BEFORE_COMPLETE_MS before checking idle.
-    if (step.startedAt) {
-      const elapsed = Date.now() - new Date(step.startedAt).getTime();
-      if (elapsed < MIN_RUNNING_BEFORE_COMPLETE_MS) continue;
-    }
-
-    // ── Deliberation: multi-phase completion ──
     if (step.executorType === 'deliberation') {
       processDeliberationStep(workflowId, step);
-      continue;
-    }
-
-    // For review-gate steps, check the reviewAgentId (not executorId)
-    const checkAgentId = step.executorType === 'review-gate'
-      ? (step.executorConfig.reviewAgentId as string) || step.executorId
-      : step.executorId;
-    if (!checkAgentId) continue;
-
-    const agent = db.prepare('SELECT status, last_message FROM agents WHERE id = ?')
-      .get(checkAgentId) as { status: string; last_message: string } | undefined;
-
-    if (agent && agent.status === 'idle') {
-      const now = new Date().toISOString();
-
-      // Read the most recent assistant_message activity for this agent to get
-      // the full output (agent.last_message is truncated to 500 chars for display).
-      const recentActivity = db.prepare(
-        "SELECT tool_input FROM activity WHERE agent_id = ? AND event_type = 'assistant_message' ORDER BY timestamp DESC LIMIT 1"
-      ).get(checkAgentId) as { tool_input: string } | undefined;
-      const result = recentActivity?.tool_input || agent.last_message || 'Step completed (agent idle)';
-
-      // ── Review gate: check PASS/FAIL and handle retries ──
-      if (step.executorType === 'review-gate') {
-        processReviewGateResult(workflowId, step, result, steps);
-        continue;
-      }
-
-      // ── Quality gate: check PASS/FAIL and handle retries ──
-      if (step.executorType === 'quality-gate') {
-        processQualityGateResult(workflowId, step, result, steps);
-        continue;
-      }
-
-      // Check loop: if step has loopCount > 1, re-dispatch instead of completing
-      const loopCount = (step.executorConfig.loopCount as number) || 1;
-      const currentLoop = (step.executorConfig._currentLoop as number) || 1;
-
-      if (loopCount > 1 && currentLoop < loopCount) {
-        // Increment loop counter and re-dispatch
-        const nextLoop = currentLoop + 1;
-        const updatedConfig = { ...step.executorConfig, _currentLoop: nextLoop };
-        db.prepare('UPDATE workflow_steps SET executor_config = ?, started_at = ? WHERE id = ?')
-          .run(JSON.stringify(updatedConfig), now, step.id);
-        emitStepLog(workflowId, step.id, step.name, `Loop ${nextLoop}/${loopCount} — re-dispatching`, 'info');
-        console.log(`[workflow-v2] Step "${step.name}" loop ${nextLoop}/${loopCount}`);
-
-        // Re-dispatch the step
-        const freshStep = normalizeStep(
-          db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>
-        );
-        executeStep(freshStep).catch((err) => {
-          console.error(`[workflow-v2] Loop re-dispatch failed for "${step.name}": ${err}`);
-        });
-        continue;
-      }
-
-      // Standard step completion
-      db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
-        .run('completed', result, now, step.id);
-      emitStepUpdate(step.id);
-      if (step.autoAdvance) {
-        emitStepLog(workflowId, step.id, step.name, `Completed${loopCount > 1 ? ` (${loopCount} loops done)` : ''} (agent went idle)`, 'success');
-      } else {
-        emitStepLog(workflowId, step.id, step.name, 'Step completed — waiting for manual advance before continuing', 'warn');
-      }
-      console.log(`[workflow-v2] Step "${step.name}" auto-completed (agent ${checkAgentId} idle)`);
     }
   }
 
@@ -1505,14 +1548,12 @@ function processWorkflow(workflowId: string) {
     emitStepLog(workflowId, '', 'Workflow', `Workflow ${finalStatus}`, finalStatus === 'completed' ? 'success' : 'error');
     console.log(`[workflow-v2] Workflow ${workflowId} ${finalStatus}`);
 
-    // Auto-delete completed/failed runs after 30 seconds (templates are kept forever)
+    // Finished runs are RETAINED. They used to be hard-deleted 30s after finishing, which
+    // destroyed every step result — the entire output of a review/analysis workflow was gone
+    // half a minute after it produced it, and neither UI had anything left to show. Old runs
+    // are now pruned on a retention window by cleanup-scheduler.ts instead.
     if (isRun) {
-      setTimeout(() => {
-        db.prepare('DELETE FROM workflow_steps WHERE workflow_id = ?').run(workflowId);
-        db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
-        getIO().emit('workflow_deleted', { id: workflowId });
-        console.log(`[workflow-v2] Auto-deleted completed run ${workflowId}`);
-      }, 30_000);
+      console.log(`[workflow-v2] Run ${workflowId.slice(0, 8)} ${finalStatus} — results retained`);
     }
   } else {
     // Log pending steps summary for debugging
@@ -1531,7 +1572,15 @@ function tick() {
   ).all() as { id: string }[];
 
   for (const { id } of runningWorkflows) {
-    processWorkflow(id);
+    // Isolate each workflow. This runs inside a setInterval callback, so an unhandled
+    // synchronous throw here is an uncaught exception that kills the whole server — and
+    // on restart the tick would hit the same bad row again, crash-looping. One poisoned
+    // workflow must not take down the executor, the other workflows, or the process.
+    try {
+      processWorkflow(id);
+    } catch (err) {
+      console.error(`[workflow-v2] processWorkflow(${id.slice(0, 8)}) threw — skipping this tick:`, err);
+    }
   }
 }
 

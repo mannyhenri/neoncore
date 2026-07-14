@@ -17,7 +17,6 @@ import os
 import platform
 import subprocess
 from urllib.request import Request, urlopen
-from urllib.error import URLError
 
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 POLL_TIMEOUT = 120  # seconds per poll attempt

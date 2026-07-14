@@ -2,7 +2,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import { getAdapter } from './model-adapters.js';
-import type { Workflow, WorkflowPlayer, WorkflowPhaseState, PhaseResult, WorkflowPhase } from '../types.js';
+import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowPhase } from '../types.js';
 
 const POLL_INTERVAL_MS = 15_000;
 const IDLE_THRESHOLD_MS = 45_000;

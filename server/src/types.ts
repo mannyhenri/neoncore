@@ -102,6 +102,13 @@ export interface Command {
   status: 'pending' | 'delivered' | 'failed';
   createdAt: string;
   deliveredAt: string | null;
+  /**
+   * Whether the command actually reached a live channel (relay/extension socket, or a
+   * terminal). NOT persisted — it is the dispatch-time answer to "did this go anywhere?".
+   * `false` means it was queued into the void: nothing was listening. Callers must check
+   * it, or a workflow step will sit `running` forever waiting on a command nobody received.
+   */
+  delivered?: boolean;
 }
 
 export interface AgentMemory {

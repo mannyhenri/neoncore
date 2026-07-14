@@ -10,7 +10,7 @@ import { GoalsPage } from './components/GoalsPage';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
 import { api } from './lib/api';
-import type { Agent, AgentType, Activity, VirtualCartridge, McpServer } from './types';
+import type { AgentType, Activity, VirtualCartridge, McpServer } from './types';
 
 export default function App() {
   // Virtual cartridges & MCP servers

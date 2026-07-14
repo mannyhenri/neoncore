@@ -55,7 +55,7 @@ router.post('/notify-test', async (_req, res) => {
 });
 
 // POST /api/settings/reinstall-hooks — re-run the hook installer on this machine
-router.post('/reinstall-hooks', (req, res) => {
+router.post('/reinstall-hooks', (_req, res) => {
   const port = parseInt(process.env.PORT || '4040');
   resetFirstLaunchSentinel();
   runFirstLaunchSetup(port);

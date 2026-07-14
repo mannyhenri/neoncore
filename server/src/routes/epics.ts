@@ -351,105 +351,7 @@ router.post('/runs/:id/retry', (req, res) => {
   res.json(updated);
 });
 
-// --- Epic Executor (background loop) ---
-// TODO: Autopilot disabled — not working yet. Uncomment when ready.
 
-/*
-const EPIC_POLL_INTERVAL_MS = 15_000;
-
-export function startEpicExecutor() {
-  setInterval(() => {
-    const runs = db.prepare(
-      "SELECT * FROM epic_runs WHERE status IN ('running', 'committing')"
-    ).all() as Record<string, unknown>[];
-
-    for (const row of runs) {
-      try {
-        processEpicRun(row);
-      } catch (err) {
-        console.error(`[epic] Error processing run ${row.id}:`, err);
-      }
-    }
-  }, EPIC_POLL_INTERVAL_MS);
-
-  console.log(`[epic] Epic executor started (${EPIC_POLL_INTERVAL_MS / 1000}s interval)`);
-}
-
-function processEpicRun(row: Record<string, unknown>) {
-  const epicId = row.id as string;
-  const status = row.status as string;
-  const tasks: EpicTaskState[] = JSON.parse(row.tasks as string);
-  const config: EpicRunConfig = JSON.parse(row.config as string);
-  const currentIdx = row.current_task as number;
-  const agentId = row.agent_id as string;
-
-  const agent = db.prepare('SELECT status, last_seen FROM agents WHERE id = ?')
-    .get(agentId) as { status: string; last_seen: string } | undefined;
-  if (!agent) return;
-
-  // Agent offline → fail epic
-  if (agent.status === 'offline') {
-    failEpic(epicId, tasks, currentIdx, 'Agent went offline');
-    restoreAgentMode(agentId, row.previous_mode as string);
-    return;
-  }
-
-  // Agent waiting for human input → permission relay handles it, skip
-  if (agent.status === 'waiting') return;
-
-  // Agent not idle yet → skip
-  if (agent.status !== 'idle') return;
-
-  // Check idle duration
-  const lastSeen = new Date(agent.last_seen).getTime();
-  const idleFor = Date.now() - lastSeen;
-  if (idleFor < config.idleThresholdMs) return;
-
-  const now = new Date().toISOString();
-
-  if (status === 'running') {
-    // Current task just completed
-    const task = tasks[currentIdx];
-    if (task.status !== 'running') return; // Guard against double-processing
-
-    task.status = 'completed';
-    task.completedAt = now;
-
-    const isLastTask = currentIdx >= tasks.length - 1;
-
-    if (isLastTask && config.skipCommitOnLast) {
-      completeEpic(epicId, tasks, agentId, row.previous_mode as string);
-    } else {
-      // Send commit-push
-      updateEpicState(epicId, 'committing', currentIdx, tasks);
-      sendCommandToAgent(agentId, config.commitCommand, false);
-      console.log(`[epic] Run ${epicId} task ${currentIdx} (${task.taskId}) completed — committing`);
-    }
-
-  } else if (status === 'committing') {
-    // Commit done → advance
-    const nextIdx = currentIdx + 1;
-
-    if (nextIdx >= tasks.length) {
-      completeEpic(epicId, tasks, agentId, row.previous_mode as string);
-    } else {
-      // Dispatch next task
-      tasks[nextIdx].status = 'running';
-      tasks[nextIdx].startedAt = now;
-      updateEpicState(epicId, 'running', nextIdx, tasks);
-
-      const prompt = buildTaskPrompt(tasks[nextIdx], config);
-      sendCommandToAgent(agentId, prompt, false);
-      console.log(`[epic] Run ${epicId} advancing to task ${nextIdx}: ${tasks[nextIdx].taskId}`);
-    }
-  }
-}
-*/
-
-// Stub export so the import in index.ts doesn't break
-export function startEpicExecutor() {
-  console.log('[epic] Epic autopilot is disabled');
-}
 
 // --- Helpers ---
 
@@ -489,19 +391,6 @@ function completeEpic(epicId: string, tasks: EpicTaskState[], agentId: string, p
   console.log(`[epic] Run ${epicId} completed — all ${tasks.length} tasks done`);
 }
 
-function failEpic(epicId: string, tasks: EpicTaskState[], currentTask: number, error: string) {
-  const now = new Date().toISOString();
-  if (tasks[currentTask]) {
-    tasks[currentTask].status = 'failed';
-    tasks[currentTask].error = error;
-  }
-  db.prepare("UPDATE epic_runs SET status = 'failed', tasks = ?, error = ?, completed_at = ? WHERE id = ?")
-    .run(JSON.stringify(tasks), error, now, epicId);
-
-  const row = db.prepare('SELECT * FROM epic_runs WHERE id = ?').get(epicId) as Record<string, unknown>;
-  getIO().emit('epic_updated', normalizeEpicRun(row));
-  console.log(`[epic] Run ${epicId} failed at task ${currentTask}: ${error}`);
-}
 
 function enableTrustMode(agentId: string) {
   const now = new Date().toISOString();

@@ -153,7 +153,13 @@ def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str) 
 
 
 def is_neoncore_hook(hook) -> bool:
-    """Check if a hook entry is a NeonCore hook."""
+    """Check if a hook entry is a NeonCore hook.
+
+    message-reader is intentionally still listed: the hook was removed (it posted to
+    /api/agents/message, an endpoint that no longer exists — reporter.py's transcript
+    pipeline replaced it), but machines installed before that still carry it in their
+    settings.json. Matching it here is what strips the stale entry on reinstall.
+    """
     s = str(hook).lower()
     return any(keyword in s for keyword in [
         "neoncore", "reporter.sh", "permission-proxy.sh", "message-reader.sh",
@@ -182,7 +188,7 @@ def main():
     print()
 
     # Verify hooks exist
-    required_hooks = ["reporter.py", "permission-proxy.py", "message-reader.py", "notification.py"]
+    required_hooks = ["reporter.py", "permission-proxy.py", "notification.py"]
     for hook in required_hooks:
         path = os.path.join(hooks_dir, hook)
         if not os.path.exists(path):
@@ -195,7 +201,7 @@ def main():
             path = os.path.join(hooks_dir, hook)
             os.chmod(path, 0o755)
         # Also make the bash scripts executable if they exist
-        for sh_hook in ["reporter.sh", "permission-proxy.sh", "message-reader.sh", "notification.sh"]:
+        for sh_hook in ["reporter.sh", "permission-proxy.sh", "notification.sh"]:
             path = os.path.join(hooks_dir, sh_hook)
             if os.path.exists(path):
                 os.chmod(path, 0o755)
@@ -203,7 +209,6 @@ def main():
     # Build hook commands
     reporter_cmd = build_hook_command(hooks_dir, "reporter.py", orchestrator_url)
     permission_cmd = build_hook_command(hooks_dir, "permission-proxy.py", orchestrator_url)
-    message_cmd = build_hook_command(hooks_dir, "message-reader.py", orchestrator_url)
     notification_cmd = build_hook_command(hooks_dir, "notification.py", orchestrator_url)
 
     # Ensure .claude directory exists
