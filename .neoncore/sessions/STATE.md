@@ -98,11 +98,17 @@ produced `docs/fix-plan-2026-07-13.md` (read that for the full findings). Fixed 
   its only caller was inside the commented-out block, so **epics could never be marked failed**),
   5 orphaned dashboard components (1,829 lines), 35 unused symbols. `noUnusedLocals` +
   `noUnusedParameters` now ON in both tsconfigs so it can't regress. **Net −2,676 / +466 lines.**
-- **`message-reader` hook removed — and this was a live trap.** It posted to `/api/agents/message`,
-  an endpoint that no longer exists. `install.sh` has `set -e` and did `chmod +x` on it, so
-  deleting the file would have **aborted the installer**. Both `install.sh` and `install.py` fixed.
+- **`message-reader` hook removed.** It was **never registered** — `install.py` built
+  `message_cmd` and then never appended it to any hook array, so the script never ran. That is
+  the real reason it was dead. `install.sh` has `set -e` and did `chmod +x` on it, so deleting
+  the file would have **aborted the installer**; both `install.sh` and `install.py` are fixed.
   The `is_neoncore_hook` detector still matches `message-reader` ON PURPOSE — that's what strips
-  the stale hook from settings.json on machines installed before this.
+  a stale entry from settings.json on machines installed before this.
+  **CORRECTION:** the commit message for 4527a3a (and the first version of the fix plan) claims
+  `/api/agents/message` "no longer exists". **That is WRONG** — the endpoint is alive at
+  `server/src/routes/agents.ts:290` and the VS Code extension still posts to it
+  (`extension.ts:820`, the Gridlight idle report). A bad grep produced the false claim. The
+  deletion was still correct (unregistered hook), but do NOT delete that endpoint on its say-so.
 
 Green: 4/4 tsc clean, ruff clean, 20/20 server tests, health OK after hot-reload.
 
