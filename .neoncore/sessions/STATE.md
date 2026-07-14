@@ -71,14 +71,53 @@ workflows against it will fail the same way. Use `gridlight-1.1.4-fixes`.
   measured `keyboardVerticalOffset`; hit this TWICE, in the detail screen and the workflow sheet).
 - Docs rewritten (SessionEnd, lifecycle, `<SERVER>` = hostname OR IP, the mobile app).
 
-## NEXT — the thing that caused all this pain
-**NeonCore lies when a cartridge has no command channel.** It queues commands into the void and
-reports the workflow as "running". Proposed (not built):
-- Warn/refuse at launch if the target cartridge has no relay/extension socket.
-- Mark a step **failed** ("no command channel — start a relay"), not `running` forever.
-- Badge hooks-only cartridges in both UIs so it's visible BEFORE you rely on one.
-- Consider auto-starting a relay (`openInTerminal()` in `lib/open-directory.ts` exists but has
-  **zero callers** — orphaned).
+## DONE (2026-07-13 late) — branch `fix/workflow-executor-hardening`, NOT yet merged
+Workflows now run end-to-end via the relay (proved: a 4-step review workflow dispatched,
+executed and self-advanced through `neoncore_report_step_done`). A 5-step audit of the repo
+produced `docs/fix-plan-2026-07-13.md` (read that for the full findings). Fixed on the branch:
+
+- **`idle` no longer means "done" (was CRITICAL).** `idle` = "no hook fired for 2 min", and hooks
+  only fire *after a tool returns* — so an agent in one long op (test suite, build, permission
+  prompt) got marked idle **while working**, and the executor completed its step by harvesting
+  mid-work chatter. Review gates were parsing PASS/FAIL out of "Let me check the files...".
+  Idle-based completion is **deleted**. Every prompt now carries an explicit completion
+  instruction; a step completes ONLY on `report_step_done`/webhook → `completeStepFromSignal()`.
+  Deliberation panels report per-agent via a new `/webhook/:stepId/panel/:agentId/complete`.
+- **The executor could kill the server (was CRITICAL).** `tick()` ran a bare loop in a
+  `setInterval` with no try/catch, and `normalizeStep` did an unguarded `JSON.parse` of
+  `executor_config` — one malformed row = uncaught exception = process death = crash loop on
+  restart. Now: per-workflow try/catch, guarded parse, and global `uncaughtException` /
+  `unhandledRejection` handlers. **Verified by injecting a poisoned row — server survived.**
+- **Runs are no longer destroyed.** They were hard-deleted 30s after finishing, which is why a
+  finished workflow's results vanished and mobile had nothing to drill into. Now retained and
+  pruned at 7 days by `cleanup-scheduler.ts`.
+- **Undelivered commands now FAIL the step** ("no command channel — start a relay") instead of
+  sitting `running` forever. `sendCommandToAgent` reports `delivered`; AppleScript errors are
+  logged, not swallowed.
+- Dead code: epic autopilot deleted (it was dead on both ends — `failEpic` was uncalled because
+  its only caller was inside the commented-out block, so **epics could never be marked failed**),
+  5 orphaned dashboard components (1,829 lines), 35 unused symbols. `noUnusedLocals` +
+  `noUnusedParameters` now ON in both tsconfigs so it can't regress. **Net −2,676 / +466 lines.**
+- **`message-reader` hook removed — and this was a live trap.** It posted to `/api/agents/message`,
+  an endpoint that no longer exists. `install.sh` has `set -e` and did `chmod +x` on it, so
+  deleting the file would have **aborted the installer**. Both `install.sh` and `install.py` fixed.
+  The `is_neoncore_hook` detector still matches `message-reader` ON PURPOSE — that's what strips
+  the stale hook from settings.json on machines installed before this.
+
+Green: 4/4 tsc clean, ruff clean, 20/20 server tests, health OK after hot-reload.
+
+## NEXT
+- **Merge the branch** (still uncommitted/unmerged as of this writing).
+- **Re-bootstrap the other Mac + Windows box** from `dist/` — but REBUILD the zips first, they
+  still ship the old `message-reader` hook. Also `npm install` in their relay dir.
+- **NOT fixed, by decision:** the API has **no auth** and binds `0.0.0.0` — anyone on the LAN can
+  forge step completions or inject a prompt into a live agent (RCE by proxy). Fine on a trusted
+  home network; fix before this box is on untrusted wifi.
+- Mobile still can't drill into workflow steps — the screen was never built (`WorkflowsScreen.tsx`
+  run rows aren't tappable; no Step type, no per-run fetch). Backend is ready (`GET /v2/:id`
+  returns steps). Now actually worth building, since runs are no longer deleted.
+- `openInTerminal()` is NOT orphaned any more (3 callers in `lib/open-directory.ts`) — it's what
+  auto-launches the relay. Earlier note in this file was wrong.
 
 ## Also outstanding
 - Other Mac + Windows box need re-bootstrapping from `dist/` zips (they carry the SessionEnd
