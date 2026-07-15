@@ -72,6 +72,17 @@ const AGENT_ARGS = dashIdx >= 0 ? process.argv.slice(dashIdx + 1) : [];
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 
+// Enter-submission tuning (see inject()). The Enter is decoupled from the paste
+// because the TUI needs a beat to finish ingesting a bracketed paste before a `\r`
+// submits it rather than being absorbed as a literal newline. The old fixed 120ms
+// gap lost that race for large prompts — the paste landed but the Enter got
+// swallowed, so nothing sent. We now scale the first Enter to the payload size and
+// fire a backstop Enter afterward. Overridable via env for tuning.
+const ENTER_BASE_MS = Number(process.env.NEONCORE_RELAY_ENTER_MS) || 150;
+const ENTER_CHARS_PER_MS = 8;   // +1ms of pre-Enter wait per 8 chars pasted
+const ENTER_MAX_MS = 1500;      // cap on the scaled first-Enter delay
+const ENTER_BACKSTOP_MS = Number(process.env.NEONCORE_RELAY_ENTER_BACKSTOP_MS) || 450;
+
 // ── Logging (file by default; the terminal belongs to the agent's TUI) ──────
 const LOG_DIR = path.join(os.homedir(), '.neoncore');
 const LOG_FILE = path.join(LOG_DIR, 'relay.log');
@@ -171,12 +182,19 @@ async function main() {
   process.stdout.on('resize', () => ptyProc.resize(process.stdout.columns || 80, process.stdout.rows || 30));
 
   // Inject a dispatched command into the PTY as a bracketed paste, then submit.
+  // The submit is a scaled-delay Enter plus a backstop Enter: a plain Enter on an
+  // already-submitted (empty) Claude Code prompt is a harmless no-op, so the second
+  // press costs nothing when the first worked but rescues the case where the first
+  // was swallowed because the TUI hadn't finished ingesting the paste yet.
   function inject(command) {
     if (!command || !command.text) return;
-    log(`Injecting command ${command.id}: ${String(command.text).slice(0, 80)}`);
-    ptyProc.write(PASTE_START + command.text + PASTE_END);
-    // Small gap so the TUI finishes ingesting the paste before Enter submits it.
-    setTimeout(() => ptyProc.write('\r'), 120);
+    const text = String(command.text);
+    log(`Injecting command ${command.id}: ${text.slice(0, 80)}`);
+    ptyProc.write(PASTE_START + text + PASTE_END);
+    const firstMs = Math.min(ENTER_MAX_MS, ENTER_BASE_MS + Math.floor(text.length / ENTER_CHARS_PER_MS));
+    const submit = () => { try { ptyProc.write('\r'); } catch { /* PTY may have closed */ } };
+    setTimeout(submit, firstMs);
+    setTimeout(submit, firstMs + ENTER_BACKSTOP_MS);
     if (command.id) markDelivered(command.id);
   }
 

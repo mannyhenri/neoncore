@@ -214,12 +214,19 @@ async function pasteAndEnter(text: string): Promise<void> {
     // Re-focus then Enter (separate call ensures correct focus target)
     await focusAgentPanel();
     await sleep(300);
-    await execAsync(
-      `osascript` +
-      ` -e 'tell application "System Events"'` +
-      ` -e '  key code 36'` +
-      ` -e 'end tell'`
-    );
+    const pressEnter = () =>
+      execAsync(
+        `osascript` +
+        ` -e 'tell application "System Events"'` +
+        ` -e '  key code 36'` +
+        ` -e 'end tell'`
+      );
+    await pressEnter();
+    // Backstop Enter — no-op on an already-submitted (empty) prompt, rescues a lost first press.
+    await sleep(400);
+    await focusAgentPanel();
+    await sleep(150);
+    await pressEnter();
     return;
   }
 
@@ -229,7 +236,17 @@ async function pasteAndEnter(text: string): Promise<void> {
   if (process.platform === 'win32') {
     const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`;
     await execAsync(`powershell -Command "${psScript}"`);
+    // Backstop Enter (see mac path).
+    await sleep(400);
+    await focusAgentPanel();
+    await sleep(150);
+    await execAsync(`powershell -Command "${psScript}"`);
   } else {
+    await vscode.commands.executeCommand('default:type', { text: '\n' });
+    // Backstop Enter (see mac path).
+    await sleep(400);
+    await focusAgentPanel();
+    await sleep(150);
     await vscode.commands.executeCommand('default:type', { text: '\n' });
   }
 }
@@ -624,6 +641,21 @@ async function handleCommand(command: Command) {
           ` -e 'end tell'`
         );
         log(`Sent Enter keystroke — command submitted`);
+
+        // Backstop Enter: the first press can be lost if focus shifted or the paste
+        // hadn't finished rendering when it fired. A second Enter on an already-
+        // submitted (empty) prompt is a no-op, so this only rescues the miss. Re-focus
+        // first so the keystroke lands on the agent panel, not wherever focus drifted.
+        await sleep(450);
+        await focusAgentPanel();
+        await sleep(200);
+        await execAsync(
+          `osascript` +
+          ` -e 'tell application "System Events"'` +
+          ` -e '  key code 36'` +
+          ` -e 'end tell'`
+        );
+        log(`Sent backstop Enter keystroke`);
       } else {
         // Windows/Linux: Use VSCode commands (clipboard already has the text)
         await sleep(300);
@@ -642,10 +674,22 @@ async function handleCommand(command: Command) {
           const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`;
           await execAsync(`powershell -Command "${psScript}"`);
           log(`Submitted via PowerShell SendKeys (Windows)`);
+          // Backstop Enter (see mac path) — no-op if already submitted.
+          await sleep(450);
+          await focusAgentPanel();
+          await sleep(200);
+          await execAsync(`powershell -Command "${psScript}"`);
+          log(`Sent backstop Enter (Windows)`);
         } else {
           // Linux fallback
           await vscode.commands.executeCommand('default:type', { text: '\n' });
           log(`Submitted via type command (Linux)`);
+          // Backstop Enter (see mac path) — no-op if already submitted.
+          await sleep(450);
+          await focusAgentPanel();
+          await sleep(200);
+          await vscode.commands.executeCommand('default:type', { text: '\n' });
+          log(`Sent backstop Enter (Linux)`);
         }
       }
     } catch (err) {
