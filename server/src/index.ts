@@ -27,6 +27,7 @@ import goalsRouter from './routes/goals.js';
 import projectsRouter from './routes/projects.js';
 import heartbeatsRouter from './routes/heartbeats.js';
 import tasksRouter from './routes/tasks.js';
+import pushRouter from './routes/push.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startWorkflowExecutor } from './lib/workflow-executor.js';
@@ -76,6 +77,7 @@ app.use('/api/goals', goalsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/heartbeats', heartbeatsRouter);
 app.use('/api/tasks', tasksRouter);
+app.use('/api/push', pushRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

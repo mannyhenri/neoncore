@@ -1,4 +1,4 @@
-import type { Agent, AgentMode, PermissionRequest, TranscriptEvent, Workflow } from './types';
+import type { Agent, AgentMode, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
 async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
@@ -69,6 +69,67 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ agentId, ...(initialContext ? { initialContext } : {}) }),
     }),
+
+  // ─── V2 (canvas) workflow runs ───────────────────────────────
+  // A run's steps, with which cartridge each runs on and its live status.
+  getWorkflowV2: (base: string, id: string) =>
+    req<{ workflow: Workflow; steps: WorkflowStep[] }>(base, `/api/workflows/v2/${id}`),
+
+  // Mark a running step complete (the "Mark complete" button on the web canvas).
+  completeWorkflowStep: (base: string, id: string, stepId: string, result?: string) =>
+    req<WorkflowStep>(base, `/api/workflows/v2/${id}/steps/${stepId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ result: result ?? 'Marked complete from mobile' }),
+    }),
+
+  // Skip a step so its dependents unblock.
+  skipWorkflowStep: (base: string, id: string, stepId: string) =>
+    req<WorkflowStep>(base, `/api/workflows/v2/${id}/steps/${stepId}/skip`, { method: 'POST' }),
+
+  // For a completed step with auto-advance off — let dependents proceed.
+  advanceWorkflowStep: (base: string, id: string, stepId: string) =>
+    req<WorkflowStep>(base, `/api/workflows/v2/${id}/steps/${stepId}/advance`, { method: 'POST' }),
+
+  // Answer a `decision` step by choosing one of its options.
+  decideWorkflowStep: (base: string, id: string, stepId: string, optionId: string) =>
+    req<WorkflowStep>(base, `/api/workflows/v2/${id}/steps/${stepId}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({ optionId }),
+    }),
+
+  // Inject a mid-task message to the cartridge running a step ("Steer" on the web).
+  steerWorkflowStep: (base: string, id: string, stepId: string, message: string) =>
+    req<{ ok: boolean; commandId: string }>(base, `/api/workflows/v2/${id}/steps/${stepId}/steer`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  // Resume a step the server marked interrupted (crash/recovery path).
+  recoverStep: (base: string, stepId: string) =>
+    req<{ ok: boolean; recoveryStatus?: string }>(base, `/api/workflows/steps/${stepId}/recover`, {
+      method: 'POST',
+    }),
+
+  // Register / unregister this device's Expo push token so the server can notify it
+  // when a workflow finishes.
+  registerPushToken: (base: string, token: string, platform: string) =>
+    req<{ ok: boolean }>(base, '/api/push/register', {
+      method: 'POST',
+      body: JSON.stringify({ token, platform }),
+    }),
+  unregisterPushToken: (base: string, token: string) =>
+    req<{ ok: boolean }>(base, '/api/push/unregister', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+
+  // Run-level controls.
+  pauseWorkflow: (base: string, id: string) =>
+    req<Workflow>(base, `/api/workflows/${id}/pause`, { method: 'POST' }),
+  resumeWorkflow: (base: string, id: string) =>
+    req<Workflow>(base, `/api/workflows/${id}/resume`, { method: 'POST' }),
+  cancelWorkflow: (base: string, id: string) =>
+    req<Workflow>(base, `/api/workflows/${id}/cancel`, { method: 'POST' }),
 
   // decision: 'allowed' | 'denied'. `response` carries AskUserQuestion answers
   // or ExitPlanMode feedback (string or object).

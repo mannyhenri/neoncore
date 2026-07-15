@@ -738,6 +738,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_heartbeats_project ON heartbeats(project_id);
   CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats(active, next_run_at);
+
+  -- Expo push tokens for the mobile app. One row per device; the token is the identity,
+  -- so re-registering the same device is an idempotent upsert. Invalid tokens are pruned
+  -- when Expo reports DeviceNotRegistered (see lib/push.ts).
+  CREATE TABLE IF NOT EXISTS push_tokens (
+    token TEXT PRIMARY KEY,
+    platform TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    last_seen TEXT NOT NULL
+  );
 `);
 
 // Add project column to notes table (migration-safe)

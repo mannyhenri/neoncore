@@ -20,8 +20,8 @@ const runColor: Record<string, string> = {
   pending: theme.textDim,
 };
 
-export function WorkflowsScreen() {
-  const { baseUrl, agents } = useNeonCore();
+export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => void }) {
+  const { baseUrl, agents, onWorkflowUpdate } = useNeonCore();
 
   // Only cartridges that can actually execute. Offering a dead one would just hand the user
   // a run that fails at step 1. Hidden ones are fine — running a workflow on a dismissed
@@ -56,13 +56,31 @@ export function WorkflowsScreen() {
       api.listWorkflowRuns(baseUrl).catch(() => [] as Workflow[]),
     ]);
     setTemplates(t);
-    // Only the runs that are still alive are worth surfacing on a phone.
-    setRuns(r.filter((w) => w.status === 'running' || w.status === 'paused'));
+    // Keep every run — active AND finished — so any of them can be opened and inspected on
+    // the phone, same as the server dashboard. The render splits them into sections.
+    setRuns(r);
   }, [baseUrl]);
 
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
+
+  // Live status changes: a run finishing moves it from ACTIVE to RECENT without a manual
+  // refresh. workflow_updated carries no stepSummary, so spread over the existing row to
+  // keep the "3/5 · repo" subline we already have.
+  useEffect(() => {
+    const off = onWorkflowUpdate((wf) => {
+      if (!wf.templateId) return; // templates aren't runs
+      setRuns((prev) => {
+        const i = prev.findIndex((x) => x.id === wf.id);
+        if (i === -1) return [wf, ...prev];
+        const next = prev.slice();
+        next[i] = { ...next[i], ...wf };
+        return next;
+      });
+    });
+    return off;
+  }, [onWorkflowUpdate]);
 
   const flash = (m: string) => {
     setNotice(m);
@@ -206,6 +224,12 @@ export function WorkflowsScreen() {
     );
   }
 
+  // Split runs so both live and finished ones are reachable. Sorting is already newest-first
+  // from the server (created_at DESC); the filter preserves it.
+  const activeRuns = runs.filter((w) => w.status === 'running' || w.status === 'paused');
+  const recentRuns = runs.filter((w) => w.status !== 'running' && w.status !== 'paused');
+  const RECENT_CAP = 15;
+
   return (
     <View style={styles.root}>
       <Header />
@@ -219,25 +243,30 @@ export function WorkflowsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />
         }
         ListHeaderComponent={
-          runs.length > 0 ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>ACTIVE ({runs.length})</Text>
-              {runs.map((r) => (
-                <View key={r.id} style={styles.runRow}>
-                  <View style={[styles.dot, { backgroundColor: runColor[r.status] ?? theme.textDim }]} />
-                  <Text style={styles.runName} numberOfLines={1}>
-                    {r.name} {r.runNumber ? `#${r.runNumber}` : ''}
+          <View style={styles.section}>
+            {activeRuns.length > 0 && (
+              <>
+                <Text style={styles.sectionTitle}>ACTIVE ({activeRuns.length})</Text>
+                {activeRuns.map((r) => (
+                  <RunRow key={r.id} run={r} onPress={() => onOpenRun?.(r)} />
+                ))}
+              </>
+            )}
+            {recentRuns.length > 0 && (
+              <>
+                <Text style={styles.sectionTitle}>RECENT ({recentRuns.length})</Text>
+                {recentRuns.slice(0, RECENT_CAP).map((r) => (
+                  <RunRow key={r.id} run={r} onPress={() => onOpenRun?.(r)} />
+                ))}
+                {recentRuns.length > RECENT_CAP && (
+                  <Text style={styles.moreNote}>
+                    +{recentRuns.length - RECENT_CAP} older run{recentRuns.length - RECENT_CAP === 1 ? '' : 's'} not shown
                   </Text>
-                  <Text style={[styles.runStatus, { color: runColor[r.status] ?? theme.textDim }]}>
-                    {r.status.toUpperCase()}
-                  </Text>
-                </View>
-              ))}
-              <Text style={styles.sectionTitle}>TEMPLATES ({templates.length})</Text>
-            </View>
-          ) : (
+                )}
+              </>
+            )}
             <Text style={styles.sectionTitle}>TEMPLATES ({templates.length})</Text>
-          )
+          </View>
         }
         ListEmptyComponent={<Text style={styles.empty}>No workflow templates yet.</Text>}
         renderItem={({ item }) => (
@@ -253,6 +282,29 @@ export function WorkflowsScreen() {
         )}
       />
     </View>
+  );
+}
+
+/** One run row — status dot, "3/5 steps · repo" subline, status, chevron. Tap → step detail.
+ *  Shared by the ACTIVE and RECENT sections so every run is inspectable, live or finished. */
+function RunRow({ run, onPress }: { run: Workflow; onPress: () => void }) {
+  const s = run.stepSummary;
+  const sub = s
+    ? `${s.completed}/${s.total} steps${s.projects.length ? ` · ${s.projects.join(', ')}` : ''}`
+    : '';
+  const color = runColor[run.status] ?? theme.textDim;
+  return (
+    <TouchableOpacity style={styles.runRow} activeOpacity={0.7} onPress={onPress}>
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      <View style={styles.runRowText}>
+        <Text style={styles.runName} numberOfLines={1}>
+          {run.name} {run.runNumber ? `#${run.runNumber}` : ''}
+        </Text>
+        {sub ? <Text style={styles.runSub} numberOfLines={1}>{sub}</Text> : null}
+      </View>
+      <Text style={[styles.runStatus, { color }]}>{run.status.toUpperCase()}</Text>
+      <Text style={styles.chevron}>›</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -302,8 +354,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.border,
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  runName: { color: theme.text, fontSize: 14, flex: 1 },
+  runRowText: { flex: 1 },
+  runName: { color: theme.text, fontSize: 14 },
+  runSub: { color: theme.textDim, fontSize: 11, marginTop: 2 },
   runStatus: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  chevron: { color: theme.textFaint, fontSize: 18, marginLeft: 2 },
+  moreNote: { color: theme.textFaint, fontSize: 11, marginHorizontal: 16, marginTop: 4 },
 
   card: {
     backgroundColor: theme.bgCard, borderWidth: 1, borderColor: theme.border,
