@@ -2,9 +2,11 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import { AppState } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { api } from './api';
-import type { Agent, PermissionRequest, TranscriptEvent } from './types';
+import type { Agent, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
 type TranscriptListener = (ev: TranscriptEvent) => void;
+type WorkflowStepListener = (step: WorkflowStep) => void;
+type WorkflowListener = (wf: Workflow) => void;
 
 interface NeonCoreValue {
   baseUrl: string;
@@ -17,6 +19,10 @@ interface NeonCoreValue {
   restoreAgent: (agentId: string) => Promise<void>;
   /** Subscribe to live transcript events for one agent. Returns an unsubscribe fn. */
   onTranscript: (agentId: string, cb: TranscriptListener) => () => void;
+  /** Subscribe to live workflow step updates (all runs — caller filters). Returns an unsubscribe fn. */
+  onWorkflowStep: (cb: WorkflowStepListener) => () => void;
+  /** Subscribe to live workflow (run) status updates. Returns an unsubscribe fn. */
+  onWorkflowUpdate: (cb: WorkflowListener) => () => void;
 }
 
 const Ctx = createContext<NeonCoreValue | null>(null);
@@ -34,6 +40,9 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
   const socketRef = useRef<Socket | null>(null);
   // Map<agentId, Set<listener>> for per-agent transcript fan-out.
   const listeners = useRef<Map<string, Set<TranscriptListener>>>(new Map());
+  // Global fan-out for workflow step/status events — the run detail screen filters by id.
+  const stepListeners = useRef<Set<WorkflowStepListener>>(new Set());
+  const workflowListeners = useRef<Set<WorkflowListener>>(new Set());
 
   const refresh = useCallback(async () => {
     const [a, p] = await Promise.all([
@@ -74,6 +83,16 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
     return () => {
       set?.delete(cb);
     };
+  }, []);
+
+  const onWorkflowStep = useCallback((cb: WorkflowStepListener) => {
+    stepListeners.current.add(cb);
+    return () => { stepListeners.current.delete(cb); };
+  }, []);
+
+  const onWorkflowUpdate = useCallback((cb: WorkflowListener) => {
+    workflowListeners.current.add(cb);
+    return () => { workflowListeners.current.delete(cb); };
   }, []);
 
   useEffect(() => {
@@ -122,6 +141,20 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
       if (set) set.forEach((cb) => cb(ev));
     });
 
+    // Live workflow progress — drives the run detail screen without polling.
+    socket.on('workflow_step_updated', (step: WorkflowStep) =>
+      stepListeners.current.forEach((cb) => cb(step)),
+    );
+    socket.on('workflow_updated', (wf: Workflow) =>
+      workflowListeners.current.forEach((cb) => cb(wf)),
+    );
+    // Recovery transitions arrive on their own channel — reshape to a partial step patch.
+    socket.on('workflow_step_recovery', (d: { stepId: string; workflowId: string; status: string; recoveryStatus: string }) =>
+      stepListeners.current.forEach((cb) =>
+        cb({ id: d.stepId, workflowId: d.workflowId, status: d.status, recoveryStatus: d.recoveryStatus } as WorkflowStep),
+      ),
+    );
+
     // Belt-and-braces: iOS can suspend the app without the socket ever firing
     // `disconnect`, so a reconnect refetch alone can miss events. Any time we come
     // back to the foreground — the exact moment you look at the phone — re-sync.
@@ -138,8 +171,12 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
   }, [baseUrl, refresh]);
 
   const value = useMemo<NeonCoreValue>(
-    () => ({ baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent, onTranscript }),
-    [baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent, onTranscript],
+    () => ({
+      baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent,
+      onTranscript, onWorkflowStep, onWorkflowUpdate,
+    }),
+    [baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent,
+      onTranscript, onWorkflowStep, onWorkflowUpdate],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

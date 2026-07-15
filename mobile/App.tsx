@@ -2,20 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, StatusBar, ActivityIndicator, SafeAreaView, Platform } from 'react-native';
 import { theme } from './src/theme';
 import { loadServerUrl } from './src/config';
+import { registerForPush, usePushNavigation } from './src/push';
+import { api } from './src/api';
 import { NeonCoreProvider } from './src/NeonCoreProvider';
 import { ConnectScreen } from './src/screens/ConnectScreen';
 import { CartridgeListScreen } from './src/screens/CartridgeListScreen';
 import { CartridgeDetailScreen } from './src/screens/CartridgeDetailScreen';
 import { ApprovalsScreen } from './src/screens/ApprovalsScreen';
 import { WorkflowsScreen } from './src/screens/WorkflowsScreen';
+import { WorkflowRunDetailScreen } from './src/screens/WorkflowRunDetailScreen';
 import { TabBar, type TabName } from './src/components/TabBar';
-import type { Agent } from './src/types';
+import type { Agent, Workflow } from './src/types';
 
 type Route =
   | { name: 'list' }
   | { name: 'detail'; agent: Agent }
   | { name: 'approvals' }
-  | { name: 'workflows' };
+  | { name: 'workflows' }
+  | { name: 'workflowRun'; run: Workflow };
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -28,6 +32,21 @@ export default function App() {
       setBooting(false);
     });
   }, []);
+
+  // Once we know the server, register this device for push so it can tell us when a
+  // workflow finishes. Idempotent server-side, so re-running on url change is fine.
+  useEffect(() => {
+    if (serverUrl) registerForPush(serverUrl);
+  }, [serverUrl]);
+
+  // Tapping a "workflow finished" notification deep-links into that run. Fetch it, then
+  // route to the detail screen.
+  usePushNavigation(serverUrl, (workflowId) => {
+    if (!serverUrl) return;
+    api.getWorkflowV2(serverUrl, workflowId)
+      .then((data) => setRoute({ name: 'workflowRun', run: data.workflow }))
+      .catch(() => {});
+  });
 
   return (
     // Two stacked SafeAreaViews so the top and bottom insets can be painted
@@ -56,11 +75,16 @@ export default function App() {
               <CartridgeDetailScreen agent={route.agent} onBack={() => setRoute({ name: 'list' })} />
             )}
             {route.name === 'approvals' && <ApprovalsScreen />}
-            {route.name === 'workflows' && <WorkflowsScreen />}
+            {route.name === 'workflows' && (
+              <WorkflowsScreen onOpenRun={(run) => setRoute({ name: 'workflowRun', run })} />
+            )}
+            {route.name === 'workflowRun' && (
+              <WorkflowRunDetailScreen run={route.run} onBack={() => setRoute({ name: 'workflows' })} />
+            )}
           </View>
 
-          {/* Detail is a pushed screen — it owns the full surface and has its own back. */}
-          {route.name !== 'detail' && (
+          {/* Detail + run detail are pushed screens — they own the full surface and have their own back. */}
+          {route.name !== 'detail' && route.name !== 'workflowRun' && (
             <TabBar
               active={route.name as TabName}
               onSelect={(t) => setRoute({ name: t } as Route)}

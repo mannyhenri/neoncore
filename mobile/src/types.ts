@@ -62,6 +62,19 @@ export interface PermissionRequest {
 export type WorkflowStatus =
   | 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
+// A quick roll-up the list endpoint attaches to each workflow so a run row can show
+// "3/5 · repo-name" without a second fetch. Server: buildStepSummary in routes/workflows.ts.
+export interface WorkflowStepSummary {
+  total: number;
+  completed: number;
+  running: number;
+  failed: number;
+  pending: number;
+  stepNames: string[];
+  /** Repo/cartridge names the steps run on (deferred steps contribute none). */
+  projects: string[];
+}
+
 // A workflow with templateId === null is a *template*; one with a templateId is a
 // *run* cloned from it. POST /workflows/v2/:id/start on a template makes a new run.
 export interface Workflow {
@@ -77,6 +90,43 @@ export interface Workflow {
   error: string;
   templateId: string | null;
   runNumber: number;
+  /** Present only on the list endpoint for V2 workflows that have steps. */
+  stepSummary?: WorkflowStepSummary;
+}
+
+export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+export type StepExecutorType =
+  | 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate'
+  | 'command' | 'connector' | 'decision';
+
+// One option a `decision` step waits on. The human picks one to complete the step.
+export interface DecisionOption {
+  id: string;
+  label: string;
+  description?: string;
+  nextStepId?: string;
+}
+
+// A single node in a V2 (canvas) workflow. Mirrors server WorkflowStep — the subset the
+// phone consumes. GET /api/workflows/v2/:id returns { workflow, steps }.
+export interface WorkflowStep {
+  id: string;
+  workflowId: string;
+  name: string;
+  description: string;
+  executorType: StepExecutorType;
+  /** The cartridge this step runs on. '' or '__deferred__' = not yet assigned. */
+  executorId: string;
+  executorConfig: Record<string, unknown>;
+  autoAdvance: boolean;
+  status: StepStatus;
+  result: string;
+  error: string;
+  dependsOn: string[];
+  startedAt: string | null;
+  completedAt: string | null;
+  /** '' | 'interrupted' | 'recovering' | 'recovered' | 'recovery_failed' */
+  recoveryStatus: string;
 }
 
 // Parsed content block shapes (from the JSON string in TranscriptEvent.content)

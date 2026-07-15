@@ -12,6 +12,7 @@ import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
 import { execFileSync } from 'child_process';
 import { pushNotify } from './push-notify.js';
+import { notifyWorkflowFinished } from './expo-push.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 
 const POLL_INTERVAL_MS = 12_000;
@@ -1547,6 +1548,12 @@ function processWorkflow(workflowId: string) {
     emitWorkflowUpdate(workflowId);
     emitStepLog(workflowId, '', 'Workflow', `Workflow ${finalStatus}`, finalStatus === 'completed' ? 'success' : 'error');
     console.log(`[workflow-v2] Workflow ${workflowId} ${finalStatus}`);
+
+    // Push to the mobile app so you learn a run finished without keeping it open.
+    // Only for runs (not template dry-runs), and fire-and-forget — never block completion.
+    if (isRun) {
+      notifyWorkflowFinished(workflowId, finalStatus).catch(() => {});
+    }
 
     // Finished runs are RETAINED. They used to be hard-deleted 30s after finishing, which
     // destroyed every step result — the entire output of a review/analysis workflow was gone
