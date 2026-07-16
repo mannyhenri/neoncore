@@ -36,7 +36,8 @@ export function ApprovalsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 12 }}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />
         }
@@ -57,6 +58,10 @@ export function ApprovalsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  // flex:1 bounds the ScrollView to the available space so content taller than the screen
+  // scrolls instead of overflowing and being clipped. paddingBottom clears the last option.
+  scroll: { flex: 1 },
+  scrollContent: { padding: 12, paddingBottom: 40 },
   tabHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   screenTitle: { color: theme.text, fontSize: 26, fontWeight: '800' },
   emptyBox: { alignItems: 'center', marginTop: 80, gap: 12 },
