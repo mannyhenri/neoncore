@@ -118,6 +118,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ repoPath, agentType, ...(context ? { context } : {}) }),
     }),
+  setMachineRepos: (base: string, machineId: string, repos: { path: string; name?: string }[]) =>
+    req<{ ok: boolean }>(base, `/api/machines/${machineId}/repos`, {
+      method: 'PUT',
+      body: JSON.stringify({ repos }),
+    }),
 
   // Register / unregister this device's Expo push token so the server can notify it
   // when a workflow finishes.

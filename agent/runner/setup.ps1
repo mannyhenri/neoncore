@@ -88,7 +88,8 @@ if (Test-Path $srcRelay) {
 }
 # Bundle the hooks installer (status/activity/approvals) so the runner is self-contained.
 $AgentDir = Join-Path $env:USERPROFILE ".neoncore\agent"
-$srcAgent = Join-Path (Split-Path -Parent $SourceDir) "agent"
+$srcAgent = Join-Path (Split-Path -Parent $SourceDir) "agent"          # zip: runner/ + agent/ siblings
+if (-not (Test-Path (Join-Path $srcAgent "install.py"))) { $srcAgent = Split-Path -Parent $SourceDir }  # in-repo: agent/runner -> agent/
 if (Test-Path (Join-Path $srcAgent "install.py")) {
   New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
   Get-ChildItem -Path $srcAgent | Where-Object { $_.Name -ne "__pycache__" } |

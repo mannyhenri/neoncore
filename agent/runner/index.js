@@ -149,6 +149,34 @@ socket.on('launch_cartridge', (payload) => {
   launchCartridge(payload);
 });
 
+// Portal edited this machine's exposed folders. We stay the authority on what's real:
+// keep only paths that exist on disk, persist to the config, and re-register.
+socket.on('machine_set_repos', (payload) => {
+  if (!payload || payload.machineId !== identity.machineId) return;
+  const requested = Array.isArray(payload.repos) ? payload.repos : [];
+  const valid = [];
+  for (const r of requested) {
+    if (!r || !r.path) continue;
+    try {
+      if (fs.existsSync(r.path) && fs.statSync(r.path).isDirectory()) {
+        valid.push({ path: r.path, name: r.name || path.basename(r.path) || r.path });
+      } else {
+        log(`Ignoring folder that isn't a directory here: ${r.path}`);
+      }
+    } catch { log(`Ignoring unreadable folder: ${r.path}`); }
+  }
+  identity.repos = valid;
+  cfg.repos = valid;
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n');
+  } catch (err) {
+    log(`Could not persist config: ${err.message}`);
+  }
+  register()
+    .then(() => log(`Exposed folders updated → ${valid.length}`))
+    .catch((err) => log(`re-register after repo update failed: ${err.message}`));
+});
+
 // Heartbeat so the server's last_seen stays fresh even if it never disconnects.
 setInterval(() => {
   if (socket.connected) socket.emit('machine_heartbeat', { machineId: identity.machineId });

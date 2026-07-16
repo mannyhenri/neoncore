@@ -237,6 +237,18 @@ export function dispatchLaunchToMachine(
   return true;
 }
 
+/** Ask a machine's runner to set its exposed-folder allowlist. The runner validates each
+ *  path against its own disk, persists to its config, and re-registers — so the DB updates
+ *  via that register, not here. Returns false if the machine is offline. */
+export function dispatchSetReposToMachine(
+  machineId: string,
+  repos: import('./types.js').MachineRepo[],
+): boolean {
+  if (!isMachineOnline(machineId)) return false;
+  io.to(`machine:${machineId}`).emit('machine_set_repos', { machineId, repos });
+  return true;
+}
+
 export function getIO() {
   if (!io) {
     throw new Error('WebSocket not initialized. Call initWebSocket first.');

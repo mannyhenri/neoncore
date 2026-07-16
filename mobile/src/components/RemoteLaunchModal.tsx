@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator,
+  Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, TextInput,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -22,6 +22,8 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
   const [expanded, setExpanded] = useState<string | null>(null); // `${machineId}:${path}`
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newPath, setNewPath] = useState('');
 
   const load = useCallback(async () => {
     const m = await api.getMachines(baseUrl).catch(() => [] as Machine[]);
@@ -55,6 +57,29 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
     }
   };
 
+  // Push a new folder list to the runner; it validates against its own disk and re-registers.
+  // Reload shortly after so the (async) result shows.
+  const setRepos = async (m: Machine, repos: { path: string; name?: string }[]) => {
+    setBusy(true);
+    try {
+      await api.setMachineRepos(baseUrl, m.id, repos);
+      flash('Updated exposed folders');
+      setTimeout(load, 1200);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeRepo = (m: Machine, path: string) =>
+    setRepos(m, m.repos.filter((r) => r.path !== path).map((r) => ({ path: r.path, name: r.name })));
+  const addRepo = (m: Machine) => {
+    const p = newPath.trim();
+    if (!p) return;
+    setNewPath('');
+    setRepos(m, [...m.repos.map((r) => ({ path: r.path, name: r.name })), { path: p }]);
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -79,18 +104,53 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
             <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
               {machines.map((m) => {
                 const online = m.status === 'online';
+                const editing = editingId === m.id;
                 return (
                   <View key={m.id} style={styles.machine}>
                     <View style={styles.machineHead}>
                       <View style={[styles.dot, { backgroundColor: online ? theme.teal : theme.textFaint }]} />
                       <Text style={styles.machineName} numberOfLines={1}>{m.hostname || m.id.slice(0, 8)}</Text>
+                      {online && (
+                        <TouchableOpacity onPress={() => { setEditingId(editing ? null : m.id); setExpanded(null); setNewPath(''); }}>
+                          <Text style={styles.editToggle}>{editing ? 'Done' : 'Edit folders'}</Text>
+                        </TouchableOpacity>
+                      )}
                       <Text style={styles.machineOs}>{OS_LABEL[m.platform] || m.platform}</Text>
                     </View>
 
                     {!online ? (
                       <Text style={styles.sub}>Offline</Text>
+                    ) : editing ? (
+                      <View style={styles.editWrap}>
+                        {m.repos.length === 0 && <Text style={styles.sub}>No folders yet — add one below.</Text>}
+                        {m.repos.map((repo) => (
+                          <View key={repo.path} style={styles.editRow}>
+                            <Text style={styles.editRepoName} numberOfLines={1}>{repo.name}</Text>
+                            <TouchableOpacity disabled={busy} onPress={() => removeRepo(m, repo.path)}>
+                              <Text style={styles.removeX}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                        <View style={styles.addRow}>
+                          <TextInput
+                            value={newPath}
+                            onChangeText={setNewPath}
+                            placeholder={m.platform === 'win32' ? 'C:\\code\\project' : '/path/to/project'}
+                            placeholderTextColor={theme.textFaint}
+                            style={styles.addInput}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            returnKeyType="done"
+                            onSubmitEditing={() => addRepo(m)}
+                          />
+                          <TouchableOpacity style={styles.addBtn} disabled={busy || !newPath.trim()} onPress={() => addRepo(m)}>
+                            <Text style={styles.addBtnText}>Add</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.editHint}>A path that doesn’t exist on that machine is ignored.</Text>
+                      </View>
                     ) : m.repos.length === 0 ? (
-                      <Text style={styles.sub}>No repos configured</Text>
+                      <Text style={styles.sub}>No folders — tap “Edit folders”.</Text>
                     ) : (
                       m.repos.map((repo) => {
                         const rid = `${m.id}:${repo.path}`;
@@ -154,7 +214,24 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
   machineName: { color: theme.text, fontSize: 15, fontWeight: '700', flex: 1 },
   machineOs: { color: theme.textFaint, fontSize: 11 },
+  editToggle: { color: theme.accentSoft, fontSize: 11, fontWeight: '700', marginRight: 10 },
   sub: { color: theme.textFaint, fontSize: 12, marginTop: 8, marginLeft: 16 },
+
+  editWrap: { marginTop: 8, marginLeft: 16, gap: 6 },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  editRepoName: { color: theme.textDim, fontSize: 13, flex: 1 },
+  removeX: { color: theme.danger, fontSize: 14, fontWeight: '700', paddingHorizontal: 6 },
+  addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  addInput: {
+    flex: 1, backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, color: theme.text, fontSize: 13,
+  },
+  addBtn: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8,
+    backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.accent,
+  },
+  addBtnText: { color: theme.accentSoft, fontSize: 13, fontWeight: '700' },
+  editHint: { color: theme.textFaint, fontSize: 10, marginTop: 2 },
 
   repoRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
