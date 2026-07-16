@@ -138,9 +138,25 @@ if (Test-Path $hooksPy) {
   if (-not $py) { $py = Get-Command python3 -ErrorAction SilentlyContinue }
   if ($py) {
     Info "Installing NeonCore hooks (status/activity/approvals)..."
-    & $py.Source $hooksPy --url $Server 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { Info "Hooks installed." }
-    else { Write-Host "[runner-setup] Hook installer reported an error - cartridges still launch, but without live status/approvals." -ForegroundColor Yellow }
+    # Hooks are optional: a failure here must not abort the runner install. Redirecting
+    # a native command's stderr inside PowerShell wraps each line in a NativeCommandError
+    # which, under $ErrorActionPreference="Stop", terminates setup before the config is
+    # ever written -- even when the command exits 0. Redirect inside cmd instead so
+    # PowerShell never sees the stderr stream, and gate purely on the exit code.
+    $hookLog  = Join-Path $env:TEMP "neoncore-hooks-install.log"
+    $prevEAP  = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & cmd /c "`"$($py.Source)`" `"$hooksPy`" --url `"$Server`" > `"$hookLog`" 2>&1"
+      $hookExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $prevEAP
+    }
+    if ($hookExit -eq 0) { Info "Hooks installed." }
+    else {
+      Write-Host "[runner-setup] Hook installer reported an error (exit $hookExit) - cartridges still launch, but without live status/approvals." -ForegroundColor Yellow
+      Write-Host "[runner-setup] Details: $hookLog" -ForegroundColor Yellow
+    }
   } else {
     Write-Host "[runner-setup] Python not found - skipping hooks. Cartridges launch but won't report status/approvals. Install Python 3 and re-run." -ForegroundColor Yellow
   }
@@ -154,7 +170,11 @@ if (Test-Path $cfgPath) {
 }
 $repos = @($Repo | ForEach-Object { @{ path = $_; name = (Split-Path $_ -Leaf) } })
 $cfg = [ordered]@{ serverUrl = $Server; token = $Token; machineId = $machineId; hostname = $Name; repos = $repos }
-$cfg | ConvertTo-Json -Depth 5 | Set-Content -Path $cfgPath -Encoding UTF8
+# Write UTF-8 *without* a BOM. Set-Content -Encoding UTF8 on PowerShell 5.1 emits a
+# leading U+FEFF, which Node's JSON.parse rejects -- the runner would exit 1 on startup
+# and never register. (utf8NoBOM is PS7-only, so go through .NET for 5.1 compatibility.)
+$json = $cfg | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($cfgPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 Info "Wrote $cfgPath ($($Repo.Count) repo(s))"
 
 if ($NoService) {

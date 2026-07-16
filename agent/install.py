@@ -19,6 +19,22 @@ import platform
 import tempfile
 
 
+def make_output_unicode_safe() -> None:
+    """Force UTF-8 on our own stdout/stderr.
+
+    When stdout is a pipe rather than a console (e.g. setup.ps1 runs us with
+    `| Out-Null`), Python falls back to the locale encoding -- cp1252 on a
+    typical Windows box -- which cannot encode the arrows in the summary below.
+    Printing one then raises UnicodeEncodeError and exits non-zero *after* the
+    hooks are already installed, making a successful install look like a failure.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass  # not a reconfigurable text stream; nothing to do
+
+
 def get_settings_path() -> str:
     """Get Claude Code settings.json path for current OS."""
     if platform.system() == "Windows":
@@ -169,6 +185,7 @@ def is_neoncore_hook(hook) -> bool:
 
 
 def main():
+    make_output_unicode_safe()
     parser = argparse.ArgumentParser(description="Install NeonCore agent hooks for Claude Code")
     parser.add_argument("--url", default=None, help="NeonCore orchestrator URL (default: http://localhost:4040)")
     args = parser.parse_args()
