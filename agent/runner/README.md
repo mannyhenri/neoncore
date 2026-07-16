@@ -30,7 +30,7 @@ npm start
 
 | Field | Meaning |
 |-------|---------|
-| `serverUrl` | Orchestrator base URL, e.g. `http://192.168.1.50:4040`. Must be reachable from this machine. |
+| `serverUrl` | Orchestrator base URL. Prefer the server's mDNS name over an IP (which changes): `http://<server-name>.local:4040`, e.g. `http://Mannys-Mac-Pro.local:4040`. Must be reachable from this machine. |
 | `token` | Pairing token. Must match the server's `machine_pairing_token` setting (leave `""` only if the server has none — dev/LAN only). |
 | `machineId` | Leave `""`; a stable id is generated and saved back on first run. |
 | `hostname` | Optional display name; defaults to the OS hostname. |
