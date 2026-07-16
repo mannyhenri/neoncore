@@ -2,10 +2,11 @@
 #
 # Build the distributable NeonCore packages into dist/:
 #
-#   dist/neoncore-agent-mac.zip      connect a Mac machine to an existing server
-#   dist/neoncore-agent-linux.zip    connect a Linux machine (same Unix payload as mac)
-#   dist/neoncore-agent-windows.zip  connect a Windows machine to an existing server
-#   dist/neoncore-full.zip           the whole orchestrator (server + dashboard + installers)
+#   dist/neoncore-full.zip     the whole orchestrator (server + dashboard + installers + source)
+#   dist/neoncore-runner.zip   connect a machine to an existing server (the machine runner)
+#
+# The old per-OS agent zips (neoncore-agent-*.zip) are retired — the runner supersedes them
+# for connecting machines, and their source still ships inside neoncore-full.
 #
 # dist/ and *.zip are gitignored - these are build artifacts. Upload them to a
 # GitHub Release (or share directly) to distribute. Regenerate anytime with:
@@ -24,24 +25,8 @@ mkdir -p "$DIST" "$BUILD"
 
 echo "Packaging into $DIST ..."
 
-# --- Agent package: Mac + Linux (same Unix payload, two named zips) -----------
-unix="$BUILD/neoncore-agent"
-rm -rf "$unix"; mkdir -p "$unix"
-rsync -a --exclude node_modules --exclude __pycache__ --exclude '*.pyc' \
-  --exclude '.DS_Store' --exclude 'bootstrap.ps1' "$AGENT"/ "$unix"/
-rm -f "$DIST/neoncore-agent-mac.zip" "$DIST/neoncore-agent-linux.zip"
-( cd "$BUILD" && zip -rq "$DIST/neoncore-agent-mac.zip" neoncore-agent )
-( cd "$BUILD" && zip -rq "$DIST/neoncore-agent-linux.zip" neoncore-agent )
-rm -rf "$unix"
-
-# --- Agent package: Windows ---------------------------------------------------
-win="$BUILD/neoncore-agent"
-rm -rf "$win"; mkdir -p "$win"
-rsync -a --exclude node_modules --exclude __pycache__ --exclude '*.pyc' \
-  --exclude '.DS_Store' --exclude 'bootstrap.sh' --exclude 'install.sh' "$AGENT"/ "$win"/
-rm -f "$DIST/neoncore-agent-windows.zip"
-( cd "$BUILD" && zip -rq "$DIST/neoncore-agent-windows.zip" neoncore-agent )
-rm -rf "$win"
+# Retire any previously-built per-OS agent zips so dist/ only carries the current artifacts.
+rm -f "$DIST/neoncore-agent-mac.zip" "$DIST/neoncore-agent-linux.zip" "$DIST/neoncore-agent-windows.zip"
 
 # --- Full package: server + dashboard + installers (source only) --------------
 # Source snapshot = git-tracked files (current working-tree content, so uncommitted
@@ -68,6 +53,9 @@ rm -f "$DIST/neoncore-full.zip"
 rm -rf "$full"
 
 rm -rf "$BUILD"
+
+# --- Runner package: the per-machine daemon (delegated) -----------------------
+bash "$ROOT/scripts/package-runner.sh"
 
 echo "Done:"
 ls -lh "$DIST"/*.zip
