@@ -33,6 +33,9 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState('');
+  // Finished runs are collapsed by default — they're reference, not the thing you act on,
+  // and the full list crowds out ACTIVE and TEMPLATES. Tap the header to expand.
+  const [recentOpen, setRecentOpen] = useState(false);
 
   // The template the user has tapped — we ask for context before launching,
   // because a workflow with no brief is rarely what you want.
@@ -254,14 +257,25 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
             )}
             {recentRuns.length > 0 && (
               <>
-                <Text style={styles.sectionTitle}>RECENT ({recentRuns.length})</Text>
-                {recentRuns.slice(0, RECENT_CAP).map((r) => (
-                  <RunRow key={r.id} run={r} onPress={() => onOpenRun?.(r)} />
-                ))}
-                {recentRuns.length > RECENT_CAP && (
-                  <Text style={styles.moreNote}>
-                    +{recentRuns.length - RECENT_CAP} older run{recentRuns.length - RECENT_CAP === 1 ? '' : 's'} not shown
-                  </Text>
+                <TouchableOpacity
+                  style={styles.collapseHeader}
+                  activeOpacity={0.6}
+                  onPress={() => setRecentOpen((v) => !v)}
+                >
+                  <Text style={styles.sectionTitle}>RECENT ({recentRuns.length})</Text>
+                  <Text style={styles.collapseChevron}>{recentOpen ? '▾' : '▸'}</Text>
+                </TouchableOpacity>
+                {recentOpen && (
+                  <>
+                    {recentRuns.slice(0, RECENT_CAP).map((r) => (
+                      <RunRow key={r.id} run={r} onPress={() => onOpenRun?.(r)} />
+                    ))}
+                    {recentRuns.length > RECENT_CAP && (
+                      <Text style={styles.moreNote}>
+                        +{recentRuns.length - RECENT_CAP} older run{recentRuns.length - RECENT_CAP === 1 ? '' : 's'} not shown
+                      </Text>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -360,6 +374,8 @@ const styles = StyleSheet.create({
   runStatus: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   chevron: { color: theme.textFaint, fontSize: 18, marginLeft: 2 },
   moreNote: { color: theme.textFaint, fontSize: 11, marginHorizontal: 16, marginTop: 4 },
+  collapseHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  collapseChevron: { color: theme.textFaint, fontSize: 12, marginRight: 16 },
 
   card: {
     backgroundColor: theme.bgCard, borderWidth: 1, borderColor: theme.border,

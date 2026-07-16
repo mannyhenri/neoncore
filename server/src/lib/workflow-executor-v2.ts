@@ -12,7 +12,7 @@ import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
 import { execFileSync } from 'child_process';
 import { pushNotify } from './push-notify.js';
-import { notifyWorkflowFinished } from './expo-push.js';
+import { notifyWorkflowFinished, sendPushToAll } from './expo-push.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 
 const POLL_INTERVAL_MS = 12_000;
@@ -809,6 +809,18 @@ async function executeDecisionStep(step: WorkflowStep): Promise<void> {
     `Decision required: "${config.question}" — waiting for human choice`,
     'info',
   );
+
+  // Native app push — a decision gate blocks the run on a human, same as an approval.
+  // Deep-links into the run so the choice can be made from the phone. Fire-and-forget.
+  const wfRow = db.prepare('SELECT name, run_number FROM workflows WHERE id = ?')
+    .get(step.workflowId) as { name: string; run_number: number } | undefined;
+  const wfLabel = wfRow ? `${wfRow.name}${wfRow.run_number ? ` #${wfRow.run_number}` : ''}` : 'Workflow';
+  sendPushToAll(
+    `${wfLabel} — Decision needed`,
+    String(config.question).slice(0, 300),
+    { type: 'decision_gate', workflowId: step.workflowId, stepId: step.id },
+  ).catch(() => {});
+
   // Step stays in `running` state; the /decide endpoint completes it.
 }
 
