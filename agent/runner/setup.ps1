@@ -54,7 +54,7 @@ function Add-Scan($dir) {
 }
 foreach ($s in $Scan) { Add-Scan $s }
 
-# Interactive folder browser — start at the home folder and drill down; scan or add as you go.
+# Interactive folder browser - start at the home folder and drill down; scan or add as you go.
 function Pick-Folders {
   $cwd = $env:USERPROFILE
   while ($true) {
@@ -101,7 +101,7 @@ $Repo | ForEach-Object { Write-Host "    - $_" }
 $Server = $Server.TrimEnd('/')
 $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# ── Copy runner + relay to a stable home ───────────────────
+# -- Copy runner + relay to a stable home -------------------
 Info "Installing to $InstallDir"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $exclude = @("node_modules", "logs", "runner.config.json")
@@ -123,7 +123,7 @@ if (Test-Path (Join-Path $srcAgent "install.py")) {
     Copy-Item -Destination $AgentDir -Recurse -Force
 }
 
-# ── Install deps ───────────────────────────────────────────
+# -- Install deps -------------------------------------------
 Info "Installing runner dependencies..."
 Push-Location $InstallDir; npm install --silent; Pop-Location
 if (Test-Path $RelayDir) {
@@ -131,21 +131,22 @@ if (Test-Path $RelayDir) {
   Push-Location $RelayDir; npm install --silent; Pop-Location
 }
 
-# ── Install Claude Code hooks (status / activity / approvals) — global, one-time ──
+# -- Install Claude Code hooks (status / activity / approvals) - global, one-time --
 $hooksPy = Join-Path $AgentDir "install.py"
 if (Test-Path $hooksPy) {
-  $py = (Get-Command python -ErrorAction SilentlyContinue) ?? (Get-Command python3 -ErrorAction SilentlyContinue)
+  $py = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $py) { $py = Get-Command python3 -ErrorAction SilentlyContinue }
   if ($py) {
     Info "Installing NeonCore hooks (status/activity/approvals)..."
     & $py.Source $hooksPy --url $Server 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { Info "Hooks installed." }
-    else { Write-Host "[runner-setup] Hook installer reported an error — cartridges still launch, but without live status/approvals." -ForegroundColor Yellow }
+    else { Write-Host "[runner-setup] Hook installer reported an error - cartridges still launch, but without live status/approvals." -ForegroundColor Yellow }
   } else {
-    Write-Host "[runner-setup] Python not found — skipping hooks. Cartridges launch but won't report status/approvals. Install Python 3 and re-run." -ForegroundColor Yellow
+    Write-Host "[runner-setup] Python not found - skipping hooks. Cartridges launch but won't report status/approvals. Install Python 3 and re-run." -ForegroundColor Yellow
   }
 }
 
-# ── Write config (preserve an existing machineId) ──────────
+# -- Write config (preserve an existing machineId) ----------
 $cfgPath = Join-Path $InstallDir "runner.config.json"
 $machineId = ""
 if (Test-Path $cfgPath) {
@@ -162,7 +163,7 @@ if ($NoService) {
   exit 0
 }
 
-# ── Auto-start: hidden VBS launcher + Scheduled Task at logon ─
+# -- Auto-start: hidden VBS launcher + Scheduled Task at logon -
 $nodePath = (Get-Command node).Source
 $vbs = Join-Path $InstallDir "run-hidden.vbs"
 @"
