@@ -20,6 +20,7 @@ param(
   [string]$Server,
   [string]$Token = "",
   [string[]]$Repo = @(),
+  [string[]]$Scan = @(),
   [string]$Name = "",
   [switch]$NoService,
   [switch]$Uninstall
@@ -41,8 +42,34 @@ if ($Uninstall) {
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "Node.js is required (used by the relay). Install Node 18+ then re-run." }
 if (-not (Get-Command npm  -ErrorAction SilentlyContinue)) { Die "npm is required. Install Node.js (includes npm) then re-run." }
-if (-not $Server) { Die "Missing -Server URL (e.g. -Server http://192.168.4.20:4040)" }
-if ($Repo.Count -eq 0) { Die "Give at least one -Repo path (a folder this machine may launch in)" }
+if (-not $Server) { Die "Missing -Server URL (e.g. -Server http://Mannys-Mac-Pro.local:4040)" }
+
+# Resolve the repo allowlist: -Repo, -Scan (git repos under a dir), then an interactive prompt.
+$repos = New-Object System.Collections.Generic.List[string]
+foreach ($r in $Repo) { if ($r) { $repos.Add($r.TrimEnd('\','/')) } }
+function Add-Scan($dir) {
+  if (-not (Test-Path $dir)) { Write-Host "[runner-setup] Scan skipped (no such dir): $dir" -ForegroundColor Yellow; return }
+  Get-ChildItem -Path $dir -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } |
+    ForEach-Object { $repos.Add($_.FullName) }
+}
+foreach ($s in $Scan) { Add-Scan $s }
+if ($repos.Count -eq 0) {
+  Write-Host ""
+  Info "Which folders should this machine give NeonCore access to?"
+  Write-Host "  Enter directories to expose, comma-separated. You can give:"
+  Write-Host "    - individual repos:  C:\code\app, C:\code\api"
+  Write-Host "    - a parent to scan:  scan:C:\code   (adds every git repo under it)"
+  $answer = Read-Host "  Folders"
+  foreach ($part in ($answer -split ',')) {
+    $p = $part.Trim()
+    if (-not $p) { continue }
+    if ($p -like 'scan:*') { Add-Scan ($p.Substring(5)) } else { $repos.Add($p.TrimEnd('\','/')) }
+  }
+}
+$Repo = @($repos | Select-Object -Unique)
+if ($Repo.Count -eq 0) { Die "No folders selected. Pass -Repo path / -Scan path, or answer the prompt." }
+Info "Exposing $($Repo.Count) folder(s):"
+$Repo | ForEach-Object { Write-Host "    - $_" }
 
 $Server = $Server.TrimEnd('/')
 $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -59,6 +86,14 @@ if (Test-Path $srcRelay) {
   Get-ChildItem -Path $srcRelay | Where-Object { $_.Name -ne "node_modules" } |
     Copy-Item -Destination $RelayDir -Recurse -Force
 }
+# Bundle the hooks installer (status/activity/approvals) so the runner is self-contained.
+$AgentDir = Join-Path $env:USERPROFILE ".neoncore\agent"
+$srcAgent = Join-Path (Split-Path -Parent $SourceDir) "agent"
+if (Test-Path (Join-Path $srcAgent "install.py")) {
+  New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
+  Get-ChildItem -Path $srcAgent | Where-Object { $_.Name -ne "__pycache__" } |
+    Copy-Item -Destination $AgentDir -Recurse -Force
+}
 
 # ── Install deps ───────────────────────────────────────────
 Info "Installing runner dependencies..."
@@ -66,6 +101,20 @@ Push-Location $InstallDir; npm install --silent; Pop-Location
 if (Test-Path $RelayDir) {
   Info "Installing relay dependencies..."
   Push-Location $RelayDir; npm install --silent; Pop-Location
+}
+
+# ── Install Claude Code hooks (status / activity / approvals) — global, one-time ──
+$hooksPy = Join-Path $AgentDir "install.py"
+if (Test-Path $hooksPy) {
+  $py = (Get-Command python -ErrorAction SilentlyContinue) ?? (Get-Command python3 -ErrorAction SilentlyContinue)
+  if ($py) {
+    Info "Installing NeonCore hooks (status/activity/approvals)..."
+    & $py.Source $hooksPy --url $Server 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Info "Hooks installed." }
+    else { Write-Host "[runner-setup] Hook installer reported an error — cartridges still launch, but without live status/approvals." -ForegroundColor Yellow }
+  } else {
+    Write-Host "[runner-setup] Python not found — skipping hooks. Cartridges launch but won't report status/approvals. Install Python 3 and re-run." -ForegroundColor Yellow
+  }
 }
 
 # ── Write config (preserve an existing machineId) ──────────

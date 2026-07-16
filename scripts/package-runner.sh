@@ -16,19 +16,24 @@ ZIP="$OUT_DIR/neoncore-runner.zip"
 
 echo "[package-runner] Staging in $STAGE"
 rm -rf "$STAGE" "$ZIP"
-mkdir -p "$STAGE/runner" "$STAGE/relay"
+mkdir -p "$STAGE/runner" "$STAGE/relay" "$STAGE/agent/hooks"
 
 copy() { # src dst
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --exclude node_modules --exclude logs --exclude 'runner.config.json' "$1"/ "$2"/
+    rsync -a --exclude node_modules --exclude logs --exclude '__pycache__' \
+      --exclude '*.pyc' --exclude 'runner.config.json' "$1"/ "$2"/
   else
     cp -R "$1"/. "$2"/
-    rm -rf "$2/node_modules" "$2/logs" "$2/runner.config.json"
+    rm -rf "$2/node_modules" "$2/logs" "$2/__pycache__" "$2/runner.config.json"
   fi
 }
 
 copy "$ROOT/agent/runner" "$STAGE/runner"
 copy "$ROOT/agent/relay"  "$STAGE/relay"
+# Bundle the hooks installer so setup can install status/activity/approval hooks — the
+# runner is then fully self-contained (no separate agent install needed).
+cp "$ROOT/agent/install.py" "$STAGE/agent/install.py"
+copy "$ROOT/agent/hooks" "$STAGE/agent/hooks"
 chmod +x "$STAGE/runner/setup.sh" 2>/dev/null || true
 
 cat > "$STAGE/README.txt" <<'EOF'
