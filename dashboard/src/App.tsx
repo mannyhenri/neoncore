@@ -3,7 +3,6 @@ import { useAgents } from './hooks/useAgents';
 import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { SettingsModal } from './components/SettingsModal';
-import { RepoPicker } from './components/RepoPicker';
 import { MachineLauncher } from './components/MachineLauncher';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
@@ -126,9 +125,7 @@ export default function App() {
                 )}
               </button>
             </div>
-            {/* Repo Picker */}
-            <RepoPicker />
-            {/* Remote launch on registered machines */}
+            {/* Launch a cartridge on any registered machine (local or remote) */}
             <MachineLauncher />
             {/* Guide button */}
             <button

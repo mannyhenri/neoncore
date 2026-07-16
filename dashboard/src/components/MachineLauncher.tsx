@@ -14,9 +14,9 @@ const AGENT_TYPES: { key: string; label: string; color: string }[] = [
 const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
 
 /**
- * Launch a cartridge on another computer running the runner daemon. Mirrors RepoPicker, but
- * the repos come from each registered machine's allowlist and the launch is dispatched to
- * that machine instead of run locally.
+ * Launch a cartridge on any registered machine (local host or remote) running the runner
+ * daemon. Repos come from each machine's allowlist and the launch is dispatched to that
+ * machine's runner. Also supports editing a machine's exposed folders inline.
  */
 export function MachineLauncher() {
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -105,9 +105,9 @@ export function MachineLauncher() {
       <button
         onClick={() => { setOpen(!open); setExpandedRepo(null); }}
         className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
-        title="Launch a cartridge on another computer"
+        title="Launch a cartridge on a registered machine"
       >
-        Machines
+        + Launch
         {onlineCount > 0 && (
           <span className="text-[10px] px-1.5 rounded-full bg-emerald-500/25 text-emerald-300">{onlineCount}</span>
         )}
