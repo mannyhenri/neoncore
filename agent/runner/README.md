@@ -17,14 +17,49 @@ launch a cartridge there from your phone.
 The runner only ever launches in a directory from its `repos` **allowlist** — never an
 arbitrary path.
 
-## Setup
+## Install (one command)
 
+Requires Node.js 18+ (used by the relay) and Python 3 (used to install the status/approval
+hooks). From the unzipped package:
+
+**macOS / Linux**
 ```bash
-cd agent/runner
-npm install
-cp runner.config.example.json runner.config.json   # then edit it
-npm start
+cd runner
+./setup.sh --server http://<server-name>.local:4040 --token YOUR_TOKEN --scan ~/code
 ```
+
+**Windows (PowerShell)**
+```powershell
+cd runner
+.\setup.ps1 -Server http://<server-name>.local:4040 -Token YOUR_TOKEN -Scan C:\code
+```
+
+This installs to `~/.neoncore/runner`, installs the hooks, registers an auto-start service
+(launchd / systemd / Task Scheduler), and starts it. Remove later with `./setup.sh --uninstall`
+(`-Uninstall` on Windows).
+
+## Choosing which folders to expose
+
+The allowlist is the set of directories this machine will launch cartridges in. Pick it at
+install time in any of three ways:
+
+| How | Command |
+|-----|---------|
+| **Scan a folder** — add every git repo directly under it | `--scan ~/code`  ·  `-Scan C:\code` |
+| **List repos explicitly** (repeatable) | `--repo ~/code/app --repo ~/code/api` |
+| **Interactive** — give neither `--repo` nor `--scan` and you'll be prompted | (just run `./setup.sh --server … --token …`) |
+
+At the prompt you can enter individual folders (`~/code/app, ~/code/api`) or a folder to scan
+(`scan:~/code`).
+
+### Change the folders later — two ways
+
+1. **From the portal (no config editing):** open the **+ Launch** menu (web) or the **＋ Launch**
+   button on the Cartridges tab (mobile), find the machine, tap **Edit folders**, then remove
+   with ✕ or add a path. The runner validates each path against its own disk (a path that
+   doesn't exist there is ignored), persists it, and re-registers.
+2. **Edit the config:** change `repos` in `~/.neoncore/runner/runner.config.json` and restart
+   the runner (or just re-run `setup.sh`).
 
 ### Config (`runner.config.json`)
 

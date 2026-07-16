@@ -49,18 +49,29 @@ On a LAN, reach the server by its Bonjour/mDNS name instead of an IP that change
   http://<server-computer-name>.local:4040     e.g.  http://Mannys-Mac-Pro.local:4040
 Works out of the box on macOS and Windows 10+; on Linux install avahi-daemon.
 
+Requires Python 3 too (used once to install the status/approval hooks).
+
 ── macOS / Linux ─────────────────────────────────────────────
   cd runner
-  ./setup.sh --server http://SERVER-NAME.local:4040 --token YOUR_TOKEN \
-             --repo ~/code/project-a --repo ~/code/project-b
+  ./setup.sh --server http://SERVER-NAME.local:4040 --token YOUR_TOKEN --scan ~/code
 
 ── Windows (PowerShell) ──────────────────────────────────────
   cd runner
-  .\setup.ps1 -Server http://SERVER-NAME.local:4040 -Token YOUR_TOKEN `
-              -Repo C:\code\project-a,C:\code\project-b
+  .\setup.ps1 -Server http://SERVER-NAME.local:4040 -Token YOUR_TOKEN -Scan C:\code
 
-What it does: installs to ~/.neoncore/runner, sets up auto-start on login, and starts it.
-The machine then appears in the portal's "Machines" launcher, offering the repos you listed.
+What it does: installs to ~/.neoncore/runner, installs hooks, sets up auto-start on login,
+and starts it. The machine then appears in the portal's "+ Launch" menu.
+
+── Choosing folders to expose ────────────────────────────────
+  --scan DIR        add every git repo directly under DIR      (-Scan on Windows)
+  --repo DIR        add one folder (repeatable)                (-Repo on Windows)
+  (neither)         you'll be PROMPTED for folders interactively
+                    (enter repos, or "scan:DIR" to scan a folder)
+
+── Change folders later ──────────────────────────────────────
+  • From the portal: open "+ Launch", find the machine, click "Edit folders",
+    then remove with x or add a path. (No config editing.)
+  • Or edit "repos" in ~/.neoncore/runner/runner.config.json and restart.
 
 Add --no-service (or -NoService) to just run it once in the foreground.
 Remove it later with:  ./setup.sh --uninstall   (or  .\setup.ps1 -Uninstall )
