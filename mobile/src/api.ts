@@ -1,4 +1,4 @@
-import type { Agent, AgentMode, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
+import type { Agent, AgentMode, Machine, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
 async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
@@ -108,6 +108,15 @@ export const api = {
   recoverStep: (base: string, stepId: string) =>
     req<{ ok: boolean; recoveryStatus?: string }>(base, `/api/workflows/steps/${stepId}/recover`, {
       method: 'POST',
+    }),
+
+  // Machines — remote cartridge launch. Lists computers running the runner daemon and
+  // dispatches a launch to one of them.
+  getMachines: (base: string) => req<Machine[]>(base, '/api/machines'),
+  launchOnMachine: (base: string, machineId: string, repoPath: string, agentType: string, context?: string) =>
+    req<{ ok: boolean; sessionId: string }>(base, `/api/machines/${machineId}/launch`, {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, agentType, ...(context ? { context } : {}) }),
     }),
 
   // Register / unregister this device's Expo push token so the server can notify it

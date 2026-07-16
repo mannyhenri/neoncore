@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#
+# Builds dist/neoncore-runner.zip — the single file you copy to each computer to install the
+# machine runner. Contains the runner + relay source and the cross-platform setup scripts
+# (no node_modules; setup installs deps on the target so native binaries match the platform).
+#
+# Usage:  ./scripts/package-runner.sh
+# Output: dist/neoncore-runner.zip
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT_DIR="$ROOT/dist"
+STAGE="$OUT_DIR/neoncore-runner"
+ZIP="$OUT_DIR/neoncore-runner.zip"
+
+echo "[package-runner] Staging in $STAGE"
+rm -rf "$STAGE" "$ZIP"
+mkdir -p "$STAGE/runner" "$STAGE/relay"
+
+copy() { # src dst
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --exclude node_modules --exclude logs --exclude 'runner.config.json' "$1"/ "$2"/
+  else
+    cp -R "$1"/. "$2"/
+    rm -rf "$2/node_modules" "$2/logs" "$2/runner.config.json"
+  fi
+}
+
+copy "$ROOT/agent/runner" "$STAGE/runner"
+copy "$ROOT/agent/relay"  "$STAGE/relay"
+chmod +x "$STAGE/runner/setup.sh" 2>/dev/null || true
+
+cat > "$STAGE/README.txt" <<'EOF'
+NeonCore Machine Runner — quick start
+=====================================
+
+Lets you launch cartridges on THIS computer from the NeonCore web/mobile portal.
+
+Requires Node.js 18+ (used by the relay). Install from https://nodejs.org if needed.
+
+── macOS / Linux ─────────────────────────────────────────────
+  cd runner
+  ./setup.sh --server http://YOUR-SERVER:4040 --token YOUR_TOKEN \
+             --repo ~/code/project-a --repo ~/code/project-b
+
+── Windows (PowerShell) ──────────────────────────────────────
+  cd runner
+  .\setup.ps1 -Server http://YOUR-SERVER:4040 -Token YOUR_TOKEN `
+              -Repo C:\code\project-a,C:\code\project-b
+
+What it does: installs to ~/.neoncore/runner, sets up auto-start on login, and starts it.
+The machine then appears in the portal's "Machines" launcher, offering the repos you listed.
+
+Add --no-service (or -NoService) to just run it once in the foreground.
+Remove it later with:  ./setup.sh --uninstall   (or  .\setup.ps1 -Uninstall )
+
+The --token must match the server's `machine_pairing_token` setting (leave empty only on a
+trusted LAN where the server has no token set).
+EOF
+
+echo "[package-runner] Zipping → $ZIP"
+( cd "$OUT_DIR" && zip -qr "neoncore-runner.zip" "neoncore-runner" )
+rm -rf "$STAGE"
+
+echo "[package-runner] Done: $ZIP"
+ls -lh "$ZIP"

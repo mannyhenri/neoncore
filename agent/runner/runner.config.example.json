@@ -1,0 +1,10 @@
+{
+  "serverUrl": "http://YOUR-ORCHESTRATOR-HOST:4040",
+  "token": "",
+  "machineId": "",
+  "hostname": "",
+  "repos": [
+    { "path": "C:\\code\\my-windows-app", "name": "my-windows-app" },
+    { "path": "C:\\code\\another-repo", "name": "another-repo" }
+  ]
+}

@@ -440,6 +440,14 @@ export const api = {
       body: JSON.stringify({ description }),
     }),
 
+  // Machines — remote cartridge launch
+  getMachines: () => request<import('../types').Machine[]>('/machines'),
+  launchOnMachine: (machineId: string, repoPath: string, agentType: string, context?: string) =>
+    request<{ ok: boolean; sessionId: string }>(`/machines/${machineId}/launch`, {
+      method: 'POST',
+      body: JSON.stringify({ repoPath, agentType, ...(context ? { context } : {}) }),
+    }),
+
   // Virtual cartridge suggestions
   getCartridgeSuggestions: (id: string) =>
     request<{ title: string; prompt: string; toolName: string; serverId: string }[]>(`/virtual-cartridges/${id}/suggestions`),

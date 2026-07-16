@@ -1,6 +1,23 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
 export type AgentType = 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor';
 
+/** A directory a machine runner is allowed to launch a cartridge in. */
+export interface MachineRepo {
+  path: string;
+  name: string;
+}
+
+/** A machine running the runner daemon — a remote launch target. */
+export interface Machine {
+  id: string;
+  hostname: string;
+  platform: string;
+  arch: string;
+  repos: MachineRepo[];
+  status: 'online' | 'offline';
+  lastSeen: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
