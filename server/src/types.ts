@@ -486,6 +486,8 @@ export type ServerToClientEvents = {
   machine_updated: (machine: Machine) => void;
   // Server → runner: launch a cartridge on this machine (delivered to the machine's room).
   launch_cartridge: (data: { machineId: string; repoPath: string; agentType: AgentType; sessionId: string; context: string }) => void;
+  // Server → runner: replace this machine's exposed-folder allowlist (portal-managed).
+  machine_set_repos: (data: { machineId: string; repos: MachineRepo[] }) => void;
 };
 
 export type ClientToServerEvents = {

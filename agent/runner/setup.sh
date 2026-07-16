@@ -142,8 +142,8 @@ if [[ -d "$SOURCE_DIR/../relay" ]]; then
   copy "$SOURCE_DIR/../relay" "$INSTALL_DIR/../relay"
 fi
 HOOKS_SRC=""
-if [[ -f "$SOURCE_DIR/../agent/install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/../agent"; fi   # runner zip layout
-if [[ -z "$HOOKS_SRC" && -f "$SOURCE_DIR/../../install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/../.."; fi  # in-repo (agent/runner → agent)
+if [[ -f "$SOURCE_DIR/../agent/install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/../agent"; fi   # runner zip: runner/ + agent/ siblings
+if [[ -z "$HOOKS_SRC" && -f "$SOURCE_DIR/../install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/.."; fi  # in-repo: agent/runner → agent/
 if [[ -n "$HOOKS_SRC" ]]; then
   mkdir -p "$INSTALL_DIR/../agent/hooks"
   cp "$HOOKS_SRC/install.py" "$INSTALL_DIR/../agent/install.py"

@@ -24,6 +24,8 @@ export function MachineLauncher() {
   const [loading, setLoading] = useState(false);
   const [expandedRepo, setExpandedRepo] = useState<string | null>(null); // `${machineId}:${path}`
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newPath, setNewPath] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
   const onlineCount = machines.filter((m) => m.status === 'online').length;
@@ -78,6 +80,26 @@ export function MachineLauncher() {
     }
   };
 
+  // Push a new folder list to the machine's runner. It validates against its own disk, so
+  // an added path that doesn't exist there is silently dropped; the list refreshes via the
+  // machine_updated socket event.
+  const setRepos = async (m: Machine, repos: { path: string; name?: string }[]) => {
+    try {
+      await api.setMachineRepos(m.id, repos);
+      flash('ok', 'Updated exposed folders');
+    } catch (e) {
+      flash('err', e instanceof Error ? e.message : 'Update failed');
+    }
+  };
+  const removeRepo = (m: Machine, path: string) =>
+    setRepos(m, m.repos.filter((r) => r.path !== path).map((r) => ({ path: r.path, name: r.name })));
+  const addRepo = (m: Machine) => {
+    const p = newPath.trim();
+    if (!p) return;
+    setNewPath('');
+    setRepos(m, [...m.repos.map((r) => ({ path: r.path, name: r.name })), { path: p }]);
+  };
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -111,18 +133,56 @@ export function MachineLauncher() {
               on a computer (see <span className="text-gray-300">agent/runner</span>) to launch there.
             </div>
           ) : (
-            machines.map((m) => (
+            machines.map((m) => {
+              const editing = editingId === m.id;
+              return (
               <div key={m.id} className="border-b border-white/5 last:border-0 pb-1 mb-1 last:mb-0 last:pb-0">
                 <div className="flex items-center gap-2 px-3 py-1.5">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-600'}`} />
                   <span className="text-xs text-gray-200 font-medium flex-1 truncate">{m.hostname || m.id.slice(0, 8)}</span>
+                  {m.status === 'online' && (
+                    <button
+                      onClick={() => { setEditingId(editing ? null : m.id); setExpandedRepo(null); setNewPath(''); }}
+                      className="text-[10px] text-gray-500 hover:text-violet-300 transition-colors"
+                    >
+                      {editing ? 'Done' : 'Edit folders'}
+                    </button>
+                  )}
                   <span className="text-[10px] text-gray-500">{OS_LABEL[m.platform] || m.platform}</span>
                 </div>
 
                 {m.status !== 'online' ? (
                   <div className="text-[11px] text-gray-600 px-3 pb-1 pl-7">Offline</div>
+                ) : editing ? (
+                  <div className="px-3 pb-2 pl-7 space-y-1">
+                    {m.repos.length === 0 && <div className="text-[11px] text-gray-600">No folders yet — add one below.</div>}
+                    {m.repos.map((repo) => (
+                      <div key={repo.path} className="flex items-center gap-2 text-xs text-gray-300">
+                        <span className="flex-1 truncate" title={repo.path}>{repo.name}</span>
+                        <button
+                          onClick={() => removeRepo(m, repo.path)}
+                          className="text-gray-600 hover:text-red-400 transition-colors px-1"
+                          title={`Remove ${repo.path}`}
+                        >×</button>
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-1 pt-1">
+                      <input
+                        value={newPath}
+                        onChange={(e) => setNewPath(e.target.value)}
+                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') addRepo(m); }}
+                        placeholder={m.platform === 'win32' ? 'C:\\code\\project' : '/path/to/project'}
+                        className="flex-1 text-[11px] glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => addRepo(m)}
+                        className="text-[11px] px-2 py-1 rounded bg-violet-900/40 text-violet-300 hover:bg-violet-900/70 transition-colors"
+                      >Add</button>
+                    </div>
+                    <div className="text-[10px] text-gray-600 pt-0.5">A path that doesn’t exist on that machine is ignored.</div>
+                  </div>
                 ) : m.repos.length === 0 ? (
-                  <div className="text-[11px] text-gray-600 px-3 pb-1 pl-7">No repos configured</div>
+                  <div className="text-[11px] text-gray-600 px-3 pb-1 pl-7">No folders — click “Edit folders”.</div>
                 ) : (
                   m.repos.map((repo) => {
                     const rid = `${m.id}:${repo.path}`;
@@ -153,7 +213,8 @@ export function MachineLauncher() {
                   })
                 )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       )}

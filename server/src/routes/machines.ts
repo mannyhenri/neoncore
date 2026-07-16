@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
-import { getIO, isMachineOnline, dispatchLaunchToMachine } from '../ws.js';
+import { getIO, isMachineOnline, dispatchLaunchToMachine, dispatchSetReposToMachine } from '../ws.js';
 import type { Machine, MachineRepo } from '../types.js';
 
 const router = Router();
@@ -110,6 +110,21 @@ router.post('/:id/launch', (req, res) => {
 
   console.log(`[machines] Dispatched launch to ${req.params.id}: ${agentType} @ ${repoPath}`);
   res.json({ ok: true, sessionId });
+});
+
+// Set a machine's exposed-folder allowlist from the portal. The runner is the authority on
+// what exists on its disk, so we just forward the desired list; it validates + persists +
+// re-registers, and the change lands via that register (broadcast as machine_updated).
+router.put('/:id/repos', (req, res) => {
+  const row = db.prepare('SELECT id FROM machines WHERE id = ?').get(req.params.id) as { id: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'Machine not found' });
+  if (!Array.isArray(req.body?.repos)) return res.status(400).json({ error: 'repos array required' });
+  if (!isMachineOnline(req.params.id)) return res.status(409).json({ error: 'Machine is offline' });
+
+  const repos = normalizeRepos(req.body.repos);
+  dispatchSetReposToMachine(req.params.id, repos);
+  console.log(`[machines] Sent repo-list update to ${req.params.id} (${repos.length} folders)`);
+  res.json({ ok: true });
 });
 
 // Forget a machine (e.g. decommissioned). Does not stop anything already running.

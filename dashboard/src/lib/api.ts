@@ -447,6 +447,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ repoPath, agentType, ...(context ? { context } : {}) }),
     }),
+  setMachineRepos: (machineId: string, repos: { path: string; name?: string }[]) =>
+    request<{ ok: boolean }>(`/machines/${machineId}/repos`, {
+      method: 'PUT',
+      body: JSON.stringify({ repos }),
+    }),
 
   // Virtual cartridge suggestions
   getCartridgeSuggestions: (id: string) =>
