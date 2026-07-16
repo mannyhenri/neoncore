@@ -63,10 +63,10 @@ What it does: installs to ~/.neoncore/runner, installs hooks, sets up auto-start
 and starts it. The machine then appears in the portal's "+ Launch" menu.
 
 ── Choosing folders to expose ────────────────────────────────
+  (neither flag)    opens an interactive FOLDER BROWSER — start at your home
+                    folder, drill in by number, then s=scan / a=add / u=up / d=done
   --scan DIR        add every git repo directly under DIR      (-Scan on Windows)
   --repo DIR        add one folder (repeatable)                (-Repo on Windows)
-  (neither)         you'll be PROMPTED for folders interactively
-                    (enter repos, or "scan:DIR" to scan a folder)
 
 ── Change folders later ──────────────────────────────────────
   • From the portal: open "+ Launch", find the machine, click "Edit folders",

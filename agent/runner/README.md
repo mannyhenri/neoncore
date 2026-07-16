@@ -45,12 +45,13 @@ install time in any of three ways:
 
 | How | Command |
 |-----|---------|
+| **Interactive browser** (recommended) — give neither `--repo` nor `--scan` | run `./setup.sh --server … --token …` |
 | **Scan a folder** — add every git repo directly under it | `--scan ~/code`  ·  `-Scan C:\code` |
 | **List repos explicitly** (repeatable) | `--repo ~/code/app --repo ~/code/api` |
-| **Interactive** — give neither `--repo` nor `--scan` and you'll be prompted | (just run `./setup.sh --server … --token …`) |
 
-At the prompt you can enter individual folders (`~/code/app, ~/code/api`) or a folder to scan
-(`scan:~/code`).
+With no `--repo`/`--scan`, setup opens a **folder browser** starting at your home directory.
+Drill into a folder by number, go `u`p a level, then `s` to **scan** it (add every git repo
+inside) or `a` to **add** that folder itself. Repeat, then `d` when done — no typing full paths.
 
 ### Change the folders later — two ways
 

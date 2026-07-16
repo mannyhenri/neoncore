@@ -53,18 +53,45 @@ function Add-Scan($dir) {
     ForEach-Object { $repos.Add($_.FullName) }
 }
 foreach ($s in $Scan) { Add-Scan $s }
-if ($repos.Count -eq 0) {
-  Write-Host ""
-  Info "Which folders should this machine give NeonCore access to?"
-  Write-Host "  Enter directories to expose, comma-separated. You can give:"
-  Write-Host "    - individual repos:  C:\code\app, C:\code\api"
-  Write-Host "    - a parent to scan:  scan:C:\code   (adds every git repo under it)"
-  $answer = Read-Host "  Folders"
-  foreach ($part in ($answer -split ',')) {
-    $p = $part.Trim()
-    if (-not $p) { continue }
-    if ($p -like 'scan:*') { Add-Scan ($p.Substring(5)) } else { $repos.Add($p.TrimEnd('\','/')) }
+
+# Interactive folder browser — start at the home folder and drill down; scan or add as you go.
+function Pick-Folders {
+  $cwd = $env:USERPROFILE
+  while ($true) {
+    $dirs = @(Get-ChildItem -Path $cwd -Directory -Force -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -notlike '.*' } | Sort-Object Name)
+    Write-Host ""
+    Write-Host "[dir] $cwd   (selected so far: $($repos.Count))" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $dirs.Count; $i++) {
+      $mark = ""
+      if (Test-Path (Join-Path $dirs[$i].FullName ".git")) { $mark = "  * git repo" }
+      Write-Host ("  {0,3}) {1}{2}" -f ($i + 1), $dirs[$i].Name, $mark)
+    }
+    if ($dirs.Count -eq 0) { Write-Host "  (no subfolders here)" }
+    Write-Host "  ---"
+    Write-Host "  #  enter that folder   |   u  up a level"
+    Write-Host "  s  SCAN here (add every git repo)   |   a  ADD this folder   |   d  done"
+    $choice = (Read-Host "  >").Trim()
+    switch -Regex ($choice) {
+      '^[uU]$' { $p = Split-Path -Parent $cwd; if ($p) { $cwd = $p } }
+      '^[sS]$' { $before = $repos.Count; Add-Scan $cwd; Info "Scanned $cwd -> added $($repos.Count - $before) repo(s)" }
+      '^[aA]$' { $repos.Add($cwd.TrimEnd('\','/')); Info "Added $cwd" }
+      '^[dD]$' { return }
+      '^\d+$'  {
+        $idx = [int]$choice
+        if ($idx -ge 1 -and $idx -le $dirs.Count) { $cwd = $dirs[$idx - 1].FullName }
+        else { Write-Host "  Out of range." -ForegroundColor Yellow }
+      }
+      default  { Write-Host "  Enter a number, or u / s / a / d." -ForegroundColor Yellow }
+    }
   }
+}
+
+if ($repos.Count -eq 0) {
+  Info "No folders given - let's pick which ones this machine exposes."
+  Write-Host "  Browse from your home folder, drill in, then SCAN it (add every git repo inside)"
+  Write-Host "  or ADD it directly. Repeat as needed, then press d."
+  Pick-Folders
 }
 $Repo = @($repos | Select-Object -Unique)
 if ($Repo.Count -eq 0) { Die "No folders selected. Pass -Repo path / -Scan path, or answer the prompt." }
