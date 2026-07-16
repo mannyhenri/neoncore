@@ -33,7 +33,7 @@ const POLL_INTERVAL_MS = 12_000;
  */
 function buildCompletionSuffix(stepId: string): string {
   const port = process.env.PORT || '4040';
-  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${stepId}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${stepId}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${stepId}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST "\${NEONCORE_URL:-http://localhost:${port}}/api/workflows/webhook/${stepId}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
 }
 
 /**
@@ -43,7 +43,7 @@ function buildCompletionSuffix(stepId: string): string {
  */
 function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
   const port = process.env.PORT || '4040';
-  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by running:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${stepId}/panel/${agentId}/complete -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'\nYou are one member of a panel; the deliberation cannot advance until you submit. Do NOT submit until your work is finished.`;
+  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by running:\ncurl -s -X POST "\${NEONCORE_URL:-http://localhost:${port}}/api/workflows/webhook/${stepId}/panel/${agentId}/complete" -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'\nYou are one member of a panel; the deliberation cannot advance until you submit. Do NOT submit until your work is finished.`;
 }
 
 /**
@@ -334,7 +334,7 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
   const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
 
   const port = process.env.PORT || '4040';
-  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST http://localhost:${port}/api/workflows/webhook/${step.id}/complete -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST "\${NEONCORE_URL:-http://localhost:${port}}/api/workflows/webhook/${step.id}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
   const finalPrompt = context + template.content + webhookSuffix;
 
