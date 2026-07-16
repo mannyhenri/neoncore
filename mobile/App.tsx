@@ -13,7 +13,6 @@ import { WorkflowsScreen } from './src/screens/WorkflowsScreen';
 import { WorkflowRunDetailScreen } from './src/screens/WorkflowRunDetailScreen';
 import { TabBar, type TabName } from './src/components/TabBar';
 import { BrandHeader } from './src/components/BrandHeader';
-import { useFonts, PressStart2P_400Regular } from '@expo-google-fonts/press-start-2p';
 import type { Agent, Workflow } from './src/types';
 
 type Route =
@@ -27,7 +26,6 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>({ name: 'list' });
-  const [fontsLoaded] = useFonts({ PressStart2P_400Regular });
 
   useEffect(() => {
     loadServerUrl().then((url) => {
@@ -75,7 +73,7 @@ export default function App() {
         <NeonCoreProvider baseUrl={serverUrl}>
           {/* Persistent brand bar on the tab screens (pushed detail screens own their surface). */}
           {route.name !== 'detail' && route.name !== 'workflowRun' && (
-            <BrandHeader pixel={fontsLoaded} />
+            <BrandHeader />
           )}
           <View style={styles.body}>
             {route.name === 'list' && (
