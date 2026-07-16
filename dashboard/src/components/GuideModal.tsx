@@ -430,11 +430,21 @@ cd runner
               <strong className="text-gray-300 font-medium">Scan</strong> (every git repo under it). Paths are on that
               machine; ones that don't exist there are ignored. The same controls exist on the mobile app.
             </BodyText>
-            <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Security</p>
+            <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Security &amp; the pairing token</p>
             <BodyText>
-              A machine only participates while its runner is running, only launches inside its allowlist, and must
-              present the server's <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">machine_pairing_token</code> to register.
+              A machine only participates while its runner is running and only launches inside its allowlist. To stop
+              random machines registering, set a token once on the server, then pass the same value as{' '}
+              <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">--token</code> on each machine:
             </BodyText>
+            <pre className="text-[11px] text-gray-300 bg-black/30 rounded-lg p-3 overflow-auto mb-2 whitespace-pre-wrap leading-relaxed">{`# 1. generate one
+openssl rand -hex 24
+
+# 2. set it on the server (once)
+curl -X PUT http://<server-name>.local:4040/api/settings \\
+  -H 'Content-Type: application/json' \\
+  -d '{"machine_pairing_token":"PASTE_THE_TOKEN"}'
+
+# 3. use the same value as --token when installing each runner`}</pre>
           </div>
         </div>
       </div>

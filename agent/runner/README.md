@@ -43,6 +43,33 @@ This installs to `~/.neoncore/runner`, installs the hooks, registers an auto-sta
 (launchd / systemd / Task Scheduler), and starts it. Remove later with `./setup.sh --uninstall`
 (`-Uninstall` on Windows).
 
+## Pairing token (the `--token`)
+
+The token stops random machines from registering with your server. **Set it once on the
+server, then give the same value to every machine.**
+
+**1. Generate a token** — any long random string works:
+
+```bash
+openssl rand -hex 24
+# no openssl? →  node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+```
+
+**2. Set it on the server** — run this once (from anywhere that can reach the server):
+
+```bash
+curl -X PUT http://<server-name>.local:4040/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"machine_pairing_token":"PASTE_THE_TOKEN"}'
+```
+
+**3. Use it on each machine** — pass the same value as `--token` (or `-Token`) to setup, e.g.
+`--token PASTE_THE_TOKEN`. It's saved into `runner.config.json` and must match the server's
+value exactly, or the machine gets a `401 Invalid pairing token` on register.
+
+> You can leave the token empty **only** on a trusted LAN where the server isn't reachable from
+> anywhere else. Anytime the server is reachable beyond your own machine, set a token.
+
 ## Choosing which folders to expose
 
 The allowlist is the set of directories this machine will launch cartridges in. Pick it at

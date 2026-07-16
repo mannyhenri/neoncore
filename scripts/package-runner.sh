@@ -76,8 +76,23 @@ and starts it. The machine then appears in the portal's "+ Launch" menu.
 Add --no-service (or -NoService) to just run it once in the foreground.
 Remove it later with:  ./setup.sh --uninstall   (or  .\setup.ps1 -Uninstall )
 
-The --token must match the server's `machine_pairing_token` setting (required when the
-server is reachable beyond your own machine; ask whoever set up the server for it).
+── The pairing token (YOUR_TOKEN above) ──────────────────────
+Stops random machines from registering. Set it ONCE on the server, then use the
+SAME value on every machine.
+
+  1. Generate one (any long random string):
+       openssl rand -hex 24
+       (or)  node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+
+  2. Set it on the server (once, from anything that can reach the server):
+       curl -X PUT http://SERVER-NAME.local:4040/api/settings \
+         -H "Content-Type: application/json" \
+         -d "{\"machine_pairing_token\":\"PASTE_THE_TOKEN\"}"
+
+  3. Pass the same value as --token / -Token here. Must match exactly, or you get
+     "401 Invalid pairing token" on register.
+
+  Leave it empty only on a trusted LAN where the server isn't reachable elsewhere.
 EOF
 
 echo "[package-runner] Zipping → $ZIP"
