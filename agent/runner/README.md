@@ -8,11 +8,16 @@ launch a cartridge there from your phone.
 
 1. On start it **registers** the machine with the orchestrator (`POST /api/machines/register`)
    and holds a Socket.io connection.
-2. The machine shows up in the portal's **Launch on machine** picker, along with its allowed
-   repos.
-3. When you launch from the portal, the server dispatches a `launch_cartridge` event to this
-   runner, which **spawns the relay** in the chosen repo. A new cartridge appears and connects
-   back exactly like a locally-launched one.
+2. The machine shows up in the portal's **+ Launch** menu (web and mobile), listing its
+   allowed folders.
+3. When you launch from the portal, the runner **opens a real terminal on this machine** with
+   **Claude (or Gridlight) running** in the chosen folder, ready to work — and it connects back
+   as a cartridge you can also drive from the portal.
+
+Opening a terminal (rather than a hidden background process) is deliberate: it starts a
+**login shell**, so tools like `claude` are found on your `PATH` even when the runner itself is
+started by launchd/systemd/Task Scheduler (which have a minimal environment), and you get a
+visible session you can watch and type in — locally or on a remote machine.
 
 The runner only ever launches in a directory from its `repos` **allowlist** — never an
 arbitrary path.
@@ -81,15 +86,28 @@ Remote launch is effectively remote code execution on this machine, so:
 - Set a `machine_pairing_token` on the server and match it here so only your runner can
   register. Required if the orchestrator is reachable beyond your LAN.
 
+## Managing exposed folders later
+
+- **From the portal (no editing on the machine):** open **+ Launch**, click **Edit folders**
+  on the machine, then remove with ✕, **Add** a path, or **Scan** a path (adds every git repo
+  under it on that machine). Same controls on the mobile app.
+- **On the machine:** re-run `setup.sh`/`setup.ps1`, or edit `repos` in
+  `~/.neoncore/runner/runner.config.json` and restart.
+
 ## Keeping it running
 
-- **Windows:** run via Task Scheduler (at logon) or NSSM as a service.
+`setup.sh`/`setup.ps1` install this automatically, but for reference the auto-start service is:
+
+- **Windows:** a Scheduled Task at logon (runs hidden).
 - **macOS:** a `launchd` LaunchAgent.
 - **Linux:** a `systemd` user service.
 
-Logs for each launched cartridge are written to `agent/runner/logs/`.
+The daemon's own output goes to `~/.neoncore/runner/logs/runner.out.log`. Each launched
+cartridge runs in its **own terminal window**, so its session output is right there.
 
 ## Notes
 
+- On macOS, the first launch may trigger a one-time "control Terminal" Automation permission
+  prompt — approve it once.
 - Launch context typed into the portal is passed through as `NEONCORE_LAUNCH_CONTEXT` but is
   not yet auto-injected into the agent session — send it as a command after launch for now.
