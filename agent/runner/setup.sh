@@ -65,6 +65,43 @@ expand_scans() {
   done
 }
 
+# Interactive folder browser — start at $HOME and drill down; scan or add as you go.
+pick_folders_interactive() {
+  local cwd="$HOME"
+  while true; do
+    # Collect visible subdirectories of cwd.
+    local dirs=() d
+    while IFS= read -r d; do dirs+=("$d"); done \
+      < <(find "$cwd" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | sort)
+
+    echo
+    printf '\033[36m📁 %s\033[0m   (selected so far: %d)\n' "$cwd" "${#REPOS[@]}"
+    local i=1
+    for d in "${dirs[@]}"; do
+      local mark=""; [[ -d "$d/.git" ]] && mark=$'  \033[35m• git repo\033[0m'
+      printf '  %2d) %s%s\n' "$i" "$(basename "$d")" "$mark"
+      i=$((i+1))
+    done
+    [[ ${#dirs[@]} -eq 0 ]] && echo "  (no subfolders here)"
+    echo "  ───"
+    echo "  #  enter that folder   ·   u  up a level"
+    echo "  s  SCAN here (add every git repo in this folder)   ·   a  ADD this folder itself"
+    echo "  d  done"
+    printf '  > '
+    read -r choice
+
+    case "$choice" in
+      u|U) cwd="$(dirname "$cwd")" ;;
+      s|S) local before=${#REPOS[@]}; SCANS=("$cwd"); expand_scans; SCANS=()
+           info "Scanned $cwd → added $(( ${#REPOS[@]} - before )) repo(s)" ;;
+      a|A) add_repo "$cwd"; info "Added $cwd" ;;
+      d|D) break ;;
+      ''|*[!0-9]*) warn "Enter a number, or u / s / a / d." ;;
+      *) if (( choice >= 1 && choice <= ${#dirs[@]} )); then cwd="${dirs[$((choice-1))]}"; else warn "Out of range."; fi ;;
+    esac
+  done
+}
+
 INSTALL_DIR="$HOME/.neoncore/runner"
 SERVICE_LABEL="ai.gridlight.neoncore.runner"
 PLIST="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
@@ -91,30 +128,15 @@ command -v npm  >/dev/null 2>&1 || die "npm is required. Install Node.js (which 
 
 [[ -n "$SERVER" ]] || die "Missing --server URL (e.g. --server http://Mannys-Mac-Pro.local:4040)"
 
-# Resolve the repo allowlist: --scan dirs, then an interactive prompt if still empty.
+# Resolve the repo allowlist: --scan dirs first, then an interactive browser if still empty.
 expand_scans
-if [[ ${#REPOS[@]} -eq 0 ]]; then
-  if [[ -t 0 ]]; then
-    echo
-    info "Which folders should this machine give NeonCore access to?"
-    echo "  Enter directories to expose, comma-separated. You can give:"
-    echo "    • individual repos:   ~/code/app, ~/code/api"
-    echo "    • a parent to scan:    scan:~/code    (adds every git repo under it)"
-    printf "  Folders: "
-    read -r ANSWER
-    IFS=',' read -ra PARTS <<< "$ANSWER"
-    for part in "${PARTS[@]}"; do
-      part="$(echo "$part" | sed 's/^ *//;s/ *$//')"
-      [[ -z "$part" ]] && continue
-      if [[ "$part" == scan:* ]]; then
-        SCANS=("${part#scan:}"); expand_scans
-      else
-        add_repo "${part/#\~/$HOME}"
-      fi
-    done
-  fi
+if [[ ${#REPOS[@]} -eq 0 && -t 0 ]]; then
+  info "No folders given — let's pick which ones this machine exposes."
+  echo "  Browse from your home folder, drill into a directory, then SCAN it (add every git"
+  echo "  repo inside) or ADD it directly. Repeat as needed, then press d."
+  pick_folders_interactive
 fi
-[[ ${#REPOS[@]} -gt 0 ]] || die "No folders selected. Pass --repo DIR / --scan DIR, or answer the prompt."
+[[ ${#REPOS[@]} -gt 0 ]] || die "No folders selected. Pass --repo DIR / --scan DIR, or use the interactive picker."
 
 # De-duplicate.
 REPOS=($(printf '%s\n' "${REPOS[@]}" | awk '!seen[$0]++'))
