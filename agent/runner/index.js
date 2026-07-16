@@ -37,7 +37,10 @@ function loadConfig() {
   }
   let cfg;
   try {
-    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    // Strip a leading BOM: PowerShell 5.1's Set-Content -Encoding UTF8 (and Notepad)
+    // prepend U+FEFF, which JSON.parse rejects outright. Without this the runner dies
+    // on startup with "not valid JSON" and the machine never registers.
+    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8').replace(/^﻿/, ''));
   } catch (err) {
     log(`Config is not valid JSON: ${err.message}`);
     process.exit(1);
