@@ -39,14 +39,19 @@ Lets you launch cartridges on THIS computer from the NeonCore web/mobile portal.
 
 Requires Node.js 18+ (used by the relay). Install from https://nodejs.org if needed.
 
+── Use the server's NAME, not its IP ─────────────────────────
+On a LAN, reach the server by its Bonjour/mDNS name instead of an IP that changes:
+  http://<server-computer-name>.local:4040     e.g.  http://Mannys-Mac-Pro.local:4040
+Works out of the box on macOS and Windows 10+; on Linux install avahi-daemon.
+
 ── macOS / Linux ─────────────────────────────────────────────
   cd runner
-  ./setup.sh --server http://YOUR-SERVER:4040 --token YOUR_TOKEN \
+  ./setup.sh --server http://SERVER-NAME.local:4040 --token YOUR_TOKEN \
              --repo ~/code/project-a --repo ~/code/project-b
 
 ── Windows (PowerShell) ──────────────────────────────────────
   cd runner
-  .\setup.ps1 -Server http://YOUR-SERVER:4040 -Token YOUR_TOKEN `
+  .\setup.ps1 -Server http://SERVER-NAME.local:4040 -Token YOUR_TOKEN `
               -Repo C:\code\project-a,C:\code\project-b
 
 What it does: installs to ~/.neoncore/runner, sets up auto-start on login, and starts it.
@@ -55,8 +60,8 @@ The machine then appears in the portal's "Machines" launcher, offering the repos
 Add --no-service (or -NoService) to just run it once in the foreground.
 Remove it later with:  ./setup.sh --uninstall   (or  .\setup.ps1 -Uninstall )
 
-The --token must match the server's `machine_pairing_token` setting (leave empty only on a
-trusted LAN where the server has no token set).
+The --token must match the server's `machine_pairing_token` setting (required when the
+server is reachable beyond your own machine; ask whoever set up the server for it).
 EOF
 
 echo "[package-runner] Zipping → $ZIP"
