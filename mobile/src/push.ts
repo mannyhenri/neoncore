@@ -51,18 +51,29 @@ export async function registerForPush(baseUrl: string): Promise<string | null> {
 
 /**
  * Deep-link a workflow-finished notification to its run. Handles both a tap while running
- * and a cold start (app launched from the notification). `onOpenRun` receives the run's
- * workflowId; the caller fetches + navigates.
+ * and a cold start (app launched from the notification). Routes by the notification's
+ * `data.type`:
+ *   - workflow_finished / decision_gate → open that run (has workflowId)
+ *   - permission_request               → open the Approvals screen
  */
-export function usePushNavigation(baseUrl: string | null, onOpenWorkflow: (workflowId: string) => void) {
-  // Keep the latest callback without re-subscribing the listener each render.
-  const cb = useRef(onOpenWorkflow);
-  cb.current = onOpenWorkflow;
+export interface PushHandlers {
+  onOpenWorkflow: (workflowId: string) => void;
+  onOpenApprovals: () => void;
+}
+
+export function usePushNavigation(baseUrl: string | null, handlers: PushHandlers) {
+  // Keep the latest handlers without re-subscribing the listener each render.
+  const cb = useRef(handlers);
+  cb.current = handlers;
 
   useEffect(() => {
     const handle = (data: unknown) => {
       const d = (data ?? {}) as { type?: string; workflowId?: string };
-      if (d.type === 'workflow_finished' && d.workflowId) cb.current(d.workflowId);
+      if ((d.type === 'workflow_finished' || d.type === 'decision_gate') && d.workflowId) {
+        cb.current.onOpenWorkflow(d.workflowId);
+      } else if (d.type === 'permission_request') {
+        cb.current.onOpenApprovals();
+      }
     };
 
     const sub = Notifications.addNotificationResponseReceivedListener((resp) => {

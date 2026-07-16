@@ -643,6 +643,17 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   // ── Listen for live execution logs ─────────────
 
   useSocket({
+    // Keep the workflow-level status in sync. Without this, individual steps turn green via
+    // onWorkflowStepUpdated but the run's own status (workflowStatus → isExecuting) was set
+    // only on load and never flipped — so a finished run kept reading as "running" on the
+    // canvas even though every step had completed.
+    onWorkflowUpdated: (wf) => {
+      if (savedWorkflowId && wf.id === savedWorkflowId) {
+        setWorkflowStatus(wf.status);
+        setRunNumber(wf.runNumber);
+        setTemplateId(wf.templateId);
+      }
+    },
     onWorkflowStepLog: (log) => {
       if (savedWorkflowId && log.workflowId === savedWorkflowId) {
         setExecutionLogs((prev) => [...prev, log].slice(-500));

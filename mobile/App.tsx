@@ -39,13 +39,16 @@ export default function App() {
     if (serverUrl) registerForPush(serverUrl);
   }, [serverUrl]);
 
-  // Tapping a "workflow finished" notification deep-links into that run. Fetch it, then
-  // route to the detail screen.
-  usePushNavigation(serverUrl, (workflowId) => {
-    if (!serverUrl) return;
-    api.getWorkflowV2(serverUrl, workflowId)
-      .then((data) => setRoute({ name: 'workflowRun', run: data.workflow }))
-      .catch(() => {});
+  // Tapping a push deep-links to the right place: workflow/decision pushes open that run,
+  // approval pushes open the Approvals screen.
+  usePushNavigation(serverUrl, {
+    onOpenWorkflow: (workflowId) => {
+      if (!serverUrl) return;
+      api.getWorkflowV2(serverUrl, workflowId)
+        .then((data) => setRoute({ name: 'workflowRun', run: data.workflow }))
+        .catch(() => {});
+    },
+    onOpenApprovals: () => setRoute({ name: 'approvals' }),
   });
 
   return (

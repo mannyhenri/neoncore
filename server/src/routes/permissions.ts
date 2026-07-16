@@ -6,6 +6,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
 import { pushNotify, getCartridgeNtfyUrl } from '../lib/push-notify.js';
+import { sendPushToAll } from '../lib/expo-push.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 
 const router = Router();
@@ -159,6 +160,14 @@ router.post('/request', (req, res) => {
   pushNotify(pushTitle, pushBody, cartridgeNtfyUrl ?? undefined).catch((err) => {
     console.warn('[permissions] pushNotify failed:', err);
   });
+
+  // Native app push (Expo) — same message, but deep-links into the Approvals screen.
+  // Fire-and-forget; a push failure must never block the agent's request.
+  sendPushToAll(pushTitle, pushBody, {
+    type: 'permission_request',
+    permissionId: id,
+    agentId: resolvedAgentId,
+  }).catch(() => {});
 
   res.status(201).json({ id, status: 'pending' });
 });
