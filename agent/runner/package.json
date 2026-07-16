@@ -1,0 +1,16 @@
+{
+  "name": "neoncore-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent per-machine daemon that lets you launch NeonCore cartridges on this computer remotely from the web/mobile portal.",
+  "bin": {
+    "neoncore-runner": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.0"
+  }
+}

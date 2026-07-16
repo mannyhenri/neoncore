@@ -94,6 +94,23 @@ export interface Workflow {
   stepSummary?: WorkflowStepSummary;
 }
 
+/** A directory a machine runner will launch a cartridge in. */
+export interface MachineRepo {
+  path: string;
+  name: string;
+}
+
+/** A machine running the runner daemon — a remote launch target. */
+export interface Machine {
+  id: string;
+  hostname: string;
+  platform: string; // 'win32' | 'darwin' | 'linux'
+  arch: string;
+  repos: MachineRepo[];
+  status: 'online' | 'offline';
+  lastSeen: string;
+}
+
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 export type StepExecutorType =
   | 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate'

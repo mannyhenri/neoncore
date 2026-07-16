@@ -748,6 +748,20 @@ db.exec(`
     created_at TEXT NOT NULL,
     last_seen TEXT NOT NULL
   );
+
+  -- Registered machines running the runner daemon. Each holds a socket so the server can
+  -- dispatch a "launch this cartridge here" instruction remotely (from web/mobile). The repos
+  -- column is the runner's allowlist of launchable directories — the only paths it starts in.
+  CREATE TABLE IF NOT EXISTS machines (
+    id TEXT PRIMARY KEY,
+    hostname TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL DEFAULT '',
+    arch TEXT NOT NULL DEFAULT '',
+    repos TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'offline',
+    last_seen TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 // Add project column to notes table (migration-safe)

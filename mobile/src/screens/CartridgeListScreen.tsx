@@ -5,12 +5,14 @@ import { useNeonCore } from '../NeonCoreProvider';
 import type { Agent } from '../types';
 import { QuestionIcon } from '../components/Icons';
 import { SwipeToDismiss } from '../components/SwipeToDismiss';
+import { RemoteLaunchModal } from '../components/RemoteLaunchModal';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
   const { agents, connected, refresh, dismissAgent, restoreAgent } = useNeonCore();
   const [refreshing, setRefreshing] = useState(false);
   const [showOffline, setShowOffline] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  const [launchOpen, setLaunchOpen] = useState(false);
 
   const doRefresh = async () => {
     setRefreshing(true);
@@ -40,10 +42,15 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
       <View style={styles.header}>
         <Text style={styles.title}>Cartridges</Text>
         <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.launchBtn} onPress={() => setLaunchOpen(true)}>
+            <Text style={styles.launchBtnText}>＋ Launch</Text>
+          </TouchableOpacity>
           <View style={[styles.dot, { backgroundColor: connected ? theme.teal : theme.danger }]} />
           <Text style={styles.conn}>{connected ? 'live' : 'offline'}</Text>
         </View>
       </View>
+
+      <RemoteLaunchModal visible={launchOpen} onClose={() => setLaunchOpen(false)} />
 
       <FlatList
         data={sorted}
@@ -178,6 +185,11 @@ const styles = StyleSheet.create({
   },
   title: { color: theme.text, fontSize: 26, fontWeight: '800' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  launchBtn: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9,
+    backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.accent,
+  },
+  launchBtnText: { color: theme.accentSoft, fontSize: 12, fontWeight: '700' },
   conn: { color: theme.textDim, fontSize: 12, marginRight: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   card: {

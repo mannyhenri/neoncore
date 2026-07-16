@@ -483,10 +483,33 @@ export type ServerToClientEvents = {
   session_started: (data: { agentId: string; project: string; sessionId: string }) => void;
   session_ended: (data: { agentId: string; project: string; sessionId: string }) => void;
   heartbeat_fired: (data: { heartbeatId: string; runId: string; projectId: string | null; templateId: string; label: unknown; firedAt: string; nextRunAt: string }) => void;
+  machine_updated: (machine: Machine) => void;
+  // Server → runner: launch a cartridge on this machine (delivered to the machine's room).
+  launch_cartridge: (data: { machineId: string; repoPath: string; agentType: AgentType; sessionId: string; context: string }) => void;
 };
 
 export type ClientToServerEvents = {
   subscribe: () => void;
   register_extension: (data: { machine: string; repoPath: string; agentType?: AgentType }) => void;
   join_agent_room: (data: { agentId: string }) => void;
+  // Runner → server: this socket belongs to a registered machine (mirrors join_agent_room).
+  join_machine_room: (data: { machineId: string }) => void;
+  machine_heartbeat: (data: { machineId: string }) => void;
 };
+
+/** A directory the runner is allowed to launch a cartridge in. */
+export interface MachineRepo {
+  path: string;
+  name: string;
+}
+
+/** A machine running the runner daemon, addressable for remote cartridge launches. */
+export interface Machine {
+  id: string;
+  hostname: string;
+  platform: string; // 'win32' | 'darwin' | 'linux'
+  arch: string;
+  repos: MachineRepo[];
+  status: 'online' | 'offline';
+  lastSeen: string;
+}

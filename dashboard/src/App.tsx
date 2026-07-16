@@ -4,6 +4,7 @@ import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RepoPicker } from './components/RepoPicker';
+import { MachineLauncher } from './components/MachineLauncher';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
@@ -127,6 +128,8 @@ export default function App() {
             </div>
             {/* Repo Picker */}
             <RepoPicker />
+            {/* Remote launch on registered machines */}
+            <MachineLauncher />
             {/* Guide button */}
             <button
               onClick={() => setGuideOpen(true)}

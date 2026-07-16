@@ -12,6 +12,9 @@ const socketToAgent = new Map<string, string>();
 // Track the primary (most recently registered) socket per agent — commands go here
 const agentPrimarySocket = new Map<string, string>(); // agentId → socketId
 
+// Track which socket belongs to which machine runner (for online detection + launch dispatch)
+const socketToMachine = new Map<string, string>(); // socketId → machineId
+
 export function initWebSocket(server: HTTPServer) {
   io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(server, {
     cors: {
@@ -62,6 +65,18 @@ export function initWebSocket(server: HTTPServer) {
       console.log(`[ws] Socket ${socket.id} joined agent room ${agentRoom} (post-registration, primary)`);
     });
 
+    // Runner daemon claims its machine room after REST registration.
+    socket.on('join_machine_room', ({ machineId }) => {
+      socket.join(`machine:${machineId}`);
+      socketToMachine.set(socket.id, machineId);
+      markMachineStatus(machineId, 'online');
+      console.log(`[ws] Socket ${socket.id} joined machine room machine:${machineId}`);
+    });
+
+    socket.on('machine_heartbeat', ({ machineId }) => {
+      db.prepare("UPDATE machines SET last_seen = ? WHERE id = ?").run(new Date().toISOString(), machineId);
+    });
+
     socket.on('disconnect', () => {
       const agentId = socketToAgent.get(socket.id);
       if (agentId) {
@@ -70,6 +85,14 @@ export function initWebSocket(server: HTTPServer) {
           agentPrimarySocket.delete(agentId);
         }
         markAgentOffline(agentId);
+      }
+      const machineId = socketToMachine.get(socket.id);
+      if (machineId) {
+        socketToMachine.delete(socket.id);
+        // Only flip offline if no OTHER socket still holds this machine (rare, but a
+        // reconnect can briefly overlap).
+        const stillHeld = [...socketToMachine.values()].includes(machineId);
+        if (!stillHeld) markMachineStatus(machineId, 'offline');
       }
       console.log(`[ws] Client disconnected: ${socket.id}`);
     });
@@ -165,6 +188,53 @@ export function upgradeSocketsToAgentRoom(machine: string, repoPath: string, age
 /** Return the primary (most recently registered) socket ID for an agent */
 export function getPrimarySocket(agentId: string): string | undefined {
   return agentPrimarySocket.get(agentId);
+}
+
+// ─── Machine runners ────────────────────────────────────────────
+
+/** Update a machine's status, persist last_seen, and broadcast to dashboards/mobile. */
+function markMachineStatus(machineId: string, status: 'online' | 'offline') {
+  const now = new Date().toISOString();
+  db.prepare('UPDATE machines SET status = ?, last_seen = ? WHERE id = ?').run(status, now, machineId);
+  const row = db.prepare('SELECT * FROM machines WHERE id = ?').get(machineId) as Record<string, unknown> | undefined;
+  if (row) {
+    io.emit('machine_updated', {
+      id: row.id as string,
+      hostname: (row.hostname as string) ?? '',
+      platform: (row.platform as string) ?? '',
+      arch: (row.arch as string) ?? '',
+      repos: JSON.parse((row.repos as string) || '[]'),
+      status,
+      lastSeen: now,
+    });
+  }
+}
+
+/** True if a runner socket is currently connected for this machine. */
+export function isMachineOnline(machineId: string): boolean {
+  for (const [socketId, mapped] of socketToMachine) {
+    if (mapped !== machineId) continue;
+    const s = io.sockets.sockets.get(socketId);
+    if (s && s.connected) return true;
+    socketToMachine.delete(socketId); // prune stale
+  }
+  return false;
+}
+
+/** Dispatch a launch instruction to a machine's runner. Returns false if it's offline. */
+export function dispatchLaunchToMachine(
+  machineId: string,
+  payload: { repoPath: string; agentType: string; sessionId: string; context: string },
+): boolean {
+  if (!isMachineOnline(machineId)) return false;
+  io.to(`machine:${machineId}`).emit('launch_cartridge', {
+    machineId,
+    repoPath: payload.repoPath,
+    agentType: payload.agentType as import('./types.js').AgentType,
+    sessionId: payload.sessionId,
+    context: payload.context,
+  });
+  return true;
 }
 
 export function getIO() {

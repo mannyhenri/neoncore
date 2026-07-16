@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, McpServer, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, McpServer, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine } from '../types';
 
 interface SocketHandlers {
   onAgentRegistered?: (agent: Agent) => void;
@@ -32,6 +32,7 @@ interface SocketHandlers {
   onWorkflowNotification?: (n: WorkflowNotification) => void;
   onTaskCreated?: (task: Task) => void;
   onTaskUpdated?: (task: Task) => void;
+  onMachineUpdated?: (machine: Machine) => void;
   onReconnect?: () => void;
 }
 
@@ -154,6 +155,10 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('task_updated' as any, (task: Task) => {
       handlersRef.current.onTaskUpdated?.(task);
+    });
+
+    socket.on('machine_updated' as any, (machine: Machine) => {
+      handlersRef.current.onMachineUpdated?.(machine);
     });
 
     // Mobile: refresh data when tab becomes visible again
