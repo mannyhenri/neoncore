@@ -23,7 +23,13 @@ import { fileURLToPath } from 'url';
 const isWin = process.platform === 'win32';
 const relayDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(relayDir, '..', '..');
-const installScript = path.join(repoRoot, 'agent', 'install.py');
+// The hooks installer lives at agent/install.py. In the repo it's two levels up
+// (<repo>/agent/relay → <repo>/agent); in the runner install it's a sibling of the relay
+// (~/.neoncore/relay → ~/.neoncore/agent). Try both.
+const installScript = [
+  path.join(repoRoot, 'agent', 'install.py'),
+  path.resolve(relayDir, '..', 'agent', 'install.py'),
+].find((p) => existsSync(p)) || path.join(repoRoot, 'agent', 'install.py');
 const npmCmd = isWin ? 'npm.cmd' : 'npm';
 
 function log(msg) { process.stdout.write(`[NeonCore] ${msg}\n`); }
