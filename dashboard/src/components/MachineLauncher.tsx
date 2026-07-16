@@ -99,6 +99,18 @@ export function MachineLauncher() {
     setNewPath('');
     setRepos(m, [...m.repos.map((r) => ({ path: r.path, name: r.name })), { path: p }]);
   };
+  // Treat the input as a parent folder: the runner adds every git repo under it (on its disk).
+  const scanFolder = async (m: Machine) => {
+    const root = newPath.trim();
+    if (!root) return;
+    setNewPath('');
+    try {
+      await api.scanMachineFolder(m.id, root);
+      flash('ok', `Scanning ${root} on ${m.hostname}…`);
+    } catch (e) {
+      flash('err', e instanceof Error ? e.message : 'Scan failed');
+    }
+  };
 
   return (
     <div className="relative" ref={ref}>
@@ -177,9 +189,17 @@ export function MachineLauncher() {
                       <button
                         onClick={() => addRepo(m)}
                         className="text-[11px] px-2 py-1 rounded bg-violet-900/40 text-violet-300 hover:bg-violet-900/70 transition-colors"
+                        title="Add this exact folder"
                       >Add</button>
+                      <button
+                        onClick={() => scanFolder(m)}
+                        className="text-[11px] px-2 py-1 rounded bg-white/[0.06] text-gray-300 hover:bg-white/[0.12] transition-colors"
+                        title="Add every git repo under this folder"
+                      >Scan</button>
                     </div>
-                    <div className="text-[10px] text-gray-600 pt-0.5">A path that doesn’t exist on that machine is ignored.</div>
+                    <div className="text-[10px] text-gray-600 pt-0.5">
+                      <b>Add</b> = this exact folder. <b>Scan</b> = every git repo under it. Paths are on that machine; missing ones are ignored.
+                    </div>
                   </div>
                 ) : m.repos.length === 0 ? (
                   <div className="text-[11px] text-gray-600 px-3 pb-1 pl-7">No folders — click “Edit folders”.</div>

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
-import { getIO, isMachineOnline, dispatchLaunchToMachine, dispatchSetReposToMachine } from '../ws.js';
+import { getIO, isMachineOnline, dispatchLaunchToMachine, dispatchSetReposToMachine, dispatchScanToMachine } from '../ws.js';
 import type { Machine, MachineRepo } from '../types.js';
 
 const router = Router();
@@ -124,6 +124,19 @@ router.put('/:id/repos', (req, res) => {
   const repos = normalizeRepos(req.body.repos);
   dispatchSetReposToMachine(req.params.id, repos);
   console.log(`[machines] Sent repo-list update to ${req.params.id} (${repos.length} folders)`);
+  res.json({ ok: true });
+});
+
+// Ask a machine's runner to scan a directory on its own disk and add the git repos it finds.
+router.post('/:id/scan', (req, res) => {
+  const row = db.prepare('SELECT id FROM machines WHERE id = ?').get(req.params.id) as { id: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'Machine not found' });
+  const root = req.body?.root;
+  if (!root || typeof root !== 'string') return res.status(400).json({ error: 'root path required' });
+  if (!isMachineOnline(req.params.id)) return res.status(409).json({ error: 'Machine is offline' });
+
+  dispatchScanToMachine(req.params.id, root.trim());
+  console.log(`[machines] Sent scan request to ${req.params.id}: ${root}`);
   res.json({ ok: true });
 });
 

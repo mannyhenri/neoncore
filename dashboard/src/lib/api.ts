@@ -452,6 +452,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ repos }),
     }),
+  scanMachineFolder: (machineId: string, root: string) =>
+    request<{ ok: boolean }>(`/machines/${machineId}/scan`, {
+      method: 'POST',
+      body: JSON.stringify({ root }),
+    }),
 
   // Virtual cartridge suggestions
   getCartridgeSuggestions: (id: string) =>

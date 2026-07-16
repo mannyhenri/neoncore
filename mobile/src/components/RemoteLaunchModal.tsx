@@ -79,6 +79,21 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
     setNewPath('');
     setRepos(m, [...m.repos.map((r) => ({ path: r.path, name: r.name })), { path: p }]);
   };
+  const scanFolder = async (m: Machine) => {
+    const root = newPath.trim();
+    if (!root) return;
+    setNewPath('');
+    setBusy(true);
+    try {
+      await api.scanMachineFolder(baseUrl, m.id, root);
+      flash(`Scanning ${root} on ${m.hostname}…`);
+      setTimeout(load, 1500);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : 'Scan failed');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -146,8 +161,11 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
                           <TouchableOpacity style={styles.addBtn} disabled={busy || !newPath.trim()} onPress={() => addRepo(m)}>
                             <Text style={styles.addBtnText}>Add</Text>
                           </TouchableOpacity>
+                          <TouchableOpacity style={styles.scanBtn} disabled={busy || !newPath.trim()} onPress={() => scanFolder(m)}>
+                            <Text style={styles.scanBtnText}>Scan</Text>
+                          </TouchableOpacity>
                         </View>
-                        <Text style={styles.editHint}>A path that doesn’t exist on that machine is ignored.</Text>
+                        <Text style={styles.editHint}>Add = this folder. Scan = every git repo under it. Missing paths are ignored.</Text>
                       </View>
                     ) : m.repos.length === 0 ? (
                       <Text style={styles.sub}>No folders — tap “Edit folders”.</Text>
@@ -231,6 +249,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.accent,
   },
   addBtnText: { color: theme.accentSoft, fontSize: 13, fontWeight: '700' },
+  scanBtn: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8,
+    backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.border,
+  },
+  scanBtnText: { color: theme.textDim, fontSize: 13, fontWeight: '700' },
   editHint: { color: theme.textFaint, fontSize: 10, marginTop: 2 },
 
   repoRow: {

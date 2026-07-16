@@ -249,6 +249,14 @@ export function dispatchSetReposToMachine(
   return true;
 }
 
+/** Ask a machine's runner to scan a directory on its own disk and add the git repos under
+ *  it to its allowlist. Returns false if the machine is offline. */
+export function dispatchScanToMachine(machineId: string, root: string): boolean {
+  if (!isMachineOnline(machineId)) return false;
+  io.to(`machine:${machineId}`).emit('machine_scan', { machineId, root });
+  return true;
+}
+
 export function getIO() {
   if (!io) {
     throw new Error('WebSocket not initialized. Call initWebSocket first.');
