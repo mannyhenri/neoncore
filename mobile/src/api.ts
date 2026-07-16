@@ -123,6 +123,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ repos }),
     }),
+  scanMachineFolder: (base: string, machineId: string, root: string) =>
+    req<{ ok: boolean }>(base, `/api/machines/${machineId}/scan`, {
+      method: 'POST',
+      body: JSON.stringify({ root }),
+    }),
 
   // Register / unregister this device's Expo push token so the server can notify it
   // when a workflow finishes.

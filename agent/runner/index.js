@@ -16,7 +16,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { io } from 'socket.io-client';
@@ -84,43 +84,83 @@ async function register() {
   }
 }
 
-/** Spawn the relay in a repo from the allowlist. Runs headless, logs to logs/. */
+/**
+ * Launch a cartridge in a repo from the allowlist by opening a real terminal that runs the
+ * relay. Using a terminal (vs. a headless background spawn) matters for two reasons:
+ *   1. The runner often runs under launchd/systemd/Task Scheduler with a minimal PATH, so a
+ *      headless spawn can't find `claude`/`node`. A terminal starts a LOGIN shell that sources
+ *      the user's profile, restoring PATH.
+ *   2. You can watch and type in the session locally, same as the old one-click launch.
+ * The cartridge also registers back to the portal as usual.
+ */
 function launchCartridge({ repoPath, agentType, sessionId, context }) {
   const allowed = identity.repos.find((r) => r.path === repoPath);
-  if (!allowed) {
-    log(`Refused launch: ${repoPath} is not in the allowlist.`);
-    return;
-  }
-  if (!fs.existsSync(repoPath)) {
-    log(`Refused launch: ${repoPath} does not exist on disk.`);
-    return;
-  }
+  if (!allowed) { log(`Refused launch: ${repoPath} is not in the allowlist.`); return; }
+  if (!fs.existsSync(repoPath)) { log(`Refused launch: ${repoPath} does not exist on disk.`); return; }
 
-  try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch { /* ignore */ }
-  const logPath = path.join(LOG_DIR, `launch-${sessionId || Date.now()}.log`);
-  const logFd = fs.openSync(logPath, 'a');
-
+  const isWin = process.platform === 'win32';
+  const nodeBin = process.execPath; // reliable node path even if PATH is thin
+  const type = agentType || 'claude';
   const env = {
-    ...process.env,
     NEONCORE_URL: cfg.serverUrl,
-    NEONCORE_AGENT_TYPE: agentType || 'claude',
+    NEONCORE_AGENT_TYPE: type,
     NEONCORE_SESSION_ID: sessionId || '',
-    // Passed through for a future relay that types an initial prompt; not auto-injected yet.
     NEONCORE_LAUNCH_CONTEXT: context || '',
   };
-  if (process.platform === 'win32' && (agentType || 'claude') === 'claude' && !env.NEONCORE_AGENT_CMD) {
-    env.NEONCORE_AGENT_CMD = 'claude.cmd';
-  }
+  if (isWin && type === 'claude') env.NEONCORE_AGENT_CMD = 'claude.cmd';
 
-  const child = spawn(process.execPath, [RELAY_LAUNCH], {
-    cwd: repoPath,
-    env,
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-  });
-  child.on('error', (err) => log(`launch spawn error: ${err.message}`));
-  child.unref();
-  log(`Launched ${agentType || 'claude'} in ${allowed.name} (${repoPath}) → ${logPath}`);
+  try {
+    if (isWin) {
+      const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.cmd`);
+      fs.writeFileSync(scriptPath, [
+        '@echo off',
+        `cd /d "${repoPath}"`,
+        ...Object.entries(env).map(([k, v]) => `set "${k}=${v}"`),
+        `"${nodeBin}" "${RELAY_LAUNCH}"`,
+      ].join('\r\n') + '\r\n');
+      setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
+      spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', scriptPath], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
+      fs.writeFileSync(scriptPath, [
+        '#!/usr/bin/env bash',
+        `cd ${JSON.stringify(repoPath)}`,
+        ...Object.entries(env).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`),
+        // Source login files so PATH picks up claude/node even under launchd/systemd.
+        '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
+        '[ -f "$HOME/.zshrc" ]  && source "$HOME/.zshrc"  2>/dev/null',
+        '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
+        `"${nodeBin}" ${JSON.stringify(RELAY_LAUNCH)}`,
+      ].join('\n') + '\n');
+      fs.chmodSync(scriptPath, '755');
+      setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
+
+      if (process.platform === 'darwin') {
+        execSync(
+          `osascript -e 'tell application "Terminal"' -e 'do script ${JSON.stringify(scriptPath)}' -e 'activate' -e 'end tell'`,
+          { timeout: 8000 },
+        );
+      } else {
+        const terms = [
+          ['gnome-terminal', ['--', 'bash', scriptPath]],
+          ['konsole', ['-e', `bash ${scriptPath}`]],
+          ['xfce4-terminal', ['--command', `bash ${scriptPath}`]],
+          ['xterm', ['-e', `bash ${scriptPath}`]],
+        ];
+        let opened = false;
+        for (const [term, args] of terms) {
+          try { execSync(`command -v ${term}`, { stdio: 'ignore', timeout: 1000 }); } catch { continue; }
+          spawn(term, args, { detached: true, stdio: 'ignore' }).unref();
+          opened = true;
+          break;
+        }
+        if (!opened) throw new Error('no terminal emulator found (install gnome-terminal/konsole/xterm)');
+      }
+    }
+    log(`Launched ${type} in ${allowed.name} (${repoPath}) — terminal opened`);
+  } catch (err) {
+    log(`Failed to open terminal for ${repoPath}: ${err.message}`);
+  }
 }
 
 // ─── Connect + stay online ──────────────────────────────────────
@@ -149,13 +189,10 @@ socket.on('launch_cartridge', (payload) => {
   launchCartridge(payload);
 });
 
-// Portal edited this machine's exposed folders. We stay the authority on what's real:
-// keep only paths that exist on disk, persist to the config, and re-register.
-socket.on('machine_set_repos', (payload) => {
-  if (!payload || payload.machineId !== identity.machineId) return;
-  const requested = Array.isArray(payload.repos) ? payload.repos : [];
+// Keep only paths that are real directories here, normalize names.
+function validateRepos(list) {
   const valid = [];
-  for (const r of requested) {
+  for (const r of list || []) {
     if (!r || !r.path) continue;
     try {
       if (fs.existsSync(r.path) && fs.statSync(r.path).isDirectory()) {
@@ -165,16 +202,51 @@ socket.on('machine_set_repos', (payload) => {
       }
     } catch { log(`Ignoring unreadable folder: ${r.path}`); }
   }
-  identity.repos = valid;
-  cfg.repos = valid;
+  return valid;
+}
+
+// Persist the allowlist to config and re-register so the change lands server-side.
+function persistAndRegister(repos, note) {
+  identity.repos = repos;
+  cfg.repos = repos;
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n');
   } catch (err) {
     log(`Could not persist config: ${err.message}`);
   }
-  register()
-    .then(() => log(`Exposed folders updated → ${valid.length}`))
-    .catch((err) => log(`re-register after repo update failed: ${err.message}`));
+  register().then(() => log(note)).catch((err) => log(`re-register failed: ${err.message}`));
+}
+
+// Portal edited this machine's exposed folders — replace the list with the validated set.
+socket.on('machine_set_repos', (payload) => {
+  if (!payload || payload.machineId !== identity.machineId) return;
+  const valid = validateRepos(payload.repos);
+  persistAndRegister(valid, `Exposed folders updated → ${valid.length}`);
+});
+
+// Portal asked to scan a folder on THIS machine: add every git repo directly under it,
+// merged with what's already exposed (dedup by path).
+socket.on('machine_scan', (payload) => {
+  if (!payload || payload.machineId !== identity.machineId) return;
+  const root = payload.root;
+  try {
+    if (!root || !fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+      log(`Scan: not a directory here: ${root}`);
+      return;
+    }
+    const found = [];
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const p = path.join(root, entry.name);
+      if (fs.existsSync(path.join(p, '.git'))) found.push({ path: p, name: entry.name });
+    }
+    const byPath = new Map(identity.repos.map((r) => [r.path, r]));
+    for (const r of found) byPath.set(r.path, r);
+    const merged = [...byPath.values()];
+    persistAndRegister(merged, `Scan ${root}: found ${found.length} git repo(s) → ${merged.length} total`);
+  } catch (err) {
+    log(`Scan failed for ${root}: ${err.message}`);
+  }
 });
 
 // Heartbeat so the server's last_seen stays fresh even if it never disconnects.

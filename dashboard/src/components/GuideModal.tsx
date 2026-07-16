@@ -11,6 +11,7 @@ const SECTIONS = [
   { id: 'outputs', label: 'Typed Outputs' },
   { id: 'connectors', label: 'Connectors' },
   { id: 'permissions', label: 'Permissions & Trust' },
+  { id: 'machines', label: 'Machines & Launch' },
 ];
 
 function FeatureCard({ name, desc }: { name: string; desc: string }) {
@@ -383,6 +384,56 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               run automatically — except <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">AskUserQuestion</code> and{' '}
               <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">ExitPlanMode</code>, which still wait for a human. Useful for agents
               in a controlled project environment where you trust the workflow.
+            </BodyText>
+          </div>
+
+          {/* ── Section 10: Machines & Launch ── */}
+          <div
+            ref={(el) => { if (el) sectionRefs.current[10] = el; }}
+            className="mb-8 scroll-mt-4"
+          >
+            <SectionHeader>Machines &amp; Launch</SectionHeader>
+            <BodyText>
+              Use the <strong className="text-gray-300 font-medium">+ Launch</strong> button in the top bar to
+              start a cartridge on any computer running the NeonCore <em>runner</em> — including this one. Pick a
+              machine, pick one of its folders, pick an agent type, and a real terminal opens on that machine with
+              Claude (or Gridlight) running and connected back as a cartridge.
+            </BodyText>
+            <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Add a machine</p>
+            <BodyText>
+              On the computer you want to launch on, unzip{' '}
+              <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">neoncore-runner.zip</code>{' '}
+              and run one command:
+            </BodyText>
+            <pre className="text-[11px] text-gray-300 bg-black/30 rounded-lg p-3 overflow-auto mb-2 whitespace-pre-wrap leading-relaxed">{`# macOS / Linux
+cd runner
+./setup.sh --server http://<server-name>.local:4040 --token <TOKEN> --scan ~/code
+
+# Windows (PowerShell)
+cd runner
+.\\setup.ps1 -Server http://<server-name>.local:4040 -Token <TOKEN> -Scan C:\\code`}</pre>
+            <BodyText>
+              It installs the status/approval hooks, registers an auto-start service, and appears in{' '}
+              <strong className="text-gray-300 font-medium">+ Launch</strong>. Prefer the server's{' '}
+              <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">.local</code> name over
+              an IP so it survives address changes.
+            </BodyText>
+            <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Choosing folders</p>
+            <FeatureCard name="--scan DIR / -Scan" desc="Adds every git repo directly under a folder (at install)." />
+            <FeatureCard name="--repo DIR / -Repo" desc="Adds one folder; repeatable." />
+            <FeatureCard name="Interactive prompt" desc="Give neither and setup asks which folders to expose." />
+            <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Manage folders from here</p>
+            <BodyText>
+              In <strong className="text-gray-300 font-medium">+ Launch</strong>, click{' '}
+              <strong className="text-gray-300 font-medium">Edit folders</strong> on a machine. Remove with ✕, or type
+              a path and hit <strong className="text-gray-300 font-medium">Add</strong> (that exact folder) or{' '}
+              <strong className="text-gray-300 font-medium">Scan</strong> (every git repo under it). Paths are on that
+              machine; ones that don't exist there are ignored. The same controls exist on the mobile app.
+            </BodyText>
+            <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Security</p>
+            <BodyText>
+              A machine only participates while its runner is running, only launches inside its allowlist, and must
+              present the server's <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">machine_pairing_token</code> to register.
             </BodyText>
           </div>
         </div>

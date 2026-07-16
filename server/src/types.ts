@@ -488,6 +488,8 @@ export type ServerToClientEvents = {
   launch_cartridge: (data: { machineId: string; repoPath: string; agentType: AgentType; sessionId: string; context: string }) => void;
   // Server → runner: replace this machine's exposed-folder allowlist (portal-managed).
   machine_set_repos: (data: { machineId: string; repos: MachineRepo[] }) => void;
+  // Server → runner: scan a directory ON that machine and add the git repos under it.
+  machine_scan: (data: { machineId: string; root: string }) => void;
 };
 
 export type ClientToServerEvents = {
