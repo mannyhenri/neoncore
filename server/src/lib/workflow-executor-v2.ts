@@ -14,6 +14,7 @@ import { execFileSync } from 'child_process';
 import { pushNotify } from './push-notify.js';
 import { notifyWorkflowFinished, sendPushToAll } from './expo-push.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
+import { getServerBaseUrl } from './server-url.js';
 
 const POLL_INTERVAL_MS = 12_000;
 
@@ -32,8 +33,8 @@ const POLL_INTERVAL_MS = 12_000;
  * `running` until the agent calls it. Silence is never a completion signal.
  */
 function buildCompletionSuffix(stepId: string): string {
-  const port = process.env.PORT || '4040';
-  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${stepId}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST "\${NEONCORE_URL:-http://localhost:${port}}/api/workflows/webhook/${stepId}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+  const baseUrl = getServerBaseUrl();
+  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${stepId}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
 }
 
 /**
@@ -42,8 +43,8 @@ function buildCompletionSuffix(stepId: string): string {
  * everyone. Their verdicts land in executor_config.panelResults[agentId].
  */
 function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
-  const port = process.env.PORT || '4040';
-  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by running:\ncurl -s -X POST "\${NEONCORE_URL:-http://localhost:${port}}/api/workflows/webhook/${stepId}/panel/${agentId}/complete" -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'\nYou are one member of a panel; the deliberation cannot advance until you submit. Do NOT submit until your work is finished.`;
+  const baseUrl = getServerBaseUrl();
+  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by running:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/panel/${agentId}/complete" -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'\nYou are one member of a panel; the deliberation cannot advance until you submit. Do NOT submit until your work is finished.`;
 }
 
 /**
@@ -333,8 +334,8 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
 
   const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
 
-  const port = process.env.PORT || '4040';
-  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST "\${NEONCORE_URL:-http://localhost:${port}}/api/workflows/webhook/${step.id}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+  const baseUrl = getServerBaseUrl();
+  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${step.id}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
 
   const finalPrompt = context + template.content + webhookSuffix;
 

@@ -9,6 +9,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
+import { getServerBaseUrl } from './server-url.js';
 
 // ---------------------------------------------------------------------------
 // Binary finders
@@ -88,7 +89,7 @@ export function writeVscodeSettings(repoPath: string, agentType: string): void {
     settings['neoncore.agentType'] = agentType;
     if (agentType === 'gridlight') {
       settings['gridlight.neoncore.enabled'] = true;
-      settings['gridlight.neoncore.serverUrl'] = `http://localhost:${process.env.PORT || 4040}`;
+      settings['gridlight.neoncore.serverUrl'] = getServerBaseUrl();
     }
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   } catch { /* best-effort */ }
@@ -103,7 +104,7 @@ export function writeVscodeSettings(repoPath: string, agentType: string): void {
  * Returns an error string on failure, null on success.
  */
 export function openInTerminal(repoPath: string, command: string, sessionId: string, extraEnv: Record<string, string> = {}): string | null {
-  const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+  const neonUrl = getServerBaseUrl();
   const winExtraEnv = Object.entries(extraEnv).map(([k, v]) => `set "${k}=${v}"`);
   const posixExtraEnv = Object.entries(extraEnv).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`);
 
@@ -285,7 +286,7 @@ function buildRelayLaunchCommand(): string {
  * so secrets are never hardcoded here.
  */
 function buildGridlightEnv(sessionId: string): Record<string, string> {
-  const neonUrl = `http://localhost:${process.env.PORT || 4040}`;
+  const neonUrl = getServerBaseUrl();
   const env: Record<string, string> = {
     NEONCORE_AGENT_CMD: process.platform === 'win32' ? 'gridlight.cmd' : 'gridlight',
     NEONCORE_AGENT_TYPE: 'gridlight',
