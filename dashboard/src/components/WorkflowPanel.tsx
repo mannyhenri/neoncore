@@ -643,7 +643,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             onClick={handleDeferredRun}
             disabled={
               !selectedProjectId ||
-              !deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]) ||
+              !(
+                deferredPopup.agentSteps.length === 0 ||
+                (perStepAgents
+                  ? deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])
+                  : !!runAgentId)
+              ) ||
               !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim()) ||
               (wf.name === 'Feature Validation' && !initialContext.trim())
             }
