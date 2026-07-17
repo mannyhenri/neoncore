@@ -24,10 +24,12 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import os from 'os';
+import { getServerBaseUrl } from './lib/server-url.js';
 
 // NEONCORE_URL wins (correct for remote agents pointing at the server's LAN URL);
-// fall back to localhost:PORT for same-machine setups.
-const BASE_URL = process.env.NEONCORE_URL || `http://localhost:${process.env.NEONCORE_PORT || 4040}`;
+// otherwise derive from the machine's network name — for a same-machine setup that
+// resolves to the same host the orchestrator advertises.
+const BASE_URL = getServerBaseUrl();
 const AGENT_TYPE = process.env.NEONCORE_AGENT_TYPE || 'codex';
 
 // ---------------------------------------------------------------------------
