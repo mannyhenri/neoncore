@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
-  ActivityIndicator, RefreshControl, KeyboardAvoidingView, Platform,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -127,10 +127,7 @@ export function WorkflowRunDetailScreen({ run, onBack }: { run: Workflow; onBack
   const done = steps.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.root}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.back} onPress={onBack}>
           <Text style={styles.backText} numberOfLines={1}>‹ Workflows</Text>
@@ -145,6 +142,10 @@ export function WorkflowRunDetailScreen({ run, onBack }: { run: Workflow; onBack
         <ScrollView
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
+          // Keeps the focused steer field above the keyboard: on iOS this adds the keyboard
+          // height as a bottom inset AND scrolls the first responder into view. No-op on
+          // Android, which resizes natively. (Same fix as the workflow launch sheet.)
+          automaticallyAdjustKeyboardInsets
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />
           }
@@ -231,7 +232,7 @@ export function WorkflowRunDetailScreen({ run, onBack }: { run: Workflow; onBack
         </ScrollView>
       )}
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
