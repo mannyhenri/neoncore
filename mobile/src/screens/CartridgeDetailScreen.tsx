@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Clipboard,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { MessageBlocks } from '../components/MessageBlocks';
+import { MessageBlocks, messageToText } from '../components/MessageBlocks';
 import { PermissionCard } from '../components/PermissionCard';
 import { QuestionIcon } from '../components/Icons';
 import type { Agent, AgentMode, TranscriptEvent } from '../types';
@@ -76,6 +76,20 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
     setNotice(msg);
     setTimeout(() => setNotice(''), 2500);
   }, []);
+
+  // Long-press any message to lift its text out of the app — the feed is often where
+  // an agent hands you something (a key, a command, install instructions) that belongs
+  // somewhere else. Uses RN core's Clipboard rather than expo-clipboard on purpose:
+  // a native dep would force a new binary and cost us OTA updatability (see Markdown.tsx).
+  const copyMessage = useCallback(
+    (ev: TranscriptEvent) => {
+      const body = messageToText(ev);
+      if (!body) return; // nothing readable to copy — don't claim we copied
+      Clipboard.setString(body);
+      flash('Copied');
+    },
+    [flash],
+  );
 
   const send = async () => {
     const t = text.trim();
@@ -169,7 +183,11 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
           data={messages}
           keyExtractor={(m) => m.id}
           renderItem={({ item }) => (
-            <TouchableOpacity activeOpacity={0.8} onPress={() => toggleExpanded(item.id)}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => toggleExpanded(item.id)}
+              onLongPress={() => copyMessage(item)}
+            >
               <MessageBlocks ev={item} expanded={expanded.has(item.id)} />
             </TouchableOpacity>
           )}
