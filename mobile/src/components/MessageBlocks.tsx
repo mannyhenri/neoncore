@@ -101,10 +101,49 @@ export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; e
         }
       })}
       {clampable && (
-        <Text style={styles.expandHint}>{expanded ? 'tap to collapse' : 'tap to see full message'}</Text>
+        <Text style={styles.expandHint}>
+          {expanded ? 'tap to collapse' : 'tap to see full message'} · hold to copy
+        </Text>
       )}
     </View>
   );
+}
+
+/**
+ * Flatten an event to the text a human would want on their clipboard.
+ *
+ * Prose wins when there is any: an assistant turn that says something *and* calls a
+ * tool should copy the sentence, not the tool's JSON envelope. Only when a message is
+ * nothing but tool traffic do the tool bodies become the payload — otherwise
+ * long-pressing a bare tool_result would copy an empty string.
+ */
+export function messageToText(ev: TranscriptEvent): string {
+  const blocks = parseBlocks(ev.content);
+
+  const prose = blocks
+    .filter((b) => b.type === 'text' || b.type === 'thinking')
+    .map((b) =>
+      (b as { thinking?: string; text?: string }).thinking ||
+      (b as { text?: string }).text ||
+      '',
+    )
+    .filter(Boolean);
+  if (prose.length) return prose.join('\n\n');
+
+  return blocks
+    .map((b) => {
+      if (b.type === 'tool_use') {
+        const name = (b as { name?: string }).name || 'tool';
+        return `${name}\n${safeJson((b as { input?: unknown }).input)}`;
+      }
+      if (b.type === 'tool_result') {
+        const c = (b as { content?: unknown }).content;
+        return typeof c === 'string' ? c : safeJson(c);
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function safeJson(v: unknown): string {
