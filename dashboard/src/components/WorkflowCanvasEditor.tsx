@@ -3240,7 +3240,7 @@ function SidePanel({
                 spins up a git worktree the step works in so parallel steps don't collide. */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Engine</label>
+                <label className="block text-xs text-gray-500 mb-1">Tool</label>
                 <select
                   value={(step.executorConfig.agentType as string) || ''}
                   onChange={(e) =>
@@ -3251,7 +3251,7 @@ function SidePanel({
                   disabled={isExecuting}
                   className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
                 >
-                  <option value="">Inherit (run cartridge)</option>
+                  <option value="">Default (project's tool)</option>
                   <option value="claude">Claude</option>
                   <option value="codex">Codex</option>
                   <option value="gridlight">Gridlight</option>
