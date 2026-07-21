@@ -15,7 +15,7 @@
  */
 
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -62,8 +62,40 @@ if (!hooksPresent && existsSync(installScript)) {
   }
 }
 
-// 3. Launch the relay in the user's current directory.
+// 2b. Register the NeonCore MCP server for THIS repo so Claude agents get the
+// coordination + confer tools (neoncore_message_agent / neoncore_read_agent). MCP
+// connects at session start, so it must be wired BEFORE the agent spawns. Idempotent:
+// merges our entry and leaves any others. Best-effort — never blocks launch.
 const launchType = process.env.NEONCORE_AGENT_TYPE || 'claude';
+if (launchType === 'claude') {
+  try {
+    const mcpServerJs = [
+      path.join(repoRoot, 'server', 'dist', 'mcp-server.js'),
+      path.resolve(relayDir, '..', 'server', 'dist', 'mcp-server.js'),
+    ].find((p) => existsSync(p));
+    if (mcpServerJs) {
+      const mcpPath = path.join(process.cwd(), '.mcp.json');
+      let cfg = {};
+      try { if (existsSync(mcpPath)) cfg = JSON.parse(readFileSync(mcpPath, 'utf-8')); } catch { cfg = {}; }
+      if (!cfg || typeof cfg !== 'object') cfg = {};
+      cfg.mcpServers = cfg.mcpServers || {};
+      cfg.mcpServers.neoncore = {
+        command: 'node',
+        args: [mcpServerJs],
+        env: {
+          NEONCORE_URL: process.env.NEONCORE_URL || 'http://localhost:4040',
+          NEONCORE_AGENT_TYPE: 'claude',
+        },
+      };
+      writeFileSync(mcpPath, JSON.stringify(cfg, null, 2) + '\n');
+      log('Registered NeonCore MCP server for this repo (confer + coordination tools).');
+    } else {
+      log('NeonCore MCP server build not found — run `npm run build` in server/ to enable confer tools.');
+    }
+  } catch { /* best-effort — never block launch */ }
+}
+
+// 3. Launch the relay in the user's current directory.
 log(`Launching NeonCore relay (${launchType})...`);
 const extraArgs = process.argv.slice(2);
 const child = spawn(process.execPath, [path.join(relayDir, 'index.js'), ...extraArgs], {
