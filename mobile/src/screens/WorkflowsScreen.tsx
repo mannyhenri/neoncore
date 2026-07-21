@@ -54,6 +54,10 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   // Standard (cartridge) steps are the only ones a cartridge/engine applies to; gates,
   // connectors and decisions aren't dispatched to an agent.
   const agentSteps = steps.filter((s) => s.executorType === 'claude-code' || !s.executorType);
+  // The chosen "RUN ON" cartridge fixes the PROJECT. The tools you can assign per step
+  // are the live cartridges of any engine in that SAME project (repo).
+  const runAgent = liveAgents.find((a) => a.id === agentId);
+  const projectTools = runAgent ? liveAgents.filter((a) => a.repoName === runAgent.repoName) : [];
 
   // Pull the chosen template's steps so the launch sheet can reflect its per-step engines.
   useEffect(() => {
@@ -199,31 +203,29 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
             </View>
           )}
           <Text style={styles.hint}>
-            {agentSteps.some((s) => s.executorConfig?.agentType)
-              ? 'Steps run here, except ones pinned to an engine below.'
+            {projectTools.length >= 2
+              ? 'Runs on this tool by default — set a different tool per step below.'
               : 'Every step of the workflow runs on this cartridge.'}
           </Text>
 
-          {/* Per-step engines: a template authored with an engine pin (e.g. step 2 = Codex)
-              fans out automatically at launch; you can also override any step's cartridge. */}
-          {agentSteps.length > 1 && (
+          {/* Tool per step: the project is fixed by RUN ON above; pick which TOOL runs each
+              step. Only shown when the project has 2+ live tools (e.g. Claude + Codex). */}
+          {agentId && projectTools.length >= 2 && agentSteps.length > 0 && (
             <>
               <TouchableOpacity style={styles.perStepToggle} onPress={() => setPerStep((v) => !v)}>
-                <Text style={styles.label}>ASSIGN PER STEP</Text>
+                <Text style={styles.label}>TOOL PER STEP</Text>
                 <Text style={styles.perStepChevron}>{perStep ? '▾' : '▸'}</Text>
               </TouchableOpacity>
               {perStep && (
                 <View style={styles.stepList}>
                   {agentSteps.map((s) => {
                     const pinned = (s.executorConfig?.agentType as string) || '';
-                    const branch = (s.executorConfig?.branch as string) || '';
                     const chosen = overrides[s.id] || '';
                     return (
                       <View key={s.id} style={styles.stepRow}>
                         <View style={styles.stepHead}>
                           <Text style={styles.stepName} numberOfLines={1}>{s.name}</Text>
                           {pinned ? <Text style={styles.engineBadge}>{pinned}</Text> : null}
-                          {branch ? <Text style={styles.branchBadge}>⑂ {branch}</Text> : null}
                         </View>
                         <View style={styles.agentWrap}>
                           <TouchableOpacity
@@ -231,10 +233,10 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
                             onPress={() => setOverrides((p) => { const n = { ...p }; delete n[s.id]; return n; })}
                           >
                             <Text style={[styles.agentChipText, !chosen && styles.agentChipTextOn]} numberOfLines={1}>
-                              {pinned ? `auto · ${pinned}` : 'run cartridge'}
+                              {pinned ? `default · ${pinned}` : 'default'}
                             </Text>
                           </TouchableOpacity>
-                          {liveAgents.map((a) => {
+                          {projectTools.map((a) => {
                             const on = chosen === a.id;
                             return (
                               <TouchableOpacity
@@ -243,7 +245,7 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
                                 onPress={() => setOverrides((p) => ({ ...p, [s.id]: a.id }))}
                               >
                                 <Text style={[styles.agentChipText, on && styles.agentChipTextOn]} numberOfLines={1}>
-                                  {a.agentType} · {a.repoName || a.name}
+                                  {a.agentType}
                                 </Text>
                               </TouchableOpacity>
                             );
