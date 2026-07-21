@@ -15,6 +15,7 @@ import { pushNotify } from './push-notify.js';
 import { notifyWorkflowFinished, sendPushToAll } from './expo-push.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 import { getServerBaseUrl } from './server-url.js';
+import { createWorktree } from './worktree.js';
 
 const POLL_INTERVAL_MS = 12_000;
 
@@ -58,7 +59,18 @@ function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
  * Returns false if delivery failed (the step has already been marked failed).
  */
 function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, includeMemory: boolean): boolean {
-  const command = sendCommandToAgent(agentId, text, includeMemory);
+  // Branch-per-step: if a worktree was created for this step, tell the agent to work
+  // there so parallel steps on one repo don't clobber each other's files.
+  const wt = step.executorConfig?._worktreePath;
+  const branch = step.executorConfig?.branch;
+  const finalText = typeof wt === 'string' && wt
+    ? `A dedicated git worktree was created for this step at:\n  ${wt}\n`
+      + `Run \`cd "${wt}"\` first and make ALL changes there`
+      + (typeof branch === 'string' && branch ? ` (branch \`${branch}\`)` : '')
+      + `.\n\n${text}`
+    : text;
+
+  const command = sendCommandToAgent(agentId, finalText, includeMemory);
 
   if (!command || command.delivered === false) {
     const reason = !command
@@ -1125,6 +1137,32 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * If a step declares a `branch` in its config, create a git worktree on the target
+ * agent's repo and remember its path (config._worktreePath). dispatchStepCommand then
+ * tells the agent to `cd` there — so "step A → Claude, step B → Codex, each on its own
+ * branch" produces isolated, independently-mergeable work. Idempotent (createWorktree
+ * reuses an existing dir), so looped/re-run steps don't refail. Failure is logged, not
+ * fatal — the step still runs in the main checkout.
+ */
+function ensureStepWorktree(step: WorkflowStep): void {
+  const cfg = step.executorConfig || {};
+  const branch = typeof cfg.branch === 'string' ? cfg.branch.trim() : '';
+  if (!branch || cfg._worktreePath) return;
+  const agent = db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(step.executorId) as { repo_path: string } | undefined;
+  if (!agent?.repo_path) return;
+  try {
+    const { path: wtPath } = createWorktree(agent.repo_path, branch);
+    cfg._worktreePath = wtPath;
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(cfg), step.id);
+    step.executorConfig = cfg;
+    emitStepLog(step.workflowId, step.id, step.name, `Worktree ready: ${wtPath} (branch ${branch})`, 'info');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    emitStepLog(step.workflowId, step.id, step.name, `Worktree create failed for branch ${branch}: ${msg}`, 'error');
+  }
+}
+
 async function executeStep(step: WorkflowStep): Promise<void> {
   const now = new Date().toISOString();
   db.prepare('UPDATE workflow_steps SET status = ?, started_at = ? WHERE id = ?')
@@ -1158,6 +1196,7 @@ async function executeStep(step: WorkflowStep): Promise<void> {
           `Step "${step.name}" has no cartridge assigned. Pick one when you start the workflow.`,
         );
       }
+      ensureStepWorktree(step);
       await executeStandardStep(step);
     }
   } catch (err) {

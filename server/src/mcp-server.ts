@@ -15,6 +15,8 @@
  *   neoncore_claim_task         — atomically claim a queued task
  *   neoncore_report_task_done   — complete a claimed task with a result
  *   neoncore_list_agents        — see sibling agents for coordination
+ *   neoncore_message_agent      — send a message into another agent's session (confer/hand off)
+ *   neoncore_read_agent         — read another agent's recent transcript
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -181,13 +183,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'neoncore_list_agents',
       description:
-        'List the other agents currently known to NeonCore (machine, repo, status). Use for coordination — e.g. to avoid duplicating work another agent is already doing.',
+        'List the other agents currently known to NeonCore (id, machine, repo, status). Use for coordination — e.g. to avoid duplicating work another agent is already doing, or to get a target id for neoncore_message_agent / neoncore_read_agent.',
       inputSchema: {
         type: 'object',
         properties: {
           sessionId: { type: 'string', description: 'Session identifier from neoncore_register' },
         },
         required: ['sessionId'],
+      },
+    },
+    {
+      name: 'neoncore_message_agent',
+      description:
+        "Send a message directly into another agent's session (target id from neoncore_list_agents). The text is injected as if typed to that agent. This is the core primitive for two agents conferring on one job: hand off work, share a finding, or ask a peer to review/critique your solution.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          targetAgentId: { type: 'string', description: 'Id of the agent to message (from neoncore_list_agents)' },
+          message: { type: 'string', description: "The message/instruction to deliver into that agent's session" },
+        },
+        required: ['targetAgentId', 'message'],
+      },
+    },
+    {
+      name: 'neoncore_read_agent',
+      description:
+        "Read another agent's recent transcript (target id from neoncore_list_agents) — their prompts, tool calls, and messages. Use to see what a peer agent has done before responding, critiquing, or synthesizing a shared final solution.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          targetAgentId: { type: 'string', description: 'Id of the agent whose transcript to read' },
+          limit: { type: 'number', description: 'Max recent messages to return (default 20, max 100)' },
+        },
+        required: ['targetAgentId'],
       },
     },
   ],
@@ -379,6 +407,55 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       log(`list_agents failed: ${err}`);
       return text(`Could not list agents: ${err}.`);
+    }
+  }
+
+  if (name === 'neoncore_message_agent') {
+    const { targetAgentId, message } = args as Record<string, string>;
+    if (!targetAgentId || !message) return text('targetAgentId and message are required.');
+    try {
+      const cmd = await post('/api/commands/send', {
+        agentId: targetAgentId,
+        text: message,
+        includeMemory: false,
+      }) as Record<string, unknown>;
+      if (cmd && cmd.delivered === false) {
+        return text(`Message queued but NOT delivered to ${targetAgentId} — no live command channel (is that cartridge running?).`);
+      }
+      return text(`Message delivered to agent ${targetAgentId}.`);
+    } catch (err) {
+      log(`message_agent failed: ${err}`);
+      return text(`Could not message agent ${targetAgentId}: ${err}`);
+    }
+  }
+
+  if (name === 'neoncore_read_agent') {
+    const { targetAgentId, limit } = args as Record<string, unknown>;
+    if (!targetAgentId || typeof targetAgentId !== 'string') return text('targetAgentId is required.');
+    const n = typeof limit === 'number' && limit > 0 ? Math.min(limit, 100) : 20;
+    try {
+      const msgs = await get(`/api/agents/${targetAgentId}/messages?limit=${n}`) as Array<Record<string, unknown>>;
+      if (!Array.isArray(msgs) || msgs.length === 0) return text(`Agent ${targetAgentId} has no transcript yet.`);
+      const lines = msgs.map((m) => {
+        const role = String(m.role || '');
+        let body = '';
+        try {
+          const blocks = JSON.parse(String(m.content || '[]')) as Array<Record<string, unknown>>;
+          body = blocks.map((b) => {
+            if (b.type === 'text' || b.type === 'thinking') return String(b.text || '');
+            if (b.type === 'tool_use') return `[tool: ${b.name}]`;
+            if (b.type === 'tool_result') return '[tool result]';
+            return '';
+          }).filter(Boolean).join(' ');
+        } catch {
+          body = String(m.content || '');
+        }
+        return `${role}: ${body.slice(0, 500)}`;
+      });
+      return text(`Recent transcript of ${targetAgentId} (${msgs.length} msg):\n${lines.join('\n')}`);
+    } catch (err) {
+      log(`read_agent failed: ${err}`);
+      return text(`Could not read agent ${targetAgentId}: ${err}`);
     }
   }
 

@@ -62,6 +62,22 @@ export function resolveAgentId(opts: {
 }
 
 /**
+ * A live cartridge of a given engine (`agentType`) in `repoPath`, if one is
+ * connected. Prefers non-offline and most-recently-seen. Used to resolve a
+ * workflow step's declared engine (executor_config.agentType) to a concrete
+ * cartridge at launch — so a template can say "this step runs on codex" and the
+ * matching Codex cartridge in the repo is picked automatically.
+ */
+export function agentIdForRepoAndType(repoPath: string, agentType: string): string | undefined {
+  const norm = normalizeRepoPath(repoPath);
+  if (!norm) return undefined;
+  const rows = db
+    .prepare("SELECT id, repo_path FROM agents WHERE agent_type = ? ORDER BY (status != 'offline') DESC, last_seen DESC")
+    .all(agentType) as { id: string; repo_path: string }[];
+  return rows.find((a) => normalizeRepoPath(a.repo_path) === norm)?.id;
+}
+
+/**
  * Projects an agent "serves" — those whose primary_repo matches the agent's
  * repo_path (cross-platform normalized). This is the join used to hard-pin a
  * task to the cartridge an agent is working in: a task scoped to project P is
