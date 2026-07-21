@@ -1,93 +1,11 @@
 #!/usr/bin/env bash
-# NeonCore Activity Reporter Hook — OpenAI Codex CLI variant
-# Fires on PostToolUse — reports completed tool actions to the orchestrator.
+# NeonCore Reporter Hook — OpenAI Codex CLI variant (shell wrapper).
+# Fires on PostToolUse, Stop, and UserPromptSubmit. Delegates to codex-reporter.py
+# so the activity + transcript logic lives in one place. Requires python3 (already
+# a hard dependency of the hooks). Always exits 0.
 #
-# Setup in ~/.codex/hooks.json or {project}/.codex/hooks.json:
-#   "PostToolUse": [
-#     {
-#       "matcher": ".*",
-#       "hooks": [{ "type": "command", "command": "/path/to/neoncore/agent/hooks/codex-reporter.sh" }]
-#     }
-#   ]
-#
-# Always exits 0 — never blocks Codex.
+# Wired by the dashboard "install hooks" flow into ~/.codex/hooks.json, with the
+# codex_hooks feature flag enabled in ~/.codex/config.toml.
 
-ORCHESTRATOR_URL="${NEONCORE_URL:-http://localhost:4040}"
-
-INPUT=$(cat)
-
-post_with_retry() {
-  local url="$1"
-  local body="$2"
-  for i in 1 2 3; do
-    if curl -sf -X POST "$url" -H "Content-Type: application/json" -d "$body" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
-}
-
-PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
-import sys, json, os, subprocess, hashlib
-
-d = json.load(sys.stdin)
-session_id    = d.get('session_id', '')
-tool_name     = d.get('tool_name', '')
-tool_input    = d.get('tool_input', {})
-tool_response = d.get('tool_response', {})
-cwd           = d.get('cwd', '')
-hook_event    = d.get('hook_event_name', 'PostToolUse')
-machine       = os.uname().nodename
-
-# Resolve git root
-try:
-    git_root = subprocess.check_output(
-        ['git', 'rev-parse', '--show-toplevel'],
-        cwd=cwd, stderr=subprocess.DEVNULL
-    ).decode().strip()
-    cwd = git_root
-    repo_name = os.path.basename(git_root)
-except Exception:
-    repo_name = os.path.basename(cwd) if cwd else ''
-
-# Truncate large results
-result_str = json.dumps(tool_response) if isinstance(tool_response, dict) else str(tool_response)
-if len(result_str) > 8000:
-    tool_response = {'result': result_str[:8000] + '...truncated'}
-
-register = json.dumps({
-    'sessionId': session_id,
-    'machine': machine,
-    'repoPath': cwd,
-    'repoName': repo_name,
-    'agentType': 'codex',
-})
-
-activity = json.dumps({
-    'sessionId': session_id,
-    'machine': machine,
-    'repoPath': cwd,
-    'eventType': hook_event,
-    'toolName': tool_name,
-    'toolInput': tool_input,
-    'toolResult': tool_response,
-    'agentType': 'codex',
-})
-
-print(register)
-print(activity)
-" 2>/dev/null)
-
-REGISTER_BODY=$(printf '%s\n' "$PARSED" | sed -n '1p')
-ACTIVITY_BODY=$(printf '%s\n' "$PARSED" | sed -n '2p')
-
-if [ -n "$REGISTER_BODY" ]; then
-  post_with_retry "$ORCHESTRATOR_URL/api/agents/register" "$REGISTER_BODY" &
-fi
-
-if [ -n "$ACTIVITY_BODY" ]; then
-  post_with_retry "$ORCHESTRATOR_URL/api/activity" "$ACTIVITY_BODY"
-fi
-
-exit 0
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec /usr/bin/env python3 "$DIR/codex-reporter.py"

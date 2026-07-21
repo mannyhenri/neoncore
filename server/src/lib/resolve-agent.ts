@@ -20,24 +20,35 @@ export function normalizeRepoPath(p: string): string {
  * Resolve an agent id from any of the identifiers hooks/extensions send.
  * Order: explicit agentId → machine + repoPath (cross-platform normalized) → sessionId.
  * Returns undefined when no agent matches.
+ *
+ * `agentType` disambiguates when several engines run in the SAME repo on the same
+ * machine (e.g. a Claude cartridge and a Codex cartridge side by side): register
+ * gives each engine its own row, so a machine+repo match alone is ambiguous and
+ * would otherwise attach, say, a Codex transcript to the Claude agent. When
+ * omitted, resolution is unchanged (first repo match wins) — so existing
+ * single-engine callers keep their exact behavior.
  */
 export function resolveAgentId(opts: {
   agentId?: string;
   machine?: string;
   repoPath?: string;
   sessionId?: string;
+  agentType?: string;
 }): string | undefined {
-  const { agentId, machine, repoPath, sessionId } = opts;
+  const { agentId, machine, repoPath, sessionId, agentType } = opts;
 
   if (agentId) return agentId;
 
   if (machine && repoPath) {
     const normalizedIncoming = normalizeRepoPath(repoPath);
     const candidates = db
-      .prepare('SELECT id, repo_path FROM agents WHERE machine = ?')
-      .all(machine) as { id: string; repo_path: string }[];
-    const match = candidates.find((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
-    if (match) return match.id;
+      .prepare('SELECT id, repo_path, agent_type FROM agents WHERE machine = ?')
+      .all(machine) as { id: string; repo_path: string; agent_type: string }[];
+    const sameRepo = candidates.filter((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
+    if (sameRepo.length) {
+      const typed = agentType ? sameRepo.find((a) => a.agent_type === agentType) : undefined;
+      return (typed || sameRepo[0]).id;
+    }
   }
 
   if (sessionId) {

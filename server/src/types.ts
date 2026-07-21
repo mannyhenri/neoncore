@@ -36,7 +36,7 @@ export interface Activity {
   timestamp: string;
 }
 
-export type TranscriptEngine = 'claude' | 'gridlight';
+export type TranscriptEngine = 'claude' | 'gridlight' | 'codex';
 export type TranscriptRole = 'user' | 'assistant' | 'tool_result' | 'system';
 
 // A single parsed transcript entry. `content` is a JSON string of content blocks:
