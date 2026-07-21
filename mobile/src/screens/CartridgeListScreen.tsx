@@ -141,6 +141,7 @@ function CartridgeCard({ agent, onPress }: { agent: Agent; onPress: () => void }
         <Text style={styles.repo} numberOfLines={1}>
           {agent.repoName || agent.name || 'agent'}
         </Text>
+        <Text style={styles.toolTag}>{agent.agentType}</Text>
         <View style={[styles.statusPill, { borderColor: color }]}>
           <View style={[styles.dot, { backgroundColor: color }]} />
           <Text style={[styles.statusText, { color }]}>{statusLabel[agent.status as AgentStatus] ?? agent.status}</Text>
@@ -209,6 +210,11 @@ const styles = StyleSheet.create({
   },
   cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   repo: { color: theme.text, fontSize: 16, fontWeight: '700', flex: 1, marginRight: 8 },
+  toolTag: {
+    color: theme.accentSoft, fontSize: 11, fontWeight: '700', textTransform: 'uppercase',
+    letterSpacing: 0.5, backgroundColor: theme.bgElevated, borderRadius: 6,
+    paddingHorizontal: 6, paddingVertical: 2, marginRight: 8, overflow: 'hidden',
+  },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   meta: { color: theme.textFaint, fontSize: 12, marginTop: 6 },
