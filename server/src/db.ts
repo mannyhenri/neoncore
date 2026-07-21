@@ -789,7 +789,7 @@ if (orphanNotes.length > 0) {
 function seedDefaultTemplates() {
   // Always replace the 5 standard templates by name so schema changes take effect.
   // User-created templates with other names are left untouched.
-  const standardNames = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'];
+  const standardNames = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery', 'Multi-Engine Build'];
   for (const name of standardNames) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {
@@ -1873,7 +1873,24 @@ function seedDefaultTemplates() {
     step(wfId, p7s5, '[P7] ✓ Sprint Complete',        'All 7 phases done. Feature live, learnings captured.',                300, 6825, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — COMPLETE 🎯', message: 'All 7 phases done. Feature live, compound doc written, CLAUDE.md updated, retro done.' }, [p7s4]);
   }
 
-  console.log('[db] Seeded 20 default workflow templates');
+  // ── Multi-Engine Build (Claude plans → Codex implements → Claude reviews) ────
+  // Demonstrates per-step engine pinning: each step's executor_config.agentType is
+  // resolved to a LIVE cartridge of that engine in the repo at launch. Needs a live
+  // Claude AND Codex cartridge; a step whose engine isn't running falls back to the
+  // run cartridge (with a warning). Sequential (shared working tree) — no worktrees.
+  {
+    const wfId = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'Multi-Engine Build',
+      'Fan one feature across engines: Claude plans → Codex implements → Claude reviews → verify → notify. Launch with a Claude AND a Codex cartridge live in the repo.', now);
+    step(wfId, s1, 'Plan (Claude)',     'Design the implementation: file paths, interfaces, approach. No code yet.', 300,  50, 'claude-code', cc('architect', { agentType: 'claude' }), []);
+    step(wfId, s2, 'Implement (Codex)', 'Build the feature following the plan from the previous step.',              300, 225, 'claude-code', cc('backend',   { agentType: 'codex'  }), [s1]);
+    step(wfId, s3, 'Review (Claude)',   'Review the implementation for bugs, edge cases, and plan adherence.',       300, 400, 'claude-code', cc('reviewer',  { agentType: 'claude' }), [s2]);
+    step(wfId, s4, 'Verify',            'Full lint + security + review gate on the changes.',                       300, 575, 'quality-gate', gate('full-review'), [s3]);
+    step(wfId, s5, 'Notify',            'System notification: Multi-Engine Build complete.',                        300, 750, 'connector', { connectorType: 'system-notify', title: 'Multi-Engine Build — COMPLETE', message: 'Claude planned, Codex implemented, Claude reviewed, gate passed.' }, [s4]);
+  }
+
+  console.log('[db] Seeded 21 default workflow templates');
 }
 
 seedDefaultTemplates();
