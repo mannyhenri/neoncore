@@ -3255,7 +3255,6 @@ function SidePanel({
                   <option value="claude">Claude</option>
                   <option value="codex">Codex</option>
                   <option value="gridlight">Gridlight</option>
-                  <option value="gemini">Gemini</option>
                 </select>
               </div>
               <div>
