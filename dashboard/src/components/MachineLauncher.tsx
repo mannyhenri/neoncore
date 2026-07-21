@@ -7,7 +7,6 @@ import type { Machine } from '../types';
 const AGENT_TYPES: { key: string; label: string; color: string }[] = [
   { key: 'claude', label: 'Claude', color: 'text-blue-400 hover:text-blue-300' },
   { key: 'gridlight', label: 'Gridlight', color: 'text-gl-purple hover:text-purple-300' },
-  { key: 'gemini', label: 'Gemini', color: 'text-teal-400 hover:text-teal-300' },
   { key: 'codex', label: 'Codex', color: 'text-green-400 hover:text-green-300' },
 ];
 

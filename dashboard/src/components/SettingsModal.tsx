@@ -8,7 +8,7 @@ interface Props {
   onClose: () => void;
 }
 
-const TOOL_ORDER = ['claude', 'gemini', 'amazonq', 'codex', 'cursor'] as const;
+const TOOL_ORDER = ['claude', 'amazonq', 'codex', 'cursor'] as const;
 
 const TOOL_META: Record<string, { color: string; badge: string }> = {
   claude:  { color: 'blue',   badge: 'Claude CC' },

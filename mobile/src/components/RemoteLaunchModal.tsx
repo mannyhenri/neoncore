@@ -8,7 +8,7 @@ import { useNeonCore } from '../NeonCoreProvider';
 import type { Machine } from '../types';
 
 // Agent types the runner can launch (it spawns the relay, which defaults to claude).
-const AGENT_TYPES = ['claude', 'gridlight', 'gemini', 'codex'];
+const AGENT_TYPES = ['claude', 'gridlight', 'codex'];
 const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
 
 /**

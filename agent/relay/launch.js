@@ -67,7 +67,9 @@ if (!hooksPresent && existsSync(installScript)) {
 // connects at session start, so it must be wired BEFORE the agent spawns. Idempotent:
 // merges our entry and leaves any others. Best-effort — never blocks launch.
 const launchType = process.env.NEONCORE_AGENT_TYPE || 'claude';
-if (launchType === 'claude') {
+// Claude and Gridlight both read a project-scoped .mcp.json (Gridlight is the
+// Claude-analog CLI). Codex/Gemini use their own global config, so skip them here.
+if (launchType === 'claude' || launchType === 'gridlight') {
   try {
     const mcpServerJs = [
       path.join(repoRoot, 'server', 'dist', 'mcp-server.js'),
@@ -84,11 +86,11 @@ if (launchType === 'claude') {
         args: [mcpServerJs],
         env: {
           NEONCORE_URL: process.env.NEONCORE_URL || 'http://localhost:4040',
-          NEONCORE_AGENT_TYPE: 'claude',
+          NEONCORE_AGENT_TYPE: launchType,
         },
       };
       writeFileSync(mcpPath, JSON.stringify(cfg, null, 2) + '\n');
-      log('Registered NeonCore MCP server for this repo (confer + coordination tools).');
+      log(`Registered NeonCore MCP server for this repo (${launchType} — confer + coordination tools).`);
     } else {
       log('NeonCore MCP server build not found — run `npm run build` in server/ to enable confer tools.');
     }
