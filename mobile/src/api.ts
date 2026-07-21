@@ -64,10 +64,23 @@ export const api = {
   // `agentId` is REQUIRED in practice: template steps ship with executor `__deferred__`
   // ("ask at launch"). Without it those steps have no cartridge and the run used to hang
   // silently at step 1 forever. The server now fills every unassigned step with this one.
-  startWorkflow: (base: string, id: string, agentId: string, initialContext?: string) =>
+  // `agentOverrides` ({ stepId -> agentId }) pins specific steps to specific cartridges —
+  // the fan-out escape hatch (step 1 -> Claude, step 2 -> Codex). It wins over the run-level
+  // `agentId`, which still fills every step left unassigned.
+  startWorkflow: (
+    base: string,
+    id: string,
+    agentId: string,
+    initialContext?: string,
+    agentOverrides?: Record<string, string>,
+  ) =>
     req<{ id?: string }>(base, `/api/workflows/v2/${id}/start`, {
       method: 'POST',
-      body: JSON.stringify({ agentId, ...(initialContext ? { initialContext } : {}) }),
+      body: JSON.stringify({
+        agentId,
+        ...(initialContext ? { initialContext } : {}),
+        ...(agentOverrides && Object.keys(agentOverrides).length > 0 ? { agentOverrides } : {}),
+      }),
     }),
 
   // ─── V2 (canvas) workflow runs ───────────────────────────────
