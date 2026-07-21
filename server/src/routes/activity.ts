@@ -19,15 +19,18 @@ function normalizeRepoPath(p: string): string {
 
 // Log an activity event (called by hooks)
 router.post('/', (req, res) => {
-  const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult } = req.body;
+  const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult, agentType } = req.body;
 
-  // Resolve agent by ID, machine+repoPath (with cross-platform normalization), or sessionId
+  // Resolve agent by ID, machine+repoPath (with cross-platform normalization), or sessionId.
+  // agentType disambiguates when two engines share a repo (Claude + Codex): otherwise
+  // Codex activity would land on the Claude cartridge.
   let resolvedAgentId = agentId;
   if (!resolvedAgentId && machine && repoPath) {
     const normalizedIncoming = normalizeRepoPath(repoPath);
-    const candidates = db.prepare('SELECT id, repo_path FROM agents WHERE machine = ?').all(machine) as { id: string; repo_path: string }[];
-    const match = candidates.find((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
-    resolvedAgentId = match?.id;
+    const candidates = db.prepare('SELECT id, repo_path, agent_type FROM agents WHERE machine = ?').all(machine) as { id: string; repo_path: string; agent_type: string }[];
+    const sameRepo = candidates.filter((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
+    const typed = agentType ? sameRepo.find((a) => a.agent_type === agentType) : undefined;
+    resolvedAgentId = (typed || sameRepo[0])?.id;
   }
   if (!resolvedAgentId && sessionId) {
     const agent = db.prepare('SELECT id FROM agents WHERE session_id = ?').get(sessionId) as { id: string } | undefined;

@@ -373,11 +373,14 @@ router.post('/transcript', (req, res) => {
     }>;
   };
 
-  const agentId = resolveAgentId({ sessionId, machine, repoPath });
+  // `engine` doubles as the agentType hint so a Codex transcript resolves to the
+  // Codex cartridge, not a Claude one sharing the same repo.
+  const agentId = resolveAgentId({ sessionId, machine, repoPath, agentType: engine });
   if (!agentId) return res.status(404).json({ error: 'Agent not found' });
   if (!Array.isArray(events) || events.length === 0) return res.json({ inserted: 0 });
 
-  const resolvedEngine: TranscriptEngine = engine === 'gridlight' ? 'gridlight' : 'claude';
+  const resolvedEngine: TranscriptEngine =
+    engine === 'gridlight' ? 'gridlight' : engine === 'codex' ? 'codex' : 'claude';
   const now = new Date().toISOString();
 
   const insertMessage = db.prepare(`

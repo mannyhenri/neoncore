@@ -362,6 +362,11 @@ router.post('/install/:tool', (req, res) => {
         hooks: {
           PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: proxy }] }],
           PostToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: reporter }] }],
+          // Stop carries the turn's final assistant message; UserPromptSubmit
+          // carries what you typed. Both feed the transcript so the mobile feed
+          // shows prose, not just tool calls.
+          Stop: [{ matcher: '.*', hooks: [{ type: 'command', command: reporter }] }],
+          UserPromptSubmit: [{ matcher: '.*', hooks: [{ type: 'command', command: reporter }] }],
         },
       });
 
