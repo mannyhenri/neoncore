@@ -55,7 +55,12 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           They get the same task + each other's ids, and confer via the neoncore message/read tools to converge on one solution.
         </p>
 
-        <label className="block text-xs text-gray-500 mb-1.5">Cartridges (pick 2+)</label>
+        <label className="block text-xs text-gray-500 mb-1.5">
+          Cartridges (pick 2+) ·{' '}
+          <span className={selected.length >= 2 ? 'text-emerald-400' : 'text-amber-400'}>
+            {selected.length} selected
+          </span>
+        </label>
         {live.length < 2 ? (
           <p className="text-xs text-amber-400 mb-3">Need at least two live cartridges — start another agent first.</p>
         ) : (

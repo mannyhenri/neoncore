@@ -62,7 +62,9 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
           </Text>
 
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-            <Text style={styles.label}>CARTRIDGES (pick 2+)</Text>
+            <Text style={styles.label}>
+              CARTRIDGES (pick 2+) · <Text style={{ color: selected.length >= 2 ? theme.accentSoft : theme.amber }}>{selected.length} selected</Text>
+            </Text>
             {live.length < 2 ? (
               <Text style={styles.warn}>Need at least two live cartridges — start another agent first.</Text>
             ) : (
