@@ -323,6 +323,17 @@ export function openDirectory(dirPath: string, agentType: string): string | null
     return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, buildGridlightEnv(sessionId));
   }
 
+  // Codex CLI (OpenAI) in a plain terminal via the same relay. The relay spawns
+  // `codex` (derived from NEONCORE_AGENT_TYPE) and registers it as a codex agent,
+  // so its transcript flows through codex-reporter.py into the feed.
+  if (agentType === 'codex-terminal' || agentType === 'codex-cli') {
+    const sessionId = `neoncore-codex-${Date.now()}`;
+    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, {
+      NEONCORE_AGENT_CMD: process.platform === 'win32' ? 'codex.cmd' : 'codex',
+      NEONCORE_AGENT_TYPE: 'codex',
+    });
+  }
+
   // CLI tools
   if (agentType in CLI_COMMANDS) {
     const sessionId = `neoncore-${agentType}-${Date.now()}`;

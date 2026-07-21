@@ -116,7 +116,8 @@ const LAUNCH_OPTIONS: { type: string; label: string }[] = [
   { type: 'claude',    label: 'Claude · VS Code' },
   { type: 'gridlight', label: 'Gridlight' },
   { type: 'gemini',   label: 'Gemini CLI' },
-  { type: 'codex',    label: 'Codex' },
+  { type: 'codex-terminal', label: 'Codex · Terminal' },
+  { type: 'codex',    label: 'Codex · VS Code' },
   { type: 'amazonq',  label: 'Amazon Q' },
 ];
 

@@ -62,7 +62,13 @@ const { default: pty } = await import('node-pty');
 // ── Config ────────────────────────────────────────────────────────────────
 const URL = process.env.NEONCORE_URL || 'http://localhost:4040';
 const AGENT_TYPE = process.env.NEONCORE_AGENT_TYPE || 'claude';
-const AGENT_CMD = process.env.NEONCORE_AGENT_CMD || (process.platform === 'win32' ? 'claude.cmd' : 'claude');
+// When the exact binary isn't pinned via NEONCORE_AGENT_CMD, derive it from the
+// agent type. The relay-launched engines (claude, codex, gridlight) each name
+// their CLI after the type, so a `codex` launch spawns `codex` — not claude.
+// Without this, any non-claude type whose launcher forgot to set AGENT_CMD (e.g.
+// the runner, which only sets AGENT_TYPE) would silently fall back to `claude`.
+const AGENT_CMD = process.env.NEONCORE_AGENT_CMD
+  || (process.platform === 'win32' ? `${AGENT_TYPE}.cmd` : AGENT_TYPE);
 // Everything after a literal `--` is forwarded to the agent CLI.
 const dashIdx = process.argv.indexOf('--');
 const AGENT_ARGS = dashIdx >= 0 ? process.argv.slice(dashIdx + 1) : [];
