@@ -343,6 +343,9 @@ router.post('/install/:tool', (req, res) => {
         hooks: {
           BeforeTool: [{ matcher: '.*', hooks: [{ name: 'neoncore-proxy', type: 'command', command: proxy }] }],
           AfterTool:  [{ matcher: '.*', hooks: [{ name: 'neoncore-reporter', type: 'command', command: reporter }] }],
+          // AfterAgent carries the turn's prompt + prompt_response, so the feed
+          // shows prose (and turn-complete), not just tool calls.
+          AfterAgent: [{ matcher: '.*', hooks: [{ name: 'neoncore-reporter', type: 'command', command: reporter }] }],
         },
       });
 

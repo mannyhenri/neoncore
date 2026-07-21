@@ -379,8 +379,10 @@ router.post('/transcript', (req, res) => {
   if (!agentId) return res.status(404).json({ error: 'Agent not found' });
   if (!Array.isArray(events) || events.length === 0) return res.json({ inserted: 0 });
 
-  const resolvedEngine: TranscriptEngine =
-    engine === 'gridlight' ? 'gridlight' : engine === 'codex' ? 'codex' : 'claude';
+  const KNOWN_ENGINES: TranscriptEngine[] = ['gridlight', 'codex', 'gemini'];
+  const resolvedEngine: TranscriptEngine = KNOWN_ENGINES.includes(engine as TranscriptEngine)
+    ? (engine as TranscriptEngine)
+    : 'claude';
   const now = new Date().toISOString();
 
   const insertMessage = db.prepare(`
@@ -467,7 +469,9 @@ router.post('/transcript', (req, res) => {
 
   // A completed turn (Stop hook) gets a dedicated signal carrying turn usage —
   // this is what workflow step-gating / cost meters subscribe to.
-  if (inserted > 0 && triggeredBy === 'Stop') {
+  // Each engine signals turn-end differently: Claude/Codex fire `Stop`, Gemini
+  // fires `AfterAgent`. All mean "a turn just finished" for cost/step-gating.
+  if (inserted > 0 && (triggeredBy === 'Stop' || triggeredBy === 'AfterAgent')) {
     io.emit('turn_complete', { agentId, sessionId: sessionId || '', engine: resolvedEngine, usage: turnUsage });
   }
 
