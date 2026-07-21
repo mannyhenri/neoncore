@@ -94,6 +94,11 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               multiline
             />
 
+            {(selected.length < 2 || !task.trim()) ? (
+              <Text style={styles.needHint}>
+                {selected.length < 2 ? 'Select at least 2 cartridges' : 'Enter a task'} to enable Start.
+              </Text>
+            ) : null}
             <TouchableOpacity
               style={[styles.runBtn, (sending || selected.length < 2 || !task.trim()) && styles.runBtnOff]}
               onPress={start}
@@ -172,6 +177,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   runBtnOff: { opacity: 0.4 },
+  needHint: { color: theme.textFaint, fontSize: 12, marginTop: 14, textAlign: 'center' },
   runBtnText: { color: '#0d0f12', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingTop: 8 },
 });
