@@ -125,7 +125,7 @@ node -e "const d=require('better-sqlite3')('./neoncore.db',{readonly:true});cons
 
 ## 5. MCP coordination server
 
-The MCP server is `server/dist/mcp-server.js` (stdio). It exposes 8 tools.
+The MCP server is `server/dist/mcp-server.js` (stdio). It exposes 10 tools.
 
 ### 5a. Smoke test (lists + round-trips tools)
 Run from `server/` (so it resolves the SDK from `node_modules`):
@@ -145,7 +145,7 @@ await c.close(); process.exit(0);
 EOF
 node ./_mcp_smoke.mjs; rm -f ./_mcp_smoke.mjs
 ```
-**Expect:** 8 tools listed — `neoncore_register`, `neoncore_report`, `neoncore_request_permission`, `neoncore_report_step_done`, `neoncore_my_queue`, `neoncore_claim_task`, `neoncore_report_task_done`, `neoncore_list_agents` — and a "Agents known to NeonCore (N)" line.
+**Expect:** 10 tools listed — `neoncore_register`, `neoncore_report`, `neoncore_request_permission`, `neoncore_report_step_done`, `neoncore_my_queue`, `neoncore_claim_task`, `neoncore_report_task_done`, `neoncore_list_agents`, `neoncore_message_agent`, `neoncore_read_agent` — and a "Agents known to NeonCore (N)" line.
 
 ### 5b. In Claude Code
 ```bash
@@ -242,7 +242,7 @@ rm -f "$(python3 -c 'import tempfile;print(tempfile.gettempdir())')"/neoncore-ts
 | Transcript ingest | `inserted:N` then `inserted:0` on replay |
 | Token tracking | `session_usage` has non-zero token sums |
 | Stop hook | settings `Stop` → `reporter.sh` |
-| MCP tools | 8 tools listed via smoke client |
+| MCP tools | 10 tools listed via smoke client (incl. message_agent, read_agent) |
 | Task claim | claim #1 = 200, claim #2 = **409** |
 | Task ownership | non-owner complete = **403** |
 | Task UI | live create/update without refresh |
