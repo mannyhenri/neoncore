@@ -7,7 +7,7 @@ import {
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import type { Workflow } from '../types';
+import type { Workflow, WorkflowStep } from '../types';
 import { PlayIcon } from '../components/Icons';
 
 /** Colors for a run's lifecycle. Templates themselves are always 'pending'. */
@@ -45,6 +45,25 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   // Which cartridge the workflow runs on. Template steps ship as `__deferred__` ("ask at
   // launch"), so without this every mobile-launched run hung silently at step 1.
   const [agentId, setAgentId] = useState('');
+  // The template's steps, loaded when the launch sheet opens, so we can show per-step
+  // engine pins (executor_config.agentType) and let the user override a step's cartridge.
+  const [steps, setSteps] = useState<WorkflowStep[]>([]);
+  const [perStep, setPerStep] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+
+  // Standard (cartridge) steps are the only ones a cartridge/engine applies to; gates,
+  // connectors and decisions aren't dispatched to an agent.
+  const agentSteps = steps.filter((s) => s.executorType === 'claude-code' || !s.executorType);
+
+  // Pull the chosen template's steps so the launch sheet can reflect its per-step engines.
+  useEffect(() => {
+    if (!selected) { setSteps([]); setPerStep(false); setOverrides({}); return; }
+    let active = true;
+    api.getWorkflowV2(baseUrl, selected.id)
+      .then((r) => { if (active) setSteps(r.steps || []); })
+      .catch(() => { if (active) setSteps([]); });
+    return () => { active = false; };
+  }, [selected, baseUrl]);
 
   const load = useCallback(async () => {
     const [t, r] = await Promise.all([
@@ -97,11 +116,14 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
     }
     setStarting(true);
     try {
-      await api.startWorkflow(baseUrl, selected.id, agentId, context.trim() || undefined);
+      const activeOverrides = perStep ? overrides : {};
+      await api.startWorkflow(baseUrl, selected.id, agentId, context.trim() || undefined, activeOverrides);
       flash(`Started "${selected.name}"`);
       setSelected(null);
       setContext('');
       setAgentId('');
+      setPerStep(false);
+      setOverrides({});
       await load();
     } catch (e) {
       flash(`Start failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -176,7 +198,64 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
               })}
             </View>
           )}
-          <Text style={styles.hint}>Every step of the workflow runs on this cartridge.</Text>
+          <Text style={styles.hint}>
+            {agentSteps.some((s) => s.executorConfig?.agentType)
+              ? 'Steps run here, except ones pinned to an engine below.'
+              : 'Every step of the workflow runs on this cartridge.'}
+          </Text>
+
+          {/* Per-step engines: a template authored with an engine pin (e.g. step 2 = Codex)
+              fans out automatically at launch; you can also override any step's cartridge. */}
+          {agentSteps.length > 1 && (
+            <>
+              <TouchableOpacity style={styles.perStepToggle} onPress={() => setPerStep((v) => !v)}>
+                <Text style={styles.label}>ASSIGN PER STEP</Text>
+                <Text style={styles.perStepChevron}>{perStep ? '▾' : '▸'}</Text>
+              </TouchableOpacity>
+              {perStep && (
+                <View style={styles.stepList}>
+                  {agentSteps.map((s) => {
+                    const pinned = (s.executorConfig?.agentType as string) || '';
+                    const branch = (s.executorConfig?.branch as string) || '';
+                    const chosen = overrides[s.id] || '';
+                    return (
+                      <View key={s.id} style={styles.stepRow}>
+                        <View style={styles.stepHead}>
+                          <Text style={styles.stepName} numberOfLines={1}>{s.name}</Text>
+                          {pinned ? <Text style={styles.engineBadge}>{pinned}</Text> : null}
+                          {branch ? <Text style={styles.branchBadge}>⑂ {branch}</Text> : null}
+                        </View>
+                        <View style={styles.agentWrap}>
+                          <TouchableOpacity
+                            style={[styles.agentChip, !chosen && styles.agentChipOn]}
+                            onPress={() => setOverrides((p) => { const n = { ...p }; delete n[s.id]; return n; })}
+                          >
+                            <Text style={[styles.agentChipText, !chosen && styles.agentChipTextOn]} numberOfLines={1}>
+                              {pinned ? `auto · ${pinned}` : 'run cartridge'}
+                            </Text>
+                          </TouchableOpacity>
+                          {liveAgents.map((a) => {
+                            const on = chosen === a.id;
+                            return (
+                              <TouchableOpacity
+                                key={a.id}
+                                style={[styles.agentChip, on && styles.agentChipOn]}
+                                onPress={() => setOverrides((p) => ({ ...p, [s.id]: a.id }))}
+                              >
+                                <Text style={[styles.agentChipText, on && styles.agentChipTextOn]} numberOfLines={1}>
+                                  {a.agentType} · {a.repoName || a.name}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </>
+          )}
 
           <Text style={styles.label}>BRIEF (optional)</Text>
           <TextInput
@@ -324,6 +403,21 @@ const styles = StyleSheet.create({
   agentChipText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
   agentChipTextOn: { color: theme.accentSoft },
   noAgents: { color: theme.amber, fontSize: 13, marginBottom: 4 },
+  perStepToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
+  perStepChevron: { color: theme.textDim, fontSize: 14, fontWeight: '700' },
+  stepList: { gap: 12, marginTop: 8 },
+  stepRow: {
+    padding: 10, borderRadius: 12, backgroundColor: theme.bgCard,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  stepHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  stepName: { color: theme.text, fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  engineBadge: {
+    color: theme.accentSoft, fontSize: 11, fontWeight: '700', textTransform: 'uppercase',
+    letterSpacing: 0.5, backgroundColor: theme.bgElevated, borderRadius: 6,
+    paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
+  },
+  branchBadge: { color: theme.teal, fontSize: 11, fontWeight: '600' },
   runBtnOff: { opacity: 0.4 },
   root: { flex: 1, backgroundColor: theme.bg },
   // Top-level tab screen: big title, matching the Cartridges list.
