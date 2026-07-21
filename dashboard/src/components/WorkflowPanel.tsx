@@ -588,7 +588,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   >
                     <option value="">Select cartridge...</option>
                     {onlineAgents.map((a) => (
-                      <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                      <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
                     ))}
                   </select>
                   <p className="text-[11px] text-gray-600">
@@ -607,7 +607,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                     >
                       <option value="">Select cartridge...</option>
                       {onlineAgents.map((a) => (
-                        <option key={a.id} value={a.id}>{a.repoName || a.name}</option>
+                        <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
                       ))}
                     </select>
                   </div>

@@ -195,7 +195,7 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
                     onPress={() => setAgentId(a.id)}
                   >
                     <Text style={[styles.agentChipText, on && styles.agentChipTextOn]} numberOfLines={1}>
-                      {a.repoName || a.name}
+                      {a.repoName || a.name} · {a.agentType}
                     </Text>
                   </TouchableOpacity>
                 );
