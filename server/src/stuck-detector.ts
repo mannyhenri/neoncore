@@ -1,6 +1,6 @@
 import db from './db.js';
 import { getIO } from './ws.js';
-import { pushNotify, getCartridgeNtfyUrl } from './lib/push-notify.js';
+import { sendPushToAll } from './lib/expo-push.js';
 
 export interface StuckAlert {
   agentId: string;
@@ -112,10 +112,10 @@ export function startStuckDetector() {
           const agentRow = db.prepare('SELECT repo_name, name, repo_path FROM agents WHERE id = ?')
             .get(id) as { repo_name: string; name: string; repo_path: string } | undefined;
           const label = agentRow?.repo_name || agentRow?.name || id;
-          const ntfyUrl = agentRow?.repo_path ? getCartridgeNtfyUrl(agentRow.repo_path) : undefined;
-          pushNotify(`${label} — Agent Stuck`, alert.pattern, ntfyUrl ?? undefined).catch((err) => {
-            console.warn(`[stuck] pushNotify failed for agent ${id}:`, err);
-          });
+          sendPushToAll(`${label} — Agent Stuck`, alert.pattern, {
+            type: 'agent_stuck',
+            agentId: id,
+          }).catch(() => {});
         }
       } else if (activeAlerts.has(id)) {
         // Agent unstuck — clear alert

@@ -4,18 +4,16 @@
  * Polls running V2 workflows and executes steps based on dependency resolution.
  * Steps at the same level run in parallel; sequential steps wait for dependencies.
  * Every step dispatches a natural language command to a Claude Code agent.
- * The agent handles MCP tool selection natively via its own MCP server config.
  */
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
-import { execFileSync } from 'child_process';
-import { pushNotify } from './push-notify.js';
 import { notifyWorkflowFinished, sendPushToAll } from './expo-push.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
+import { recordJournal } from './workflow-journal.js';
 
 const POLL_INTERVAL_MS = 12_000;
 
@@ -35,7 +33,7 @@ const POLL_INTERVAL_MS = 12_000;
  */
 function buildCompletionSuffix(stepId: string): string {
   const baseUrl = getServerBaseUrl();
-  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion. Preferred: call the \`neoncore_report_step_done\` tool with step_id="${stepId}" and a \`result\` summarizing what you did and what the next step should focus on.\nIf that tool is not available, instead run:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
 }
 
 /**
@@ -200,6 +198,13 @@ function emitStepLog(
   message: string,
   type: StepLogType = 'info',
 ) {
+  recordJournal({
+    workflowId,
+    stepId,
+    stepName,
+    eventType: type,
+    message,
+  });
   getIO().emit('workflow_step_log', {
     workflowId, stepId, stepName, message, type,
     timestamp: new Date().toISOString(),
@@ -210,6 +215,51 @@ function getAgentName(agentId: string): string {
   const row = db.prepare('SELECT repo_name, name FROM agents WHERE id = ?')
     .get(agentId) as { repo_name: string; name: string } | undefined;
   return row?.repo_name || row?.name || agentId.slice(0, 8);
+}
+
+function getWorkflowNotificationContext(workflowId: string): {
+  workflowName: string;
+  workflowLabel: string;
+  projects: string[];
+} {
+  const wfRow = db.prepare('SELECT name, run_number FROM workflows WHERE id = ?')
+    .get(workflowId) as { name: string; run_number: number } | undefined;
+  const workflowName = wfRow?.name || workflowId.slice(0, 8);
+  const workflowLabel = `${workflowName}${wfRow?.run_number ? ` #${wfRow.run_number}` : ''}`;
+  const assignedAgents = db.prepare(
+    `SELECT DISTINCT COALESCE(a.repo_name, a.name) AS label
+     FROM workflow_steps ws
+     JOIN agents a ON a.id = ws.executor_id
+     WHERE ws.workflow_id = ? AND ws.executor_id != '' AND ws.executor_id != '__deferred__'`
+  ).all(workflowId) as { label: string }[];
+  return {
+    workflowName,
+    workflowLabel,
+    projects: assignedAgents.map((row) => row.label).filter(Boolean),
+  };
+}
+
+function notifyManualAdvanceNeeded(step: WorkflowStep): void {
+  const { workflowName, workflowLabel, projects } = getWorkflowNotificationContext(step.workflowId);
+  const title = `${workflowLabel} — Ready to advance`;
+  const body = `"${step.name}" completed and is waiting for you.`;
+  const timestamp = new Date().toISOString();
+
+  getIO().emit('workflow_notification' as any, {
+    id: crypto.randomUUID(),
+    workflowId: step.workflowId,
+    workflowName,
+    title,
+    body,
+    projects,
+    timestamp,
+  });
+
+  sendPushToAll(title, body, {
+    type: 'workflow_manual_advance',
+    workflowId: step.workflowId,
+    stepId: step.id,
+  }).catch(() => {});
 }
 
 /** Compose a structured intent into a formatted prompt */
@@ -305,9 +355,8 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   };
   const formatSuffix = outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[outputSchema] || '') : '';
 
-  // Always append completion instructions so the agent signals when done. The MCP tool is
-  // primary (works for agents on other machines); the curl webhook is a same-machine
-  // fallback. There is no idle-detection backstop any more — see buildCompletionSuffix.
+  // Always append completion instructions so the agent signals when done. There is no
+  // idle-detection backstop any more — see buildCompletionSuffix.
   const webhookSuffix = buildCompletionSuffix(step.id);
 
   const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
@@ -998,28 +1047,6 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       const title = substituteVars((config.title as string) || defaultTitle, vars);
       const body = substituteVars((config.message as string) || '{{workflowName}} completed.', vars);
 
-      // OS notification
-      try {
-        if (process.platform === 'darwin') {
-          execFileSync('osascript', [
-            '-e',
-            `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`,
-          ], { timeout: 5000 });
-        } else if (process.platform === 'linux') {
-          execFileSync('notify-send', [title, body], { timeout: 5000 });
-        } else if (process.platform === 'win32') {
-          const ps = [
-            `[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null`,
-            `$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)`,
-            `$template.SelectSingleNode('//text[@id=1]').InnerText = ${JSON.stringify(title)}`,
-            `$template.SelectSingleNode('//text[@id=2]').InnerText = ${JSON.stringify(body)}`,
-            `$toast = [Windows.UI.Notifications.ToastNotification]::new($template)`,
-            `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('NeonCore').Show($toast)`,
-          ].join('; ');
-          execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 10000 });
-        }
-      } catch { /* notification failure is non-fatal */ }
-
       // In-app bell notification
       getIO().emit('workflow_notification' as any, {
         id: crypto.randomUUID(),
@@ -1031,12 +1058,11 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         timestamp: new Date().toISOString(),
       });
 
-      // Phone push (ntfy)
-      await pushNotify(title, body).then(() => {
-        console.log(`[workflow] Push sent: "${title}"`);
-      }).catch((err) => {
-        console.warn('[workflow] pushNotify failed:', err instanceof Error ? err.message : err);
-      });
+      await sendPushToAll(title, body, {
+        type: 'workflow_connector_notification',
+        workflowId: step.workflowId,
+        stepId: step.id,
+      }).catch(() => {});
       break;
     }
 
@@ -1277,6 +1303,7 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
     emitStepLog(workflowId, step.id, step.name, 'Completed', 'success');
   } else {
     emitStepLog(workflowId, step.id, step.name, 'Step completed — waiting for manual advance before continuing', 'warn');
+    notifyManualAdvanceNeeded(step);
   }
   console.log(`[workflow-v2] Step "${step.name}" completed (agent reported)`);
   return true;

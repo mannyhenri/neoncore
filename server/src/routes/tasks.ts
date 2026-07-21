@@ -62,12 +62,10 @@ function autoDispatchTarget(projectId: string | null): string | undefined {
  * Returns the updated task, or null if the agent could not be reached.
  */
 function dispatchTaskToAgent(task: Task, agentId: string): Task | null {
-  // Report-back instruction (path C): tell the agent how to close the loop. If the
-  // NeonCore MCP server isn't registered in that terminal the tool won't exist —
-  // the Stop-hook fallback (path B) and the dashboard buttons still complete it.
+  // Report-back instruction: task completion is inferred from the normal stop hook,
+  // and dashboard buttons remain available for manual completion.
   const reportBack =
-    `When you finish, call the neoncore_report_task_done tool with taskId="${task.id}" and a short result ` +
-    `(use status:"failed" with an error if you could not complete it). If that tool isn't available, just finish normally.`;
+    `When you finish, summarize the result clearly. If you could not complete it, say why.`;
   const instructions = task.prompt && task.prompt.trim() ? task.prompt.trim() : task.title;
   const body = `[NeonCore task ${task.id}: ${task.title}]\n\n${instructions}\n\n${reportBack}`;
   const cmd = sendCommandToAgent(agentId, body, true);

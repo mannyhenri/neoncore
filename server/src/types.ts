@@ -111,6 +111,13 @@ export interface Command {
   delivered?: boolean;
 }
 
+export interface CommandAttachmentInput {
+  name: string;
+  mimeType: string;
+  size: number;
+  dataBase64: string;
+}
+
 export interface AgentMemory {
   id: string;
   agentId: string;
@@ -201,7 +208,7 @@ export interface EpicRun {
 export type WorkflowPhase = 'research' | 'coding' | 'review';
 export type WorkflowStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type PlayerRole = 'research' | 'coding' | 'review';
-export type PlayerType = 'vscode-agent' | 'openai' | 'gridlight-gateway';
+export type PlayerType = 'vscode-agent';
 
 export interface WorkflowPlayer {
   id: string;
@@ -262,103 +269,14 @@ export interface Workflow {
   };
 }
 
-// MCP Server types
-export type McpServerStatus = 'stopped' | 'running' | 'error';
-
-export interface McpTool {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
-
-export interface McpServer {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-  isPreconfigured: boolean;
-  status: McpServerStatus;
-  error: string;
-  pid: number | null;
-  capabilities: McpTool[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-// MCP Registry (marketplace)
-export interface McpRegistryEnvField {
-  required: boolean;
-  label: string;
-  placeholder: string;
-}
-
-export interface McpRegistryEntry {
-  slug: string;
-  name: string;
-  description: string;
-  category: string;
-  command: string;
-  args: string[];
-  env: Record<string, McpRegistryEnvField>;
-  homepage: string;
-  tags: string[];
-  featured: boolean;
-}
-
-// Virtual Cartridges
-export interface PinnedTool {
-  serverId: string;
-  toolName: string;
-  label?: string;
-}
-
 export interface VirtualCartridge {
   id: string;
   name: string;
   directoryPath: string;
   iconIndex: number;
   color: string;
-  mcpServerIds: string[];
-  pinnedTools: PinnedTool[];
-  ntfyUrl: string;
   createdAt: string;
   updatedAt: string;
-}
-
-// MCP Macros
-export interface MacroStep {
-  id: string;
-  serverId: string;
-  toolName: string;
-  args: Record<string, string>;
-  label?: string;
-  continueOnError?: boolean;
-}
-
-export interface McpMacro {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  steps: MacroStep[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface McpMacroRun {
-  id: string;
-  macroId: string;
-  cartridgeId: string;
-  status: 'running' | 'completed' | 'failed';
-  currentStep: number;
-  stepResults: { stepId: string; result: unknown; error?: string; completedAt: string }[];
-  inputParams: Record<string, string>;
-  startedAt: string;
-  completedAt: string | null;
-  error: string;
 }
 
 // Command templates
@@ -476,7 +394,6 @@ export type ServerToClientEvents = {
     interruptedAt: string | null;
     recoveryAttempts: number;
   }) => void;
-  mcp_server_updated: (server: McpServer) => void;
   virtual_cartridge_updated: (vc: VirtualCartridge) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
   plan_executed: (data: { agentId: string }) => void;

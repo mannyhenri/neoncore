@@ -8,8 +8,7 @@ import db from '../db.js';
  * out to every registered device via Expo's push service, carrying the workflowId so a tap
  * can deep-link straight into the run.
  *
- * This is distinct from lib/push-notify.ts (ntfy topics) — that path can't target the app
- * or deep-link; this one can.
+ * Mobile-app push is the only external notification path.
  */
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';

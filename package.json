@@ -2,7 +2,7 @@
   "name": "neoncore",
   "version": "0.2.0",
   "private": true,
-  "description": "Atari-themed orchestrator for AI agents, MCP servers, and canvas workflows",
+  "description": "Atari-themed orchestrator for AI agents and canvas workflows",
   "workspaces": [
     "server",
     "dashboard"

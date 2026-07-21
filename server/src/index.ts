@@ -18,7 +18,6 @@ import reposRouter from './routes/repos.js';
 import gitRouter from './routes/git.js';
 import epicsRouter from './routes/epics.js';
 import workflowsRouter from './routes/workflows.js';
-import mcpRouter from './routes/mcp.js';
 import journalRouter from './routes/journal.js';
 import commandTemplatesRouter from './routes/command-templates.js';
 import virtualCartridgesRouter from './routes/virtual-cartridges.js';
@@ -31,10 +30,8 @@ import pushRouter from './routes/push.js';
 import machinesRouter from './routes/machines.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
-import { startWorkflowExecutor } from './lib/workflow-executor.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './lib/heartbeat-scheduler.js';
-import { restoreRunningServers } from './lib/mcp-manager.js';
 import { endSession } from './lib/session-manager.js';
 import { reconcileInterruptedSteps } from './lib/recovery.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
@@ -46,7 +43,7 @@ const server = createServer(app);
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 // Request logging
 app.use((req, _res, next) => {
@@ -69,7 +66,6 @@ app.use('/api/repos', reposRouter);
 app.use('/api/git', gitRouter);
 app.use('/api/epics', epicsRouter);
 app.use('/api/workflows', workflowsRouter);
-app.use('/api/mcp', mcpRouter);
 app.use('/api/journal', journalRouter);
 app.use('/api/command-templates', commandTemplatesRouter);
 app.use('/api/virtual-cartridges', virtualCartridgesRouter);
@@ -250,7 +246,6 @@ process.on('unhandledRejection', (reason) => {
 startStuckDetector();
 startMemoryAnalyzer();
 startCleanupScheduler();
-startWorkflowExecutor();
 startWorkflowExecutorV2();
 startHeartbeatScheduler();
 
@@ -267,9 +262,6 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
 // (Most take effect once the sweep marks their dead agents offline; this call
 // catches any agent already persisted as offline.)
 try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] startup reconcile failed:', err); }
-
-// Restore MCP servers that were running before restart
-restoreRunningServers().catch((err) => console.error('[mcp] Restore failed:', err));
 
 // Get local IP for display
 import os from 'os';

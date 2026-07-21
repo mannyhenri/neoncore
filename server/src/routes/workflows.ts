@@ -5,9 +5,9 @@ import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
-import { generateWorkflow } from '../lib/workflow-generator.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
+import { recordJournal } from '../lib/workflow-journal.js';
 
 const router = Router();
 
@@ -39,11 +39,6 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
 function emitWorkflowUpdate(id: string) {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   if (row) getIO().emit('workflow_updated', normalizeWorkflow(row));
-}
-
-function getSetting(key: string): string | null {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
-  return row?.value ?? null;
 }
 
 function buildStepSummary(workflowId: string): Record<string, unknown> | null {
@@ -93,6 +88,12 @@ router.post('/start', (req, res) => {
     if (!p.playerType || !Array.isArray(p.roles) || p.roles.length === 0) {
       return res.status(400).json({ error: 'Each player needs playerType and at least one role' });
     }
+    if (p.playerType === 'openai' || p.playerType === 'gridlight-gateway') {
+      return res.status(400).json({ error: 'API model players have been removed. Use a connected cartridge instead.' });
+    }
+    if (p.playerType !== 'vscode-agent') {
+      return res.status(400).json({ error: `Unsupported player type: ${p.playerType}` });
+    }
 
     const player: WorkflowPlayer = {
       id: p.agentId || uuid(),
@@ -114,18 +115,6 @@ router.post('/start', (req, res) => {
       if (agent.status === 'offline') return res.status(400).json({ error: `Agent ${player.agentId} is offline` });
 
       if (player.roles.includes('coding')) hasVsCodeCoder = true;
-    }
-
-    // Validate API model config
-    if (player.playerType === 'openai') {
-      if (!getSetting('openai_api_key')) {
-        return res.status(400).json({ error: 'OpenAI API key not configured. Set it in Settings.' });
-      }
-      if (!player.modelId) return res.status(400).json({ error: 'OpenAI players need a modelId' });
-    }
-
-    if (player.playerType === 'gridlight-gateway') {
-      if (!player.modelId) return res.status(400).json({ error: 'GridLight players need a modelId' });
     }
 
     validatedPlayers.push(player);
@@ -251,18 +240,6 @@ router.put('/:id/project', (req, res) => {
   const { projectId } = req.body;
   db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId || null, req.params.id);
   res.status(204).send();
-});
-
-// List available API models
-router.get('/models', (_req, res) => {
-  const openaiKey = getSetting('openai_api_key');
-  const openaiModels = getSetting('openai_models') || 'gpt-4.1,gpt-4.1-mini';
-  const gridlightModels = getSetting('gridlight_models') || '';
-
-  res.json({
-    openai: openaiKey ? openaiModels.split(',').map((m) => m.trim()).filter(Boolean) : [],
-    gridlight: gridlightModels ? gridlightModels.split(',').map((m) => m.trim()).filter(Boolean) : [],
-  });
 });
 
 // ─── V2 Canvas Workflow Routes ───────────────────────────────
@@ -540,84 +517,6 @@ router.post('/v2/:id/steps/:stepId/steer', (req, res) => {
   if (!command) return res.status(404).json({ error: 'Agent not found or offline' });
 
   res.json({ ok: true, commandId: command.id });
-});
-
-// Generate a workflow from a natural language description using an LLM
-router.post('/v2/generate', async (req, res) => {
-  const { description } = req.body;
-  if (!description || !String(description).trim()) {
-    return res.status(400).json({ error: 'description is required' });
-  }
-
-  const gridlightUrl = getSetting('gridlight_gateway_url');
-  const gridlightModels = getSetting('gridlight_models');
-  const anthropicKey = getSetting('anthropic_api_key');
-  const openaiKey = getSetting('openai_api_key');
-
-  // Pick first available model from the gridlight_models comma-separated list
-  const gridlightModel = gridlightModels?.split(',').map((m) => m.trim()).find(Boolean);
-
-  if (!gridlightUrl && !anthropicKey && !openaiKey) {
-    return res.status(400).json({
-      error: 'No AI provider configured — add a Gridlight gateway URL, Anthropic key, or OpenAI key in Settings',
-    });
-  }
-
-  try {
-    // Priority: Gridlight → Anthropic → OpenAI
-    let generated;
-    if (gridlightUrl && gridlightModel) {
-      generated = await generateWorkflow(description.trim(), { provider: 'gridlight', gatewayUrl: gridlightUrl, model: gridlightModel });
-    } else if (anthropicKey) {
-      generated = await generateWorkflow(description.trim(), { provider: 'anthropic', apiKey: anthropicKey });
-    } else {
-      generated = await generateWorkflow(description.trim(), { provider: 'openai', apiKey: openaiKey! });
-    }
-
-    const now = new Date().toISOString();
-    const workflowId = uuid();
-
-    db.prepare(`
-      INSERT INTO workflows (id, name, description, status, target_repos, created_at, started_at)
-      VALUES (?, ?, ?, 'pending', '[]', ?, '')
-    `).run(workflowId, generated.name, generated.description, now);
-
-    // Pre-generate all step IDs so dependsOn indices can be resolved to UUIDs
-    const stepIds = generated.steps.map(() => uuid());
-
-    const insertStep = db.prepare(`
-      INSERT INTO workflow_steps
-        (id, workflow_id, name, description, position_x, position_y,
-         executor_type, executor_id, executor_config, auto_advance, depends_on, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (let i = 0; i < generated.steps.length; i++) {
-      const s = generated.steps[i];
-      const isAgentStep = s.executorType === 'claude-code' || s.executorType === 'quality-gate';
-      const executorId = isAgentStep ? '__deferred__' : '';
-      const resolvedDeps = s.dependsOn.map((idx) => stepIds[idx]).filter(Boolean);
-      insertStep.run(
-        stepIds[i], workflowId,
-        s.name, s.description,
-        300, 80 + i * 230,          // linear layout: all x=300, y increments with enough gap to see edges
-        s.executorType, executorId,
-        JSON.stringify(s.config),
-        s.autoAdvance ? 1 : 0,
-        JSON.stringify(resolvedDeps),
-        now,
-      );
-    }
-
-    const usedProvider = gridlightUrl && gridlightModel ? 'gridlight' : anthropicKey ? 'anthropic' : 'openai';
-    console.log(`[workflow] Generated "${generated.name}" (${generated.steps.length} steps) via ${usedProvider}`);
-    emitWorkflowUpdate(workflowId);
-    res.status(201).json({ id: workflowId });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[workflow] Generate error:', msg);
-    res.status(500).json({ error: msg });
-  }
 });
 
 // Start V2 workflow
@@ -969,6 +868,13 @@ router.post('/v2/:id/complete', (req, res) => {
     type: 'success',
     timestamp: now,
   });
+  recordJournal({
+    workflowId: req.params.id,
+    stepName: 'Workflow',
+    eventType: 'success',
+    message: 'Workflow force-completed manually',
+    createdAt: now,
+  });
 
   console.log(`[workflow-v2] Workflow ${req.params.id} force-completed`);
   emitWorkflowUpdate(req.params.id);
@@ -999,6 +905,14 @@ router.post('/v2/:id/steps/:stepId/skip', (req, res) => {
     message: 'Step skipped manually',
     type: 'warn',
     timestamp: now,
+  });
+  recordJournal({
+    workflowId: req.params.id,
+    stepId: updated.id,
+    stepName: updated.name,
+    eventType: 'warn',
+    message: 'Step skipped manually',
+    createdAt: now,
   });
 
   res.json(updated);

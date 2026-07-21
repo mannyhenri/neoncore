@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, McpServer } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput } from '../types';
 import { CartridgeCard } from './CartridgeCard';
 import { VirtualCartridgeCard } from './VirtualCartridgeCard';
 
@@ -35,14 +35,13 @@ interface CartridgeGridProps {
   stuckAlerts: StuckAlert[];
   onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
-  onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void;
   onDelete: (agentId: string) => void;
   onDismiss: (agentId: string) => void;
   onRestore: (agentId: string) => void;
   onDismissStuck: (agentId: string) => void;
   onActivityClick?: (activity: Activity) => void;
   virtualCartridges?: VirtualCartridge[];
-  mcpServers?: McpServer[];
   onVirtualCartridgeUpdate?: (vc: VirtualCartridge) => void;
   onVirtualCartridgeDelete?: (id: string) => void;
 }
@@ -70,7 +69,6 @@ export function CartridgeGrid({
   onDismiss,
   onRestore,
   virtualCartridges = [],
-  mcpServers = [],
   onVirtualCartridgeUpdate,
   onVirtualCartridgeDelete,
   onDismissStuck,
@@ -306,7 +304,6 @@ export function CartridgeGrid({
             <VirtualCartridgeCard
               key={vc.id}
               cartridge={vc}
-              mcpServers={mcpServers}
               onUpdate={onVirtualCartridgeUpdate || (() => {})}
               onDelete={onVirtualCartridgeDelete || (() => {})}
             />

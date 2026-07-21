@@ -1,19 +1,39 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
-import type { Command } from '../types.js';
+import type { Command, CommandAttachmentInput } from '../types.js';
 
 const router = Router();
 
 // Send a command to an agent (from dashboard)
 router.post('/send', (req, res) => {
-  const { agentId, text, includeMemory } = req.body;
+  const { agentId, text, includeMemory, attachments } = req.body;
 
   if (!agentId || !text) {
     return res.status(400).json({ error: 'agentId and text required' });
   }
 
-  const command = sendCommandToAgent(agentId, text, includeMemory !== false);
+  if (attachments !== undefined && !Array.isArray(attachments)) {
+    return res.status(400).json({ error: 'attachments must be an array' });
+  }
+  const validAttachments = (attachments || []) as CommandAttachmentInput[];
+  for (const attachment of validAttachments) {
+    if (
+      !attachment ||
+      typeof attachment.name !== 'string' ||
+      typeof attachment.dataBase64 !== 'string' ||
+      typeof attachment.size !== 'number'
+    ) {
+      return res.status(400).json({ error: 'Each attachment needs name, size, and dataBase64' });
+    }
+  }
+
+  let command: Command | null;
+  try {
+    command = sendCommandToAgent(agentId, text, includeMemory !== false, validAttachments);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
   if (!command) return res.status(404).json({ error: 'Agent not found' });
 
   res.status(201).json(command);
