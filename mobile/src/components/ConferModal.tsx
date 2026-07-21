@@ -100,9 +100,9 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               </Text>
             ) : null}
             <TouchableOpacity
-              style={[styles.runBtn, (sending || selected.length < 2 || !task.trim()) && styles.runBtnOff]}
+              style={[styles.runBtn, sending && styles.runBtnOff]}
               onPress={start}
-              disabled={sending || selected.length < 2 || !task.trim()}
+              disabled={sending}
             >
               {sending ? (
                 <ActivityIndicator color="#0d0f12" />

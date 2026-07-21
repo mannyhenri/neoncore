@@ -99,7 +99,7 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-md">Cancel</button>
           <button
             onClick={start}
-            disabled={sending || selected.length < 2 || !task.trim()}
+            disabled={sending}
             className="text-sm font-medium text-emerald-950 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-40 px-4 py-1.5 rounded-md"
           >
             {sending ? 'Starting…' : `Start confer (${selected.length})`}
