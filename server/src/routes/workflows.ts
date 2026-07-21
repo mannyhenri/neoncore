@@ -4,6 +4,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
+import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { generateWorkflow } from '../lib/workflow-generator.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
@@ -786,6 +787,38 @@ router.post('/v2/:id/start', (req, res) => {
       filled++;
     }
     console.log(`[workflow] Run ${runId}: assigned cartridge ${runAgentId} to ${filled} unassigned step(s)`);
+  }
+
+  // Per-step engine pin: a step whose executor_config.agentType names an engine
+  // (e.g. 'codex', 'gridlight') gets the matching LIVE cartridge in the workflow's
+  // repo — this is what lets a template SAVE "step 1 → Claude, step 2 → Codex,
+  // step 3 → Gridlight" instead of naming raw agent ids at launch. Runs after the
+  // generic runAgentId fill (overrides it for pinned steps) and before
+  // agentOverrides (an explicit per-step cartridge still wins).
+  {
+    let workflowRepo = '';
+    if (runAgentId) {
+      const a = db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(runAgentId) as { repo_path: string } | undefined;
+      workflowRepo = a?.repo_path || '';
+    }
+    const engineSteps = db.prepare('SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ?')
+      .all(runId) as { id: string; executor_config: string }[];
+    for (const s of engineSteps) {
+      const config = JSON.parse(s.executor_config || '{}') as Record<string, unknown>;
+      const wantType = typeof config.agentType === 'string' ? config.agentType : '';
+      if (!wantType) continue;
+      if (!workflowRepo) {
+        console.warn(`[workflow] step ${s.id}: agentType='${wantType}' but no repo to resolve against — launch with a cartridge.`);
+        continue;
+      }
+      const resolved = agentIdForRepoAndType(workflowRepo, wantType);
+      if (resolved) {
+        db.prepare('UPDATE workflow_steps SET executor_id = ? WHERE id = ?').run(resolved, s.id);
+        console.log(`[workflow] step ${s.id}: pinned to ${wantType} cartridge ${resolved}`);
+      } else {
+        console.warn(`[workflow] step ${s.id}: no live ${wantType} cartridge in ${workflowRepo} — start one, or override at launch.`);
+      }
+    }
   }
 
   // Apply deferred agent overrides to the run's steps (per-step; wins over agentId above)

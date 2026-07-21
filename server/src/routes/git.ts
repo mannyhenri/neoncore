@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import db from '../db.js';
+import { createWorktree } from '../lib/worktree.js';
 
 const router = Router();
 
@@ -59,22 +60,9 @@ router.post('/:agentId/worktrees', (req, res) => {
   const { branch, path: worktreePath } = req.body;
   if (!branch || typeof branch !== 'string') return res.status(400).json({ error: 'branch required' });
 
-  const repoName = path.basename(repoPath);
-  const sanitizedBranch = branch.replace(/[^a-zA-Z0-9._-]/g, '-');
-  const targetPath = worktreePath || path.join(path.dirname(repoPath), `${repoName}-${sanitizedBranch}`);
-
   try {
-    // Try existing branch first, fall back to creating new branch
-    try {
-      execSync(`git worktree add "${targetPath}" "${branch}"`, {
-        cwd: repoPath, timeout: 30000, encoding: 'utf-8',
-      });
-    } catch {
-      execSync(`git worktree add -b "${branch}" "${targetPath}"`, {
-        cwd: repoPath, timeout: 30000, encoding: 'utf-8',
-      });
-    }
-    res.status(201).json({ ok: true, path: targetPath, branch });
+    const result = createWorktree(repoPath, branch, worktreePath);
+    res.status(201).json({ ok: true, ...result });
   } catch {
     res.status(500).json({ error: 'Failed to create worktree' });
   }
