@@ -9,7 +9,11 @@ import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from 
  * Shared command dispatch — used by the commands route.
  * Handles memory injection, activity logging, and socket emission.
  */
-const CLI_AGENT_TYPES = new Set(['gemini', 'amazonq', 'codex']);
+// Agents launched as a bare CLI in a terminal with NO relay socket — the only way to
+// reach them is typing into the frontmost terminal. Codex is deliberately NOT here: it
+// runs inside the relay PTY (same as Claude), so it takes the reliable, addressed socket
+// path below and only falls back to terminal-typing when no relay socket is connected.
+const CLI_AGENT_TYPES = new Set(['gemini', 'amazonq']);
 
 /**
  * Type a command directly into the frontmost terminal via AppleScript (macOS only).
@@ -195,11 +199,12 @@ export function sendCommandToAgent(agentId: string, text: string, includeMemory 
       console.log(`[cmd] No primary socket — falling back to room ${agentRoom} (${agentRoomSize} socket(s))`);
       getIO().to(agentRoom).emit('command_send', command);
       command.delivered = true;
-    } else if (agentCheck.agent_type === 'claude' && typeIntoTerminal(finalText)) {
-      // No relay/extension socket for this claude agent — it's in a bare terminal. Fall back
-      // to typing into the FRONTMOST terminal. NB: this is unaddressed — it cannot target a
-      // specific window, so it lands wherever focus happens to be.
-      console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for claude: ${finalText.slice(0, 80)}`);
+    } else if ((agentCheck.agent_type === 'claude' || agentCheck.agent_type === 'codex') && typeIntoTerminal(finalText)) {
+      // No relay/extension socket for this claude/codex agent — it's in a bare terminal with
+      // no relay attached. Fall back to typing into the FRONTMOST terminal. NB: this is
+      // unaddressed — it cannot target a specific window, so it lands wherever focus happens
+      // to be. The socket path above is preferred whenever a relay is connected.
+      console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
       command.delivered = true;
     } else {
       // Nothing is listening. The command row stays 'pending' and will drain if a socket
