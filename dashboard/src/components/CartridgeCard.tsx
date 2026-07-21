@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, CommandAttachmentInput } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
 import { GitPanel } from './GitPanel';
@@ -21,7 +21,7 @@ interface CartridgeCardProps {
   stuckAlert?: StuckAlert;
   onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
-  onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void;
   onDelete: (agentId: string) => void;
   onDismiss: (agentId: string) => void;
   onDismissStuck: (agentId: string) => void;
@@ -51,6 +51,20 @@ function timeAgo(iso: string): string {
 
 function shortMachine(machine: string): string {
   return machine.replace(/\.local$/, '');
+}
+
+// Presentation for each tool (agentType). `label` is the full badge/selector text,
+// `short` the compact form used to tag Live Log lines, `badge` the Tailwind classes.
+type ToolMeta = { label: string; short: string; badge: string };
+function toolMeta(agentType: string): ToolMeta {
+  switch (agentType) {
+    case 'gridlight': return { label: 'Gridlight', short: 'Gridlight', badge: 'bg-pink-900/60 text-pink-300' };
+    case 'gemini':    return { label: 'Gemini CLI', short: 'Gemini', badge: 'bg-teal-900/60 text-teal-300' };
+    case 'amazonq':   return { label: 'Amazon Q', short: 'Amazon Q', badge: 'bg-orange-900/60 text-orange-300' };
+    case 'codex':     return { label: 'Codex CLI', short: 'Codex', badge: 'bg-green-900/60 text-green-300' };
+    case 'cursor':    return { label: 'Cursor', short: 'Cursor', badge: 'bg-violet-900/60 text-violet-300' };
+    default:          return { label: 'Claude CC', short: 'Claude', badge: 'bg-blue-900/60 text-blue-300' };
+  }
 }
 
 /** Truncate a tool input/result to a brief description for the terminal view. */
@@ -435,6 +449,27 @@ export function CartridgeCard({
 
   const status = STATUS_CONFIG[effectiveStatus];
 
+  // The tools available in this cartridge (primary + siblings), Gridlight first — same
+  // order as the badge row. Each is a separate agent with its own agentType.
+  const tools = useMemo(
+    () =>
+      [agent, ...(siblingAgents || [])].sort(
+        (a, b) => (a.agentType === 'gridlight' ? -1 : 1) - (b.agentType === 'gridlight' ? -1 : 1),
+      ),
+    [agent, siblingAgents],
+  );
+  const multiTool = tools.length > 1;
+
+  // Which tool the command input + mode controls target. Defaults to the primary; the user
+  // taps a badge to switch. If the selected tool leaves the group (status change re-picks the
+  // primary, or a sibling goes offline), fall back to the primary so we never target a ghost.
+  const [selectedToolId, setSelectedToolId] = useState(agent.id);
+  useEffect(() => {
+    if (!tools.some((t) => t.id === selectedToolId)) setSelectedToolId(agent.id);
+  }, [tools, selectedToolId, agent.id]);
+  const selectedAgent = tools.find((t) => t.id === selectedToolId) || agent;
+  const selectedMeta = toolMeta(selectedAgent.agentType);
+
   const [frame1, frame2, animSpeed] = useMemo(() => generatePixelSprites(agent.id), [agent.id]);
   const [spriteFrame, setSpriteFrame] = useState(0);
 
@@ -627,31 +662,34 @@ export function CartridgeCard({
             )}
           </div>
 
-          {/* Agent type badges + machine — Gridlight first, then others */}
-          <div className="flex items-center gap-2">
-            {[agent, ...(siblingAgents || [])]
-              .sort((a, b) => (a.agentType === 'gridlight' ? -1 : 1) - (b.agentType === 'gridlight' ? -1 : 1))
-              .map((a) => {
-                const badgeStyle =
-                  a.agentType === 'gridlight' ? 'bg-pink-900/60 text-pink-300' :
-                  a.agentType === 'gemini'    ? 'bg-teal-900/60 text-teal-300' :
-                  a.agentType === 'amazonq'   ? 'bg-orange-900/60 text-orange-300' :
-                  a.agentType === 'codex'     ? 'bg-green-900/60 text-green-300' :
-                  a.agentType === 'cursor'    ? 'bg-violet-900/60 text-violet-300' :
-                                               'bg-blue-900/60 text-blue-300';
-                const badgeLabel =
-                  a.agentType === 'gridlight' ? 'Gridlight' :
-                  a.agentType === 'gemini'    ? 'Gemini CLI' :
-                  a.agentType === 'amazonq'   ? 'Amazon Q' :
-                  a.agentType === 'codex'     ? 'Codex CLI' :
-                  a.agentType === 'cursor'    ? 'Cursor' :
-                                               'Claude CC';
+          {/* Tool badges + machine — Gridlight first, then others. When more than one tool is
+              running in this repo, the badges double as a target selector: tap one to send the
+              command below to just that tool. With a single tool they're plain labels. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {tools.map((a) => {
+              const meta = toolMeta(a.agentType);
+              const isSelected = a.id === selectedToolId;
+              if (!multiTool) {
                 return (
-                  <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${badgeStyle}`}>
-                    {badgeLabel}
+                  <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${meta.badge}`}>
+                    {meta.label}
                   </span>
                 );
-              })}
+              }
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => setSelectedToolId(a.id)}
+                  aria-pressed={isSelected}
+                  title={`Target ${meta.label} with the command below`}
+                  className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide transition-all ${meta.badge} ${
+                    isSelected ? 'ring-2 ring-white/70' : 'opacity-50 hover:opacity-90'
+                  }`}
+                >
+                  {meta.label}
+                </button>
+              );
+            })}
             <span className="text-[13px] text-gray-500 font-mono truncate">
               {shortMachine(agent.machine)}
             </span>
@@ -713,50 +751,51 @@ export function CartridgeCard({
 
         {/* ── Command input ── */}
         <div className="mx-3 mb-2">
+          {multiTool && (
+            <div className="mb-1 text-[11px] text-gray-500 flex items-center gap-1 flex-wrap">
+              <span>Sending to</span>
+              <span className={`px-1 py-0.5 rounded font-medium ${selectedMeta.badge}`}>{selectedMeta.label}</span>
+              <span className="text-gray-600">— tap a tool above to switch</span>
+            </div>
+          )}
           <CommandInput
-            agentId={agent.id}
-            mode={agent.mode}
+            // Keyed on the selected tool so input history is per-tool and the box resets on switch.
+            key={selectedToolId}
+            agentId={selectedToolId}
+            mode={selectedAgent.mode}
             placeholder={effectiveStatus === 'waiting'
               ? 'Answer or instruct...'
               : effectiveStatus === 'offline'
                 ? 'Offline - will queue...'
-                : 'Send prompt or /command...'}
-            onSend={(text) => {
-              const planSuffix = agent.mode === 'plan'
+                : multiTool
+                  ? `Send to ${selectedMeta.label}...`
+                  : 'Send prompt or /command...'}
+            onSend={(text, attachments) => {
+              const planSuffix = selectedAgent.mode === 'plan'
                 ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
                 : '';
-              const finalText = text + planSuffix;
-              onSendCommand(agent.id, finalText);
-              // Also send to active sibling agents (e.g. both Claude and Gridlight for same project)
-              if (siblingAgents?.length) {
-                for (const s of siblingAgents) {
-                  if (s.status !== 'offline') {
-                    setTimeout(() => onSendCommand(s.id, finalText), 5000);
-                  }
-                }
-              }
+              // Targeted send: goes to the selected tool only. No fan-out — pick another tool
+              // via its badge to send there.
+              onSendCommand(selectedToolId, text + planSuffix, true, attachments);
             }}
           />
         </div>
 
 
-        {/* ── Mode selector + Plans toggle ── */}
+        {/* ── Mode selector + Plans toggle — target the selected tool ── */}
         <div className="mx-3 mb-2 flex items-center justify-between gap-2">
-          <AgentModeSelector mode={agent.mode} onSetMode={(mode) => {
-            onSetMode(agent.id, mode);
-            siblingAgents?.forEach((s) => { if (s.status !== 'offline') onSetMode(s.id, mode); });
-          }} />
-          {agent.mode === 'trust' && (
+          <AgentModeSelector mode={selectedAgent.mode} onSetMode={(mode) => onSetMode(selectedToolId, mode)} />
+          {selectedAgent.mode === 'trust' && (
             <button
-              onClick={() => api.setPlansIncluded(agent.id, !agent.plansIncluded)}
-              title={agent.plansIncluded ? 'Plans auto-approved (click to require review)' : 'Plans require review (click to auto-approve)'}
+              onClick={() => api.setPlansIncluded(selectedToolId, !selectedAgent.plansIncluded)}
+              title={selectedAgent.plansIncluded ? 'Plans auto-approved (click to require review)' : 'Plans require review (click to auto-approve)'}
               className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                agent.plansIncluded
+                selectedAgent.plansIncluded
                   ? 'bg-violet-900/60 border-violet-600/60 text-violet-300 hover:bg-violet-800/60'
                   : 'bg-gray-800/60 border-gray-600/40 text-gray-500 hover:bg-gray-700/60'
               }`}
             >
-              <span>{agent.plansIncluded ? '✓' : '○'}</span>
+              <span>{selectedAgent.plansIncluded ? '✓' : '○'}</span>
               <span>Plans</span>
             </button>
           )}
@@ -792,21 +831,31 @@ export function CartridgeCard({
             {activities.length === 0 ? (
               <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
             ) : (
-              activities.map((act) => (
-                <div
-                  key={act.id}
-                  onClick={() => onActivityClick?.(act)}
-                  className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
-                  title={`${act.toolName || act.eventType}: ${act.toolInput || ''}`}
-                >
-                  <span className="text-gray-600 select-none text-[11px]">
-                    {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{' '}
-                  </span>
-                  <span className="text-green-500">{act.toolName || act.eventType}</span>
-                  {' '}
-                  <span className="text-green-400/60">{briefSummary(act)}</span>
-                </div>
-              ))
+              activities.map((act) => {
+                // In a multi-tool cartridge the feed merges every tool's activity, so tag each
+                // line with the tool that produced it (matched by agentId).
+                const lineMeta = multiTool
+                  ? toolMeta((tools.find((t) => t.id === act.agentId) || agent).agentType)
+                  : null;
+                return (
+                  <div
+                    key={act.id}
+                    onClick={() => onActivityClick?.(act)}
+                    className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
+                    title={`${lineMeta ? `[${lineMeta.short}] ` : ''}${act.toolName || act.eventType}: ${act.toolInput || ''}`}
+                  >
+                    <span className="text-gray-600 select-none text-[11px]">
+                      {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{' '}
+                    </span>
+                    {lineMeta && (
+                      <span className={`mr-1 px-1 rounded text-[10px] ${lineMeta.badge}`}>{lineMeta.short}</span>
+                    )}
+                    <span className="text-green-500">{act.toolName || act.eventType}</span>
+                    {' '}
+                    <span className="text-green-400/60">{briefSummary(act)}</span>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
