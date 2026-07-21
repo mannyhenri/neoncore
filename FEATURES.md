@@ -83,6 +83,12 @@ Each agent runs in one of three modes (per-cartridge selector):
   parallel), and run. Step types include agent steps (`claude-code`), **decision/deliberation**,
   **quality-gate / review-gate** with typed outputs (e.g. Test Results, Code Review), and
   **connector** steps.
+- **Per-step tool** — pick the **project** once at launch; each step runs on that project's tool by
+  default, or you can set which **tool** (Claude / Codex / Gridlight) runs each step (in the step
+  editor's *Tool* field, or the launch sheet's per-step picker). At launch a pinned tool resolves
+  to a live cartridge of that engine in the project; if it isn't running, the step falls back to the
+  run cartridge. Optional **per-step branch** spins up a git worktree so parallel steps don't
+  collide.
 - **AI Workflow Generator** — describe a workflow in a sentence and generate the full graph
   (uses the Anthropic API key from Settings).
 - **Connectors** — `system-notify` (desktop/ntfy notification), `capture-learnings`,
@@ -94,20 +100,35 @@ Each agent runs in one of three modes (per-cartridge selector):
 
 ## Multi-engine agent support
 
-NeonCore isn't Claude-only. Supported agent types: **claude · gridlight · gemini · amazonq ·
-codex · cursor**.
+NeonCore isn't Claude-only. Supported agent types: **claude · gridlight · codex · amazonq ·
+cursor**. Claude, Codex, and Gridlight are first-class, relay-backed engines and can run **side by
+side in the same repo** (a Claude cartridge and a Codex cartridge at once).
 
+- **Relay-backed engines** — Claude, Gridlight, and Codex run inside the NeonCore relay (a PTY), so
+  they receive commands over the socket (reliable, addressed to the specific cartridge), and the
+  relay **auto-installs the NeonCore coordination MCP** for them on launch — Claude/Gridlight via a
+  project `.mcp.json`, Codex via `~/.codex/config.toml` — so they get the confer/coordination tools
+  with no extra setup.
 - **Hooks per engine** — install/uninstall NeonCore hooks for each CLI from **Settings → Tools**
-  (Claude Code, Gemini CLI, Amazon Q, Codex CLI, Cursor). This writes each tool's own hook config
-  (`~/.codex/hooks.json`, `~/.gemini/settings.json`, `~/.aws/amazonq/…`, `~/.cursor/hooks.json`)
-  and can npm-install the CLI if missing.
-- **Command delivery** — Claude/Gridlight receive commands over the socket (relay/extension);
-  Gemini/Codex/Amazon Q receive them by **typing into iTerm2/Terminal via AppleScript** _(macOS
-  only)_.
+  (Claude Code, Amazon Q, Codex CLI, Cursor). This writes each tool's own hook config
+  (`~/.codex/hooks.json`, `~/.aws/amazonq/…`, `~/.cursor/hooks.json`) and can npm-install the CLI
+  if missing.
+- **Command delivery** — Claude/Gridlight/Codex receive commands over the socket (relay/extension);
+  Amazon Q receives them by **typing into iTerm2/Terminal via AppleScript** _(macOS only)_.
 - The Claude hook installer (`agent/install.py`, used by `bootstrap.sh/.ps1`) wires 7 events:
   `PreToolUse, PostToolUse, Stop, Notification, SubagentStop, UserPromptSubmit, SessionEnd`.
   `SessionEnd` fires once when a session actually exits and is what marks the cartridge
   offline. (`Stop` is **not** that signal — it fires at the end of every assistant turn.)
+
+## Confer — multi-agent collaboration
+
+Put two or more live cartridges on **one job** and have them collaborate. Pick 2+ cartridges (e.g.
+a Claude and a Codex cartridge in the same project — a project with two engines is one click via
+the quick-pick) plus a task; each agent is seeded with the task and its peers' ids and uses the
+`neoncore_message_agent` / `neoncore_read_agent` MCP tools to divide work, review each other, and
+converge on a single solution. Launch it from the **Confer** button — the header on web, the
+Cartridges tab on mobile. Agents must be live and have the NeonCore MCP loaded (auto-installed on
+launch for relay-backed engines).
 
 ## MCP servers & tools
 
@@ -116,17 +137,19 @@ codex · cursor**.
 - **MCP marketplace** — browse a registry of MCP servers by category and one-click install.
 - **Per-cartridge MCP tools** — virtual cartridges can enable MCP servers and pin specific tools
   as one-click action buttons.
-- **NeonCore coordination MCP server** — agents get 8 tools to self-coordinate:
+- **NeonCore coordination MCP server** — agents get 10 tools to self-coordinate and confer:
   `neoncore_register`, `neoncore_report`, `neoncore_request_permission`, `neoncore_report_step_done`,
-  `neoncore_my_queue`, `neoncore_claim_task`, `neoncore_report_task_done`, `neoncore_list_agents`.
-  Registered project-scope (`.mcp.json`) by `install.py`; global scope via
-  `claude mcp add-json neoncore '…' --scope user`.
+  `neoncore_my_queue`, `neoncore_claim_task`, `neoncore_report_task_done`, `neoncore_list_agents`,
+  `neoncore_message_agent`, `neoncore_read_agent`. The last two — message or read another agent's
+  transcript — are the primitives behind **Confer**. Registered project-scope (`.mcp.json`) by
+  `install.py` and auto-installed for relay-launched Claude/Gridlight; Codex registers it in
+  `~/.codex/config.toml`. Global scope via `claude mcp add-json neoncore '…' --scope user`.
 
 ## Virtual cartridges
 
 - **Folder workspaces** for directories that don't have a live agent yet — **launch an agent** in
-  that directory picking the type (Claude·Terminal, Claude·VS Code, Gridlight, Gemini, Codex,
-  Amazon Q), set a per-project ntfy topic, enable MCP servers, and pin MCP tool buttons.
+  that directory picking the type (Claude·Terminal, Claude·VS Code, Gridlight, Codex, Amazon Q),
+  set a per-project ntfy topic, enable MCP servers, and pin MCP tool buttons.
 
 ## Project memory & journal
 

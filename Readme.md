@@ -16,12 +16,16 @@ server management, and canvas workflows.
 
 ## What it does
 
-- **Cartridge grid** — every connected agent (a Claude Code session in a repo)
-  shows up as a live "cartridge" with status, activity feed, and a command box.
-  A cartridge leaves the grid when its session actually **ends** — going quiet doesn't
-  remove it. See [Agent lifecycle](FEATURES.md#cartridges-connected-agents).
-- **Mobile app (iOS)** — the same cartridges on your phone: read transcripts, answer
-  approvals, launch workflows, send prompts. LAN-only. See [mobile/README.md](mobile/README.md).
+- **Cartridge grid** — every connected agent (a Claude, Codex, or Gridlight session in a
+  repo) shows up as a live "cartridge" with status, activity feed, its **tool** shown next
+  to the project name, and a command box. A cartridge leaves the grid when its session
+  actually **ends** — going quiet doesn't remove it. See [Agent lifecycle](FEATURES.md#cartridges-connected-agents).
+- **Multi-tool** — Claude, Codex, and Gridlight run side by side (even in the same repo).
+  **Confer** puts two of them on one job to collaborate; **workflows** can route each step
+  to a specific tool. See [FEATURES.md](FEATURES.md).
+- **Mobile app (iOS)** — the same cartridges on your phone: read transcripts (long-press a
+  message to copy it), answer approvals, launch workflows, send prompts, start a Confer.
+  LAN-only. See [mobile/README.md](mobile/README.md).
 - **Permission gating** — `PreToolUse` hooks pause risky tool calls until you
   approve them on the dashboard, **or from your phone**, or run an agent in
   **trust mode** to auto-approve.
@@ -30,7 +34,8 @@ server management, and canvas workflows.
 - **Goals & cost** — group projects under goals, set a budget, and watch real USD
   spend roll up from agent sessions. See [docs/GOALS.md](docs/GOALS.md).
 - **MCP servers & tools** — install/configure MCP servers and one-click hook setup
-  for Claude Code, Gemini, Codex, Amazon Q, and Cursor from the Settings panel.
+  for Claude Code, Codex, Amazon Q, and Cursor from the Settings panel. Relay-launched
+  agents auto-get the NeonCore coordination MCP (register/report/tasks/confer tools).
 - **Canvas workflows** — author multi-step parallel/sequential agent workflows.
   See [WORKFLOWS.md](WORKFLOWS.md).
 

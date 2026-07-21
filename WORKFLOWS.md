@@ -117,8 +117,12 @@ Code Review → Unit Tests  ──┐
 
 1. Open the dashboard (`http://<server>:4040`) and scroll to **Workflows**.
 2. Find your template under **Templates** and click **Run** (▶).
-3. In **Configure & Run**: select a **cartridge** for each step and enter the first step's
-   **objective**.
+3. In **Configure & Run**: pick the **project** (a run cartridge) once, and enter the first
+   step's **objective**. By default every step runs on that one tool. To fan the workflow
+   across tools, use **assign per step** to choose which **tool** (Claude / Codex / Gridlight)
+   runs each step — it resolves to a live cartridge of that engine in the project. (You can also
+   bake a tool into a step in the editor via its **Tool** field; steps left on *Default* use the
+   run cartridge.)
 4. Click **Run Workflow** and watch steps execute on the canvas in real time.
 
 Click ▶ on the same template multiple times to run it on different projects simultaneously — each
@@ -136,7 +140,8 @@ run is independent with its own `runNumber` and step progress.
 | **Webhook completion** | Agents call their step's webhook URL (`/api/workflows/webhook/:stepId/complete`) with a result when done. |
 | **Auto-advance** | Most steps start automatically when dependencies complete; some (e.g. New Feature's Architect) require manual advance. |
 | **Parallel steps** | Steps sharing dependencies run simultaneously. |
-| **Deferred cartridges** | Agent steps use deferred selection — pick the cartridge at run time. |
+| **Per-step tool** | Pick the project once at launch; each step runs on it by default, or choose a specific tool (Claude/Codex/Gridlight) per step. A pinned tool with no live cartridge falls back to the run cartridge. |
+| **Deferred cartridges** | Agent steps use deferred selection — pick the cartridge/tool at run time. |
 
 Agents signal gate status with a prefix in their webhook result: `STATUS: PASS …` / `STATUS: FAIL …`.
 Routing edges render as **dashed amber lines** on the canvas.

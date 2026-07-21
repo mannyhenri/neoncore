@@ -91,10 +91,10 @@ npx expo start --go --ios    # --go is required: expo-dev-client otherwise targe
 
 | Screen | Backed by |
 |---|---|
-| **Cartridge grid** — live cartridges (offline behind a toggle), status, last message / pending question, approvals badge | `GET /api/agents` + `agent_updated` socket |
-| **Cartridge detail** — message stream (tap any message for the full, unclamped content), command box, manual/plan/trust toggle | `GET /api/agents/:id/messages`, `transcript_event`, `POST /api/commands/send`, `PUT /api/trust/:id/mode` |
+| **Cartridge grid** — live cartridges (offline behind a toggle) with their **tool** badge, status, last message / pending question, approvals badge; **Launch** a cartridge on a machine, or **Confer** (put 2+ cartridges on one job) | `GET /api/agents` + `agent_updated` socket |
+| **Cartridge detail** — message stream (tap any message for the full content; **long-press to copy** it), command box, manual/plan/trust toggle | `GET /api/agents/:id/messages`, `transcript_event`, `POST /api/commands/send`, `PUT /api/trust/:id/mode` |
 | **Approvals inbox** — allow/deny tool calls, approve plans, answer AskUserQuestion | `GET /api/permissions/pending`, `permission_requested`, `POST /api/permissions/decide` |
-| **Workflows** (⚡) — run any workflow template with an optional brief; shows active runs | `GET /api/workflows?templates=true`, `?runs=true`, `POST /api/workflows/v2/:id/start` |
+| **Workflows** (⚡) — run any workflow template with an optional brief; pick the project, and optionally choose which **tool** runs each step; shows active runs | `GET /api/workflows?templates=true`, `?runs=true`, `POST /api/workflows/v2/:id/start` |
 
 Messages render **newest-first, at the top** — the latest message is the one you opened the
 screen to read, so it costs no scrolling. History is reversed on load and live events prepend.
