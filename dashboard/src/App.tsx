@@ -4,6 +4,7 @@ import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MachineLauncher } from './components/MachineLauncher';
+import { ConferModal } from './components/ConferModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
@@ -61,6 +62,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [conferOpen, setConferOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
@@ -127,6 +129,14 @@ export default function App() {
             </div>
             {/* Launch a cartridge on any registered machine (local or remote) */}
             <MachineLauncher />
+            {/* Confer — put two live cartridges on one job to collaborate */}
+            <button
+              onClick={() => setConferOpen(true)}
+              className="text-sm text-gray-400 hover:text-emerald-300 border border-white/10 hover:border-emerald-500/40 px-2.5 py-1 rounded-md transition-colors"
+              title="Two agents, one job — confer to a shared solution"
+            >
+              Confer
+            </button>
             {/* Guide button */}
             <button
               onClick={() => setGuideOpen(true)}
@@ -249,6 +259,9 @@ export default function App() {
       </main>
 
       {/* Guide Modal */}
+      {conferOpen && (
+        <ConferModal agents={agents} onClose={() => setConferOpen(false)} />
+      )}
       {guideOpen && (
         <GuideModal onClose={() => setGuideOpen(false)} />
       )}
