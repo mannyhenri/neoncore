@@ -43,7 +43,7 @@ export interface TranscriptEvent {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
-  engine: 'claude' | 'gridlight' | 'codex';
+  engine: 'claude' | 'gridlight' | 'codex' | 'gemini';
   ts: string;
 }
 
