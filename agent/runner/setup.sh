@@ -156,12 +156,30 @@ copy() { # src dst
     cp -R "$1"/. "$2"/
   fi
 }
+# When setup runs from a repo checkout, symlink the relay instead of copying it, so
+# `git pull` keeps the installed relay current and the dashboard button can never lag
+# behind the source (the "works in terminal, not from the button" drift). Runner-zip
+# installs have no repo, so they still copy. The runner spawns the relay fresh per
+# launch, so the link is picked up with no daemon restart.
+IN_REPO=""
+[[ -d "$SOURCE_DIR/../../.git" ]] && IN_REPO=1
+link_or_copy() { # src dst
+  local src="$1" dst="$2"
+  if [[ -n "$IN_REPO" ]]; then
+    local abs; abs="$(cd "$src" && pwd -P)"
+    rm -rf "$dst"          # dst is under ~/.neoncore; the repo src is never touched
+    ln -sfn "$abs" "$dst"
+    info "Linked $dst -> $abs (repo checkout — no drift)"
+  else
+    mkdir -p "$dst"
+    copy "$src" "$dst"
+  fi
+}
 copy "$SOURCE_DIR" "$INSTALL_DIR"
 # The relay + hooks live beside the runner in the package; keep that layout in the install
 # home (~/.neoncore/{runner,relay,agent}).
 if [[ -d "$SOURCE_DIR/../relay" ]]; then
-  mkdir -p "$INSTALL_DIR/../relay"
-  copy "$SOURCE_DIR/../relay" "$INSTALL_DIR/../relay"
+  link_or_copy "$SOURCE_DIR/../relay" "$INSTALL_DIR/../relay"
 fi
 HOOKS_SRC=""
 if [[ -f "$SOURCE_DIR/../agent/install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/../agent"; fi   # runner zip: runner/ + agent/ siblings
