@@ -13,6 +13,14 @@ type ConferAgent = { id: string; name: string; repoName?: string; agentType: str
  */
 export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClose: () => void }) {
   const live = agents.filter((a) => a.status !== 'offline');
+  // Projects (repos) that have 2+ live engines — one click confers them together,
+  // matching the "two agents, one project" case without hunting for two tiles.
+  const byRepo = new Map<string, ConferAgent[]>();
+  for (const a of live) {
+    const k = a.repoName || a.name;
+    byRepo.set(k, [...(byRepo.get(k) || []), a]);
+  }
+  const readyProjects = [...byRepo.entries()].filter(([, list]) => list.length >= 2);
   const [selected, setSelected] = useState<string[]>([]);
   const [task, setTask] = useState('');
   const [sending, setSending] = useState(false);
@@ -64,6 +72,23 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
         <p className="text-[11px] text-gray-600 mb-2">
           Two engines in the <span className="text-gray-400">same project</span> (e.g. Claude + Codex in one repo) collaborate on it. Different projects = work across codebases.
         </p>
+
+        {readyProjects.length > 0 && (
+          <div className="mb-3">
+            <label className="block text-xs text-gray-500 mb-1.5">Quick pick — a project with two engines (one click selects both)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {readyProjects.map(([repo, list]) => (
+                <button
+                  key={repo}
+                  onClick={() => setSelected(list.map((a) => a.id))}
+                  className="rounded-lg px-2.5 py-1.5 border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 text-[12px]"
+                >
+                  {repo} — {list.map((a) => a.agentType).join(' + ')}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {live.length < 2 ? (
           <p className="text-xs text-amber-400 mb-3">Need at least two live cartridges — start another agent first.</p>
         ) : (

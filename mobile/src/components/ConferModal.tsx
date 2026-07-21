@@ -17,6 +17,13 @@ import type { Agent } from '../types';
 export function ConferModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { baseUrl, agents } = useNeonCore();
   const live = agents.filter((a) => a.status !== 'offline');
+  // Projects with 2+ live engines — one tap confers them together.
+  const byRepo = new Map<string, Agent[]>();
+  for (const a of live) {
+    const k = a.repoName || a.name;
+    byRepo.set(k, [...(byRepo.get(k) || []), a]);
+  }
+  const readyProjects = [...byRepo.entries()].filter(([, list]) => list.length >= 2);
   const [selected, setSelected] = useState<string[]>([]);
   const [task, setTask] = useState('');
   const [sending, setSending] = useState(false);
@@ -62,6 +69,24 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
           </Text>
 
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+            {readyProjects.length > 0 && (
+              <>
+                <Text style={styles.label}>QUICK PICK — A PROJECT WITH TWO ENGINES</Text>
+                <View style={styles.chips}>
+                  {readyProjects.map(([repo, list]) => (
+                    <TouchableOpacity
+                      key={repo}
+                      style={styles.quickChip}
+                      onPress={() => setSelected(list.map((a) => a.id))}
+                    >
+                      <Text style={styles.quickChipText} numberOfLines={1}>
+                        {repo} — {list.map((a) => a.agentType).join(' + ')}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
             <Text style={styles.label}>
               CARTRIDGES (pick 2+) · <Text style={{ color: selected.length >= 2 ? theme.accentSoft : theme.amber }}>{selected.length} selected</Text>
             </Text>
@@ -170,6 +195,11 @@ const styles = StyleSheet.create({
   chipOn: { borderColor: theme.accent, backgroundColor: theme.bgCard },
   chipText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
   chipTextOn: { color: theme.accentSoft },
+  quickChip: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: theme.bgCard, borderWidth: 1, borderColor: theme.accent,
+  },
+  quickChipText: { color: theme.accentSoft, fontSize: 13, fontWeight: '600' },
   input: {
     color: theme.text, fontSize: 14, backgroundColor: theme.bgCard, borderRadius: 12,
     borderWidth: 1, borderColor: theme.border, padding: 12, minHeight: 90, textAlignVertical: 'top',
