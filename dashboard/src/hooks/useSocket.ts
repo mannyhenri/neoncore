@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, McpServer, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine } from '../types';
 
 interface SocketHandlers {
   onAgentRegistered?: (agent: Agent) => void;
@@ -27,7 +27,6 @@ interface SocketHandlers {
     interruptedAt: string | null;
     recoveryAttempts: number;
   }) => void;
-  onMcpServerUpdated?: (server: McpServer) => void;
   onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => void;
   onWorkflowNotification?: (n: WorkflowNotification) => void;
   onTaskCreated?: (task: Task) => void;
@@ -135,10 +134,6 @@ export function useSocket(handlers: SocketHandlers) {
 
     socket.on('workflow_step_log' as any, (log: WorkflowStepLog) => {
       handlersRef.current.onWorkflowStepLog?.(log);
-    });
-
-    socket.on('mcp_server_updated' as any, (server: McpServer) => {
-      handlersRef.current.onMcpServerUpdated?.(server);
     });
 
     socket.on('virtual_cartridge_updated' as any, (vc: VirtualCartridge) => {

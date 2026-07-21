@@ -87,6 +87,9 @@ const REPLAY_HEADER =
   'you left off. Do NOT repeat work the transcript shows is already done.';
 
 const REPLAY_FOOTER = '--- end of recovered transcript ---\nContinue the task now.';
+const JOURNAL_LIMIT = 30;
+const STEP_RESULT_MAX_CHARS = 3000;
+const JOURNAL_MESSAGE_MAX_CHARS = 1000;
 
 /**
  * Build the replay prompt from a session's message rows (ordered by seq asc).
@@ -118,6 +121,91 @@ export function renderReplayContext(
   let out = lines.join('\n');
   if (out.length > maxChars) out = out.slice(0, maxChars) + '\n[…transcript truncated…]';
   return `${out}\n\n${REPLAY_FOOTER}`;
+}
+
+function hasTable(database: Database, name: string): boolean {
+  const row = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get(name) as { name?: string } | undefined;
+  return !!row;
+}
+
+function tableColumns(database: Database, table: string): Set<string> {
+  if (!hasTable(database, table)) return new Set();
+  const rows = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return new Set(rows.map((row) => row.name));
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '\n[…truncated…]' : s;
+}
+
+function renderWorkflowRecoveryContext(database: Database, step: Record<string, unknown>): string {
+  const workflowId = (step.workflow_id as string) || '';
+  if (!workflowId) return '';
+
+  const parts: string[] = ['--- recovered workflow state ---'];
+
+  const workflowColumns = tableColumns(database, 'workflows');
+  const workflowSelect = ['name', 'description', 'initial_context', 'status']
+    .filter((column) => workflowColumns.has(column));
+  const wf = workflowSelect.length > 0
+    ? database.prepare(`SELECT ${workflowSelect.join(', ')} FROM workflows WHERE id = ?`)
+      .get(workflowId) as Record<string, string | undefined> | undefined
+    : undefined;
+  if (wf) {
+    parts.push(`Workflow: ${wf.name || workflowId}`);
+    if (wf.status) parts.push(`Workflow status: ${wf.status}`);
+    if (wf.description) parts.push(`Workflow objective:\n${truncate(wf.description, STEP_RESULT_MAX_CHARS)}`);
+    if (wf.initial_context) parts.push(`Initial context:\n${truncate(wf.initial_context, STEP_RESULT_MAX_CHARS)}`);
+  }
+
+  const currentPrompt = (step.dispatched_prompt as string) || '';
+  if (currentPrompt) {
+    parts.push(`Interrupted step: ${String(step.name || step.id)}\nOriginal dispatched prompt:\n${truncate(currentPrompt, STEP_RESULT_MAX_CHARS)}`);
+  }
+
+  const stepColumns = tableColumns(database, 'workflow_steps');
+  if (stepColumns.has('result')) {
+    const orderBy = [
+      stepColumns.has('completed_at') ? 'completed_at ASC' : '',
+      stepColumns.has('created_at') ? 'created_at ASC' : '',
+      'id ASC',
+    ].filter(Boolean).join(', ');
+    const completed = database.prepare(`
+      SELECT id, name, result
+      FROM workflow_steps
+      WHERE workflow_id = ? AND status = 'completed' AND result != ''
+      ORDER BY ${orderBy}
+    `).all(workflowId) as { id: string; name: string; result: string }[];
+    if (completed.length > 0) {
+      parts.push('Completed step outputs:');
+      for (const row of completed) {
+        parts.push(`## ${row.name}\n${truncate(row.result, STEP_RESULT_MAX_CHARS)}`);
+      }
+    }
+  }
+
+  if (hasTable(database, 'workflow_journal')) {
+    const journal = database.prepare(`
+      SELECT step_name, event_type, message, created_at
+      FROM workflow_journal
+      WHERE workflow_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(workflowId, JOURNAL_LIMIT) as { step_name: string; event_type: string; message: string; created_at: string }[];
+
+    if (journal.length > 0) {
+      parts.push('Recent workflow journal events:');
+      for (const row of journal.reverse()) {
+        const label = row.step_name ? `${row.step_name}: ` : '';
+        parts.push(`- ${row.created_at} [${row.event_type}] ${label}${truncate(row.message, JOURNAL_MESSAGE_MAX_CHARS)}`);
+      }
+    }
+  }
+
+  parts.push('--- end recovered workflow state ---');
+  return parts.join('\n\n');
 }
 
 // ── DB-coupled logic (injected `database`) ──────────────────────────────────
@@ -260,7 +348,9 @@ export function recoverStep(
   const sessionId = (step.native_session_id as string) || resolveSessionId(database, agentId);
   const rows = database.prepare('SELECT role, content, seq FROM messages WHERE session_id = ? ORDER BY seq ASC')
     .all(sessionId) as MessageRow[];
-  const prompt = renderReplayContext(rows);
+  const workflowContext = renderWorkflowRecoveryContext(database, step);
+  const transcriptContext = renderReplayContext(rows);
+  const prompt = workflowContext ? `${workflowContext}\n\n${transcriptContext}` : transcriptContext;
 
   opts.dispatch(agentId, prompt);
 

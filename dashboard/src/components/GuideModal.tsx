@@ -168,8 +168,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">~/.claude/settings.json</code>
               {' '}(Codex uses <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">~/.codex</code>).
               Each agent card shows its <strong className="text-gray-300 font-medium">tool</strong>, status
-              (working / idle / waiting / offline), repo, branch, and trust mode. Relay-launched agents also
-              auto-get the NeonCore MCP (coordination + confer tools).
+              (working / idle / waiting / offline), repo, branch, and trust mode.
             </BodyText>
             <p className="text-[12px] font-medium text-gray-400 mb-2">Trust modes</p>
             <FeatureCard name="Manual" desc="You approve every tool use via the Permissions panel." />
@@ -370,7 +369,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <FeatureCard name="HTTP" desc="Generic webhook POST / PUT / GET." />
             <FeatureCard
               name="System Notify"
-              desc="OS desktop notification + optional phone push via ntfy."
+              desc="In-app and mobile-app workflow notification."
             />
             <FeatureCard
               name="Capture Learnings"

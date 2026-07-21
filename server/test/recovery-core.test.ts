@@ -214,6 +214,62 @@ test('recoverStep: interrupted step → dispatches replay, marks recovered', () 
   assert.equal(row.recovery_attempts, 1);
 });
 
+test('recoverStep: replay includes workflow state, completed outputs, and durable journal', () => {
+  const db = freshDb();
+  db.exec(`
+    ALTER TABLE workflow_steps ADD COLUMN result TEXT NOT NULL DEFAULT '';
+    ALTER TABLE workflow_steps ADD COLUMN completed_at TEXT;
+    ALTER TABLE workflow_steps ADD COLUMN created_at TEXT;
+    ALTER TABLE workflow_steps ADD COLUMN dispatched_prompt TEXT NOT NULL DEFAULT '';
+
+    CREATE TABLE workflows (
+      id TEXT PRIMARY KEY, name TEXT, description TEXT, initial_context TEXT, status TEXT
+    );
+    CREATE TABLE workflow_journal (
+      id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, step_id TEXT NOT NULL DEFAULT '',
+      step_name TEXT NOT NULL DEFAULT '', event_type TEXT NOT NULL DEFAULT 'info',
+      message TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+    );
+  `);
+  db.prepare(
+    `INSERT INTO workflows (id, name, description, initial_context, status) VALUES (?, ?, ?, ?, ?)`
+  ).run('w1', 'Ship Recovery', 'Keep crashed workflows resumable', 'User asked for durable progress.', 'running');
+  db.prepare(
+    `INSERT INTO workflow_steps
+      (id, workflow_id, name, status, executor_id, started_at, native_session_id, recovery_status,
+       recovery_attempts, result, completed_at, created_at, dispatched_prompt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    'done-1', 'w1', 'Research', 'completed', 'a1', oldStart, '', '', 0,
+    'Found the recovery gap.', '2024-06-01T00:00:00Z', '2024-06-01T00:00:00Z', '',
+  );
+  db.prepare(
+    `INSERT INTO workflow_steps
+      (id, workflow_id, name, status, executor_id, started_at, native_session_id, recovery_status,
+       recovery_attempts, result, completed_at, created_at, dispatched_prompt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    's1', 'w1', 'Implement', 'running', 'a1', oldStart, 'sess-1', 'interrupted', 0,
+    '', null, '2024-06-01T00:01:00Z', 'Patch workflow journaling.',
+  );
+  db.prepare(
+    `INSERT INTO workflow_journal (id, workflow_id, step_id, step_name, event_type, message, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run('j1', 'w1', 's1', 'Implement', 'warn', 'Agent stopped mid-step.', '2024-06-01T00:02:00Z');
+  addMsg(db, 'a1', 'sess-1', 0, 'assistant', [{ type: 'text', text: 'edited recovery-core' }], '2024-06-01T00:03:00Z');
+
+  const dispatched = [];
+  const r = recoverStep(db, 's1', { now: NOW, dispatch: (a, t) => dispatched.push({ a, t }) });
+
+  assert.equal(r.ok, true);
+  assert.match(dispatched[0].t, /Ship Recovery/);
+  assert.match(dispatched[0].t, /Keep crashed workflows resumable/);
+  assert.match(dispatched[0].t, /Patch workflow journaling/);
+  assert.match(dispatched[0].t, /Found the recovery gap/);
+  assert.match(dispatched[0].t, /Agent stopped mid-step/);
+  assert.match(dispatched[0].t, /edited recovery-core/);
+});
+
 test('recoverStep: missing step → ok false', () => {
   const db = freshDb();
   const r = recoverStep(db, 'nope', { now: NOW, dispatch: () => {} });

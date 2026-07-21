@@ -6,10 +6,8 @@ type ConferAgent = { id: string; name: string; repoName?: string; agentType: str
 /**
  * Seed a multi-agent "confer" — two or more live cartridges (typically different
  * engines, e.g. Claude + Codex) get the SAME task plus each other's ids, and are
- * told to use the neoncore_message_agent / neoncore_read_agent MCP tools to
- * collaborate and converge on one agreed solution. Pure UI over the existing
- * sendCommand: no dedicated backend endpoint — each participant just gets a
- * command that wires it to its peers.
+ * told to coordinate through the dashboard/task context. Pure UI over the existing
+ * sendCommand: no dedicated backend endpoint.
  */
 export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClose: () => void }) {
   const live = agents.filter((a) => a.status !== 'offline');
@@ -154,14 +152,13 @@ function conferPrompt(task: string, peers: ConferAgent[]): string {
     `TASK:`,
     task,
     ``,
-    `YOUR PEERS (use these ids with the neoncore MCP tools):`,
+    `YOUR PEERS:`,
     peerLines,
     ``,
     `HOW TO CONFER:`,
-    `1. neoncore_read_agent("<peerId>") — see what a peer has done so far.`,
-    `2. neoncore_message_agent("<peerId>", "...") — share your plan, findings, or critiques.`,
-    `3. Divide the work or review each other's approach; iterate until you agree.`,
-    `4. Agree on ONE of you to post the final combined solution, and say who.`,
+    `1. State your plan and assumptions clearly so the other agents can compare against it.`,
+    `2. Divide the work or review each other's approach; iterate until you agree.`,
+    `3. Agree on ONE of you to post the final combined solution, and say who.`,
     ``,
     `Begin now by messaging your peer(s) with your initial plan.`,
   ].join('\n');

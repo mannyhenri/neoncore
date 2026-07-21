@@ -340,9 +340,8 @@ try {
   db.exec(`ALTER TABLE session_usage ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0`);
 }
 
-// Agent task queue — work that agents can be assigned or claim autonomously via
-// the NeonCore MCP coordination tools. project_id links softly to the Goal
-// Cascade (no FK enforcement — tolerate nulls / deleted projects).
+// Agent task queue. project_id links softly to the Goal Cascade (no FK
+// enforcement — tolerate nulls / deleted projects).
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
@@ -385,29 +384,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_agent ON messages(agent_id, ts);
 `);
 
-// MCP Servers table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS mcp_servers (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE,
-    command TEXT NOT NULL,
-    args TEXT NOT NULL DEFAULT '[]',
-    env TEXT NOT NULL DEFAULT '{}',
-    is_preconfigured INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'stopped',
-    error TEXT NOT NULL DEFAULT '',
-    pid INTEGER,
-    capabilities TEXT NOT NULL DEFAULT '[]',
-    description TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_mcp_servers_slug ON mcp_servers(slug);
-  CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON mcp_servers(status);
-`);
-
 // Workflow Steps table (V2 canvas workflows)
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflow_steps (
@@ -433,6 +409,26 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow ON workflow_steps(workflow_id);
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_status ON workflow_steps(status);
+`);
+
+// Durable workflow journal — append-only run history used by the dashboard and
+// by crash recovery. Unlike websocket step logs, these entries survive terminal
+// crashes, server restarts, and UI reconnects.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflow_journal (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    step_id TEXT NOT NULL DEFAULT '',
+    step_name TEXT NOT NULL DEFAULT '',
+    event_type TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL DEFAULT '',
+    data TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_workflow_journal_workflow ON workflow_journal(workflow_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_workflow_journal_step ON workflow_journal(step_id, created_at);
 `);
 
 // Migration: add plan_content column to workflow_steps (stores plan captured from ExitPlanMode)
@@ -482,88 +478,7 @@ try {
   db.exec(`ALTER TABLE goals ADD COLUMN token_budget INTEGER`);
 }
 
-// Migration: add description column to mcp_servers
-try {
-  db.prepare('SELECT description FROM mcp_servers LIMIT 1').get();
-} catch {
-  db.exec(`ALTER TABLE mcp_servers ADD COLUMN description TEXT NOT NULL DEFAULT ''`);
-}
-
-// Backfill descriptions for existing preconfigured servers
-const mcpDescriptions: Record<string, string> = {
-  slack: 'Send messages, read channels, and manage your Slack workspace',
-  github: 'Browse repos, manage issues & PRs, search code on GitHub',
-  jira: 'View and update Jira issues, search projects, track work',
-  'google-drive': 'List, search, read and manage files in your Google Drive',
-  gmail: 'Read, search, and send emails from your Gmail account',
-  spotify: 'Control playback, search music, manage playlists on Spotify',
-  openai: 'Query OpenAI models (GPT-4, etc.) as a tool within workflows',
-  gemini: 'Query Google Gemini models as a tool within workflows',
-  'adobe-cc': 'Create and edit designs in Adobe Express programmatically',
-  blender: 'Control Blender 3D — create scenes, objects, materials, and render',
-  fetch: 'Fetch and parse content from any URL on the web',
-  filesystem: 'Read, write, and manage files on the local filesystem',
-  'brave-search': 'Search the web using Brave Search API and get structured results',
-};
-{
-  const updateDesc = db.prepare('UPDATE mcp_servers SET description = ? WHERE slug = ? AND description = ?');
-  for (const [slug, desc] of Object.entries(mcpDescriptions)) {
-    updateDesc.run(desc, slug, '');
-  }
-}
-
-// Fix Blender MCP: npx → uvx (Python package), port 8400 → 9876 (standard addon port)
-{
-  const blender = db.prepare('SELECT id, command, env FROM mcp_servers WHERE slug = ?').get('blender') as { id: string; command: string; env: string } | undefined;
-  if (blender) {
-    try {
-      const env = JSON.parse(blender.env);
-      let changed = false;
-      if (env.BLENDER_PORT === '8400') { env.BLENDER_PORT = '9876'; changed = true; }
-      if (blender.command === 'npx') {
-        db.prepare('UPDATE mcp_servers SET command = ? WHERE id = ?').run('uvx', blender.id);
-        changed = true;
-      }
-      if (changed) {
-        db.prepare('UPDATE mcp_servers SET env = ? WHERE id = ?').run(JSON.stringify(env), blender.id);
-      }
-    } catch { /* ignore */ }
-  }
-}
-
-// Seed pre-configured MCP servers (only on first run)
-const mcpCount = db.prepare('SELECT COUNT(*) as count FROM mcp_servers WHERE is_preconfigured = 1').get() as { count: number };
-if (mcpCount.count === 0) {
-  const now = new Date().toISOString();
-  const registry = [
-    { slug: 'slack', name: 'Slack', command: 'npx', args: ['@modelcontextprotocol/server-slack'], env: { SLACK_BOT_TOKEN: '', SLACK_TEAM_ID: '' }, description: 'Send messages, read channels, and manage your Slack workspace' },
-    { slug: 'github', name: 'GitHub', command: 'npx', args: ['@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '' }, description: 'Browse repos, manage issues & PRs, search code on GitHub' },
-    { slug: 'jira', name: 'Jira', command: 'npx', args: ['@aashari/mcp-server-atlassian-jira'], env: { JIRA_HOST: '', JIRA_EMAIL: '', JIRA_API_TOKEN: '' }, description: 'View and update Jira issues, search projects, track work' },
-    { slug: 'google-drive', name: 'Google Drive', command: 'npx', args: ['-y', 'google-drive-mcp'], env: { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' }, description: 'List, search, read and manage files in your Google Drive' },
-    { slug: 'gmail', name: 'Gmail', command: 'npx', args: ['-y', 'gmail-mcp'], env: { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' }, description: 'Read, search, and send emails from your Gmail account' },
-    { slug: 'spotify', name: 'Spotify', command: 'npx', args: ['@tbrgeek/spotify-mcp-server'], env: { SPOTIFY_CLIENT_ID: '', SPOTIFY_CLIENT_SECRET: '' }, description: 'Control playback, search music, manage playlists on Spotify' },
-    { slug: 'openai', name: 'OpenAI', command: 'npx', args: ['@mzxrai/mcp-openai'], env: { OPENAI_API_KEY: '' }, description: 'Query OpenAI models (GPT-4, etc.) as a tool within workflows' },
-    { slug: 'gemini', name: 'Gemini', command: 'npx', args: ['@houtini/gemini-mcp'], env: { GEMINI_API_KEY: '' }, description: 'Query Google Gemini models as a tool within workflows' },
-    { slug: 'adobe-cc', name: 'Adobe CC', command: 'npx', args: ['@adobe/express-developer-mcp@latest', '--yes'], env: {}, description: 'Create and edit designs in Adobe Express programmatically' },
-    { slug: 'blender', name: 'Blender', command: 'uvx', args: ['blender-mcp'], env: { BLENDER_HOST: 'localhost', BLENDER_PORT: '9876' }, description: 'Control Blender 3D — create scenes, objects, materials, and render' },
-    { slug: 'fetch', name: 'Fetch / Web', command: 'npx', args: ['mcp-fetch-server'], env: {}, description: 'Fetch and parse content from any URL on the web' },
-    { slug: 'filesystem', name: 'Filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'], env: {}, description: 'Read, write, and manage files on the local filesystem' },
-    { slug: 'brave-search', name: 'Web Search (Brave)', command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: '' }, description: 'Search the web using Brave Search API and get structured results' },
-  ];
-
-  const insert = db.prepare(`
-    INSERT INTO mcp_servers (id, name, slug, command, args, env, is_preconfigured, status, description, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, 'stopped', ?, ?, ?)
-  `);
-
-  for (const srv of registry) {
-    const id = `mcp-${srv.slug}`;
-    insert.run(id, srv.name, srv.slug, srv.command, JSON.stringify(srv.args), JSON.stringify(srv.env), srv.description, now, now);
-  }
-  console.log(`[db] Seeded ${registry.length} pre-configured MCP servers`);
-}
-
-// Virtual Cartridges table — local folder workspaces with MCP-powered actions
+// Virtual Cartridges table — local folder workspaces.
 db.exec(`
   CREATE TABLE IF NOT EXISTS virtual_cartridges (
     id TEXT PRIMARY KEY,
@@ -571,54 +486,11 @@ db.exec(`
     directory_path TEXT NOT NULL UNIQUE,
     icon_index INTEGER NOT NULL DEFAULT 0,
     color TEXT NOT NULL DEFAULT '#a855f7',
-    mcp_server_ids TEXT NOT NULL DEFAULT '[]',
-    pinned_tools TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_virtual_cartridges_path ON virtual_cartridges(directory_path);
-`);
-
-// Migration: add ntfy_url to virtual_cartridges (per-project push notification override)
-try {
-  db.prepare('SELECT ntfy_url FROM virtual_cartridges LIMIT 1').get();
-} catch {
-  db.exec(`ALTER TABLE virtual_cartridges ADD COLUMN ntfy_url TEXT NOT NULL DEFAULT ''`);
-}
-
-// MCP Macros table — reusable multi-step MCP tool chains
-db.exec(`
-  CREATE TABLE IF NOT EXISTS mcp_macros (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    category TEXT NOT NULL DEFAULT 'Custom',
-    steps TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_mcp_macros_category ON mcp_macros(category);
-`);
-
-// MCP Macro Runs table — execution history
-db.exec(`
-  CREATE TABLE IF NOT EXISTS mcp_macro_runs (
-    id TEXT PRIMARY KEY,
-    macro_id TEXT NOT NULL,
-    cartridge_id TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'running',
-    current_step INTEGER NOT NULL DEFAULT 0,
-    step_results TEXT NOT NULL DEFAULT '[]',
-    input_params TEXT NOT NULL DEFAULT '{}',
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    error TEXT NOT NULL DEFAULT ''
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_macro_runs_status ON mcp_macro_runs(status);
-  CREATE INDEX IF NOT EXISTS idx_macro_runs_macro ON mcp_macro_runs(macro_id);
 `);
 
 // Cleanup: expire stale pending permissions from past sessions

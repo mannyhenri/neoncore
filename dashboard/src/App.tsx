@@ -11,12 +11,11 @@ import { GoalsPage } from './components/GoalsPage';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
 import { api } from './lib/api';
-import type { AgentType, Activity, VirtualCartridge, McpServer } from './types';
+import type { AgentType, Activity, VirtualCartridge } from './types';
 
 export default function App() {
-  // Virtual cartridges & MCP servers
+  // Virtual cartridges
   const [virtualCartridges, setVirtualCartridges] = useState<VirtualCartridge[]>([]);
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
 
   const refreshVirtualCartridges = useCallback(() => {
     api.getVirtualCartridges().then(setVirtualCartridges).catch(() => {});
@@ -24,7 +23,6 @@ export default function App() {
 
   useEffect(() => {
     refreshVirtualCartridges();
-    api.getMcpServers().then(setMcpServers).catch(() => {});
   }, [refreshVirtualCartridges]);
 
   const handleVirtualCartridgeUpdated = useCallback((vc: VirtualCartridge) => {
@@ -245,7 +243,6 @@ export default function App() {
             onDismissStuck={dismissStuckAlert}
             onActivityClick={setSelectedActivity}
             virtualCartridges={virtualCartridges}
-            mcpServers={mcpServers}
             onVirtualCartridgeUpdate={handleVirtualCartridgeUpdated}
             onVirtualCartridgeDelete={(id) => {
               api.deleteVirtualCartridge(id).then(() => {

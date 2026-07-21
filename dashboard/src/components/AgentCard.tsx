@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Agent, AgentMode, AgentMemory, PermissionRequest, StuckAlert } from '../types';
+import type { Agent, AgentMode, AgentMemory, PermissionRequest, StuckAlert, CommandAttachmentInput } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
 import { GitPanel } from './GitPanel';
@@ -11,7 +11,7 @@ interface Props {
   stuckAlert?: StuckAlert;
   onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
-  onSendCommand: (agentId: string, text: string, includeMemory?: boolean) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void;
   onDelete: (agentId: string) => void;
   onDismissStuck: (agentId: string) => void;
 }
@@ -535,11 +535,11 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             : agent.status === 'offline'
             ? 'Agent offline — command will queue until reconnect...'
             : 'Send prompt, instructions, or /command...'}
-          onSend={(text) => {
+          onSend={(text, attachments) => {
             const planSuffix = agent.mode === 'plan'
               ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
               : '';
-            onSendCommand(agent.id, text + planSuffix);
+            onSendCommand(agent.id, text + planSuffix, true, attachments);
           }}
         />
       </div>

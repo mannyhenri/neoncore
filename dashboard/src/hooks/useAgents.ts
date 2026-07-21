@@ -157,10 +157,15 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     setAgents((prev) => sortAgents(prev.map((a) => (a.id === updated.id ? updated : a))));
   }, []);
 
-  const sendCommand = useCallback(async (agentId: string, text: string, includeMemory = true) => {
+  const sendCommand = useCallback(async (
+    agentId: string,
+    text: string,
+    includeMemory = true,
+    attachments?: import('../types').CommandAttachmentInput[],
+  ) => {
     try {
-      console.log('[NeonCore] Sending command:', { agentId, text, includeMemory });
-      await api.sendCommand(agentId, text, includeMemory);
+      console.log('[NeonCore] Sending command:', { agentId, text, includeMemory, attachmentCount: attachments?.length || 0 });
+      await api.sendCommand(agentId, text, includeMemory, attachments);
       console.log('[NeonCore] Command sent successfully');
     } catch (err) {
       console.error('[NeonCore] Failed to send command:', err);

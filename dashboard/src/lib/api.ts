@@ -78,10 +78,15 @@ export const api = {
     }),
 
   // Commands
-  sendCommand: (agentId: string, text: string, includeMemory = true) =>
+  sendCommand: (
+    agentId: string,
+    text: string,
+    includeMemory = true,
+    attachments?: import('../types').CommandAttachmentInput[],
+  ) =>
     request<import('../types').Command>('/commands/send', {
       method: 'POST',
-      body: JSON.stringify({ agentId, text, includeMemory }),
+      body: JSON.stringify({ agentId, text, includeMemory, attachments }),
     }),
 
   // Memory
@@ -229,39 +234,11 @@ export const api = {
       `/workflows/steps/${stepId}/recover`,
       { method: 'POST' }
     ),
-  getAvailableModels: () =>
-    request<{ openai: string[]; gridlight: string[] }>('/workflows/models'),
-
-  // MCP Registry (marketplace)
-  getMcpRegistry: () =>
-    request<{ servers: import('../types').McpRegistryEntry[]; categories: string[]; installed: string[] }>('/mcp/registry'),
-
-  // MCP Servers
-  getMcpServers: () =>
-    request<import('../types').McpServer[]>('/mcp/servers'),
-  addMcpServer: (data: { command: string; name?: string; args?: string[]; env?: Record<string, string>; slug?: string; description?: string }) =>
-    request<import('../types').McpServer>('/mcp/servers', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateMcpServer: (id: string, data: { env?: Record<string, string>; command?: string; args?: string[]; name?: string }) =>
-    request<import('../types').McpServer>(`/mcp/servers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  deleteMcpServer: (id: string) =>
-    request<void>(`/mcp/servers/${id}`, { method: 'DELETE' }),
-  startMcpServer: (id: string) =>
-    request<import('../types').McpServer>(`/mcp/servers/${id}/start`, { method: 'POST' }),
-  stopMcpServer: (id: string) =>
-    request<import('../types').McpServer>(`/mcp/servers/${id}/stop`, { method: 'POST' }),
-  getMcpTools: (id: string) =>
-    request<import('../types').McpTool[]>(`/mcp/servers/${id}/tools`),
 
   // Virtual Cartridges
   getVirtualCartridges: () =>
     request<import('../types').VirtualCartridge[]>('/virtual-cartridges'),
-  createVirtualCartridge: (data: { name?: string; directoryPath: string; mcpServerIds?: string[] }) =>
+  createVirtualCartridge: (data: { name?: string; directoryPath: string }) =>
     request<import('../types').VirtualCartridge>('/virtual-cartridges', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -273,13 +250,6 @@ export const api = {
     }),
   deleteVirtualCartridge: (id: string) =>
     request<void>(`/virtual-cartridges/${id}`, { method: 'DELETE' }),
-  getVirtualCartridgeTools: (id: string) =>
-    request<(import('../types').McpTool & { serverId: string; serverName: string })[]>(`/virtual-cartridges/${id}/tools`),
-  executeVirtualCartridgeTool: (id: string, serverId: string, toolName: string, args: Record<string, unknown>) =>
-    request<{ result: unknown }>(`/virtual-cartridges/${id}/execute`, {
-      method: 'POST',
-      body: JSON.stringify({ serverId, toolName, args }),
-    }),
   launchVirtualCartridge: (id: string, agentType: string) =>
     request<{ ok: boolean }>(`/virtual-cartridges/${id}/launch`, {
       method: 'POST',
@@ -422,22 +392,11 @@ export const api = {
       `/activity/usage/${agentId}${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
 
-  // Push notifications
-  testPushNotification: () =>
-    request<{ ok: boolean }>('/settings/push-test', { method: 'POST' }),
-
   // Workflow V2 — Mid-task steering
   steerWorkflowStep: (workflowId: string, stepId: string, message: string) =>
     request<{ ok: boolean; commandId: string }>(`/workflows/v2/${workflowId}/steps/${stepId}/steer`, {
       method: 'POST',
       body: JSON.stringify({ message }),
-    }),
-
-  // Workflow V2 — AI generator
-  generateWorkflow: (description: string) =>
-    request<{ id: string }>('/workflows/v2/generate', {
-      method: 'POST',
-      body: JSON.stringify({ description }),
     }),
 
   // Machines — remote cartridge launch
@@ -457,10 +416,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ root }),
     }),
-
-  // Virtual cartridge suggestions
-  getCartridgeSuggestions: (id: string) =>
-    request<{ title: string; prompt: string; toolName: string; serverId: string }[]>(`/virtual-cartridges/${id}/suggestions`),
 
   // Journal search
   searchJournal: (query: string, project?: string) =>
