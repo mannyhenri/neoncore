@@ -89,6 +89,11 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
         />
 
         {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+        {(selected.length < 2 || !task.trim()) && !error && (
+          <p className="text-[11px] text-gray-500 mb-3">
+            {selected.length < 2 ? 'Select at least 2 cartridges' : 'Enter a task'} to enable Start.
+          </p>
+        )}
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-md">Cancel</button>
