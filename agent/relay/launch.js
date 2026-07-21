@@ -63,7 +63,8 @@ if (!hooksPresent && existsSync(installScript)) {
 }
 
 // 3. Launch the relay in the user's current directory.
-log('Launching Gridlight Terminal Code...');
+const launchType = process.env.NEONCORE_AGENT_TYPE || 'claude';
+log(`Launching NeonCore relay (${launchType})...`);
 const extraArgs = process.argv.slice(2);
 const child = spawn(process.execPath, [path.join(relayDir, 'index.js'), ...extraArgs], {
   stdio: 'inherit',
