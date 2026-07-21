@@ -61,6 +61,9 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
             {selected.length} selected
           </span>
         </label>
+        <p className="text-[11px] text-gray-600 mb-2">
+          Two engines in the <span className="text-gray-400">same project</span> (e.g. Claude + Codex in one repo) collaborate on it. Different projects = work across codebases.
+        </p>
         {live.length < 2 ? (
           <p className="text-xs text-amber-400 mb-3">Need at least two live cartridges — start another agent first.</p>
         ) : (
@@ -76,8 +79,8 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
                        : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <div className="text-[13px] font-medium leading-tight">{a.repoName || a.name}</div>
-                  <div className="text-[11px] leading-snug opacity-60">{a.agentType}</div>
+                  <div className="text-[13px] font-medium leading-tight capitalize">{a.agentType}</div>
+                  <div className="text-[11px] leading-snug opacity-60">{a.repoName || a.name}</div>
                 </button>
               );
             })}
