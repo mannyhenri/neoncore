@@ -6,6 +6,7 @@ import type { Agent } from '../types';
 import { QuestionIcon } from '../components/Icons';
 import { SwipeToDismiss } from '../components/SwipeToDismiss';
 import { RemoteLaunchModal } from '../components/RemoteLaunchModal';
+import { ConferModal } from '../components/ConferModal';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
   const { agents, connected, refresh, dismissAgent, restoreAgent } = useNeonCore();
@@ -13,6 +14,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
   const [showOffline, setShowOffline] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [conferOpen, setConferOpen] = useState(false);
 
   const doRefresh = async () => {
     setRefreshing(true);
@@ -42,6 +44,9 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
       <View style={styles.header}>
         <Text style={styles.title}>Cartridges</Text>
         <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.launchBtn} onPress={() => setConferOpen(true)}>
+            <Text style={styles.launchBtnText}>Confer</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.launchBtn} onPress={() => setLaunchOpen(true)}>
             <Text style={styles.launchBtnText}>＋ Launch</Text>
           </TouchableOpacity>
@@ -51,6 +56,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
       </View>
 
       <RemoteLaunchModal visible={launchOpen} onClose={() => setLaunchOpen(false)} />
+      <ConferModal visible={conferOpen} onClose={() => setConferOpen(false)} />
 
       <FlatList
         data={sorted}
