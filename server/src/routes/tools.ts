@@ -174,7 +174,10 @@ function buildMcpTomlBlock(): string {
     `command = "node"\n` +
     `args = ["${serverPath}"]\n` +
     `startup_timeout_sec = 15.0\n` +
-    `tool_timeout_sec = 600.0\n`
+    `tool_timeout_sec = 600.0\n` +
+    // Auto-approve neoncore's own tools (register/report/confer) so Codex doesn't
+    // prompt on every call — they're first-party coordination tools, not arbitrary code.
+    `default_tools_approval_mode = "auto"\n`
   );
 }
 
