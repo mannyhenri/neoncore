@@ -3234,8 +3234,55 @@ function SidePanel({
               </div>
             </div>
 
-            {/* Cartridge is selected once at the workflow level (toolbar) and
-                applies to every step — no per-step cartridge picker. */}
+            {/* Per-step engine + branch — fan one workflow across tools, each isolated
+                on its own branch. Engine resolves to a LIVE cartridge of that type in the
+                repo at launch (leave on "Inherit" to use the run-level cartridge); Branch
+                spins up a git worktree the step works in so parallel steps don't collide. */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Engine</label>
+                <select
+                  value={(step.executorConfig.agentType as string) || ''}
+                  onChange={(e) =>
+                    onUpdate({
+                      executorConfig: { ...step.executorConfig, agentType: e.target.value || undefined },
+                    })
+                  }
+                  disabled={isExecuting}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+                >
+                  <option value="">Inherit (run cartridge)</option>
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                  <option value="gridlight">Gridlight</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Branch (optional)</label>
+                <input
+                  type="text"
+                  value={(step.executorConfig.branch as string) || ''}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onChange={(e) =>
+                    onUpdate({
+                      executorConfig: { ...step.executorConfig, branch: e.target.value.trim() || undefined },
+                    })
+                  }
+                  disabled={isExecuting}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+                  placeholder="feature/step-a"
+                />
+              </div>
+            </div>
+            {(step.executorConfig.agentType || step.executorConfig.branch) ? (
+              <p className="text-[11px] text-gray-600 -mt-1">
+                {step.executorConfig.agentType
+                  ? `Runs on a ${String(step.executorConfig.agentType)} cartridge in the repo`
+                  : 'Runs on the run cartridge'}
+                {step.executorConfig.branch ? ` · isolated in worktree ${String(step.executorConfig.branch)}` : ''}.
+              </p>
+            ) : null}
 
             {/* Intent toggle */}
             <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
