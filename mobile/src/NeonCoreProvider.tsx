@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import { AppState } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { api } from './api';
-import type { Agent, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
+import type { Agent, ConferSession, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
 type TranscriptListener = (ev: TranscriptEvent) => void;
 type WorkflowStepListener = (step: WorkflowStep) => void;
@@ -13,6 +13,8 @@ interface NeonCoreValue {
   connected: boolean;
   agents: Agent[];
   permissions: PermissionRequest[];
+  /** Active + recent confer sessions, kept live via the confer_updated socket event. */
+  confers: ConferSession[];
   refresh: () => Promise<void>;
   /** Put a cartridge away / bring it back. Does NOT stop the agent — see api.dismissAgent. */
   dismissAgent: (agentId: string) => Promise<void>;
@@ -37,6 +39,7 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
   const [connected, setConnected] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+  const [confers, setConfers] = useState<ConferSession[]>([]);
   const socketRef = useRef<Socket | null>(null);
   // Map<agentId, Set<listener>> for per-agent transcript fan-out.
   const listeners = useRef<Map<string, Set<TranscriptListener>>>(new Map());
@@ -45,12 +48,14 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
   const workflowListeners = useRef<Set<WorkflowListener>>(new Set());
 
   const refresh = useCallback(async () => {
-    const [a, p] = await Promise.all([
+    const [a, p, c] = await Promise.all([
       api.listAgents(baseUrl).catch(() => [] as Agent[]),
       api.pendingPermissions(baseUrl).catch(() => [] as PermissionRequest[]),
+      api.listConfers(baseUrl).catch(() => [] as ConferSession[]),
     ]);
     setAgents(a);
     setPermissions(p);
+    setConfers(c);
   }, [baseUrl]);
 
   // Patch the agent locally as well as relying on the server's agent_updated broadcast, so
@@ -141,6 +146,17 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
       if (set) set.forEach((cb) => cb(ev));
     });
 
+    // Live confer milestone progress — upsert by id so the list screen reflects each advance.
+    socket.on('confer_updated', (session: ConferSession) =>
+      setConfers((prev) => {
+        const i = prev.findIndex((c) => c.id === session.id);
+        if (i === -1) return [session, ...prev];
+        const next = prev.slice();
+        next[i] = session;
+        return next;
+      }),
+    );
+
     // Live workflow progress — drives the run detail screen without polling.
     socket.on('workflow_step_updated', (step: WorkflowStep) =>
       stepListeners.current.forEach((cb) => cb(step)),
@@ -172,10 +188,10 @@ export function NeonCoreProvider({ baseUrl, children }: { baseUrl: string; child
 
   const value = useMemo<NeonCoreValue>(
     () => ({
-      baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent,
+      baseUrl, connected, agents, permissions, confers, refresh, dismissAgent, restoreAgent,
       onTranscript, onWorkflowStep, onWorkflowUpdate,
     }),
-    [baseUrl, connected, agents, permissions, refresh, dismissAgent, restoreAgent,
+    [baseUrl, connected, agents, permissions, confers, refresh, dismissAgent, restoreAgent,
       onTranscript, onWorkflowStep, onWorkflowUpdate],
   );
 

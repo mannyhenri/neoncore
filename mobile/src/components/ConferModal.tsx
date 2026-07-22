@@ -8,11 +8,11 @@ import { useNeonCore } from '../NeonCoreProvider';
 import type { Agent } from '../types';
 
 /**
- * Seed a multi-agent "confer" from the phone: pick 2+ live cartridges (e.g. Claude +
- * Codex) and a task; each gets the same task plus its peers' ids and is told to use
- * the neoncore_message_agent / neoncore_read_agent MCP tools to collaborate and
- * converge on one solution. Pure UI over the existing sendCommand — mirrors the web
- * ConferModal.
+ * Start a milestone-driven "confer" from the phone: pick 2+ live cartridges (e.g. Claude +
+ * Codex) and a task. The server-side conductor runs them through a fixed cycle
+ * (Align → Build → Cross-review → Converge → Finalize), dispatching each milestone to both
+ * agents and auto-advancing only when both signal done. Progress shows on the Cartridges
+ * screen. Mirrors the web ConferModal.
  */
 export function ConferModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { baseUrl, agents } = useNeonCore();
@@ -40,13 +40,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
     if (!task.trim()) { flash('Describe the task they should solve together.'); return; }
     setSending(true);
     try {
-      const participants = selected
-        .map((id) => live.find((a) => a.id === id))
-        .filter((a): a is Agent => !!a);
-      for (const me of participants) {
-        const peers = participants.filter((p) => p.id !== me.id);
-        await api.sendCommand(baseUrl, me.id, conferPrompt(task.trim(), peers));
-      }
+      await api.startConfer(baseUrl, selected, task.trim());
       reset();
       onClose();
     } catch (e) {
@@ -65,7 +59,8 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
             <TouchableOpacity onPress={onClose}><Text style={styles.close}>×</Text></TouchableOpacity>
           </View>
           <Text style={styles.sub}>
-            They get the same task + each other's ids and confer via the neoncore tools to reach one solution.
+            One task, run through a fixed cycle — Align → Build → Cross-review → Converge → Finalize.
+            Each milestone advances only when both signal done. Progress shows on the Cartridges screen.
           </Text>
 
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
@@ -144,30 +139,6 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
       </View>
     </Modal>
   );
-}
-
-/** Compose the wire-up prompt one participant receives. */
-function conferPrompt(task: string, peers: Agent[]): string {
-  const peerLines = peers
-    .map((p) => `- ${p.agentType} (${p.repoName || p.name}) — agentId: ${p.id}`)
-    .join('\n');
-  return [
-    `[NeonCore Confer] You're collaborating with ${peers.length} other agent(s) on ONE task. Work together and converge on a single agreed solution — do not work in isolation.`,
-    ``,
-    `TASK:`,
-    task,
-    ``,
-    `YOUR PEERS (use these ids with the neoncore MCP tools):`,
-    peerLines,
-    ``,
-    `HOW TO CONFER:`,
-    `1. neoncore_read_agent("<peerId>") — see what a peer has done so far.`,
-    `2. neoncore_message_agent("<peerId>", "...") — share your plan, findings, or critiques.`,
-    `3. Divide the work or review each other's approach; iterate until you agree.`,
-    `4. Agree on ONE of you to post the final combined solution, and say who.`,
-    ``,
-    `Begin now by messaging your peer(s) with your initial plan.`,
-  ].join('\n');
 }
 
 const styles = StyleSheet.create({
