@@ -384,6 +384,40 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_agent ON messages(agent_id, ts);
 `);
 
+// ── Confer (standalone multi-agent collaboration) ───────────────────────────
+// A Confer is a milestone-driven collaboration between 2+ live agents, run by its
+// own conductor (lib/confer-conductor.ts): it dispatches each milestone to every
+// participant, waits for all to signal done, then auto-advances to the next. Kept
+// deliberately separate from the workflow engine — its own tables, its own loop.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS confer_sessions (
+    id TEXT PRIMARY KEY,
+    repo_name TEXT NOT NULL DEFAULT '',
+    repo_path TEXT NOT NULL DEFAULT '',
+    task TEXT NOT NULL DEFAULT '',
+    participant_ids TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'running',
+    current_milestone INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS confer_milestones (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    done_ids TEXT NOT NULL DEFAULT '[]',
+    results TEXT NOT NULL DEFAULT '{}',
+    dispatched_at TEXT,
+    completed_at TEXT,
+    nudged INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_confer_ms_session ON confer_milestones(session_id, idx);
+`);
+
 // Workflow Steps table (V2 canvas workflows)
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflow_steps (

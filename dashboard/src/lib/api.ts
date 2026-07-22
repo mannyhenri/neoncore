@@ -152,6 +152,37 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path: repoPath, agentType }),
     }),
+  createRepo: (data: {
+    name: string;
+    parentDir: string;
+    description?: string;
+    isPrivate: boolean;
+    agentType: string;
+    owner: string;
+  }) =>
+    request<{ ok: boolean; path: string; repoUrl: string; launchError: string | null }>('/repos/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Confer (standalone multi-agent collaboration)
+  startConfer: (participantIds: string[], task: string) =>
+    request<import('../types').ConferSession>('/confer/start', {
+      method: 'POST',
+      body: JSON.stringify({ participantIds, task }),
+    }),
+  getConfers: () => request<import('../types').ConferSession[]>('/confer'),
+  cancelConfer: (id: string) =>
+    request<import('../types').ConferSession>(`/confer/${id}/cancel`, { method: 'POST' }),
+
+  // GitHub accounts (gh CLI)
+  getGithubAccounts: () =>
+    request<{ accounts: { login: string; active: boolean }[] }>('/github/accounts'),
+  switchGithubAccount: (login: string) =>
+    request<{ ok: boolean; accounts: { login: string; active: boolean }[] }>('/github/switch', {
+      method: 'POST',
+      body: JSON.stringify({ login }),
+    }),
 
   // Git
   getWorktrees: (agentId: string) =>

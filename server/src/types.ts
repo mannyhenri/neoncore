@@ -1,6 +1,36 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
 export type AgentType = 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor';
 
+// ── Confer (standalone multi-agent collaboration) ──────────────────────────
+export type ConferStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface ConferMilestone {
+  id: string;
+  sessionId: string;
+  idx: number;
+  key: string;
+  name: string;
+  status: 'pending' | 'active' | 'done';
+  /** Participant agentIds that have signalled this milestone complete. */
+  doneIds: string[];
+  dispatchedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface ConferSession {
+  id: string;
+  repoName: string;
+  repoPath: string;
+  task: string;
+  participantIds: string[];
+  status: ConferStatus;
+  currentMilestone: number;
+  error: string;
+  createdAt: string;
+  completedAt: string | null;
+  milestones?: ConferMilestone[];
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -395,6 +425,7 @@ export type ServerToClientEvents = {
     recoveryAttempts: number;
   }) => void;
   virtual_cartridge_updated: (vc: VirtualCartridge) => void;
+  confer_updated: (session: ConferSession) => void;
   auto_approve_plan: (data: { agentId: string }) => void;
   plan_executed: (data: { agentId: string }) => void;
   session_started: (data: { agentId: string; project: string; sessionId: string }) => void;

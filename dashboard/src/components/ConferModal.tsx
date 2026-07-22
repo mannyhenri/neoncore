@@ -4,10 +4,11 @@ import { api } from '../lib/api';
 type ConferAgent = { id: string; name: string; repoName?: string; agentType: string; status: string };
 
 /**
- * Seed a multi-agent "confer" — two or more live cartridges (typically different
- * engines, e.g. Claude + Codex) get the SAME task plus each other's ids, and are
- * told to coordinate through the dashboard/task context. Pure UI over the existing
- * sendCommand: no dedicated backend endpoint.
+ * Start a milestone-driven "confer" — two or more live cartridges (typically different
+ * engines, e.g. Claude + Codex) collaborate on ONE task through a fixed cycle of
+ * milestones (Align → Build → Cross-review → Converge → Finalize). The server-side
+ * conductor dispatches each milestone to both agents and auto-advances only when both
+ * have signalled done, so they keep re-engaging across the whole cycle with no manual step.
  */
 export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClose: () => void }) {
   const live = agents.filter((a) => a.status !== 'offline');
@@ -32,13 +33,7 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
     if (!task.trim()) { setError('Describe the task they should solve together.'); return; }
     setSending(true); setError('');
     try {
-      const participants = selected
-        .map((id) => live.find((a) => a.id === id))
-        .filter((a): a is ConferAgent => !!a);
-      for (const me of participants) {
-        const peers = participants.filter((p) => p.id !== me.id);
-        await api.sendCommand(me.id, conferPrompt(task.trim(), peers), false);
-      }
+      await api.startConfer(selected, task.trim());
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -58,7 +53,8 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
         </div>
         <p className="text-[11px] text-gray-500 mb-4">
-          They get the same task + each other's ids, and confer via the neoncore message/read tools to converge on one solution.
+          They run one task through a fixed cycle — <span className="text-gray-400">Align → Build → Cross-review → Converge → Finalize</span> —
+          coordinating via the neoncore message/read tools. Each milestone advances only when both signal done; no manual steps.
         </p>
 
         <label className="block text-xs text-gray-500 mb-1.5">
@@ -139,27 +135,4 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
       </div>
     </div>
   );
-}
-
-/** Compose the wire-up prompt one participant receives. */
-function conferPrompt(task: string, peers: ConferAgent[]): string {
-  const peerLines = peers
-    .map((p) => `- ${p.agentType} (${p.repoName || p.name}) — agentId: ${p.id}`)
-    .join('\n');
-  return [
-    `[NeonCore Confer] You're collaborating with ${peers.length} other agent(s) on ONE task. Work together and converge on a single agreed solution — do not work in isolation.`,
-    ``,
-    `TASK:`,
-    task,
-    ``,
-    `YOUR PEERS:`,
-    peerLines,
-    ``,
-    `HOW TO CONFER:`,
-    `1. State your plan and assumptions clearly so the other agents can compare against it.`,
-    `2. Divide the work or review each other's approach; iterate until you agree.`,
-    `3. Agree on ONE of you to post the final combined solution, and say who.`,
-    ``,
-    `Begin now by messaging your peer(s) with your initial plan.`,
-  ].join('\n');
 }

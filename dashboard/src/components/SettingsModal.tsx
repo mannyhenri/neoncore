@@ -23,7 +23,7 @@ const BADGE_STYLES: Record<string, string> = {
   violet: 'bg-violet-900/60 text-violet-300',
 };
 
-type SettingsTab = 'projects' | 'tools';
+type SettingsTab = 'projects' | 'tools' | 'github';
 
 interface ToolStatus {
   label: string;
@@ -48,6 +48,9 @@ export function SettingsModal({ onClose }: Props) {
   const [toolsStatus, setToolsStatus] = useState<Record<string, ToolStatus>>({});
   const [toolsBusy, setToolsBusy] = useState<Set<string>>(new Set());
   const [toolsMsg, setToolsMsg] = useState<Record<string, { type: 'ok' | 'err'; text: string }>>({});
+  const [ghAccounts, setGhAccounts] = useState<{ login: string; active: boolean }[]>([]);
+  const [ghBusy, setGhBusy] = useState('');
+  const [ghMsg, setGhMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
 
   const browse = useCallback((dirPath?: string) => {
@@ -82,6 +85,25 @@ export function SettingsModal({ onClose }: Props) {
     if (tab !== 'tools') return;
     api.getToolsStatus().then(setToolsStatus).catch(() => {});
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'github') return;
+    api.getGithubAccounts().then((r) => setGhAccounts(r.accounts)).catch(() => setGhAccounts([]));
+  }, [tab]);
+
+  const handleSwitchAccount = async (login: string) => {
+    setGhBusy(login);
+    setGhMsg(null);
+    try {
+      const res = await api.switchGithubAccount(login);
+      setGhAccounts(res.accounts);
+      setGhMsg({ type: 'ok', text: `Now using ${login} in new terminals & agents. Commit identity updated to match.` });
+    } catch (err) {
+      setGhMsg({ type: 'err', text: err instanceof Error ? err.message : 'Switch failed' });
+    } finally {
+      setGhBusy('');
+    }
+  };
 
   const handleAddDir = async () => {
     if (savedDirs.includes(currentPath)) return;
@@ -156,6 +178,7 @@ export function SettingsModal({ onClose }: Props) {
             <div className="flex gap-1">
               <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
               <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
+              <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
@@ -214,7 +237,7 @@ export function SettingsModal({ onClose }: Props) {
               {saved && <span className="text-xs text-green-400">Added</span>}
             </div>
           </>
-        ) : (
+        ) : tab === 'tools' ? (
           <>
             <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-3">
               {Object.keys(toolsStatus).length === 0 ? (
@@ -255,6 +278,46 @@ export function SettingsModal({ onClose }: Props) {
                   );
                 })
               )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 space-y-3">
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Choose which GitHub account new terminals and launched agents use. NeonCore switches the
+                active <span className="font-mono text-gray-400">gh</span> account in the background and aligns your
+                git commit identity to match.
+              </p>
+              {ghAccounts.length === 0 ? (
+                <div className="text-sm text-gray-500 text-center py-6">
+                  No connected accounts. Log in with <span className="font-mono text-gray-400">gh auth login</span>.
+                </div>
+              ) : (
+                ghAccounts.map((a) => (
+                  <div key={a.login} className="glass-light rounded-lg p-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-medium text-gray-200 font-mono truncate">{a.login}</span>
+                      {a.active && (
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300">active</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleSwitchAccount(a.login)}
+                      disabled={a.active || ghBusy === a.login}
+                      className="text-xs px-2.5 py-1 rounded bg-white/10 text-gray-200 hover:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      {ghBusy === a.login ? 'Switching…' : a.active ? 'In use' : 'Use'}
+                    </button>
+                  </div>
+                ))
+              )}
+              {ghMsg && (
+                <div className={`text-xs ${ghMsg.type === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{ghMsg.text}</div>
+              )}
+              <p className="text-[11px] text-gray-600 leading-relaxed pt-1">
+                Note: repos with SSH remotes authenticate via your SSH key, which this doesn't change — this
+                affects gh commands, HTTPS pushes, and commit author.
+              </p>
             </div>
           </>
         )}
