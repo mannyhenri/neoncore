@@ -1,4 +1,4 @@
-import type { Agent, AgentMode, Machine, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
+import type { Agent, AgentMode, ConferSession, Machine, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
 async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
@@ -162,6 +162,29 @@ export const api = {
     req<Workflow>(base, `/api/workflows/${id}/resume`, { method: 'POST' }),
   cancelWorkflow: (base: string, id: string) =>
     req<Workflow>(base, `/api/workflows/${id}/cancel`, { method: 'POST' }),
+
+  // Confer — milestone-driven multi-agent collaboration. `start` kicks off the server-side
+  // conductor; it runs the whole cycle and pushes progress over the confer_updated socket.
+  startConfer: (base: string, participantIds: string[], task: string) =>
+    req<ConferSession>(base, '/api/confer/start', {
+      method: 'POST',
+      body: JSON.stringify({ participantIds, task }),
+    }),
+  listConfers: (base: string) => req<ConferSession[]>(base, '/api/confer'),
+  cancelConfer: (base: string, id: string) =>
+    req<ConferSession>(base, `/api/confer/${id}/cancel`, { method: 'POST' }),
+
+  // New repo — scaffold a folder on the server host, git init, gh repo create + push, and
+  // (optionally) launch an agent. parentDir/owner default server-side (projects_dir / active
+  // gh account), so the phone only needs a name + a couple of choices.
+  createRepo: (
+    base: string,
+    data: { name: string; description?: string; isPrivate: boolean; agentType: string },
+  ) =>
+    req<{ ok: boolean; path: string; repoUrl: string; launchError: string | null }>(base, '/api/repos/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // decision: 'allowed' | 'denied'. `response` carries AskUserQuestion answers
   // or ExitPlanMode feedback (string or object).

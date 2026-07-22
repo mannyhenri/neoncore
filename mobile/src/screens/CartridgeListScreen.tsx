@@ -7,6 +7,8 @@ import { QuestionIcon } from '../components/Icons';
 import { SwipeToDismiss } from '../components/SwipeToDismiss';
 import { RemoteLaunchModal } from '../components/RemoteLaunchModal';
 import { ConferModal } from '../components/ConferModal';
+import { ConferProgress } from '../components/ConferProgress';
+import { NewRepoModal } from '../components/NewRepoModal';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
   const { agents, connected, refresh, dismissAgent, restoreAgent } = useNeonCore();
@@ -15,6 +17,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
   const [showHidden, setShowHidden] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
   const [conferOpen, setConferOpen] = useState(false);
+  const [repoOpen, setRepoOpen] = useState(false);
 
   const doRefresh = async () => {
     setRefreshing(true);
@@ -44,6 +47,9 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
       <View style={styles.header}>
         <Text style={styles.title}>Cartridges</Text>
         <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.launchBtn} onPress={() => setRepoOpen(true)}>
+            <Text style={styles.launchBtnText}>＋ Repo</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.launchBtn} onPress={() => setConferOpen(true)}>
             <Text style={styles.launchBtnText}>Confer</Text>
           </TouchableOpacity>
@@ -57,12 +63,14 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
 
       <RemoteLaunchModal visible={launchOpen} onClose={() => setLaunchOpen(false)} />
       <ConferModal visible={conferOpen} onClose={() => setConferOpen(false)} />
+      <NewRepoModal visible={repoOpen} onClose={() => setRepoOpen(false)} />
 
       <FlatList
         data={sorted}
         keyExtractor={(a) => a.id}
         contentContainerStyle={{ paddingVertical: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />}
+        ListHeaderComponent={<ConferProgress />}
         ListEmptyComponent={
           <Text style={styles.empty}>
             {hidden.length > 0
