@@ -4,7 +4,9 @@ import { CartridgeGrid } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MachineLauncher } from './components/MachineLauncher';
+import { NewRepoModal } from './components/NewRepoModal';
 import { ConferModal } from './components/ConferModal';
+import { ConferPanel } from './components/ConferPanel';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
@@ -61,6 +63,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [conferOpen, setConferOpen] = useState(false);
+  const [newRepoOpen, setNewRepoOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
   const onlineAgents = agents.filter((a) => a.status !== 'offline');
@@ -127,6 +130,14 @@ export default function App() {
             </div>
             {/* Launch a cartridge on any registered machine (local or remote) */}
             <MachineLauncher />
+            {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
+            <button
+              onClick={() => setNewRepoOpen(true)}
+              className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors"
+              title="Create a new folder, git init, push to GitHub, and start working"
+            >
+              + New Repo
+            </button>
             {/* Confer — put two live cartridges on one job to collaborate */}
             <button
               onClick={() => setConferOpen(true)}
@@ -187,6 +198,9 @@ export default function App() {
           <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
         ) : (
         <>
+        {/* Active confers — milestone progress for collaborating cartridges */}
+        <ConferPanel agents={agents} />
+
         {/* Workflow Panel */}
         <section>
           <WorkflowPanel agents={agents} />
@@ -261,6 +275,11 @@ export default function App() {
       )}
       {guideOpen && (
         <GuideModal onClose={() => setGuideOpen(false)} />
+      )}
+
+      {/* New Repo Modal */}
+      {newRepoOpen && (
+        <NewRepoModal onClose={() => setNewRepoOpen(false)} />
       )}
 
       {/* Settings Modal */}

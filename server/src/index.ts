@@ -15,6 +15,9 @@ import memoryRouter from './routes/memory.js';
 import notesRouter from './routes/notes.js';
 import settingsRouter from './routes/settings.js';
 import reposRouter from './routes/repos.js';
+import githubRouter from './routes/github.js';
+import conferRouter from './routes/confer.js';
+import { startConferConductor } from './lib/confer-conductor.js';
 import gitRouter from './routes/git.js';
 import epicsRouter from './routes/epics.js';
 import workflowsRouter from './routes/workflows.js';
@@ -63,6 +66,8 @@ app.use('/api/agents', memoryRouter);
 app.use('/api/agents', notesRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/repos', reposRouter);
+app.use('/api/github', githubRouter);
+app.use('/api/confer', conferRouter);
 app.use('/api/git', gitRouter);
 app.use('/api/epics', epicsRouter);
 app.use('/api/workflows', workflowsRouter);
@@ -248,6 +253,7 @@ startMemoryAnalyzer();
 startCleanupScheduler();
 startWorkflowExecutorV2();
 startHeartbeatScheduler();
+startConferConductor();
 
 // Graceful shutdown — stop the schedulers that own intervals.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

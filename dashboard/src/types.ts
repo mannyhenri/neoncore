@@ -386,6 +386,35 @@ export interface Task {
   completedAt: string | null;
 }
 
+// Confer (standalone multi-agent collaboration)
+export type ConferStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface ConferMilestone {
+  id: string;
+  sessionId: string;
+  idx: number;
+  key: string;
+  name: string;
+  status: 'pending' | 'active' | 'done';
+  doneIds: string[];
+  dispatchedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface ConferSession {
+  id: string;
+  repoName: string;
+  repoPath: string;
+  task: string;
+  participantIds: string[];
+  status: ConferStatus;
+  currentMilestone: number;
+  error: string;
+  createdAt: string;
+  completedAt: string | null;
+  milestones?: ConferMilestone[];
+}
+
 // Git types
 export interface Worktree {
   path: string;
