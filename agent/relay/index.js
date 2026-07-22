@@ -28,6 +28,10 @@
  *   NEONCORE_AGENT_CMD   binary to launch (default "claude"; on Windows you may
  *                        need "claude.cmd")
  *   NEONCORE_AGENT_TYPE  agent type to register as (default "claude")
+ *   NEONCORE_RELAY_PROTECT
+ *                        set to 1 for user terminal sessions; ignores stray
+ *                        SIGTERM from broad external cleanup commands while
+ *                        still honoring SIGHUP/exit when the terminal closes
  *   NEONCORE_RELAY_DEBUG set to 1 to mirror relay logs to stderr (off by default
  *                        so they don't corrupt the agent's TUI)
  */
@@ -62,6 +66,7 @@ const { default: pty } = await import('node-pty');
 // ── Config ────────────────────────────────────────────────────────────────
 const URL = process.env.NEONCORE_URL || 'http://localhost:4040';
 const AGENT_TYPE = process.env.NEONCORE_AGENT_TYPE || 'claude';
+const PROTECT_RELAY = process.env.NEONCORE_RELAY_PROTECT === '1';
 // When the exact binary isn't pinned via NEONCORE_AGENT_CMD, derive it from the
 // agent type. The relay-launched engines (claude, codex, gridlight) each name
 // their CLI after the type, so a `codex` launch spawns `codex` — not claude.
@@ -262,11 +267,17 @@ async function main() {
   }
 
   // Forward Ctrl-C etc. to the child (raw mode means we receive them as data),
-  // but still clean up the terminal if we're killed directly. SIGTERM/SIGHUP are
-  // the crash/kill signals (parent quit, machine going down) — report those as an
-  // interrupt. SIGINT is a normal user Ctrl-C, so we don't treat it as a crash.
+  // but still clean up the terminal if we're killed directly. SIGHUP means the
+  // terminal actually closed. SIGTERM is usually a supervisor stop, but some
+  // external cleanup scripts use broad `pkill -f` patterns; protected terminal
+  // relays ignore those so a Gridlight-side cleanup cannot tear down unrelated
+  // Claude/Codex sessions.
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {
+      if (sig === 'SIGTERM' && PROTECT_RELAY) {
+        log('Ignoring SIGTERM because NEONCORE_RELAY_PROTECT=1');
+        return;
+      }
       if (sig !== 'SIGINT') reportInterrupted();
       try { ptyProc.kill(); } catch { /* ignore */ }
       cleanup();

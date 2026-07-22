@@ -260,6 +260,37 @@ function neoncoreRepoRoot(): string {
 }
 
 /**
+ * Keep the terminal relay runnable from a stable user-space path that does not
+ * include broad process-match words like "agent". Some external cleanup scripts
+ * use `pkill -f agent`; launching from the repo path would match
+ * `<repo>/agent/relay/...` and tear down unrelated NeonCore terminals.
+ */
+function relayInstallDir(): string {
+  return path.join(os.homedir(), '.neoncore', 'relay');
+}
+
+function ensureRelayInstall(): string {
+  const sourceDir = path.join(neoncoreRepoRoot(), 'agent', 'relay');
+  const targetDir = relayInstallDir();
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  for (const filename of ['launch.js', 'index.js', 'package.json', 'package-lock.json']) {
+    const source = path.join(sourceDir, filename);
+    if (fs.existsSync(source)) {
+      fs.copyFileSync(source, path.join(targetDir, filename));
+    }
+  }
+
+  const sourceScripts = path.join(sourceDir, 'scripts');
+  const targetScripts = path.join(targetDir, 'scripts');
+  if (fs.existsSync(sourceScripts)) {
+    fs.cpSync(sourceScripts, targetScripts, { recursive: true });
+  }
+
+  return path.join(targetDir, 'launch.js');
+}
+
+/**
  * Build the command that boots a bare-terminal Claude Code session wired into
  * NeonCore via the agent relay — the terminal equivalent of "open in VS Code".
  *
@@ -270,7 +301,7 @@ function neoncoreRepoRoot(): string {
  * so the agent registers against the right repo.
  */
 function buildRelayLaunchCommand(): string {
-  const launchEntry = path.join(neoncoreRepoRoot(), 'agent', 'relay', 'launch.js');
+  const launchEntry = ensureRelayInstall();
   // Plain double-quotes are valid in both POSIX shells and cmd.exe; do NOT use
   // JSON.stringify here — it would double Windows backslashes, which cmd treats
   // literally and would break the path.
@@ -312,7 +343,9 @@ export function openDirectory(dirPath: string, agentType: string): string | null
   // pre-register here (that would just churn the agent's session id).
   if (agentType === 'claude-terminal' || agentType === 'claude-cli') {
     const sessionId = `neoncore-claude-${Date.now()}`;
-    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId);
+    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, {
+      NEONCORE_RELAY_PROTECT: '1',
+    });
   }
 
   // Gridlight CLI (the Claude-analog) in a plain terminal via the same relay.
@@ -320,7 +353,10 @@ export function openDirectory(dirPath: string, agentType: string): string | null
   // lets the CLI correlate its transcript/permission reporting back to NeonCore.
   if (agentType === 'gridlight-terminal' || agentType === 'gridlight-cli') {
     const sessionId = `neoncore-gridlight-${Date.now()}`;
-    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, buildGridlightEnv(sessionId));
+    return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, {
+      ...buildGridlightEnv(sessionId),
+      NEONCORE_RELAY_PROTECT: '1',
+    });
   }
 
   // Codex CLI (OpenAI) in a plain terminal via the same relay. The relay spawns
@@ -331,6 +367,7 @@ export function openDirectory(dirPath: string, agentType: string): string | null
     return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, {
       NEONCORE_AGENT_CMD: process.platform === 'win32' ? 'codex.cmd' : 'codex',
       NEONCORE_AGENT_TYPE: 'codex',
+      NEONCORE_RELAY_PROTECT: '1',
     });
   }
 
