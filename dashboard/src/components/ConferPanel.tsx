@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Agent, ConferSession } from '../types';
 import { api } from '../lib/api';
 
@@ -18,6 +19,23 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
   const participants = c.participantIds.length;
   const milestones = c.milestones || [];
 
+  // Two-step cancel with real feedback. The old one-line link swallowed errors and gave no
+  // sign anything happened; a stuck confer looked un-cancellable. 'confirm' is the armed state.
+  const [cancelPhase, setCancelPhase] = useState<'idle' | 'confirm' | 'cancelling'>('idle');
+  const [cancelError, setCancelError] = useState('');
+  const doCancel = async () => {
+    setCancelPhase('cancelling');
+    setCancelError('');
+    try {
+      await api.cancelConfer(c.id);
+      // Leave 'cancelling' showing — the parent's confer poll (or the confer_updated socket)
+      // will replace this card with the cancelled state within a couple of seconds.
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Cancel failed');
+      setCancelPhase('idle');
+    }
+  };
+
   return (
     <div className="glass rounded-lg border border-white/[0.08] px-3 py-2.5">
       <div className="flex items-center gap-2 mb-2">
@@ -28,14 +46,34 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
         <span className="text-[11px] text-gray-500">{c.participantIds.map(typeOf).join(' + ')}</span>
         <span className="text-[11px] text-gray-600 truncate flex-1" title={c.task}>— {c.task}</span>
         {c.status === 'running' && (
-          <button
-            onClick={() => api.cancelConfer(c.id).catch(() => {})}
-            className="text-[11px] text-gray-500 hover:text-red-400 transition-colors shrink-0"
-          >
-            cancel
-          </button>
+          cancelPhase === 'cancelling' ? (
+            <span className="text-[11px] text-gray-500 shrink-0">Cancelling…</span>
+          ) : cancelPhase === 'confirm' ? (
+            <span className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={doCancel}
+                className="text-[11px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+              >
+                Cancel confer
+              </button>
+              <button
+                onClick={() => setCancelPhase('idle')}
+                className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                keep
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setCancelPhase('confirm')}
+              className="text-[11px] px-1.5 py-0.5 rounded border border-white/10 text-gray-400 hover:text-red-300 hover:border-red-500/40 transition-colors shrink-0"
+            >
+              Cancel
+            </button>
+          )
         )}
       </div>
+      {cancelError && <div className="text-[11px] text-red-400 mb-1.5">{cancelError}</div>}
 
       {/* Milestone stepper */}
       <div className="flex items-center gap-1 flex-wrap">
