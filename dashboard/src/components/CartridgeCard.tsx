@@ -930,12 +930,24 @@ export function CartridgeCard({
         </div>
 
 
-        {/* ── Mode selector + Plans toggle — target the focused tool (first selected) ── */}
+        {/* ── Mode selector + Plans toggle — apply to EVERY selected engine, not just the
+             focused one, so you can flip Plan/Manual/Trust across a multi-engine selection in
+             one click. The buttons reflect the focused engine's current mode. ── */}
         <div className="mx-3 mb-2 flex items-center justify-between gap-2">
-          <AgentModeSelector mode={selectedAgent.mode} onSetMode={(mode) => onSetMode(selectedAgent.id, mode)} />
+          <AgentModeSelector
+            mode={selectedAgent.mode}
+            onSetMode={(mode) => {
+              const targets = sendTargets.length > 0 ? sendTargets : [selectedAgent];
+              for (const t of targets) onSetMode(t.id, mode);
+            }}
+          />
           {selectedAgent.mode === 'trust' && (
             <button
-              onClick={() => api.setPlansIncluded(selectedAgent.id, !selectedAgent.plansIncluded)}
+              onClick={() => {
+                const targets = sendTargets.length > 0 ? sendTargets : [selectedAgent];
+                const next = !selectedAgent.plansIncluded;
+                for (const t of targets) api.setPlansIncluded(t.id, next);
+              }}
               title={selectedAgent.plansIncluded ? 'Plans auto-approved (click to require review)' : 'Plans require review (click to auto-approve)'}
               className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
                 selectedAgent.plansIncluded
@@ -948,6 +960,11 @@ export function CartridgeCard({
             </button>
           )}
         </div>
+        {multiTool && sendTargets.length > 1 && (
+          <div className="mx-3 -mt-1 mb-2 text-[11px] text-gray-600">
+            Mode applies to all {sendTargets.length} selected engines.
+          </div>
+        )}
 
         {/* ── Terminal: recent activity + live log ── */}
         <div
