@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
-import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession } from '../types';
+import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput } from '../types';
 
 // ─── Browser notification helper ────────────────────
 
@@ -402,6 +403,16 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   const [initialContext, setInitialContext] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [runError, setRunError] = useState('');
+  const {
+    attachments,
+    error: attachmentError,
+    setError: setAttachmentError,
+    addFiles,
+    removeAttachment,
+    clear: clearAttachments,
+    encode: encodeAttachments,
+  } = useAttachments();
 
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
@@ -445,6 +456,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       setDeferredPrompts({});
       setInitialContext('');
       setSelectedProjectId('');
+      setRunError('');
+      clearAttachments();
       api.getGoalProjects().then(setProjects).catch(() => {});
       setStarting(false);
     } catch { /* silent */ }
@@ -462,7 +475,23 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     if (!allAgentsAssigned || !allPromptsAssigned) return;
 
     setStarting(true);
-    setDeferredPopup(null);
+    setAttachmentError('');
+    setRunError('');
+
+    // Encode before tearing the modal down — a read failure has to leave the popup up with
+    // the user's inputs intact, not silently drop the run.
+    let payloads: CommandAttachmentInput[] = [];
+    try {
+      payloads = await encodeAttachments();
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : 'Could not read attachment.');
+      setStarting(false);
+      return;
+    }
+
+    // The modal stays up until the server accepts the run. Attachments are the first thing
+    // here that can be rejected server-side (missing repo path, oversized batch) — closing
+    // first would drop that message on the floor along with everything the user typed.
     try {
       const result = await api.startWorkflowV2(
         wf.id,
@@ -473,14 +502,18 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         // The run-level cartridge fills every unassigned step server-side, so we don't have to
         // fan it out into a per-step map here.
         !perStepAgents ? runAgentId || undefined : undefined,
+        payloads.length > 0 ? payloads : undefined,
       );
+      setDeferredPopup(null);
       const runId = result?.workflow?.id;
       if (runId && runId !== wf.id && onRunCreated) {
         onRunCreated(runId);
       } else {
         onAction();
       }
-    } catch { /* silent */ }
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Could not start this run.');
+    }
     finally { setStarting(false); }
   }
 
@@ -589,6 +622,14 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             )}
           </div>
 
+          <AttachmentField
+            attachments={attachments}
+            error={attachmentError}
+            onAddFiles={addFiles}
+            onRemove={removeAttachment}
+            hint="Optional — copied into the repo of every cartridge this run touches, and referenced in each step's prompt."
+          />
+
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -664,10 +705,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             </div>
           )}
         </div>
+        {runError && <p className="px-4 pb-2 text-[13px] text-red-400">{runError}</p>}
         <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
           <button
             onClick={handleDeferredRun}
             disabled={
+              starting ||
               !selectedProjectId ||
               !(
                 deferredPopup.agentSteps.length === 0 ||
@@ -680,7 +723,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             }
             className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
           >
-            Run Workflow
+            {starting ? 'Starting…' : 'Run Workflow'}
           </button>
           <button onClick={() => setDeferredPopup(null)} className="text-sm px-3 py-2 text-gray-500 hover:text-white transition-colors">
             Cancel

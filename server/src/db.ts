@@ -263,6 +263,15 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_id)`);
 }
 
+// Migration: add attachments column to workflows — files the user attached at launch,
+// stored as a repoPath → prompt-block map (see lib/attachments.ts) because a run's steps
+// can sit in different repos and each agent needs a path valid in its own checkout.
+try {
+  db.prepare('SELECT attachments FROM workflows LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflows ADD COLUMN attachments TEXT NOT NULL DEFAULT '{}'`);
+}
+
 // FTS5 full-text search over session summaries and project knowledge.
 // Drop triggers and tables first so we always start from a consistent schema.
 try {
@@ -433,6 +442,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_confer_ms_session ON confer_milestones(session_id, idx);
 `);
+
+// Migration: add attachments column to confer_sessions — same repoPath → prompt-block map
+// as workflows, appended to every milestone prompt so both engines can open the files.
+try {
+  db.prepare('SELECT attachments FROM confer_sessions LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE confer_sessions ADD COLUMN attachments TEXT NOT NULL DEFAULT '{}'`);
+}
 
 // Workflow Steps table (V2 canvas workflows)
 db.exec(`

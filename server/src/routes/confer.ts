@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import db from '../db.js';
+import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import {
   startConfer,
   recordMilestoneDone,
@@ -21,6 +22,13 @@ router.post('/start', (req, res) => {
   }
   const ids = participantIds.filter((x): x is string => typeof x === 'string');
 
+  let attachments;
+  try {
+    attachments = parseAttachmentsInput(req.body?.attachments);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+
   const ph = ids.map(() => '?').join(',');
   const rows = db.prepare(`SELECT id, repo_name, repo_path, status FROM agents WHERE id IN (${ph})`).all(...ids) as
     { id: string; repo_name: string; repo_path: string; status: string }[];
@@ -36,7 +44,18 @@ router.post('/start', (req, res) => {
   const repoName = rows[0].repo_name || '';
   const repoPath = rows[0].repo_path || '';
 
-  const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim() });
+  // Copy any attached files into EVERY participant's repo before the first milestone goes
+  // out, so each agent gets a path that resolves in its own checkout. Failing here is a
+  // hard 400 — a confer that started without the evidence it was supposed to work from is
+  // worse than one that never started.
+  let attachmentBlocks;
+  try {
+    attachmentBlocks = materializeForRepos(rows.map((r) => r.repo_path), attachments);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+
+  const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks });
   res.json(session);
 });
 
