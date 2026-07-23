@@ -28,6 +28,12 @@ export interface ConferSession {
   error: string;
   createdAt: string;
   completedAt: string | null;
+  /** How the panel relates to the task: split into slices vs. one shared solution. */
+  mode: 'collaborate' | 'divide';
+  /** Whether each agent works in its own git worktree+branch (divide mode only). */
+  isolation: 'shared' | 'worktree';
+  /** agentId → the worktree provisioned for it (present only when isolation = worktree). */
+  worktrees?: Record<string, { path: string; branch: string }>;
   milestones?: ConferMilestone[];
 }
 

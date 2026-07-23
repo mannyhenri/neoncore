@@ -408,6 +408,9 @@ export interface ConferMilestone {
   completedAt: string | null;
 }
 
+export type ConferMode = 'collaborate' | 'divide';
+export type ConferIsolation = 'shared' | 'worktree';
+
 export interface ConferSession {
   id: string;
   repoName: string;
@@ -419,6 +422,9 @@ export interface ConferSession {
   error: string;
   createdAt: string;
   completedAt: string | null;
+  mode: ConferMode;
+  isolation: ConferIsolation;
+  worktrees?: Record<string, { path: string; branch: string }>;
   milestones?: ConferMilestone[];
 }
 

@@ -178,10 +178,11 @@ export const api = {
     participantIds: string[],
     task: string,
     attachments?: import('../types').CommandAttachmentInput[],
+    opts?: { mode?: import('../types').ConferMode; isolation?: import('../types').ConferIsolation },
   ) =>
     request<import('../types').ConferSession>('/confer/start', {
       method: 'POST',
-      body: JSON.stringify({ participantIds, task, attachments }),
+      body: JSON.stringify({ participantIds, task, attachments, mode: opts?.mode, isolation: opts?.isolation }),
     }),
   getConfers: () => request<import('../types').ConferSession[]>('/confer'),
   cancelConfer: (id: string) =>

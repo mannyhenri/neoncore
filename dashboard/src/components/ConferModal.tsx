@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
-import type { CommandAttachmentInput } from '../types';
+import type { CommandAttachmentInput, ConferMode } from '../types';
 
 type ConferAgent = { id: string; name: string; repoName?: string; agentType: string; status: string };
 
@@ -26,6 +26,11 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
   const [task, setTask] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  // divide = split the task into per-agent slices, then merge. collaborate = the whole
+  // panel works ONE problem into ONE shared solution. Worktree isolation gives each agent
+  // its own git worktree+branch — only meaningful for divide.
+  const [mode, setMode] = useState<ConferMode>('divide');
+  const [worktree, setWorktree] = useState(false);
   const {
     attachments,
     error: attachmentError,
@@ -53,7 +58,10 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
     }
 
     try {
-      await api.startConfer(selected, task.trim(), payloads.length > 0 ? payloads : undefined);
+      await api.startConfer(selected, task.trim(), payloads.length > 0 ? payloads : undefined, {
+        mode,
+        isolation: mode === 'divide' && worktree ? 'worktree' : 'shared',
+      });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -73,8 +81,10 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
         </div>
         <p className="text-[11px] text-gray-500 mb-4">
-          They run one task through a fixed cycle — <span className="text-gray-400">Align → Build → Cross-review → Converge → Finalize</span> —
-          coordinating via the neoncore message/read tools. Each milestone advances only when both signal done; no manual steps.
+          They run one task through a fixed 5-milestone cycle — <span className="text-gray-400">{mode === 'collaborate'
+            ? 'Frame → Draft → Critique → Revise → Finalize'
+            : 'Align → Build → Cross-review → Converge → Finalize'}</span> —
+          coordinating via the neoncore message/read tools. Each milestone advances only when every participant signals done; no manual steps.
         </p>
 
         <label className="block text-xs text-gray-500 mb-1.5">
@@ -134,6 +144,46 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           placeholder="What should they solve together? (e.g. 'Design + implement the licensing retry logic; one drafts, the other critiques.')"
           className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none mb-3"
         />
+
+        {/* How the panel relates to the task */}
+        <label className="block text-xs text-gray-500 mb-1.5">How they work</label>
+        <div className="grid grid-cols-2 gap-1.5 mb-2">
+          {([
+            { key: 'divide', title: 'Divide', sub: 'Split into per-agent slices, then merge' },
+            { key: 'collaborate', title: 'Collaborate', sub: 'One shared solution, together' },
+          ] as const).map((m) => {
+            const on = mode === m.key;
+            return (
+              <button
+                key={m.key}
+                onClick={() => setMode(m.key)}
+                className={`text-left rounded-lg px-2.5 py-2 border transition-colors ${
+                  on ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                     : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+                }`}
+              >
+                <div className="text-[13px] font-medium leading-tight">{m.title}</div>
+                <div className="text-[11px] leading-snug opacity-60">{m.sub}</div>
+              </button>
+            );
+          })}
+        </div>
+        {mode === 'divide' ? (
+          <label className="flex items-start gap-2 mb-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={worktree}
+              onChange={(e) => setWorktree(e.target.checked)}
+              className="mt-0.5 accent-emerald-500"
+            />
+            <span className="text-[11px] text-gray-400 leading-snug">
+              Isolate each agent in its own git worktree + branch. Converge becomes a real merge
+              (conflicts surface there). Best for same-machine repos — remote agents fall back to the shared checkout.
+            </span>
+          </label>
+        ) : (
+          <p className="text-[11px] text-gray-600 mb-3">Collaborate works one shared checkout — no per-agent worktrees.</p>
+        )}
 
         <div className="mb-3">
           <AttachmentField
