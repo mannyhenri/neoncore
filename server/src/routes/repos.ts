@@ -242,8 +242,18 @@ router.post('/create', (req, res) => {
     addToLocalLaunchList(targetPath, name);
 
     // 4. Optionally launch an agent so a cartridge appears immediately. A launch failure is
-    //    non-fatal — the repo already exists, so we surface it without failing the request.
-    const launchError = agentType && agentType !== 'none' ? openDirectory(targetPath, agentType) : null;
+    //    non-fatal — the repo already exists and is pushed, so we surface it without failing
+    //    the request. openDirectory returns an error string for expected failures, but a
+    //    deeper throw (e.g. relay-install fs errors) must not turn a created repo into a
+    //    "Failed to create repo" — catch it here and report it as a launch error instead.
+    let launchError: string | null = null;
+    if (agentType && agentType !== 'none') {
+      try {
+        launchError = openDirectory(targetPath, agentType);
+      } catch (e) {
+        launchError = e instanceof Error ? e.message : String(e);
+      }
+    }
 
     return res.json({ ok: true, path: targetPath, repoUrl, launchError });
   } catch (err) {
