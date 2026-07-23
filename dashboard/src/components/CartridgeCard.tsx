@@ -525,6 +525,19 @@ export function CartridgeCard({
     }
   }
 
+  // "This one doesn't need resuming" — hide the Resume banner without replaying. The server
+  // marks it dismissed and broadcasts, which drops the banner everywhere; clearing the local
+  // relaunch flag covers the post-Relaunch case that isn't backed by recoveryStatus.
+  async function handleDismissRecovery() {
+    setResumeAfterRelaunchId('');
+    setRecoveryNotice('');
+    try {
+      await api.dismissAgentRecovery(selectedAgent.id);
+    } catch (err) {
+      setRecoveryNotice(err instanceof Error ? err.message : 'Could not dismiss');
+    }
+  }
+
   // Terminal tab state
   const logScrollRef = useRef<HTMLDivElement>(null);
   const logHoveredRef = useRef(false);
@@ -542,11 +555,17 @@ export function CartridgeCard({
     : effectiveStatus === 'waiting'
       ? 'border-yellow-700/60'
       : 'border-white/[0.08]';
+  // 'dismissed' is the user saying "don't offer to resume this one" — it suppresses every
+  // trigger below, including the plain offline-with-a-session case. A new command or a fresh
+  // interruption resets recovery_status server-side, so the offer comes back when it matters.
   const shouldOfferSessionRecovery =
-    selectedAgent.recoveryStatus === 'interrupted'
-    || selectedAgent.recoveryStatus === 'recovery_failed'
-    || (selectedAgent.status === 'offline' && !!selectedAgent.sessionId)
-    || resumeAfterRelaunchId === selectedAgent.id;
+    selectedAgent.recoveryStatus !== 'dismissed'
+    && (
+      selectedAgent.recoveryStatus === 'interrupted'
+      || selectedAgent.recoveryStatus === 'recovery_failed'
+      || (selectedAgent.status === 'offline' && !!selectedAgent.sessionId)
+      || resumeAfterRelaunchId === selectedAgent.id
+    );
 
   return (
     <div className="relative flex flex-col">
@@ -748,20 +767,31 @@ export function CartridgeCard({
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={handleRecoverSession}
-                  disabled={recoveringSession || !selectedAgent.repoPath}
-                  className="shrink-0 px-2 py-1 rounded bg-red-500/20 text-red-200 hover:bg-red-500/30 disabled:opacity-50 text-[12px] font-medium transition-colors"
-                  title={selectedAgent.status === 'offline' ? 'Relaunch this cartridge first' : 'Replay the stored transcript into this cartridge'}
-                >
-                  {recoveringSession
-                    ? 'Working...'
-                    : selectedAgent.status === 'offline'
-                      ? 'Relaunch'
-                      : selectedAgent.recoveryStatus === 'recovery_failed'
-                        ? 'Retry resume'
-                        : 'Resume session'}
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={handleRecoverSession}
+                    disabled={recoveringSession || !selectedAgent.repoPath}
+                    className="px-2 py-1 rounded bg-red-500/20 text-red-200 hover:bg-red-500/30 disabled:opacity-50 text-[12px] font-medium transition-colors"
+                    title={selectedAgent.status === 'offline' ? 'Relaunch this cartridge first' : 'Replay the stored transcript into this cartridge'}
+                  >
+                    {recoveringSession
+                      ? 'Working...'
+                      : selectedAgent.status === 'offline'
+                        ? 'Relaunch'
+                        : selectedAgent.recoveryStatus === 'recovery_failed'
+                          ? 'Retry resume'
+                          : 'Resume session'}
+                  </button>
+                  <button
+                    onClick={handleDismissRecovery}
+                    disabled={recoveringSession}
+                    className="px-1.5 py-1 rounded text-red-200/60 hover:text-red-100 hover:bg-red-500/20 disabled:opacity-50 text-[13px] leading-none transition-colors"
+                    title="Dismiss — this session doesn't need resuming"
+                    aria-label="Dismiss resume offer"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
               {recoveryNotice && (
                 <div className="mt-1 text-[11px] text-red-100/70">{recoveryNotice}</div>
