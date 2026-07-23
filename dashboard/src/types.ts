@@ -39,7 +39,7 @@ export interface Agent {
    * Ordinary cartridge recovery state. Workflow recovery is tracked per step;
    * these fields support ad hoc terminal sessions that shut down mid-task.
    */
-  recoveryStatus: '' | 'interrupted' | 'recovered' | 'recovery_failed';
+  recoveryStatus: '' | 'interrupted' | 'recovered' | 'recovery_failed' | 'dismissed';
   interruptedAt: string;
   activeObjective: string;
   /**

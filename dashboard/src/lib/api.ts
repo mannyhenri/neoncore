@@ -57,6 +57,9 @@ export const api = {
       `/agents/${id}/recover-session`,
       { method: 'POST' },
     ),
+  // Turn off the Resume offer without replaying anything.
+  dismissAgentRecovery: (id: string) =>
+    request<{ ok: boolean }>(`/agents/${id}/dismiss-recovery`, { method: 'POST' }),
 
   // Activity
   getActivity: (limit = 50) => request<import('../types').Activity[]>(`/activity?limit=${limit}`),

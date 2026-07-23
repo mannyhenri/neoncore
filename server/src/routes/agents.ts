@@ -717,6 +717,27 @@ router.post('/:id/recover-session', (req, res) => {
   res.json({ ok: true, reason: 'dispatched transcript replay', sessionId, promptChars: prompt.length });
 });
 
+// Dismiss the resume offer without replaying anything — "this interruption doesn't need
+// resuming." Marks recovery_status = 'dismissed', which the dashboard reads as "hide the
+// Resume banner". Deliberately does NOT clear active_objective or the recovery session id:
+// dismissal is about the offer, not the history, and a genuinely NEW interruption
+// (markAgentSessionInterrupted) still re-flags a dismissed agent back to 'interrupted'. Any
+// new command (send-command) resets recovery_status to '' — so this never sticks past the
+// next real use of the cartridge.
+router.post('/:id/dismiss-recovery', (req, res) => {
+  const agent = db.prepare('SELECT id FROM agents WHERE id = ?').get(req.params.id) as { id: string } | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  db.prepare(
+    `UPDATE agents SET recovery_status = 'dismissed', interrupted_at = NULL WHERE id = ?`,
+  ).run(req.params.id);
+
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+  const normalized = normalizeAgent(updated);
+  getIO().emit('agent_updated', normalized);
+  res.json({ ok: true });
+});
+
 // Delete an agent (cascade related records)
 router.delete('/:id', (req, res) => {
   deleteAgentCascade(req.params.id);
