@@ -259,6 +259,26 @@ export function cancelConfer(id: string): ConferSession | null {
   if (row.status === 'running') {
     db.prepare(`UPDATE confer_sessions SET status = 'cancelled', completed_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), id);
+
+    // Tell the participants to stop. Marking the session cancelled already makes the
+    // conductor ignore it and rejects any late done-signal, but the agents are mid-milestone
+    // and won't know unless we say so — otherwise "cancel" only stops the bookkeeping while
+    // the engines keep working, which reads as "cancel didn't do anything". Best-effort:
+    // a participant with no live channel just won't get the note.
+    const participantIds: string[] = JSON.parse((row.participant_ids as string) || '[]');
+    for (const pid of participantIds) {
+      try {
+        sendCommandToAgent(
+          pid,
+          '[NeonCore Confer · cancelled] This confer has been cancelled. Stop working on the confer task and wait for new instructions.',
+          false,
+          undefined,
+          { trackObjective: false },
+        );
+      } catch (err) {
+        console.warn(`[confer] ${id} cancel: could not notify ${pid}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
   return emit(id);
 }
