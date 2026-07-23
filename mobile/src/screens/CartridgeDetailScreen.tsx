@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, Clipboard,
@@ -19,6 +19,40 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   const live = agents.find((a) => a.id === agent.id) ?? agent;
   // Anything this agent is currently blocked on — answerable inline, below.
   const myPermissions = permissions.filter((p) => p.agentId === agent.id);
+
+  // Sibling engines: other live cartridges in the SAME repo on the SAME machine (e.g. this
+  // repo also has a Codex + Gridlight running). The web card multi-selects across them; on
+  // mobile each is its own card, so we offer the same fan-out from here — send to this
+  // engine plus any selected siblings at once.
+  const siblings = useMemo(
+    () => agents.filter(
+      (a) => a.id !== live.id && a.status !== 'offline'
+        && a.repoPath === live.repoPath && a.machine === live.machine,
+    ),
+    [agents, live.id, live.repoPath, live.machine],
+  );
+  // Send targets — this engine plus any selected siblings, all on by default.
+  const [targets, setTargets] = useState<Set<string>>(() => new Set([live.id]));
+  useEffect(() => {
+    // Default every sibling on when the group changes; keep at least this engine.
+    setTargets(new Set([live.id, ...siblings.map((s) => s.id)]));
+  }, [live.id, siblings.map((s) => s.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleTarget = (id: string) => setTargets((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) { if (next.size > 1) next.delete(id); } else next.add(id);
+    return next;
+  });
+  const allTools = [live, ...siblings];
+
+  // Session recovery offer (crash/interruption). 'dismissed' hides it; a local flag hides it
+  // instantly on tap before the socket round-trips.
+  const [recovDismissed, setRecovDismissed] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const offerRecovery = !recovDismissed
+    && live.recoveryStatus !== 'dismissed'
+    && (live.recoveryStatus === 'interrupted'
+      || live.recoveryStatus === 'recovery_failed'
+      || (live.status === 'offline' && !!live.sessionId));
 
   const decide = useCallback(
     async (id: string, decision: 'allowed' | 'denied', response?: string | object) => {
@@ -96,14 +130,35 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
     if (!t) return;
     setSending(true);
     try {
-      await api.sendCommand(baseUrl, agent.id, t);
+      // Fan out to every selected engine (this one + any selected siblings).
+      const ids = allTools.filter((a) => targets.has(a.id)).map((a) => a.id);
+      const list = ids.length > 0 ? ids : [agent.id];
+      await Promise.all(list.map((id) => api.sendCommand(baseUrl, id, t)));
       setText('');
-      flash('Command sent');
+      flash(list.length > 1 ? `Sent to ${list.length} engines` : 'Command sent');
     } catch (e) {
       flash(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSending(false);
     }
+  };
+
+  const resumeSession = async () => {
+    setRecovering(true);
+    try {
+      await api.recoverAgentSession(baseUrl, live.id);
+      flash('Recovery dispatched');
+    } catch (e) {
+      flash(live.status === 'offline'
+        ? 'Relaunch this cartridge first, then resume.'
+        : `Resume failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRecovering(false);
+    }
+  };
+  const dismissRecovery = async () => {
+    setRecovDismissed(true);
+    try { await api.dismissAgentRecovery(baseUrl, live.id); } catch { setRecovDismissed(false); }
   };
 
   const changeMode = async (mode: AgentMode) => {
@@ -153,6 +208,30 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
           </TouchableOpacity>
         ))}
       </View>
+
+      {offerRecovery ? (
+        <View style={styles.recovBanner}>
+          <View style={styles.recovTextWrap}>
+            <Text style={styles.recovTitle}>
+              {live.recoveryStatus === 'interrupted' || live.recoveryStatus === 'recovery_failed'
+                ? 'Session interrupted' : 'Last session available'}
+            </Text>
+            {live.activeObjective ? (
+              <Text style={styles.recovObjective} numberOfLines={1}>{live.activeObjective}</Text>
+            ) : null}
+          </View>
+          <TouchableOpacity style={styles.recovBtn} onPress={resumeSession} disabled={recovering}>
+            {recovering ? <ActivityIndicator color={theme.danger} size="small" /> : (
+              <Text style={styles.recovBtnText}>
+                {live.recoveryStatus === 'recovery_failed' ? 'Retry' : 'Resume'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.recovDismiss} onPress={dismissRecovery} disabled={recovering}>
+            <Text style={styles.recovDismissText}>×</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Answer right here — this is where you are when you see the agent asking.
           Falls back to the raw banner only if the agent claims a pending question
@@ -207,11 +286,29 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
+      {siblings.length > 0 ? (
+        <View style={styles.targetRow}>
+          <Text style={styles.targetLabel}>Send to</Text>
+          {allTools.map((a) => {
+            const on = targets.has(a.id);
+            return (
+              <TouchableOpacity
+                key={a.id}
+                style={[styles.targetChip, on ? styles.targetChipOn : styles.targetChipOff]}
+                onPress={() => toggleTarget(a.id)}
+              >
+                <Text style={[styles.targetChipText, on && styles.targetChipTextOn]}>{a.agentType}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+
       <View style={styles.inputBar}>
         <TextInput
           value={text}
           onChangeText={setText}
-          placeholder="Send a prompt to this agent…"
+          placeholder={siblings.length > 0 ? 'Send a prompt to the selected engines…' : 'Send a prompt to this agent…'}
           placeholderTextColor={theme.textFaint}
           style={styles.input}
           multiline
@@ -249,6 +346,31 @@ const styles = StyleSheet.create({
   questionText: { color: theme.amber, fontSize: 14, fontWeight: '600', flex: 1 },
   questionHint: { color: theme.textDim, fontSize: 12, marginTop: 4 },
   permBox: { paddingHorizontal: 12, paddingTop: 4 },
+  recovBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginBottom: 4,
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
+  },
+  recovTextWrap: { flex: 1 },
+  recovTitle: { color: '#fecaca', fontSize: 13, fontWeight: '700' },
+  recovObjective: { color: 'rgba(254,202,202,0.6)', fontSize: 11, marginTop: 1 },
+  recovBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: 'rgba(239,68,68,0.2)',
+  },
+  recovBtnText: { color: '#fecaca', fontSize: 12, fontWeight: '700' },
+  recovDismiss: { paddingHorizontal: 6, paddingVertical: 4 },
+  recovDismissText: { color: 'rgba(254,202,202,0.6)', fontSize: 18, fontWeight: '700', lineHeight: 18 },
+  targetRow: {
+    flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6,
+    paddingHorizontal: 12, paddingBottom: 6,
+  },
+  targetLabel: { color: theme.textFaint, fontSize: 11, fontWeight: '700' },
+  targetChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
+  targetChipOn: { borderColor: theme.accent, backgroundColor: theme.bgCard },
+  targetChipOff: { borderColor: theme.border, backgroundColor: theme.bgElevated, opacity: 0.5 },
+  targetChipText: { color: theme.textDim, fontSize: 12, fontWeight: '600' },
+  targetChipTextOn: { color: theme.accentSoft },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 60 },
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 6 },
   inputBar: {

@@ -61,6 +61,10 @@ export interface Agent {
    * dismissed agent is often still alive and working. Any activity clears it.
    */
   dismissedAt: string;
+  /** Ad-hoc session recovery state: '' | 'interrupted' | 'recovered' | 'recovery_failed' | 'dismissed'. */
+  recoveryStatus?: string;
+  /** The last objective driven to this cartridge — shown in the recovery offer. */
+  activeObjective?: string;
 }
 
 export type TranscriptRole = 'user' | 'assistant' | 'tool_result' | 'system';
