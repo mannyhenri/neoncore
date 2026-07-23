@@ -269,21 +269,42 @@ function relayInstallDir(): string {
   return path.join(os.homedir(), '.neoncore', 'relay');
 }
 
+/** True when both paths exist and resolve to the same real file/dir (through symlinks). */
+export function samePath(a: string, b: string): boolean {
+  try {
+    return fs.existsSync(a) && fs.existsSync(b) && fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
 function ensureRelayInstall(): string {
   const sourceDir = path.join(neoncoreRepoRoot(), 'agent', 'relay');
   const targetDir = relayInstallDir();
+
+  // If the install dir already resolves to the source — e.g. ~/.neoncore/relay is a symlink
+  // straight to the repo's agent/relay, a common dev setup — there is nothing to install; the
+  // launch entry already lives there. Copying a tree onto itself makes fs.cpSync throw "src
+  // and dest cannot be the same", which previously escaped openDirectory and surfaced as a
+  // bogus "Failed to create repo" after the repo had in fact been created and pushed.
+  if (samePath(sourceDir, targetDir)) {
+    return path.join(targetDir, 'launch.js');
+  }
+
   fs.mkdirSync(targetDir, { recursive: true });
 
+  // Per-file guards handle a partial overlap (e.g. only some entries symlinked back to source).
   for (const filename of ['launch.js', 'index.js', 'package.json', 'package-lock.json']) {
     const source = path.join(sourceDir, filename);
-    if (fs.existsSync(source)) {
-      fs.copyFileSync(source, path.join(targetDir, filename));
+    const dest = path.join(targetDir, filename);
+    if (fs.existsSync(source) && !samePath(source, dest)) {
+      fs.copyFileSync(source, dest);
     }
   }
 
   const sourceScripts = path.join(sourceDir, 'scripts');
   const targetScripts = path.join(targetDir, 'scripts');
-  if (fs.existsSync(sourceScripts)) {
+  if (fs.existsSync(sourceScripts) && !samePath(sourceScripts, targetScripts)) {
     fs.cpSync(sourceScripts, targetScripts, { recursive: true });
   }
 
