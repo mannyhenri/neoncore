@@ -56,7 +56,14 @@ add_repo() { # absolute-path
 }
 expand_scans() {
   local base sub
-  for base in "${SCANS[@]}"; do
+  # `${SCANS[@]+"${SCANS[@]}"}` — NOT a plain "${SCANS[@]}". macOS ships bash
+  # 3.2, where expanding an EMPTY array under `set -u` aborts with "SCANS[@]:
+  # unbound variable" (bash 4.4+ made this legal). expand_scans is called
+  # unconditionally below, so on stock macOS every run without --scan died right
+  # here — i.e. the documented one-command setup never worked on a Mac, which
+  # also meant the relay symlink step never ran and Codex cartridges kept
+  # launching Claude off a stale relay copy.
+  for base in ${SCANS[@]+"${SCANS[@]}"}; do
     base="${base/#\~/$HOME}"
     [[ -d "$base" ]] || { warn "Scan skipped (no such dir): $base"; continue; }
     for sub in "$base"/*/; do
