@@ -22,6 +22,12 @@ router.post('/start', (req, res) => {
   }
   const ids = participantIds.filter((x): x is string => typeof x === 'string');
 
+  // Collaboration shape. `mode` defaults to divide (the historical behavior); `isolation`
+  // to shared. Unknown values fall back rather than 400 — the conductor also re-validates
+  // (worktree only survives for divide mode).
+  const mode = req.body?.mode === 'collaborate' ? 'collaborate' : 'divide';
+  const isolation = req.body?.isolation === 'worktree' ? 'worktree' : 'shared';
+
   let attachments;
   try {
     attachments = parseAttachmentsInput(req.body?.attachments);
@@ -55,7 +61,7 @@ router.post('/start', (req, res) => {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 
-  const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks });
+  const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks, mode, isolation });
   res.json(session);
 });
 

@@ -1,10 +1,20 @@
 import { v4 as uuid } from 'uuid';
+import fs from 'fs';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import { getServerBaseUrl } from './server-url.js';
+import { createWorktree } from './worktree.js';
 import { blockForRepo, parseAttachmentBlocks, type AttachmentBlocks } from './attachments.js';
 import type { ConferSession, ConferMilestone } from '../types.js';
+
+/** How the participants relate to the task. `divide` = split into per-agent slices;
+ * `collaborate` = all work the ONE problem into one shared solution. */
+export type ConferMode = 'collaborate' | 'divide';
+/** `worktree` = each agent gets its own git worktree+branch (divide mode only). */
+export type ConferIsolation = 'shared' | 'worktree';
+/** agentId → the worktree provisioned for it (empty when isolation = shared). */
+export type ConferWorktrees = Record<string, { path: string; branch: string }>;
 
 /**
  * Confer conductor — a standalone, milestone-driven collaboration loop for 2+ live
@@ -38,9 +48,9 @@ interface MilestoneDef {
   body: (task: string) => string;
 }
 
-// The "specific detailed approach": a two-agent build cycle. Each milestone dispatches to
-// BOTH agents and only advances when BOTH have signalled done.
-const MILESTONES: MilestoneDef[] = [
+// ── `divide` mode: split the task into per-agent slices, then merge ──────────────
+// Each milestone dispatches to ALL participants and only advances when ALL signal done.
+const DIVIDE_MILESTONES: MilestoneDef[] = [
   {
     key: 'align',
     name: 'Align',
@@ -78,11 +88,11 @@ const MILESTONES: MilestoneDef[] = [
     key: 'converge',
     name: 'Converge',
     body: () => [
-      'GOAL: Merge both slices into one coherent, working whole.',
+      'GOAL: Merge all slices into one coherent, working whole — and prove there are no conflicts.',
       '1. Address the review feedback you received.',
-      '2. Agree on ONE of you to integrate both slices; the other verifies it builds/passes.',
+      '2. Agree on ONE of you to integrate all slices; the other(s) verify it builds/passes.',
       '3. Resolve any conflicts together via neoncore_message_agent.',
-      'Signal done once the combined work is integrated and BOTH of you have verified it works.',
+      'Signal done once the combined work is integrated and EVERYONE has verified it works.',
     ].join('\n'),
   },
   {
@@ -98,7 +108,78 @@ const MILESTONES: MilestoneDef[] = [
   },
 ];
 
-export const CONFER_MILESTONE_COUNT = MILESTONES.length;
+// ── `collaborate` mode: everyone works the ONE problem into ONE shared solution ──
+// No per-agent slices — one work product the whole panel drafts, critiques, and revises.
+const COLLABORATE_MILESTONES: MilestoneDef[] = [
+  {
+    key: 'frame',
+    name: 'Frame',
+    body: () => [
+      'GOAL: Agree on ONE approach to the ONE shared problem — do NOT split it up.',
+      '1. Read your peers\' recent work (neoncore_read_agent) and the task carefully.',
+      '2. Message the group (neoncore_message_agent) with your proposed approach + assumptions.',
+      '3. Converge on ONE approach you will all build together (same solution, same files), and decide who drives the first draft.',
+      'DO NOT carve the task into separate slices — you are solving one problem together. Signal done once you agree on the single approach AND who drafts first.',
+    ].join('\n'),
+  },
+  {
+    key: 'draft',
+    name: 'Draft',
+    body: () => [
+      'GOAL: Produce ONE shared solution — together, not in parallel copies.',
+      '1. The agreed driver writes the first complete draft of the solution.',
+      '2. The other(s) contribute directly (suggest concrete edits, add missing pieces) via neoncore_message_agent — do NOT build a competing version.',
+      '3. Stick to the ONE agreed approach; coordinate before changing direction.',
+      'Signal done once a first complete draft of the shared solution exists.',
+    ].join('\n'),
+  },
+  {
+    key: 'critique',
+    name: 'Critique',
+    body: () => [
+      'GOAL: Pressure-test the SHARED draft — everyone reviews the same work.',
+      '1. Read the current shared solution (git diff).',
+      '2. Find correctness gaps, edge cases, and risks — be specific with file:line.',
+      '3. Send your critique to the group (neoncore_message_agent).',
+      'Signal done once you have delivered your critique of the shared draft.',
+    ].join('\n'),
+  },
+  {
+    key: 'revise',
+    name: 'Revise',
+    body: () => [
+      'GOAL: Fold every critique into the ONE solution.',
+      '1. Work the critiques into the single shared solution together.',
+      '2. Agree who applies each change so you do not both edit the same lines.',
+      '3. Verify it builds/passes.',
+      'Signal done once the revised shared solution builds and the group agrees it is ready.',
+    ].join('\n'),
+  },
+  {
+    key: 'finalize',
+    name: 'Finalize',
+    body: () => [
+      'GOAL: Land the shared result.',
+      '1. The agreed driver commits the solution with a clear message.',
+      '2. Posts a short summary of what was built to the group.',
+      '3. The others confirm it is accurate.',
+      'Signal done to close out the confer.',
+    ].join('\n'),
+  },
+];
+
+const MILESTONE_SETS: Record<ConferMode, MilestoneDef[]> = {
+  divide: DIVIDE_MILESTONES,
+  collaborate: COLLABORATE_MILESTONES,
+};
+
+/** The milestone set for a mode (defaults to divide for legacy/unknown values). */
+function milestonesFor(mode: string): MilestoneDef[] {
+  return MILESTONE_SETS[mode as ConferMode] || DIVIDE_MILESTONES;
+}
+
+// Both sets have the same length; the cycle is always 5 milestones.
+export const CONFER_MILESTONE_COUNT = DIVIDE_MILESTONES.length;
 
 // ── Row → type hydration ────────────────────────────────────────────────────
 
@@ -131,8 +212,22 @@ function hydrateSession(row: Record<string, unknown>): ConferSession {
     error: (row.error as string) || '',
     createdAt: row.created_at as string,
     completedAt: (row.completed_at as string) || null,
+    mode: (row.mode as ConferMode) || 'divide',
+    isolation: (row.isolation as ConferIsolation) || 'shared',
+    worktrees: parseWorktrees(row.worktrees as string | undefined),
     milestones: milestones.map(hydrateMilestone),
   };
+}
+
+/** Safe-parse the worktrees JSON column into an agentId → {path,branch} map. */
+function parseWorktrees(stored: string | undefined): ConferWorktrees {
+  if (!stored) return {};
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as ConferWorktrees) : {};
+  } catch {
+    return {};
+  }
 }
 
 function sessionRow(id: string): Record<string, unknown> | undefined {
@@ -176,6 +271,32 @@ function loadParticipants(ids: string[]): Participant[] {
   }));
 }
 
+/**
+ * Provision a git worktree per participant whose repo lives on THIS machine (the server
+ * runs the git commands locally, so it cannot create a worktree on a remote box). Each
+ * gets its own branch, so per-agent work is isolated and independently mergeable at
+ * Converge. A remote/missing repo is skipped — that agent works in its shared checkout.
+ */
+function provisionWorktrees(sessionId: string, participantIds: string[]): ConferWorktrees {
+  const wt: ConferWorktrees = {};
+  const shortId = sessionId.slice(0, 8);
+  loadParticipants(participantIds).forEach((p, i) => {
+    if (!p.repoPath || !fs.existsSync(p.repoPath)) {
+      console.warn(`[confer] ${sessionId}: no server-local repo for ${p.agentType} ${p.id} (${p.repoPath || 'none'}) — skipping worktree; it works in its shared checkout.`);
+      return;
+    }
+    try {
+      const branch = `confer/${shortId}/${p.agentType}-${i + 1}`;
+      const created = createWorktree(p.repoPath, branch);
+      wt[p.id] = { path: created.path, branch: created.branch };
+      console.log(`[confer] ${sessionId}: worktree for ${p.agentType} ${p.id} → ${created.path} (${created.branch})`);
+    } catch (err) {
+      console.warn(`[confer] ${sessionId}: worktree create failed for ${p.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+  return wt;
+}
+
 /** Start a new confer: create the session + milestones, then dispatch milestone 0. */
 export function startConfer(input: {
   repoName: string;
@@ -184,18 +305,26 @@ export function startConfer(input: {
   task: string;
   /** repoPath → prompt block for files attached at launch (see lib/attachments.ts). */
   attachmentBlocks?: AttachmentBlocks;
+  mode?: ConferMode;
+  isolation?: ConferIsolation;
 }): ConferSession {
   const id = uuid();
   const now = new Date().toISOString();
+  const mode: ConferMode = input.mode === 'collaborate' ? 'collaborate' : 'divide';
+  // Worktree isolation only makes sense when agents own separate slices; a collaborate
+  // confer produces ONE shared solution, so it always stays on the shared checkout.
+  const isolation: ConferIsolation = mode === 'divide' && input.isolation === 'worktree' ? 'worktree' : 'shared';
+  const worktrees = isolation === 'worktree' ? provisionWorktrees(id, input.participantIds) : {};
+
   db.prepare(
-    `INSERT INTO confer_sessions (id, repo_name, repo_path, task, participant_ids, status, current_milestone, created_at, attachments)
-     VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?)`,
+    `INSERT INTO confer_sessions (id, repo_name, repo_path, task, participant_ids, status, current_milestone, created_at, attachments, mode, isolation, worktrees)
+     VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?, ?, ?, ?)`,
   ).run(
     id, input.repoName, input.repoPath, input.task, JSON.stringify(input.participantIds), now,
-    JSON.stringify(input.attachmentBlocks || {}),
+    JSON.stringify(input.attachmentBlocks || {}), mode, isolation, JSON.stringify(worktrees),
   );
 
-  MILESTONES.forEach((m, idx) => {
+  milestonesFor(mode).forEach((m, idx) => {
     db.prepare(
       `INSERT INTO confer_milestones (id, session_id, idx, key, name, status)
        VALUES (?, ?, ?, ?, ?, 'pending')`,
@@ -242,12 +371,12 @@ export function recordMilestoneDone(sessionId: string, agentId: string, result: 
   db.prepare(`UPDATE confer_milestones SET status = 'done', completed_at = ? WHERE id = ?`).run(now, msRow.id as string);
 
   const nextIdx = idx + 1;
-  if (nextIdx < MILESTONES.length) {
+  if (nextIdx < CONFER_MILESTONE_COUNT) {
     db.prepare('UPDATE confer_sessions SET current_milestone = ? WHERE id = ?').run(nextIdx, sessionId);
     dispatchMilestone(sessionId, nextIdx);
   } else {
     db.prepare(`UPDATE confer_sessions SET status = 'completed', completed_at = ? WHERE id = ?`).run(now, sessionId);
-    console.log(`[confer] ${sessionId} completed all ${MILESTONES.length} milestones`);
+    console.log(`[confer] ${sessionId} completed all ${CONFER_MILESTONE_COUNT} milestones`);
   }
   emit(sessionId);
   return { ok: true };
@@ -305,6 +434,32 @@ function baseUrl(): string {
   return getServerBaseUrl();
 }
 
+/**
+ * The worktree-isolation block for a given agent + milestone, or '' when this confer
+ * isn't worktree-isolated (or this agent got no worktree — e.g. a remote participant).
+ * Tells the agent to work only in its own worktree, names the peer branches for review,
+ * and on Converge spells out that the merge IS the conflict check.
+ */
+function isolationLines(session: ConferSession, me: Participant, peers: Participant[], def: MilestoneDef): string {
+  const wt = session.worktrees?.[me.id];
+  if (!wt) return '';
+  const peerBranches = peers
+    .map((p) => session.worktrees?.[p.id]?.branch)
+    .filter((b): b is string => !!b);
+  const lines = [
+    `YOUR ISOLATED WORKTREE — make ALL your changes here:`,
+    `  cd "${wt.path}"   (branch: ${wt.branch})`,
+    `Work ONLY in your worktree; do not touch your peers' worktrees or the shared checkout.`,
+  ];
+  if (peerBranches.length) lines.push(`Peer branches (for cross-review + converge): ${peerBranches.join(', ')}`);
+  if (def.key === 'converge' && peerBranches.length) {
+    lines.push(
+      `CONVERGE = a REAL merge: the agreed integrator merges each peer branch into their own (\`git merge ${peerBranches.join(' ')}\`), resolves any git CONFLICTS (that is the whole point of this step), and verifies the combined result builds/passes before signalling done.`,
+    );
+  }
+  return lines.join('\n');
+}
+
 /** Build the per-agent milestone prompt, including coordination guidance + the done-signal. */
 function buildPrompt(
   session: ConferSession,
@@ -313,7 +468,7 @@ function buildPrompt(
   peers: Participant[],
   attachmentBlocks: AttachmentBlocks,
 ): string {
-  const def = MILESTONES[idx];
+  const def = milestonesFor(session.mode)[idx];
   const peerLines = peers.map((p) => `- ${p.agentType} (${p.name || session.repoName}) — agentId: ${p.id}`).join('\n');
   // `${NEONCORE_URL:-...}` is shell, not a JS template — it is expanded by the
   // agent's shell when it runs the curl, so a participant whose relay already
@@ -324,8 +479,9 @@ function buildPrompt(
   // Cross-review needs the same screenshot/log the builder had, and each milestone is a
   // fresh prompt with no memory of the last one.
   const attachmentBlock = blockForRepo(attachmentBlocks, me.repoPath);
+  const worktreeLines = isolationLines(session, me, peers, def);
   return [
-    `[NeonCore Confer · Milestone ${idx + 1}/${MILESTONES.length}: ${def.name}]`,
+    `[NeonCore Confer · Milestone ${idx + 1}/${CONFER_MILESTONE_COUNT}: ${def.name}]`,
     `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`,
     ``,
     `OVERALL TASK:`,
@@ -336,6 +492,7 @@ function buildPrompt(
     ``,
     `THIS MILESTONE — ${def.name}:`,
     def.body(session.task),
+    ...(worktreeLines ? ['', worktreeLines] : []),
     ``,
     `COORDINATE: use neoncore_message_agent to talk to your peer(s) and neoncore_read_agent to see their work.`,
     ``,
@@ -359,6 +516,7 @@ export function dispatchMilestone(sessionId: string, idx: number): void {
     .run(now, msRow.id);
 
   const attachmentBlocks = parseAttachmentBlocks(row.attachments as string | undefined);
+  const milestoneName = milestonesFor(session.mode)[idx].name;
 
   let undelivered = 0;
   for (const me of participants) {
@@ -367,16 +525,16 @@ export function dispatchMilestone(sessionId: string, idx: number): void {
     const cmd = sendCommandToAgent(me.id, prompt, false);
     if (!cmd || cmd.delivered === false) {
       undelivered += 1;
-      console.error(`[confer] ${sessionId} milestone ${idx} (${MILESTONES[idx].name}): NOT delivered to ${me.agentType} ${me.id}`);
+      console.error(`[confer] ${sessionId} milestone ${idx} (${milestoneName}): NOT delivered to ${me.agentType} ${me.id}`);
     }
   }
   if (undelivered > 0) {
     db.prepare('UPDATE confer_sessions SET error = ? WHERE id = ?')
-      .run(`Milestone "${MILESTONES[idx].name}" could not reach ${undelivered} participant(s) — is that cartridge running?`, sessionId);
+      .run(`Milestone "${milestoneName}" could not reach ${undelivered} participant(s) — is that cartridge running?`, sessionId);
   } else if (row.error) {
     db.prepare("UPDATE confer_sessions SET error = '' WHERE id = ?").run(sessionId);
   }
-  console.log(`[confer] ${sessionId} dispatched milestone ${idx + 1}/${MILESTONES.length} (${MILESTONES[idx].name}) to ${participants.length} agent(s)`);
+  console.log(`[confer] ${sessionId} dispatched milestone ${idx + 1}/${CONFER_MILESTONE_COUNT} (${milestoneName}) to ${participants.length} agent(s)`);
 }
 
 // ── Watchdog / recovery ───────────────────────────────────────────────────────
@@ -420,7 +578,7 @@ export function reconcileConfers(now = Date.now()): void {
         const url = `${baseUrl()}/api/confer/${row.id}/milestone/${pid}/done`;
         sendCommandToAgent(
           pid,
-          `[NeonCore Confer · reminder] You are on milestone ${idx + 1}/${MILESTONES.length} (${ms.name}) of the confer on ${session.repoName}. When you've finished it, signal done:\ncurl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"done"}'`,
+          `[NeonCore Confer · reminder] You are on milestone ${idx + 1}/${CONFER_MILESTONE_COUNT} (${ms.name}) of the confer on ${session.repoName}. When you've finished it, signal done:\ncurl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"done"}'`,
           false,
         );
       }

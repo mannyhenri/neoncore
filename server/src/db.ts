@@ -451,6 +451,18 @@ try {
   db.exec(`ALTER TABLE confer_sessions ADD COLUMN attachments TEXT NOT NULL DEFAULT '{}'`);
 }
 
+// Migration: confer collaboration mode + worktree isolation.
+//   mode:       'divide' (split into per-agent slices) | 'collaborate' (one shared solution)
+//   isolation:  'shared' | 'worktree' (each agent gets its own git worktree+branch; divide only)
+//   worktrees:  agentId → {path,branch} map provisioned at start (empty when shared)
+try {
+  db.prepare('SELECT mode FROM confer_sessions LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE confer_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'divide'`);
+  db.exec(`ALTER TABLE confer_sessions ADD COLUMN isolation TEXT NOT NULL DEFAULT 'shared'`);
+  db.exec(`ALTER TABLE confer_sessions ADD COLUMN worktrees TEXT NOT NULL DEFAULT '{}'`);
+}
+
 // Workflow Steps table (V2 canvas workflows)
 db.exec(`
   CREATE TABLE IF NOT EXISTS workflow_steps (
