@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
+import { getServerBaseUrl } from './server-url.js';
 import type { ConferSession, ConferMilestone } from '../types.js';
 
 /**
@@ -256,15 +257,35 @@ export function cancelConfer(id: string): ConferSession | null {
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
+/**
+ * Base URL a confer participant should call back on.
+ *
+ * Must resolve to a host reachable from OTHER machines: a confer routinely spans
+ * boxes (e.g. the orchestrator on Mannys-Mac-Pro.local and a peer on a laptop),
+ * and this URL is pasted verbatim into the milestone prompt as a curl command.
+ * This used to hardcode `http://localhost:<port>`, so an off-box participant
+ * POSTed its done-signal to its OWN localhost — nothing listening, the signal
+ * vanished, and the confer hung forever waiting on a milestone that had in fact
+ * been completed.
+ *
+ * getServerBaseUrl() prefers the machine's network name (mDNS "Foo.local") over a
+ * raw IP precisely because a DHCP lease changes and would silently break this
+ * again. It is resolved per call, not cached, so a lease change is picked up on
+ * the next dispatch.
+ */
 function baseUrl(): string {
-  return process.env.NEONCORE_URL || `http://localhost:${process.env.PORT || 4040}`;
+  return getServerBaseUrl();
 }
 
 /** Build the per-agent milestone prompt, including coordination guidance + the done-signal. */
 function buildPrompt(session: ConferSession, idx: number, me: Participant, peers: Participant[]): string {
   const def = MILESTONES[idx];
   const peerLines = peers.map((p) => `- ${p.agentType} (${p.name || session.repoName}) — agentId: ${p.id}`).join('\n');
-  const doneUrl = `${baseUrl()}/api/confer/${session.id}/milestone/${me.id}/done`;
+  // `${NEONCORE_URL:-...}` is shell, not a JS template — it is expanded by the
+  // agent's shell when it runs the curl, so a participant whose relay already
+  // exported NEONCORE_URL uses its own known-good value and the server's guess is
+  // only the fallback. Mirrors the webhook suffixes in workflow-executor-v2.
+  const doneUrl = `\${NEONCORE_URL:-${baseUrl()}}/api/confer/${session.id}/milestone/${me.id}/done`;
   return [
     `[NeonCore Confer · Milestone ${idx + 1}/${MILESTONES.length}: ${def.name}]`,
     `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`,
