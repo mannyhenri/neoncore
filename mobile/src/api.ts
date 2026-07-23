@@ -165,10 +165,15 @@ export const api = {
 
   // Confer — milestone-driven multi-agent collaboration. `start` kicks off the server-side
   // conductor; it runs the whole cycle and pushes progress over the confer_updated socket.
-  startConfer: (base: string, participantIds: string[], task: string) =>
+  startConfer: (
+    base: string,
+    participantIds: string[],
+    task: string,
+    opts?: { mode?: import('./types').ConferMode; isolation?: import('./types').ConferIsolation },
+  ) =>
     req<ConferSession>(base, '/api/confer/start', {
       method: 'POST',
-      body: JSON.stringify({ participantIds, task }),
+      body: JSON.stringify({ participantIds, task, mode: opts?.mode, isolation: opts?.isolation }),
     }),
   listConfers: (base: string) => req<ConferSession[]>(base, '/api/confer'),
   cancelConfer: (base: string, id: string) =>
