@@ -1,21 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { CommandAttachmentInput } from '../types';
+import { AttachmentList, useAttachments } from './AttachmentPicker';
 
 const MAX_HISTORY = 50;
-const MAX_ATTACHMENTS = 10;
-const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 
 interface Props {
   onSend: (text: string, attachments?: CommandAttachmentInput[]) => void;
   placeholder?: string;
   agentId?: string;
   mode?: 'plan' | 'manual' | 'trust';
-}
-
-interface PendingAttachment {
-  id: string;
-  file: File;
-  previewUrl?: string;
 }
 
 function loadHistory(agentId: string): string[] {
@@ -37,12 +30,18 @@ function saveHistory(agentId: string, history: string[]) {
 
 export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
   const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isEncoding, setIsEncoding] = useState(false);
-  const [attachmentError, setAttachmentError] = useState('');
+  const {
+    attachments,
+    error: attachmentError,
+    setError: setAttachmentError,
+    addFiles,
+    removeAttachment,
+    clear: clearAttachments,
+    encode: encodeAttachments,
+  } = useAttachments();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentsRef = useRef<PendingAttachment[]>([]);
 
   // History state
   const [history, setHistory] = useState<string[]>(() =>
@@ -78,74 +77,6 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
     autoResize();
   }, [text, autoResize]);
 
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-
-  useEffect(() => () => {
-    attachmentsRef.current.forEach((attachment) => {
-      if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-    });
-  }, []);
-
-  const addFiles = useCallback((files: FileList | File[]) => {
-    const incoming = Array.from(files);
-    if (incoming.length === 0) return;
-    setAttachmentError('');
-    setAttachments((prev) => {
-      const next = [...prev];
-      for (const file of incoming) {
-        if (next.length >= MAX_ATTACHMENTS) {
-          setAttachmentError(`Attach up to ${MAX_ATTACHMENTS} files.`);
-          break;
-        }
-        const total = next.reduce((sum, item) => sum + item.file.size, 0) + file.size;
-        if (total > MAX_TOTAL_BYTES) {
-          setAttachmentError('Attachments must total 20 MB or less.');
-          break;
-        }
-        next.push({
-          id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
-          file,
-          previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-        });
-      }
-      return next;
-    });
-  }, []);
-
-  const removeAttachment = useCallback((id: string) => {
-    setAttachments((prev) => {
-      const removed = prev.find((attachment) => attachment.id === id);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-      return prev.filter((attachment) => attachment.id !== id);
-    });
-  }, []);
-
-  const fileToPayload = (file: File): Promise<CommandAttachmentInput> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const value = String(reader.result || '');
-        const comma = value.indexOf(',');
-        resolve({
-          name: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          size: file.size,
-          dataBase64: comma >= 0 ? value.slice(comma + 1) : value,
-        });
-      };
-      reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-
-  const clearAttachments = useCallback(() => {
-    attachments.forEach((attachment) => {
-      if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-    });
-    setAttachments([]);
-  }, [attachments]);
-
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
@@ -153,7 +84,7 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
     setAttachmentError('');
     let payloads: CommandAttachmentInput[] = [];
     try {
-      payloads = await Promise.all(attachments.map((attachment) => fileToPayload(attachment.file)));
+      payloads = await encodeAttachments();
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : 'Could not read attachment.');
       setIsEncoding(false);
@@ -175,7 +106,7 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
     setHistoryIndex(-1);
     savedCurrentRef.current = '';
     setIsEncoding(false);
-  }, [text, attachments, onSend, agentId, history, clearAttachments]);
+  }, [text, attachments, onSend, agentId, history, clearAttachments, encodeAttachments, setAttachmentError]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -258,32 +189,7 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
         rows={1}
         className="w-full glass-input text-gray-200 text-base rounded-lg px-3 py-2.5 focus:outline-none resize-none placeholder-gray-600 overflow-hidden"
       />
-      {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {attachments.map((attachment) => (
-            <div
-              key={attachment.id}
-              className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[13px] text-gray-300"
-            >
-              {attachment.previewUrl ? (
-                <img src={attachment.previewUrl} alt="" className="h-7 w-7 rounded object-cover" />
-              ) : (
-                <span className="flex h-7 w-7 items-center justify-center rounded bg-white/[0.06] text-gray-500">#</span>
-              )}
-              <span className="max-w-[180px] truncate">{attachment.file.name}</span>
-              <span className="text-gray-600">{Math.ceil(attachment.file.size / 1024)} KB</span>
-              <button
-                type="button"
-                onClick={() => removeAttachment(attachment.id)}
-                className="text-gray-500 hover:text-gray-200"
-                title="Remove attachment"
-              >
-                x
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <AttachmentList attachments={attachments} onRemove={removeAttachment} />
       {attachmentError && <div className="text-[13px] text-red-400">{attachmentError}</div>}
       <div className="flex justify-between items-center">
         <span className="text-sm text-gray-600 flex items-center gap-2">

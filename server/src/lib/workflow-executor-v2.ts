@@ -14,6 +14,7 @@ import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
+import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
 
 const POLL_INTERVAL_MS = 12_000;
 
@@ -56,17 +57,37 @@ function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
  *
  * Returns false if delivery failed (the step has already been marked failed).
  */
+/**
+ * Files attached when the run was launched, as the block to append for `agentId`.
+ *
+ * Every agent-facing dispatch funnels through dispatchStepCommand, so hanging this here
+ * covers standard steps, review gates, quality gates and deliberation panels in one place
+ * — and every step of a run sees the attachment, not just the dependency-free first ones
+ * (initial_context already covers those).
+ */
+function attachmentBlockForStep(workflowId: string, agentId: string): string {
+  const wf = db.prepare('SELECT attachments FROM workflows WHERE id = ?')
+    .get(workflowId) as { attachments?: string } | undefined;
+  const blocks = parseAttachmentBlocks(wf?.attachments);
+  if (Object.keys(blocks).length === 0) return '';
+  const agent = db.prepare('SELECT repo_path FROM agents WHERE id = ?')
+    .get(agentId) as { repo_path?: string } | undefined;
+  return blockForRepo(blocks, agent?.repo_path || '');
+}
+
 function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, includeMemory: boolean): boolean {
   // Branch-per-step: if a worktree was created for this step, tell the agent to work
   // there so parallel steps on one repo don't clobber each other's files.
   const wt = step.executorConfig?._worktreePath;
   const branch = step.executorConfig?.branch;
-  const finalText = typeof wt === 'string' && wt
+  const withWorktree = typeof wt === 'string' && wt
     ? `A dedicated git worktree was created for this step at:\n  ${wt}\n`
       + `Run \`cd "${wt}"\` first and make ALL changes there`
       + (typeof branch === 'string' && branch ? ` (branch \`${branch}\`)` : '')
       + `.\n\n${text}`
     : text;
+
+  const finalText = withWorktree + attachmentBlockForStep(step.workflowId, agentId);
 
   const command = sendCommandToAgent(agentId, finalText, includeMemory);
 

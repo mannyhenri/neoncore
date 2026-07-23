@@ -123,7 +123,11 @@ Code Review → Unit Tests  ──┐
    runs each step — it resolves to a live cartridge of that engine in the project. (You can also
    bake a tool into a step in the editor via its **Tool** field; steps left on *Default* use the
    run cartridge.)
-4. Click **Run Workflow** and watch steps execute on the canvas in real time.
+4. Optionally **attach files** — a screenshot, a log, a spec. They are copied into the repo of
+   every cartridge the run touches (under `.neoncore/attachments/`, gitignored) and referenced by
+   path in **every** step's prompt, so a later reviewer opens the same evidence the implementer had.
+   Up to 10 files, 20 MB total. This works for seeded templates and workflows you build yourself.
+5. Click **Run Workflow** and watch steps execute on the canvas in real time.
 
 Click ▶ on the same template multiple times to run it on different projects simultaneously — each
 run is independent with its own `runNumber` and step progress.
@@ -142,6 +146,7 @@ run is independent with its own `runNumber` and step progress.
 | **Parallel steps** | Steps sharing dependencies run simultaneously. |
 | **Per-step tool** | Pick the project once at launch; each step runs on it by default, or choose a specific tool (Claude/Codex/Gridlight) per step. A pinned tool with no live cartridge falls back to the run cartridge. |
 | **Deferred cartridges** | Agent steps use deferred selection — pick the cartridge/tool at run time. |
+| **Launch attachments** | Files attached in Configure & Run are materialized into each repo the run touches and named in every step's prompt. |
 
 Agents signal gate status with a prefix in their webhook result: `STATUS: PASS …` / `STATUS: FAIL …`.
 Routing edges render as **dashed amber lines** on the canvas.

@@ -8,6 +8,7 @@ import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
 import { recordJournal } from '../lib/workflow-journal.js';
+import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 
 const router = Router();
 
@@ -526,6 +527,15 @@ router.post('/v2/:id/start', (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
 
+  // Shape-check the upload before anything is cloned — a malformed payload should never
+  // leave a half-created run behind.
+  let attachments;
+  try {
+    attachments = parseAttachmentsInput(req.body?.attachments);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+
   const now = new Date().toISOString();
   const isTemplate = !row.template_id;
 
@@ -762,6 +772,32 @@ router.post('/v2/:id/start', (req, res) => {
 
       db.prepare('UPDATE workflow_steps SET executor_config = ?, description = ? WHERE id = ? AND workflow_id = ?')
         .run(JSON.stringify(config), description, stepId, runId);
+    }
+  }
+
+  // ── Launch attachments ────────────────────────────────────────────────────────────────
+  // Runs last: every step now has its final executor, so we know exactly which repos this
+  // run touches and can drop a copy of each file into each one. The resulting repoPath →
+  // block map is appended to every prompt this run dispatches (see dispatchStepCommand).
+  if (attachments.length > 0) {
+    const executorRows = db.prepare(
+      `SELECT DISTINCT a.repo_path AS repo_path
+         FROM workflow_steps s
+         JOIN agents a ON a.id = s.executor_id
+        WHERE s.workflow_id = ?`,
+    ).all(runId) as { repo_path: string }[];
+
+    try {
+      const blocks = materializeForRepos(executorRows.map((r) => r.repo_path), attachments);
+      db.prepare('UPDATE workflows SET attachments = ? WHERE id = ?').run(JSON.stringify(blocks), runId);
+      console.log(`[workflow] Run ${runId}: attached ${attachments.length} file(s) into ${Object.keys(blocks).length} repo(s)`);
+    } catch (err) {
+      // Fail the run rather than let it march on without the evidence it was launched with.
+      const message = err instanceof Error ? err.message : String(err);
+      db.prepare("UPDATE workflows SET status = 'failed', error = ?, completed_at = ? WHERE id = ?")
+        .run(message, new Date().toISOString(), runId);
+      emitWorkflowUpdate(runId);
+      return res.status(400).json({ error: message });
     }
   }
 

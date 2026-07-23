@@ -1,11 +1,10 @@
 import { execSync } from 'child_process';
 import { v4 as uuid } from 'uuid';
-import fs from 'fs';
-import path from 'path';
 import db from '../db.js';
 import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command, CommandAttachmentInput } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
+import { materializeAttachments } from './attachments.js';
 
 /**
  * Shared command dispatch — used by the commands route.
@@ -16,98 +15,6 @@ import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from 
 // runs inside the relay PTY (same as Claude), so it takes the reliable, addressed socket
 // path below and only falls back to terminal-typing when no relay socket is connected.
 const CLI_AGENT_TYPES = new Set(['gemini', 'amazonq']);
-const ATTACHMENT_MAX_FILES = 10;
-const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
-
-function safeFilename(name: string, fallback: string): string {
-  const base = path.basename(name || fallback)
-    .replace(/[^\w.\- ]+/g, '_')
-    .replace(/\s+/g, '-')
-    .slice(0, 120);
-  return base && base !== '.' && base !== '..' ? base : fallback;
-}
-
-function ensureGitignore(repoPath: string): void {
-  const gitignorePath = path.join(repoPath, '.gitignore');
-  const entry = '.neoncore/attachments/';
-  try {
-    const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf-8') : '';
-    if (existing.split(/\r?\n/).includes(entry)) return;
-    const prefix = existing && !existing.endsWith('\n') ? '\n' : '';
-    fs.appendFileSync(gitignorePath, `${prefix}${entry}\n`);
-  } catch (err) {
-    console.warn(`[attachments] Could not update ${gitignorePath}: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-function materializeAttachments(
-  repoPath: string,
-  attachments: CommandAttachmentInput[] | undefined,
-): string {
-  if (!attachments || attachments.length === 0) return '';
-  if (!repoPath) throw new Error('Cannot attach files: agent has no repo path');
-  if (!fs.existsSync(repoPath) || !fs.statSync(repoPath).isDirectory()) {
-    throw new Error(`Cannot attach files: repo path does not exist (${repoPath})`);
-  }
-
-  const selected = attachments.slice(0, ATTACHMENT_MAX_FILES);
-  const totalBytes = selected.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-  if (totalBytes > ATTACHMENT_MAX_BYTES) {
-    throw new Error(`Attachments are too large (${Math.ceil(totalBytes / 1024 / 1024)} MB, max 20 MB)`);
-  }
-
-  ensureGitignore(repoPath);
-  const today = new Date().toISOString().slice(0, 10);
-  const batchId = uuid().slice(0, 8);
-  const relativeDir = path.join('.neoncore', 'attachments', today, batchId);
-  const absoluteDir = path.join(repoPath, relativeDir);
-  fs.mkdirSync(absoluteDir, { recursive: true });
-
-  const entries: { originalName: string; path: string; mimeType: string; size: number }[] = [];
-  const usedNames = new Set<string>();
-  selected.forEach((file, index) => {
-    if (!file?.dataBase64) return;
-    const initialFilename = safeFilename(file.name, `attachment-${index + 1}`);
-    const parsed = path.parse(initialFilename);
-    let filename = initialFilename;
-    let suffix = 2;
-    while (usedNames.has(filename)) {
-      filename = `${parsed.name}-${suffix}${parsed.ext}`;
-      suffix += 1;
-    }
-    usedNames.add(filename);
-    const buffer = Buffer.from(file.dataBase64, 'base64');
-    if (buffer.length === 0) return;
-    if (file.size && Math.abs(buffer.length - file.size) > 2) {
-      throw new Error(`Attachment "${file.name}" size did not match uploaded data`);
-    }
-    const relativePath = path.join(relativeDir, filename);
-    fs.writeFileSync(path.join(repoPath, relativePath), buffer, { flag: 'wx' });
-    entries.push({
-      originalName: file.name || filename,
-      path: relativePath.replace(/\\/g, '/'),
-      mimeType: file.mimeType || 'application/octet-stream',
-      size: buffer.length,
-    });
-  });
-
-  fs.writeFileSync(
-    path.join(absoluteDir, 'metadata.json'),
-    JSON.stringify({ createdAt: new Date().toISOString(), attachments: entries }, null, 2) + '\n',
-    { flag: 'wx' },
-  );
-
-  if (entries.length === 0) return '';
-  const lines = entries.map((entry) => `- ${entry.originalName} (${entry.mimeType}, ${entry.size} bytes): ${entry.path}`);
-  return [
-    '',
-    '',
-    'Attached customer evidence has been copied into this repo:',
-    ...lines,
-    '',
-    'Inspect these local files directly when they are relevant. Do not commit customer attachments.',
-  ].join('\n');
-}
 
 /**
  * Type a command directly into the frontmost terminal via AppleScript (macOS only).
@@ -246,7 +153,10 @@ export function sendCommandToAgent(
       if (memoryBlock.length > MEMORY_MAX_TOTAL_CHARS) {
         memoryBlock = memoryBlock.slice(0, MEMORY_MAX_TOTAL_CHARS) + '...';
       }
-      finalText = `[Memory: ${memoryBlock}]\n${text}`;
+      // Prefix onto finalText, not `text` — rebuilding from `text` here used to drop the
+      // attachment block whenever memory happened to be non-empty, so an attached file
+      // silently vanished from the prompt.
+      finalText = `[Memory: ${memoryBlock}]\n${finalText}`;
     }
   }
 

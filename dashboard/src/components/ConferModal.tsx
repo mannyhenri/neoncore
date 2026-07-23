@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { AttachmentField, useAttachments } from './AttachmentPicker';
+import type { CommandAttachmentInput } from '../types';
 
 type ConferAgent = { id: string; name: string; repoName?: string; agentType: string; status: string };
 
@@ -24,6 +26,14 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
   const [task, setTask] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const {
+    attachments,
+    error: attachmentError,
+    setError: setAttachmentError,
+    addFiles,
+    removeAttachment,
+    encode: encodeAttachments,
+  } = useAttachments();
 
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -31,9 +41,19 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
   const start = async () => {
     if (selected.length < 2) { setError('Pick at least two cartridges to confer.'); return; }
     if (!task.trim()) { setError('Describe the task they should solve together.'); return; }
-    setSending(true); setError('');
+    setSending(true); setError(''); setAttachmentError('');
+
+    let payloads: CommandAttachmentInput[] = [];
     try {
-      await api.startConfer(selected, task.trim());
+      payloads = await encodeAttachments();
+    } catch (e) {
+      setAttachmentError(e instanceof Error ? e.message : 'Could not read attachment.');
+      setSending(false);
+      return;
+    }
+
+    try {
+      await api.startConfer(selected, task.trim(), payloads.length > 0 ? payloads : undefined);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -114,6 +134,16 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           placeholder="What should they solve together? (e.g. 'Design + implement the licensing retry logic; one drafts, the other critiques.')"
           className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none mb-3"
         />
+
+        <div className="mb-3">
+          <AttachmentField
+            attachments={attachments}
+            error={attachmentError}
+            onAddFiles={addFiles}
+            onRemove={removeAttachment}
+            hint="Optional — copied into each participant's repo so both engines can open them. Referenced in every milestone prompt."
+          />
+        </div>
 
         {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
         {(selected.length < 2 || !task.trim()) && !error && (

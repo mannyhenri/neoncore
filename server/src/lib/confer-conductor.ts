@@ -3,6 +3,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import { getServerBaseUrl } from './server-url.js';
+import { blockForRepo, parseAttachmentBlocks, type AttachmentBlocks } from './attachments.js';
 import type { ConferSession, ConferMilestone } from '../types.js';
 
 /**
@@ -27,6 +28,7 @@ interface Participant {
   agentType: string;
   name: string;
   status: string;
+  repoPath: string;
 }
 
 interface MilestoneDef {
@@ -163,13 +165,14 @@ function loadParticipants(ids: string[]): Participant[] {
   if (ids.length === 0) return [];
   const ph = ids.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT id, agent_type, name, status FROM agents WHERE id IN (${ph})`)
+    .prepare(`SELECT id, agent_type, name, status, repo_path FROM agents WHERE id IN (${ph})`)
     .all(...ids) as Record<string, unknown>[];
   return rows.map((r) => ({
     id: r.id as string,
     agentType: (r.agent_type as string) || 'claude',
     name: (r.name as string) || '',
     status: (r.status as string) || 'idle',
+    repoPath: (r.repo_path as string) || '',
   }));
 }
 
@@ -179,13 +182,18 @@ export function startConfer(input: {
   repoPath: string;
   participantIds: string[];
   task: string;
+  /** repoPath → prompt block for files attached at launch (see lib/attachments.ts). */
+  attachmentBlocks?: AttachmentBlocks;
 }): ConferSession {
   const id = uuid();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO confer_sessions (id, repo_name, repo_path, task, participant_ids, status, current_milestone, created_at)
-     VALUES (?, ?, ?, ?, ?, 'running', 0, ?)`,
-  ).run(id, input.repoName, input.repoPath, input.task, JSON.stringify(input.participantIds), now);
+    `INSERT INTO confer_sessions (id, repo_name, repo_path, task, participant_ids, status, current_milestone, created_at, attachments)
+     VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?)`,
+  ).run(
+    id, input.repoName, input.repoPath, input.task, JSON.stringify(input.participantIds), now,
+    JSON.stringify(input.attachmentBlocks || {}),
+  );
 
   MILESTONES.forEach((m, idx) => {
     db.prepare(
@@ -278,7 +286,13 @@ function baseUrl(): string {
 }
 
 /** Build the per-agent milestone prompt, including coordination guidance + the done-signal. */
-function buildPrompt(session: ConferSession, idx: number, me: Participant, peers: Participant[]): string {
+function buildPrompt(
+  session: ConferSession,
+  idx: number,
+  me: Participant,
+  peers: Participant[],
+  attachmentBlocks: AttachmentBlocks,
+): string {
   const def = MILESTONES[idx];
   const peerLines = peers.map((p) => `- ${p.agentType} (${p.name || session.repoName}) — agentId: ${p.id}`).join('\n');
   // `${NEONCORE_URL:-...}` is shell, not a JS template — it is expanded by the
@@ -286,6 +300,10 @@ function buildPrompt(session: ConferSession, idx: number, me: Participant, peers
   // exported NEONCORE_URL uses its own known-good value and the server's guess is
   // only the fallback. Mirrors the webhook suffixes in workflow-executor-v2.
   const doneUrl = `\${NEONCORE_URL:-${baseUrl()}}/api/confer/${session.id}/milestone/${me.id}/done`;
+  // Attachments ride along on EVERY milestone, not just Align — the reviewer on
+  // Cross-review needs the same screenshot/log the builder had, and each milestone is a
+  // fresh prompt with no memory of the last one.
+  const attachmentBlock = blockForRepo(attachmentBlocks, me.repoPath);
   return [
     `[NeonCore Confer · Milestone ${idx + 1}/${MILESTONES.length}: ${def.name}]`,
     `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`,
@@ -304,7 +322,7 @@ function buildPrompt(session: ConferSession, idx: number, me: Participant, peers
     `WHEN THIS MILESTONE IS DONE, you MUST signal completion by running:`,
     `curl -s -X POST "${doneUrl}" -H "Content-Type: application/json" -d '{"result":"<1-2 line summary of what you did this milestone>"}'`,
     `The confer will NOT advance to the next milestone until every participant has signalled. After you signal, wait for the next milestone prompt.`,
-  ].join('\n');
+  ].join('\n') + attachmentBlock;
 }
 
 /** Send milestone `idx` to every participant and mark it active. */
@@ -320,10 +338,12 @@ export function dispatchMilestone(sessionId: string, idx: number): void {
   db.prepare(`UPDATE confer_milestones SET status = 'active', dispatched_at = ?, done_ids = '[]', nudged = 0 WHERE id = ?`)
     .run(now, msRow.id);
 
+  const attachmentBlocks = parseAttachmentBlocks(row.attachments as string | undefined);
+
   let undelivered = 0;
   for (const me of participants) {
     const peers = participants.filter((p) => p.id !== me.id);
-    const prompt = buildPrompt(session, idx, me, peers);
+    const prompt = buildPrompt(session, idx, me, peers, attachmentBlocks);
     const cmd = sendCommandToAgent(me.id, prompt, false);
     if (!cmd || cmd.delivered === false) {
       undelivered += 1;

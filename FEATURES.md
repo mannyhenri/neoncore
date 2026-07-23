@@ -128,7 +128,24 @@ the quick-pick) plus a task; each agent is seeded with the task and its peers' i
 `neoncore_message_agent` / `neoncore_read_agent` MCP tools to divide work, review each other, and
 converge on a single solution. Launch it from the **Confer** button — the header on web, the
 Cartridges tab on mobile. Agents must be live and have the NeonCore MCP loaded (auto-installed on
-launch for relay-backed engines).
+launch for relay-backed engines). You can **attach files** at launch (see below); they are
+referenced in every milestone prompt, so the cross-reviewer sees the same evidence the builder had.
+
+## Attaching files to a prompt, a confer, or a workflow run
+
+Anywhere you hand an agent a job you can hand it files too — the cartridge send box (drag, click
+**Attach**, or paste a screenshot), the **Confer** modal, and the **Configure & Run** modal for any
+workflow (seeded template or one you built yourself). Up to 10 files, 20 MB total.
+
+Agents read files, not base64 blobs, so NeonCore decodes the upload into
+`.neoncore/attachments/<date>/<batch>/` inside the repo (auto-added to `.gitignore`) and names the
+paths in the prompt. A confer or a workflow run can span several repos, so a copy lands in **each**
+repo the run touches and every agent is handed the path that is valid in its own checkout.
+Workflow attachments ride on *every* step's prompt, not just the first — a later reviewer gets the
+same log or screenshot as the implementer.
+
+Attachments are written by the server onto the server's filesystem, so this covers cartridges on
+the machine running NeonCore.
 
 ## MCP servers & tools
 
