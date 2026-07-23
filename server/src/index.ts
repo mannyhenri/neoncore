@@ -39,6 +39,7 @@ import { endSession } from './lib/session-manager.js';
 import { reconcileInterruptedSteps } from './lib/recovery.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
 import { runFirstLaunchSetup } from './lib/first-launch.js';
+import { getServerBaseUrl } from './lib/server-url.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
 const app = express();
@@ -301,17 +302,27 @@ server.on('error', async (err: NodeJS.ErrnoException) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   const localIP = getLocalIP();
-  console.log(`
-  ╔══════════════════════════════════════════════╗
-  ║   NeonCore Server                             ║
-  ║                                              ║
-  ║   Local:   http://localhost:${PORT}              ║
-  ║   Network: http://${localIP}:${PORT}    ║
-  ║                                              ║
-  ║   Open the network URL on any device         ║
-  ║   on your LAN to access the dashboard.       ║
-  ╚══════════════════════════════════════════════╝
-  `);
+  // Advertise the mDNS name FIRST and label it "Reachable": it is what off-box
+  // agents, confer callbacks and workflow webhooks should be given. The IP is a
+  // DHCP lease that changes, silently breaking any config that pinned it, so it
+  // is shown only as a fallback for clients that can't resolve .local names.
+  const lines = [
+    'NeonCore Server',
+    '',
+    `Reachable: ${getServerBaseUrl()}`,
+    `Local:     http://localhost:${PORT}`,
+    `Fallback:  http://${localIP}:${PORT}`,
+    '',
+    'Give other machines the Reachable URL — the',
+    'IP is a DHCP lease and will eventually change.',
+  ];
+  const width = Math.max(...lines.map((l) => l.length)) + 6;
+  const box = [
+    `╔${'═'.repeat(width)}╗`,
+    ...lines.map((l) => `║   ${l.padEnd(width - 3)}║`),
+    `╚${'═'.repeat(width)}╝`,
+  ].map((l) => `  ${l}`).join('\n');
+  console.log(`\n${box}\n`);
 
   // Install Claude Code hooks on the local machine on first launch
   runFirstLaunchSetup(PORT);
