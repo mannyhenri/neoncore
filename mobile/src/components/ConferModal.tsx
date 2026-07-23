@@ -5,7 +5,7 @@ import {
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import type { Agent } from '../types';
+import type { Agent, ConferMode } from '../types';
 
 /**
  * Start a milestone-driven "confer" from the phone: pick 2+ live cartridges (e.g. Claude +
@@ -28,19 +28,27 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
   const [task, setTask] = useState('');
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState('');
+  // divide = split into per-agent slices, then merge. collaborate = the whole panel works
+  // ONE problem into ONE shared solution. Worktree isolation (divide only) gives each agent
+  // its own git worktree+branch, and Converge becomes a real merge.
+  const [mode, setMode] = useState<ConferMode>('divide');
+  const [worktree, setWorktree] = useState(false);
 
   const flash = (m: string) => { setNotice(m); setTimeout(() => setNotice(''), 4000); };
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
-  const reset = () => { setSelected([]); setTask(''); };
+  const reset = () => { setSelected([]); setTask(''); setMode('divide'); setWorktree(false); };
 
   const start = async () => {
     if (selected.length < 2) { flash('Pick at least two cartridges to confer.'); return; }
     if (!task.trim()) { flash('Describe the task they should solve together.'); return; }
     setSending(true);
     try {
-      await api.startConfer(baseUrl, selected, task.trim());
+      await api.startConfer(baseUrl, selected, task.trim(), {
+        mode,
+        isolation: mode === 'divide' && worktree ? 'worktree' : 'shared',
+      });
       reset();
       onClose();
     } catch (e) {
@@ -59,8 +67,10 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
             <TouchableOpacity onPress={onClose}><Text style={styles.close}>×</Text></TouchableOpacity>
           </View>
           <Text style={styles.sub}>
-            One task, run through a fixed cycle — Align → Build → Cross-review → Converge → Finalize.
-            Each milestone advances only when both signal done. Progress shows on the Cartridges screen.
+            One task, run through a fixed 5-milestone cycle — {mode === 'collaborate'
+              ? 'Frame → Draft → Critique → Revise → Finalize'
+              : 'Align → Build → Cross-review → Converge → Finalize'}.
+            Each milestone advances only when every participant signals done. Progress shows on the Cartridges screen.
           </Text>
 
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
@@ -115,6 +125,39 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               style={styles.input}
               multiline
             />
+
+            <Text style={styles.label}>HOW THEY WORK</Text>
+            <View style={styles.chips}>
+              {([
+                { key: 'divide', title: 'Divide', sub: 'Split into slices, then merge' },
+                { key: 'collaborate', title: 'Collaborate', sub: 'One shared solution' },
+              ] as const).map((m) => {
+                const on = mode === m.key;
+                return (
+                  <TouchableOpacity
+                    key={m.key}
+                    style={[styles.modeChip, on && styles.chipOn]}
+                    onPress={() => setMode(m.key)}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{m.title}</Text>
+                    <Text style={styles.modeSub} numberOfLines={1}>{m.sub}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {mode === 'divide' ? (
+              <TouchableOpacity style={styles.wtRow} onPress={() => setWorktree((v) => !v)} activeOpacity={0.7}>
+                <View style={[styles.checkbox, worktree && styles.checkboxOn]}>
+                  {worktree ? <Text style={styles.checkMark}>✓</Text> : null}
+                </View>
+                <Text style={styles.wtText}>
+                  Isolate each agent in its own git worktree + branch. Converge becomes a real merge
+                  (conflicts surface there). Best for same-machine repos.
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.needHint}>Collaborate works one shared checkout — no per-agent worktrees.</Text>
+            )}
 
             {(selected.length < 2 || !task.trim()) ? (
               <Text style={styles.needHint}>
@@ -171,6 +214,19 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgCard, borderWidth: 1, borderColor: theme.accent,
   },
   quickChipText: { color: theme.accentSoft, fontSize: 13, fontWeight: '600' },
+  modeChip: {
+    flexGrow: 1, flexBasis: '46%', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.border,
+  },
+  modeSub: { color: theme.textFaint, fontSize: 11, marginTop: 2 },
+  wtRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 10 },
+  checkbox: {
+    width: 18, height: 18, borderRadius: 4, borderWidth: 1, borderColor: theme.border,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  checkboxOn: { backgroundColor: theme.accent, borderColor: theme.accent },
+  checkMark: { color: '#0d0f12', fontSize: 12, fontWeight: '900', lineHeight: 14 },
+  wtText: { flex: 1, color: theme.textDim, fontSize: 11, lineHeight: 15 },
   input: {
     color: theme.text, fontSize: 14, backgroundColor: theme.bgCard, borderRadius: 12,
     borderWidth: 1, borderColor: theme.border, padding: 12, minHeight: 90, textAlignVertical: 'top',
