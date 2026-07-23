@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, CommandAttachmentInput } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
@@ -471,15 +471,51 @@ export function CartridgeCard({
   );
   const multiTool = tools.length > 1;
 
-  // Which tool the command input + mode controls target. Defaults to the primary; the user
-  // taps a badge to switch. If the selected tool leaves the group (status change re-picks the
-  // primary, or a sibling goes offline), fall back to the primary so we never target a ghost.
-  const [selectedToolId, setSelectedToolId] = useState(agent.id);
+  // Which tools a sent prompt goes to. Multi-select, all-on by default: a prompt fans out to
+  // every selected engine, and you deselect a badge to leave one out. (It used to be single-
+  // select — one engine at a time.) Always keeps at least one target.
+  const [selectedToolIds, setSelectedToolIds] = useState<Set<string>>(() => new Set(tools.map((t) => t.id)));
+  // Reconcile the selection as engines come and go WITHOUT clobbering explicit deselections:
+  // a newly-appeared engine defaults on, a vanished one drops out, and an engine the user
+  // turned off stays off. knownToolIdsRef is how we tell "brand new" from "deselected".
+  const knownToolIdsRef = useRef<Set<string>>(new Set(tools.map((t) => t.id)));
   useEffect(() => {
-    if (!tools.some((t) => t.id === selectedToolId)) setSelectedToolId(agent.id);
-  }, [tools, selectedToolId, agent.id]);
-  const selectedAgent = tools.find((t) => t.id === selectedToolId) || agent;
-  const selectedMeta = toolMeta(selectedAgent.agentType);
+    const current = new Set(tools.map((t) => t.id));
+    setSelectedToolIds((prev) => {
+      const next = new Set<string>();
+      for (const id of current) {
+        if (!knownToolIdsRef.current.has(id)) next.add(id); // brand new → default on
+        else if (prev.has(id)) next.add(id);                // still selected → keep
+        // known but not selected → stays off
+      }
+      if (next.size === 0 && current.size > 0) next.add(agent.id); // never target nothing
+      const unchanged = next.size === prev.size && [...next].every((id) => prev.has(id));
+      return unchanged ? prev : next;
+    });
+    knownToolIdsRef.current = current;
+  }, [tools, agent.id]);
+
+  const toggleTool = useCallback((id: string) => {
+    setSelectedToolIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size === 1) return prev; // keep at least one send target
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // The single "focused" tool that the mode selector, plans toggle, recovery banner, and
+  // command history follow — the first selected engine (usually the primary). When exactly
+  // one engine is selected this is just that engine, matching the old single-select behavior.
+  const selectedAgent = tools.find((t) => selectedToolIds.has(t.id)) || agent;
+  const sendTargets = tools.filter((t) => selectedToolIds.has(t.id));
+  const sendLabel = sendTargets.length === 0 || sendTargets.length === tools.length
+    ? 'all tools'
+    : sendTargets.map((t) => toolMeta(t.agentType).label).join(' + ');
   const [recoveringSession, setRecoveringSession] = useState(false);
   const [recoveryNotice, setRecoveryNotice] = useState('');
   const [resumeAfterRelaunchId, setResumeAfterRelaunchId] = useState('');
@@ -720,12 +756,13 @@ export function CartridgeCard({
           </div>
 
           {/* Tool badges + machine — Gridlight first, then others. When more than one tool is
-              running in this repo, the badges double as a target selector: tap one to send the
-              command below to just that tool. With a single tool they're plain labels. */}
+              running in this repo, the badges are a multi-select send target: all start
+              selected, so a prompt fans out to every engine; tap one to exclude it (tap again
+              to re-include). With a single tool they're plain labels. */}
           <div className="flex items-center gap-2 flex-wrap">
             {tools.map((a) => {
               const meta = toolMeta(a.agentType);
-              const isSelected = a.id === selectedToolId;
+              const isSelected = selectedToolIds.has(a.id);
               if (!multiTool) {
                 return (
                   <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${meta.badge}`}>
@@ -736,11 +773,11 @@ export function CartridgeCard({
               return (
                 <button
                   key={a.id}
-                  onClick={() => setSelectedToolId(a.id)}
+                  onClick={() => toggleTool(a.id)}
                   aria-pressed={isSelected}
-                  title={`Target ${meta.label} with the command below`}
+                  title={isSelected ? `Sending to ${meta.label} — click to exclude` : `Excluded — click to also send to ${meta.label}`}
                   className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide transition-all ${meta.badge} ${
-                    isSelected ? 'ring-2 ring-white/70' : 'opacity-50 hover:opacity-90'
+                    isSelected ? 'ring-2 ring-white/70' : 'opacity-40 hover:opacity-80 line-through decoration-1'
                   }`}
                 >
                   {meta.label}
@@ -858,40 +895,47 @@ export function CartridgeCard({
           {multiTool && (
             <div className="mb-1 text-[11px] text-gray-500 flex items-center gap-1 flex-wrap">
               <span>Sending to</span>
-              <span className={`px-1 py-0.5 rounded font-medium ${selectedMeta.badge}`}>{selectedMeta.label}</span>
-              <span className="text-gray-600">— tap a tool above to switch</span>
+              {sendTargets.map((t) => {
+                const m = toolMeta(t.agentType);
+                return <span key={t.id} className={`px-1 py-0.5 rounded font-medium ${m.badge}`}>{m.label}</span>;
+              })}
+              <span className="text-gray-600">— tap a tool above to include or exclude</span>
             </div>
           )}
           <CommandInput
-            // Keyed on the selected tool so input history is per-tool and the box resets on switch.
-            key={selectedToolId}
-            agentId={selectedToolId}
+            // Keyed on the cartridge (not the focused tool) so toggling send targets never
+            // wipes what you're typing. History follows the focused tool via agentId.
+            key={agent.id}
+            agentId={selectedAgent.id}
             mode={selectedAgent.mode}
             placeholder={effectiveStatus === 'waiting'
               ? 'Answer or instruct...'
               : effectiveStatus === 'offline'
                 ? 'Offline - will queue...'
                 : multiTool
-                  ? `Send to ${selectedMeta.label}...`
+                  ? `Send to ${sendLabel}...`
                   : 'Send prompt or /command...'}
             onSend={(text, attachments) => {
-              const planSuffix = selectedAgent.mode === 'plan'
-                ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
-                : '';
-              // Targeted send: goes to the selected tool only. No fan-out — pick another tool
-              // via its badge to send there.
-              onSendCommand(selectedToolId, text + planSuffix, true, attachments);
+              // Fan out to every selected engine. Each gets its OWN plan-mode suffix based on
+              // that engine's mode, so a mixed selection behaves correctly per-tool.
+              const targets = sendTargets.length > 0 ? sendTargets : [agent];
+              for (const t of targets) {
+                const planSuffix = t.mode === 'plan'
+                  ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
+                  : '';
+                onSendCommand(t.id, text + planSuffix, true, attachments);
+              }
             }}
           />
         </div>
 
 
-        {/* ── Mode selector + Plans toggle — target the selected tool ── */}
+        {/* ── Mode selector + Plans toggle — target the focused tool (first selected) ── */}
         <div className="mx-3 mb-2 flex items-center justify-between gap-2">
-          <AgentModeSelector mode={selectedAgent.mode} onSetMode={(mode) => onSetMode(selectedToolId, mode)} />
+          <AgentModeSelector mode={selectedAgent.mode} onSetMode={(mode) => onSetMode(selectedAgent.id, mode)} />
           {selectedAgent.mode === 'trust' && (
             <button
-              onClick={() => api.setPlansIncluded(selectedToolId, !selectedAgent.plansIncluded)}
+              onClick={() => api.setPlansIncluded(selectedAgent.id, !selectedAgent.plansIncluded)}
               title={selectedAgent.plansIncluded ? 'Plans auto-approved (click to require review)' : 'Plans require review (click to auto-approve)'}
               className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
                 selectedAgent.plansIncluded
