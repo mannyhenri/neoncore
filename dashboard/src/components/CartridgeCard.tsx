@@ -777,7 +777,7 @@ export function CartridgeCard({
                   aria-pressed={isSelected}
                   title={isSelected ? `Sending to ${meta.label} — click to exclude` : `Excluded — click to also send to ${meta.label}`}
                   className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide transition-all ${meta.badge} ${
-                    isSelected ? 'ring-2 ring-white/70' : 'opacity-40 hover:opacity-80 line-through decoration-1'
+                    isSelected ? 'ring-2 ring-white/70' : 'opacity-30 hover:opacity-70'
                   }`}
                 >
                   {meta.label}
