@@ -41,6 +41,15 @@ export const api = {
       body: JSON.stringify({ mode }),
     }),
 
+  // Session recovery after a crash/interruption: replay the last transcript, or dismiss the
+  // offer without replaying. Mirrors the web CartridgeCard resume/dismiss.
+  recoverAgentSession: (base: string, agentId: string) =>
+    req<{ ok: boolean; sessionId: string; promptChars: number }>(
+      base, `/api/agents/${agentId}/recover-session`, { method: 'POST' },
+    ),
+  dismissAgentRecovery: (base: string, agentId: string) =>
+    req<{ ok: boolean }>(base, `/api/agents/${agentId}/dismiss-recovery`, { method: 'POST' }),
+
   // Put a cartridge away / bring it back. NOT a delete, and NOT a status change — the session
   // keeps running. It reappears on its own the next time the agent does anything.
   dismissAgent: (base: string, agentId: string) =>
