@@ -172,6 +172,22 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN dismissed_at TEXT`);
 }
 
+// Migration: ordinary cartridge recovery state.
+//
+// Workflow recovery is tracked on workflow_steps. These columns cover the ad hoc
+// case: a user is working directly in a cartridge terminal, the machine loses
+// power, and they later relaunch the cartridge. We keep the last dashboard
+// objective plus a recovery marker so the web app can offer a transcript replay
+// without needing a workflow step.
+try {
+  db.prepare('SELECT recovery_status FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN recovery_status TEXT NOT NULL DEFAULT ''`);
+  db.exec(`ALTER TABLE agents ADD COLUMN interrupted_at TEXT`);
+  db.exec(`ALTER TABLE agents ADD COLUMN recovery_session_id TEXT NOT NULL DEFAULT ''`);
+  db.exec(`ALTER TABLE agents ADD COLUMN active_objective TEXT NOT NULL DEFAULT ''`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (

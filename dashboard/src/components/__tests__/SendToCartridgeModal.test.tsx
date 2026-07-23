@@ -38,6 +38,9 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
     sessionId: '',
     lastMessage: '',
     pendingQuestion: '',
+    recoveryStatus: '',
+    interruptedAt: '',
+    activeObjective: '',
     dismissedAt: '',
     ...overrides,
   };

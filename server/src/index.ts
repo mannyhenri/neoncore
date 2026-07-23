@@ -39,6 +39,7 @@ import { endSession } from './lib/session-manager.js';
 import { reconcileInterruptedSteps } from './lib/recovery.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
 import { runFirstLaunchSetup } from './lib/first-launch.js';
+import { markAgentSessionInterrupted } from './lib/agent-session-state.js';
 import { getServerBaseUrl } from './lib/server-url.js';
 
 const PORT = parseInt(process.env.PORT || '4040');
@@ -151,6 +152,9 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     lastMessage: (row.last_message as string) ?? '',
     pendingQuestion: (row.pending_question as string) ?? '',
     dismissedAt: (row.dismissed_at as string) ?? '',
+    recoveryStatus: ((row.recovery_status as string) ?? '') as import('./types.js').Agent['recoveryStatus'],
+    interruptedAt: (row.interrupted_at as string) ?? '',
+    activeObjective: (row.active_objective as string) ?? '',
   });
 }
 
@@ -180,6 +184,7 @@ setInterval(() => {
 
   for (const { id } of zombies) {
     if (hasActiveSocket(id)) continue; // still connected — demonstrably not dead
+    markAgentSessionInterrupted(id, 'zombie');
     endSession(id);
     db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(id);
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;

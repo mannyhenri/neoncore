@@ -6,7 +6,6 @@ import { SettingsModal } from './components/SettingsModal';
 import { MachineLauncher } from './components/MachineLauncher';
 import { NewRepoModal } from './components/NewRepoModal';
 import { ConferModal } from './components/ConferModal';
-import { ConferPanel } from './components/ConferPanel';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
@@ -198,9 +197,6 @@ export default function App() {
           <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
         ) : (
         <>
-        {/* Active confers — milestone progress for collaborating cartridges */}
-        <ConferPanel agents={agents} />
-
         {/* Workflow Panel */}
         <section>
           <WorkflowPanel agents={agents} />
