@@ -163,6 +163,7 @@ export function sendCommandToAgent(
   text: string,
   includeMemory = false,
   attachments?: CommandAttachmentInput[],
+  opts: { trackObjective?: boolean } = {},
 ): Command | null {
   const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, agent_type, session_id FROM agents WHERE id = ?')
     .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; agent_type: string; session_id: string } | undefined;
@@ -185,7 +186,16 @@ export function sendCommandToAgent(
 
   // Broadcast if we changed anything the grid renders. Reviving MUST emit too — otherwise the
   // agent un-hides in the DB but the grid keeps hiding it until the next refresh.
-  if (cleared || revived) {
+  const trackObjective = opts.trackObjective !== false;
+  const objectiveChanged = trackObjective
+    ? db.prepare(
+        `UPDATE agents
+         SET active_objective = ?, recovery_status = '', interrupted_at = NULL, recovery_session_id = ''
+         WHERE id = ?`,
+      ).run(text.slice(0, 4000), agentId).changes > 0
+    : false;
+
+  if (cleared || revived || objectiveChanged) {
     const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
     const mode = (updated.agent_mode ?? 'manual') as Agent['mode'];
     const normalized: Agent = {
@@ -206,6 +216,9 @@ export function sendCommandToAgent(
       lastMessage: (updated.last_message ?? '') as string,
       pendingQuestion: (updated.pending_question ?? '') as string,
       dismissedAt: (updated.dismissed_at ?? '') as string,
+      recoveryStatus: ((updated.recovery_status ?? '') as string) as Agent['recoveryStatus'],
+      interruptedAt: (updated.interrupted_at ?? '') as string,
+      activeObjective: (updated.active_objective ?? '') as string,
     };
     getIO().emit('agent_updated', normalized);
   }

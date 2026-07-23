@@ -14,7 +14,7 @@ export function BrandHeader() {
   return (
     <View style={styles.bar}>
       <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
-      <Text style={styles.name}>
+      <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
         <Text style={{ color: theme.blue }}>Neon</Text>
         <Text style={{ color: theme.pink }}>Core</Text>
       </Text>
@@ -29,22 +29,22 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     backgroundColor: theme.bgElevated,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
   },
-  logo: { width: 26, height: 26 },
-  name: { fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
+  logo: { width: 24, height: 24 },
+  name: { fontSize: 17, fontWeight: '800', letterSpacing: 0.5, flexShrink: 1 },
   pill: {
     marginLeft: 'auto',
     borderWidth: 1,
     borderColor: theme.border,
     borderRadius: 999,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
   },
-  pillText: { color: theme.textFaint, fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  pillText: { color: theme.textFaint, fontSize: 8, fontWeight: '700', letterSpacing: 0.7 },
 });

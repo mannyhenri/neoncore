@@ -3,6 +3,7 @@ import type { Server as HTTPServer } from 'http';
 import type { ServerToClientEvents, ClientToServerEvents } from './types.js';
 import db from './db.js';
 import { endSession } from './lib/session-manager.js';
+import { markAgentSessionInterrupted } from './lib/agent-session-state.js';
 
 let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 
@@ -102,6 +103,7 @@ export function initWebSocket(server: HTTPServer) {
 }
 
 function markAgentOffline(agentId: string) {
+  markAgentSessionInterrupted(agentId, 'disconnect');
   endSession(agentId);
   const now = new Date().toISOString();
   db.prepare("UPDATE agents SET status = 'offline', last_seen = ? WHERE id = ?").run(now, agentId);
@@ -127,6 +129,9 @@ function markAgentOffline(agentId: string) {
       lastMessage: (row.last_message as string) ?? '',
       pendingQuestion: (row.pending_question as string) ?? '',
       dismissedAt: (row.dismissed_at as string) ?? '',
+      recoveryStatus: ((row.recovery_status as string) ?? '') as import('./types.js').Agent['recoveryStatus'],
+      interruptedAt: (row.interrupted_at as string) ?? '',
+      activeObjective: (row.active_objective as string) ?? '',
     });
     console.log(`[ws] Agent ${agentId} marked offline (extension disconnected)`);
   }

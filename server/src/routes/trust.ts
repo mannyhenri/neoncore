@@ -123,6 +123,9 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
     pendingQuestion: (row.pending_question ?? '') as string,
     dismissedAt: (row.dismissed_at ?? '') as string,
+    recoveryStatus: ((row.recovery_status ?? '') as string) as Agent['recoveryStatus'],
+    interruptedAt: (row.interrupted_at ?? '') as string,
+    activeObjective: (row.active_objective ?? '') as string,
   };
 }
 

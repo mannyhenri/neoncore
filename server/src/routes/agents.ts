@@ -9,6 +9,8 @@ import { sendCommandToAgent } from '../lib/send-command.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { deleteAgentCascade } from '../lib/agent-cleanup.js';
 import { handleAgentInterrupted } from '../lib/recovery.js';
+import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
+import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
@@ -21,6 +23,7 @@ router.post('/interrupted', (req, res) => {
   const { agentId, machine, repoPath, sessionId } = req.body || {};
   const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId });
   if (!resolved) return res.status(404).json({ error: 'agent not found' });
+  markAgentSessionInterrupted(resolved, 'disconnect');
   const count = handleAgentInterrupted(resolved);
   res.json({ agentId: resolved, interruptedSteps: count });
 });
@@ -70,6 +73,7 @@ router.post('/session-end', (req, res) => {
   const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId });
   if (!resolved) return res.status(404).json({ error: 'agent not found' });
 
+  markAgentSessionInterrupted(resolved, 'session-end');
   endSession(resolved);
   db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(resolved);
   const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(resolved) as Record<string, unknown>;
@@ -635,6 +639,84 @@ router.post('/:id/send-context', (req, res) => {
   res.json({ ok: true });
 });
 
+function renderAgentRecoveryPrompt(agent: Record<string, unknown>, rows: MessageRow[], sessionId: string): string {
+  const activeObjective = ((agent.active_objective as string) || '').trim();
+  const repoName = ((agent.repo_name as string) || '').trim();
+  const repoPath = ((agent.repo_path as string) || '').trim();
+  const lastMessage = ((agent.last_message as string) || '').trim();
+
+  const header = [
+    '--- recovered cartridge state ---',
+    `Cartridge: ${repoName || agent.name || agent.id}`,
+    repoPath ? `Repo path: ${repoPath}` : '',
+    sessionId ? `Recovered session id: ${sessionId}` : '',
+    activeObjective ? `Last active objective:\n${activeObjective}` : '',
+    lastMessage ? `Last assistant summary:\n${lastMessage.slice(0, 1000)}` : '',
+    '--- end recovered cartridge state ---',
+  ].filter(Boolean).join('\n\n');
+
+  return `${header}\n\n${renderReplayContext(rows, { verbatimTurns: 16, maxChars: 18_000 })}`;
+}
+
+// Resume an ordinary ad hoc cartridge session. Unlike workflow recovery, this
+// has no workflow step/objective row, so it replays the latest captured session
+// plus the last dashboard command tracked as active_objective.
+router.post('/:id/recover-session', (req, res) => {
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  if (agent.status === 'offline') {
+    db.prepare(
+      `UPDATE agents
+       SET recovery_status = CASE WHEN recovery_status = '' THEN 'interrupted' ELSE recovery_status END
+       WHERE id = ?`,
+    ).run(req.params.id);
+    return res.status(409).json({ error: 'Relaunch this cartridge before resuming its session', delivered: false });
+  }
+
+  const requestedSessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+  const sessionId = requestedSessionId
+    || (agent.recovery_session_id as string)
+    || (agent.session_id as string)
+    || ((db.prepare(
+      'SELECT session_id FROM messages WHERE agent_id = ? ORDER BY ts DESC LIMIT 1',
+    ).get(req.params.id) as { session_id?: string } | undefined)?.session_id || '');
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'No captured transcript is available for this cartridge' });
+  }
+
+  const rows = db.prepare(
+    'SELECT role, content, seq FROM messages WHERE agent_id = ? AND session_id = ? ORDER BY seq ASC',
+  ).all(req.params.id, sessionId) as MessageRow[];
+
+  const prompt = renderAgentRecoveryPrompt(agent, rows, sessionId);
+  const command = sendCommandToAgent(req.params.id, prompt, true, undefined, { trackObjective: false });
+  if (!command) return res.status(404).json({ error: 'Agent not found' });
+  if (command.delivered === false) {
+    db.prepare(
+      `UPDATE agents SET recovery_status = 'interrupted', recovery_session_id = ? WHERE id = ?`,
+    ).run(sessionId, req.params.id);
+    return res.status(409).json({
+      error: 'No command channel is connected for this cartridge. Relaunch the terminal first, then retry Resume session.',
+      delivered: false,
+    });
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE agents
+     SET recovery_status = 'recovered',
+         recovery_session_id = ?,
+         interrupted_at = COALESCE(interrupted_at, ?)
+     WHERE id = ?`,
+  ).run(sessionId, now, req.params.id);
+
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+  const normalized = normalizeAgent(updated);
+  getIO().emit('agent_updated', normalized);
+  res.json({ ok: true, reason: 'dispatched transcript replay', sessionId, promptChars: prompt.length });
+});
+
 // Delete an agent (cascade related records)
 router.delete('/:id', (req, res) => {
   deleteAgentCascade(req.params.id);
@@ -661,6 +743,9 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     lastMessage: (row.last_message ?? row.lastMessage ?? '') as string,
     pendingQuestion: (row.pending_question ?? '') as string,
     dismissedAt: (row.dismissed_at ?? '') as string,
+    recoveryStatus: ((row.recovery_status ?? '') as string) as Agent['recoveryStatus'],
+    interruptedAt: (row.interrupted_at ?? '') as string,
+    activeObjective: (row.active_objective ?? '') as string,
   };
 }
 

@@ -59,9 +59,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgElevated,
     paddingTop: 8,
     paddingBottom: 6,
+    paddingHorizontal: 2,
   },
-  tab: { flex: 1, alignItems: 'center', gap: 3 },
-  label: { fontSize: 11, color: theme.textFaint, fontWeight: '600' },
+  tab: { flex: 1, alignItems: 'center', gap: 2, minWidth: 0 },
+  label: { fontSize: 10, color: theme.textFaint, fontWeight: '600' },
   labelActive: { color: theme.accent },
   badge: {
     position: 'absolute',

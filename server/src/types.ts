@@ -49,6 +49,13 @@ export interface Agent {
   lastMessage: string;
   pendingQuestion: string;
   /**
+   * Ordinary cartridge recovery state. Workflow recovery lives on workflow_steps;
+   * these fields support ad hoc terminal sessions that shut down mid-task.
+   */
+  recoveryStatus: '' | 'interrupted' | 'recovered' | 'recovery_failed';
+  interruptedAt: string;
+  activeObjective: string;
+  /**
    * When the user put this cartridge away ('' = visible). Orthogonal to `status`: a
    * dismissed agent is often still alive and working. Any activity from the session
    * clears it automatically, so it comes back the moment you use it again.

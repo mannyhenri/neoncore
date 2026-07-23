@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
-import type { Agent, Workflow, StepSummary, WorkflowStep, Project } from '../types';
+import { ConferCard } from './ConferPanel';
+import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession } from '../types';
 
 // ─── Browser notification helper ────────────────────
 
@@ -81,6 +82,7 @@ const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 
 export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [confers, setConfers] = useState<ConferSession[]>([]);
   const [expanded, setExpanded] = useState(true);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
@@ -103,6 +105,16 @@ export function WorkflowPanel({ agents }: Props) {
     loadWorkflows();
     requestNotificationPermission();
   }, [loadWorkflows]);
+
+  // Poll confer sessions so running confers can sit under Active Runs and
+  // finished ones archive into Recent Runs.
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.getConfers().then((c) => { if (alive) setConfers(c); }).catch(() => {});
+    load();
+    const t = setInterval(load, 4000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
 
   // Debounced reload for step updates (avoid hammering the API)
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -170,7 +182,13 @@ export function WorkflowPanel({ agents }: Props) {
   // Also include V1 workflows (no steps, no templateId) that are running
   const activeV1 = templates.filter((w) => ['running', 'paused'].includes(w.status) && !w.stepSummary);
 
-  const totalActive = activeRuns.length + activeV1.length;
+  // Confers: running ones live under Active Runs; finished ones (last 10 min) archive under Recent Runs.
+  const activeConfers = confers.filter((c) => c.status === 'running');
+  const recentConfers = confers.filter(
+    (c) => c.status !== 'running' && c.completedAt && Date.now() - new Date(c.completedAt).getTime() < 10 * 60 * 1000,
+  );
+
+  const totalActive = activeRuns.length + activeV1.length + activeConfers.length;
 
   // Helper to open a run in the canvas (view-only) or template (edit)
   const openWorkflow = (id: string) => { setEditingWorkflowId(id); setCanvasOpen(true); };
@@ -211,12 +229,16 @@ export function WorkflowPanel({ agents }: Props) {
           </div>
 
           {/* Active runs */}
-          {activeRuns.length > 0 && (
+          {(activeRuns.length > 0 || activeConfers.length > 0) && (
             <div className="space-y-2">
               <div className="text-xs text-gray-500 uppercase tracking-wider">Active Runs</div>
               {activeRuns.map((wf) => (
                 <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
                   templateName={templates.find((t) => t.id === wf.templateId)?.name} />
+              ))}
+              {/* Active confers — milestone progress for collaborating cartridges */}
+              {activeConfers.map((c) => (
+                <ConferCard key={c.id} confer={c} agents={agents} />
               ))}
             </div>
           )}
@@ -297,7 +319,7 @@ export function WorkflowPanel({ agents }: Props) {
           )}
 
           {/* Recent runs */}
-          {recentRunsAll.length > 0 && (
+          {(recentRunsAll.length > 0 || recentConfers.length > 0) && (
             <div className="space-y-2">
               <button
                 onClick={() => setShowRecentRuns((v) => !v)}
@@ -307,10 +329,14 @@ export function WorkflowPanel({ agents }: Props) {
                 <span className="text-xs text-gray-500 uppercase tracking-wider group-hover:text-gray-400 transition-colors">
                   Recent Runs
                 </span>
-                <span className="text-[11px] text-gray-600 ml-1">{recentRunsAll.length}</span>
+                <span className="text-[11px] text-gray-600 ml-1">{recentRunsAll.length + recentConfers.length}</span>
               </button>
               {showRecentRuns && (
                 <>
+                  {/* Finished confers — archived alongside recent workflow runs */}
+                  {recentConfers.map((c) => (
+                    <ConferCard key={c.id} confer={c} agents={agents} />
+                  ))}
                   {recentRuns.map((wf) => (
                     <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} compact agents={agents}
                       templateName={templates.find((t) => t.id === wf.templateId)?.name} />

@@ -67,6 +67,17 @@ function toolMeta(agentType: string): ToolMeta {
   }
 }
 
+function launchTypeFor(agentType: string): string {
+  switch (agentType) {
+    case 'gridlight': return 'gridlight-cli';
+    case 'codex': return 'codex-cli';
+    case 'gemini': return 'gemini';
+    case 'amazonq': return 'amazonq';
+    case 'cursor': return 'cursor';
+    default: return 'claude-cli';
+  }
+}
+
 /** Truncate a tool input/result to a brief description for the terminal view. */
 function briefSummary(activity: Activity): string {
   const { toolName, toolInput } = activity;
@@ -469,6 +480,9 @@ export function CartridgeCard({
   }, [tools, selectedToolId, agent.id]);
   const selectedAgent = tools.find((t) => t.id === selectedToolId) || agent;
   const selectedMeta = toolMeta(selectedAgent.agentType);
+  const [recoveringSession, setRecoveringSession] = useState(false);
+  const [recoveryNotice, setRecoveryNotice] = useState('');
+  const [resumeAfterRelaunchId, setResumeAfterRelaunchId] = useState('');
 
   const [frame1, frame2, animSpeed] = useMemo(() => generatePixelSprites(agent.id), [agent.id]);
   const [spriteFrame, setSpriteFrame] = useState(0);
@@ -491,6 +505,25 @@ export function CartridgeCard({
     api.getAgentTokenUsage(agent.id).then((u) => { setTokenTotal(u.total); setCostUsd(u.costUsd); }).catch(() => {});
   }, [agent.id, effectiveStatus]);
 
+  async function handleRecoverSession() {
+    setRecoveringSession(true);
+    setRecoveryNotice('');
+    try {
+      if (selectedAgent.status === 'offline') {
+        await api.openRepo(selectedAgent.repoPath, launchTypeFor(selectedAgent.agentType));
+        setResumeAfterRelaunchId(selectedAgent.id);
+        setRecoveryNotice('Relaunched. When the cartridge reconnects, click Resume session.');
+        return;
+      }
+      const result = await api.recoverAgentSession(selectedAgent.id);
+      setResumeAfterRelaunchId('');
+      setRecoveryNotice(`Recovery dispatched (${Math.round(result.promptChars / 1000)}k chars).`);
+    } catch (err) {
+      setRecoveryNotice(err instanceof Error ? err.message : 'Recovery failed');
+    } finally {
+      setRecoveringSession(false);
+    }
+  }
 
   // Terminal tab state
   const logScrollRef = useRef<HTMLDivElement>(null);
@@ -509,6 +542,11 @@ export function CartridgeCard({
     : effectiveStatus === 'waiting'
       ? 'border-yellow-700/60'
       : 'border-white/[0.08]';
+  const shouldOfferSessionRecovery =
+    selectedAgent.recoveryStatus === 'interrupted'
+    || selectedAgent.recoveryStatus === 'recovery_failed'
+    || (selectedAgent.status === 'offline' && !!selectedAgent.sessionId)
+    || resumeAfterRelaunchId === selectedAgent.id;
 
   return (
     <div className="relative flex flex-col">
@@ -694,6 +732,42 @@ export function CartridgeCard({
               {shortMachine(agent.machine)}
             </span>
           </div>
+
+          {shouldOfferSessionRecovery && (
+            <div className="mt-2 rounded border border-red-500/30 bg-red-950/30 px-2 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[12px] text-red-200 font-medium">
+                    {selectedAgent.recoveryStatus === 'interrupted' || selectedAgent.recoveryStatus === 'recovery_failed'
+                      ? 'Session interrupted'
+                      : 'Last session available'}
+                  </div>
+                  {selectedAgent.activeObjective && (
+                    <div className="text-[11px] text-red-200/60 truncate">
+                      {selectedAgent.activeObjective}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={handleRecoverSession}
+                  disabled={recoveringSession || !selectedAgent.repoPath}
+                  className="shrink-0 px-2 py-1 rounded bg-red-500/20 text-red-200 hover:bg-red-500/30 disabled:opacity-50 text-[12px] font-medium transition-colors"
+                  title={selectedAgent.status === 'offline' ? 'Relaunch this cartridge first' : 'Replay the stored transcript into this cartridge'}
+                >
+                  {recoveringSession
+                    ? 'Working...'
+                    : selectedAgent.status === 'offline'
+                      ? 'Relaunch'
+                      : selectedAgent.recoveryStatus === 'recovery_failed'
+                        ? 'Retry resume'
+                        : 'Resume session'}
+                </button>
+              </div>
+              {recoveryNotice && (
+                <div className="mt-1 text-[11px] text-red-100/70">{recoveryNotice}</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Stuck alert ── */}

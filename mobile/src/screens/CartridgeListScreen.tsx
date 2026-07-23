@@ -45,19 +45,25 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
   return (
     <View style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.title}>Cartridges</Text>
-        <View style={styles.headerRight}>
+        <View style={styles.titleRow}>
+          <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+            Cartridges
+          </Text>
+          <View style={styles.connection}>
+            <View style={[styles.dot, { backgroundColor: connected ? theme.teal : theme.danger }]} />
+            <Text style={styles.conn}>{connected ? 'live' : 'offline'}</Text>
+          </View>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.launchBtn} onPress={() => setLaunchOpen(true)}>
+            <Text style={styles.launchBtnText}>+Launch</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.launchBtn} onPress={() => setRepoOpen(true)}>
-            <Text style={styles.launchBtnText}>＋ Repo</Text>
+            <Text style={styles.launchBtnText}>+New Repo</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.launchBtn} onPress={() => setConferOpen(true)}>
             <Text style={styles.launchBtnText}>Confer</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.launchBtn} onPress={() => setLaunchOpen(true)}>
-            <Text style={styles.launchBtnText}>＋ Launch</Text>
-          </TouchableOpacity>
-          <View style={[styles.dot, { backgroundColor: connected ? theme.teal : theme.danger }]} />
-          <Text style={styles.conn}>{connected ? 'live' : 'offline'}</Text>
         </View>
       </View>
 
@@ -191,21 +197,22 @@ const styles = StyleSheet.create({
   },
   root: { flex: 1, backgroundColor: theme.bg },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
   },
-  title: { color: theme.text, fontSize: 26, fontWeight: '800' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  title: { color: theme.text, fontSize: 26, fontWeight: '800', flexShrink: 1 },
+  connection: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10 },
   launchBtn: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9,
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 8, paddingVertical: 8, borderRadius: 10,
     backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.accent,
   },
   launchBtnText: { color: theme.accentSoft, fontSize: 12, fontWeight: '700' },
-  conn: { color: theme.textDim, fontSize: 12, marginRight: 4 },
+  conn: { color: theme.textDim, fontSize: 12, marginRight: 0 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   card: {
     backgroundColor: theme.bgCard,

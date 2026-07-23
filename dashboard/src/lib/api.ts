@@ -52,6 +52,11 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(options || {}),
   }),
+  recoverAgentSession: (id: string) =>
+    request<{ ok: boolean; reason: string; sessionId: string; promptChars: number }>(
+      `/agents/${id}/recover-session`,
+      { method: 'POST' },
+    ),
 
   // Activity
   getActivity: (limit = 50) => request<import('../types').Activity[]>(`/activity?limit=${limit}`),

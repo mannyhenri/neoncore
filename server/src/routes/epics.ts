@@ -445,6 +445,9 @@ function emitAgentUpdate(agentId: string) {
     lastMessage: (row.last_message as string) ?? '',
     pendingQuestion: (row.pending_question as string) ?? '',
     dismissedAt: (row.dismissed_at as string) ?? '',
+    recoveryStatus: ((row.recovery_status as string) ?? '') as import('../types.js').Agent['recoveryStatus'],
+    interruptedAt: (row.interrupted_at as string) ?? '',
+    activeObjective: (row.active_objective as string) ?? '',
   });
 }
 
