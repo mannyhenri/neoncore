@@ -1,3 +1,0 @@
-app_identifier("ai.gridlight.neoncore")
-# Authentication is via the App Store Connect API key (see fastlane/SETUP.md),
-# so no apple_id / team_id is needed here. The App Store Connect app id is 6790428906.
