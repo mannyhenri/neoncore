@@ -2,31 +2,31 @@
   "name": "@neoncore/mobile",
   "version": "0.6.0",
   "private": true,
-  "main": "expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "start": "react-native start",
+    "ios": "react-native run-ios",
+    "android": "react-native run-android",
+    "pods": "cd ios && pod install",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
-    "babel-preset-expo": "~57.0.0",
-    "expo": "~57.0.6",
-    "expo-asset": "~57.0.5",
-    "expo-build-properties": "~57.0.5",
-    "expo-dev-client": "~57.0.6",
-    "expo-notifications": "~57.0.5",
-    "expo-splash-screen": "~57.0.4",
-    "expo-status-bar": "~57.0.1",
-    "expo-updates": "~57.0.7",
     "react": "19.2.3",
     "react-native": "0.86.0",
     "react-native-svg": "15.15.4",
     "socket.io-client": "^4.8.0"
   },
   "devDependencies": {
+    "@react-native-community/cli": "^20.0.0",
+    "@react-native-community/cli-platform-ios": "^20.0.0",
+    "@react-native/babel-preset": "0.86.0",
+    "@react-native/metro-config": "0.86.0",
+    "@react-native/typescript-config": "0.86.0",
     "@types/react": "~19.2.4",
     "typescript": "~6.0.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

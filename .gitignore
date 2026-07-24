@@ -16,8 +16,13 @@ server/public/
 .expo/
 mobile/.expo/
 mobile/dist/
-mobile/ios/
 mobile/android/
+# mobile/ios/ is now a committed bare-RN project (Expo ejected) — ignore only its artifacts
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/ios/*.xcworkspace/xcuserdata/
+mobile/ios/*.xcodeproj/xcuserdata/
+mobile/ios/.xcode.env.local
 
 # fastlane — secrets + build artifacts (never commit the API key or .env)
 mobile/fastlane/.env
