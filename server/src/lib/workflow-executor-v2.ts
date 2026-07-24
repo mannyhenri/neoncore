@@ -9,7 +9,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
-import { notifyWorkflowFinished, sendPushToAll } from './expo-push.js';
+import { notifyWorkflowFinished, sendPushToAll } from './apns-push.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';

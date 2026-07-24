@@ -1,6 +1,6 @@
 import db from './db.js';
 import { getIO } from './ws.js';
-import { sendPushToAll } from './lib/expo-push.js';
+import { sendPushToAll } from './lib/apns-push.js';
 
 export interface StuckAlert {
   agentId: string;
