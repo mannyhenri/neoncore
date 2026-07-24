@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
-import { sendPushToAll } from '../lib/expo-push.js';
+import { sendPushToAll } from '../lib/apns-push.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 
 const router = Router();
