@@ -19,6 +19,15 @@ mobile/dist/
 mobile/ios/
 mobile/android/
 
+# fastlane — secrets + build artifacts (never commit the API key or .env)
+mobile/fastlane/.env
+mobile/fastlane/*.p8
+mobile/fastlane/report.xml
+mobile/fastlane/Preview.html
+mobile/fastlane/test_output/
+mobile/build/
+mobile/*.ipa
+
 # Editor
 .vscode/
 
