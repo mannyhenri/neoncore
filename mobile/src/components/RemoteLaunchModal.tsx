@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, TextInput,
+  KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -24,6 +25,9 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
   const [notice, setNotice] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newPath, setNewPath] = useState('');
+
+  // Dismiss the keyboard before the sheet animates out — otherwise it lingers on iOS.
+  const close = () => { Keyboard.dismiss(); onClose(); };
 
   const load = useCallback(async () => {
     const m = await api.getMachines(baseUrl).catch(() => [] as Machine[]);
@@ -96,12 +100,18 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
+      {/* Bottom-anchored sheet: the "add folder" field sits deep in the list, so an open
+          keyboard covers it along with the Done button. Padding the backdrop lifts the sheet
+          and shrinks its maxHeight to what's left. Android resizes the modal window natively. */}
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>Launch on machine</Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={close} style={styles.closeBtn} hitSlop={12}>
               <Text style={styles.close}>Done</Text>
             </TouchableOpacity>
           </View>
@@ -116,7 +126,13 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
               launch a cartridge there remotely.
             </Text>
           ) : (
-            <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: 24 }}
+              // Without persistTaps the first tap on Add/Scan while the path field is focused
+              // is eaten by the keyboard dismissal instead of reaching the button.
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               {machines.map((m) => {
                 const online = m.status === 'online';
                 const editing = editingId === m.id;
@@ -206,7 +222,7 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
             </ScrollView>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -220,6 +236,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   title: { color: theme.text, fontSize: 18, fontWeight: '800' },
+  closeBtn: { paddingHorizontal: 8, paddingVertical: 6, marginRight: -8 },
   close: { color: theme.accentSoft, fontSize: 15, fontWeight: '700' },
   notice: { color: theme.teal, fontSize: 13, paddingVertical: 6 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 40, lineHeight: 20, paddingHorizontal: 20 },

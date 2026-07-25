@@ -7,8 +7,16 @@ import {
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import type { Workflow, WorkflowStep } from '../types';
+import type { ConferSession, Workflow, WorkflowStep } from '../types';
 import { PlayIcon } from '../components/Icons';
+import { ConferModal } from '../components/ConferModal';
+import { ConferCard } from '../components/ConferCard';
+
+/** One entry in the ACTIVE/RECENT feed — a workflow run or a confer session. Both carry a
+ *  `createdAt`, which is what lets them be merged into one newest-first list. */
+type FeedItem =
+  | { kind: 'run'; id: string; createdAt: string; run: Workflow }
+  | { kind: 'confer'; id: string; createdAt: string; confer: ConferSession };
 
 /** Colors for a run's lifecycle. Templates themselves are always 'pending'. */
 const runColor: Record<string, string> = {
@@ -21,7 +29,9 @@ const runColor: Record<string, string> = {
 };
 
 export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => void }) {
-  const { baseUrl, agents, onWorkflowUpdate } = useNeonCore();
+  // `confers` comes from the provider (seeded on connect, kept live by the confer_updated
+  // socket) rather than this screen's own load(), so it stays fresh on every tab.
+  const { baseUrl, agents, confers, refresh, onWorkflowUpdate } = useNeonCore();
 
   // Only cartridges that can actually execute. Offering a dead one would just hand the user
   // a run that fails at step 1. Hidden ones are fine — running a workflow on a dismissed
@@ -36,6 +46,8 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   // Finished runs are collapsed by default — they're reference, not the thing you act on,
   // and the full list crowds out ACTIVE and TEMPLATES. Tap the header to expand.
   const [recentOpen, setRecentOpen] = useState(false);
+  // Confer starts a multi-agent run, so its launcher belongs here beside the templates.
+  const [conferOpen, setConferOpen] = useState(false);
 
   // The template the user has tapped — we ask for context before launching,
   // because a workflow with no brief is rarely what you want.
@@ -106,9 +118,11 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
     setTimeout(() => setNotice(''), 3000);
   };
 
+  // Pull-to-refresh has to cover confers too, now that they render in these sections —
+  // the provider owns that list, so refresh both sources together.
   const doRefresh = async () => {
     setRefreshing(true);
-    await load();
+    await Promise.all([load(), refresh()]);
     setRefreshing(false);
   };
 
@@ -139,7 +153,7 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   if (loading) {
     return (
       <View style={styles.root}>
-        <Header />
+        <Header onConfer={() => setConferOpen(true)} />
         <ActivityIndicator color={theme.accent} style={{ marginTop: 40 }} />
       </View>
     );
@@ -292,15 +306,29 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
     );
   }
 
-  // Split runs so both live and finished ones are reachable. Sorting is already newest-first
-  // from the server (created_at DESC); the filter preserves it.
-  const activeRuns = runs.filter((w) => w.status === 'running' || w.status === 'paused');
-  const recentRuns = runs.filter((w) => w.status !== 'running' && w.status !== 'paused');
+  // Confers and workflow runs are both "things you started that are working" — so they share
+  // the ACTIVE / RECENT split rather than living in separate lists. Merged and re-sorted
+  // newest-first by createdAt, since two independently-sorted sources would interleave wrong.
+  const feed: FeedItem[] = [
+    ...runs.map((r): FeedItem => ({ kind: 'run', id: r.id, createdAt: r.createdAt, run: r })),
+    ...confers.map((c): FeedItem => ({ kind: 'confer', id: c.id, createdAt: c.createdAt, confer: c })),
+  ].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  const isActive = (i: FeedItem) =>
+    i.kind === 'run' ? i.run.status === 'running' || i.run.status === 'paused' : i.confer.status === 'running';
+  const activeItems = feed.filter(isActive);
+  const recentItems = feed.filter((i) => !isActive(i));
   const RECENT_CAP = 15;
+
+  const renderFeedItem = (i: FeedItem) =>
+    i.kind === 'confer'
+      ? <ConferCard key={i.id} session={i.confer} />
+      : <RunRow key={i.id} run={i.run} onPress={() => onOpenRun?.(i.run)} />;
 
   return (
     <View style={styles.root}>
-      <Header />
+      <Header onConfer={() => setConferOpen(true)} />
+      <ConferModal visible={conferOpen} onClose={() => setConferOpen(false)} />
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
       <FlatList
@@ -312,32 +340,28 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
         }
         ListHeaderComponent={
           <View style={styles.section}>
-            {activeRuns.length > 0 && (
+            {activeItems.length > 0 && (
               <>
-                <Text style={styles.sectionTitle}>ACTIVE ({activeRuns.length})</Text>
-                {activeRuns.map((r) => (
-                  <RunRow key={r.id} run={r} onPress={() => onOpenRun?.(r)} />
-                ))}
+                <Text style={styles.sectionTitle}>ACTIVE ({activeItems.length})</Text>
+                {activeItems.map(renderFeedItem)}
               </>
             )}
-            {recentRuns.length > 0 && (
+            {recentItems.length > 0 && (
               <>
                 <TouchableOpacity
                   style={styles.collapseHeader}
                   activeOpacity={0.6}
                   onPress={() => setRecentOpen((v) => !v)}
                 >
-                  <Text style={styles.sectionTitle}>RECENT ({recentRuns.length})</Text>
+                  <Text style={styles.sectionTitle}>RECENT ({recentItems.length})</Text>
                   <Text style={styles.collapseChevron}>{recentOpen ? '▾' : '▸'}</Text>
                 </TouchableOpacity>
                 {recentOpen && (
                   <>
-                    {recentRuns.slice(0, RECENT_CAP).map((r) => (
-                      <RunRow key={r.id} run={r} onPress={() => onOpenRun?.(r)} />
-                    ))}
-                    {recentRuns.length > RECENT_CAP && (
+                    {recentItems.slice(0, RECENT_CAP).map(renderFeedItem)}
+                    {recentItems.length > RECENT_CAP && (
                       <Text style={styles.moreNote}>
-                        +{recentRuns.length - RECENT_CAP} older run{recentRuns.length - RECENT_CAP === 1 ? '' : 's'} not shown
+                        +{recentItems.length - RECENT_CAP} older run{recentItems.length - RECENT_CAP === 1 ? '' : 's'} not shown
                       </Text>
                     )}
                   </>
@@ -387,10 +411,13 @@ function RunRow({ run, onPress }: { run: Workflow; onPress: () => void }) {
   );
 }
 
-function Header() {
+function Header({ onConfer }: { onConfer: () => void }) {
   return (
     <View style={styles.tabHeader}>
       <Text style={styles.screenTitle}>Workflows</Text>
+      <TouchableOpacity style={styles.conferBtn} onPress={onConfer}>
+        <Text style={styles.conferBtnText}>Confer</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -423,8 +450,17 @@ const styles = StyleSheet.create({
   runBtnOff: { opacity: 0.4 },
   root: { flex: 1, backgroundColor: theme.bg },
   // Top-level tab screen: big title, matching the Cartridges list.
-  tabHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  screenTitle: { color: theme.text, fontSize: 26, fontWeight: '800' },
+  tabHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4,
+  },
+  screenTitle: { color: theme.text, fontSize: 26, fontWeight: '800', flexShrink: 1 },
+  // Same pill as the Cartridges screen's +Launch buttons, where Confer used to live.
+  conferBtn: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.accent,
+  },
+  conferBtnText: { color: theme.accentSoft, fontSize: 12, fontWeight: '700' },
   // Pushed "Run" sheet: centered title with a back affordance.
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
