@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -11,8 +12,9 @@ import type { Agent, ConferMode } from '../types';
  * Start a milestone-driven "confer" from the phone: pick 2+ live cartridges (e.g. Claude +
  * Codex) and a task. The server-side conductor runs them through a fixed cycle
  * (Align → Build → Cross-review → Converge → Finalize), dispatching each milestone to both
- * agents and auto-advancing only when both signal done. Progress shows on the Cartridges
- * screen. Mirrors the web ConferModal.
+ * agents and auto-advancing only when both signal done. Launched from the Workflows screen,
+ * where the session then shows up under ACTIVE alongside workflow runs. Mirrors the web
+ * ConferModal.
  */
 export function ConferModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { baseUrl, agents } = useNeonCore();
@@ -34,11 +36,24 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
   const [mode, setMode] = useState<ConferMode>('divide');
   const [worktree, setWorktree] = useState(false);
 
+  // The sheet rides above the keyboard (see KeyboardAvoidingView below), but that only
+  // guarantees the sheet is visible — not the field inside its ScrollView. On focus we scroll
+  // the TASK block to the top of the shrunken viewport so you can see what you're typing.
+  const scrollRef = useRef<ScrollView>(null);
+  const taskY = useRef(0);
+  const revealTask = () => {
+    setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, taskY.current - 8), animated: true }), 60);
+  };
+
   const flash = (m: string) => { setNotice(m); setTimeout(() => setNotice(''), 4000); };
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const reset = () => { setSelected([]); setTask(''); setMode('divide'); setWorktree(false); };
+
+  // Dismiss the keyboard before the sheet animates out — otherwise it lingers over the screen
+  // underneath on iOS.
+  const close = () => { Keyboard.dismiss(); onClose(); };
 
   const start = async () => {
     if (selected.length < 2) { flash('Pick at least two cartridges to confer.'); return; }
@@ -50,7 +65,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
         isolation: mode === 'divide' && worktree ? 'worktree' : 'shared',
       });
       reset();
-      onClose();
+      close();
     } catch (e) {
       flash(e instanceof Error ? e.message : 'Failed to start confer');
     } finally {
@@ -59,21 +74,42 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
+      {/* The sheet is bottom-anchored, so an open keyboard sits right on top of it — hiding the
+          TASK field and, on a short sheet, the header with the × too. Padding the backdrop lifts
+          the whole sheet above the keyboard and shrinks its maxHeight to what's left, so the
+          close button is always reachable and the body scrolls instead of being covered.
+          Android resizes the modal window natively, so it needs no behavior. */}
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>Confer — two agents, one job</Text>
-            <TouchableOpacity onPress={onClose}><Text style={styles.close}>×</Text></TouchableOpacity>
+            <TouchableOpacity
+              onPress={close}
+              style={styles.closeBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Text style={styles.close}>×</Text>
+            </TouchableOpacity>
           </View>
           <Text style={styles.sub}>
             One task, run through a fixed 5-milestone cycle — {mode === 'collaborate'
               ? 'Frame → Draft → Critique → Revise → Finalize'
               : 'Align → Build → Cross-review → Converge → Finalize'}.
-            Each milestone advances only when every participant signals done. Progress shows on the Cartridges screen.
+            Each milestone advances only when every participant signals done. It appears under ACTIVE below, and moves to RECENT when it finishes.
           </Text>
 
-          <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={styles.body}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             {readyProjects.length > 0 && (
               <>
                 <Text style={styles.label}>QUICK PICK — A PROJECT WITH TWO ENGINES</Text>
@@ -116,15 +152,18 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               </View>
             )}
 
-            <Text style={styles.label}>TASK</Text>
-            <TextInput
-              value={task}
-              onChangeText={setTask}
-              placeholder="What should they solve together?"
-              placeholderTextColor={theme.textFaint}
-              style={styles.input}
-              multiline
-            />
+            <View onLayout={(e) => { taskY.current = e.nativeEvent.layout.y; }}>
+              <Text style={styles.label}>TASK</Text>
+              <TextInput
+                value={task}
+                onChangeText={setTask}
+                placeholder="What should they solve together?"
+                placeholderTextColor={theme.textFaint}
+                style={styles.input}
+                multiline
+                onFocus={revealTask}
+              />
+            </View>
 
             <Text style={styles.label}>HOW THEY WORK</Text>
             <View style={styles.chips}>
@@ -179,7 +218,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
 
           {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -193,7 +232,10 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: theme.text, fontSize: 16, fontWeight: '800' },
-  close: { color: theme.textDim, fontSize: 26, lineHeight: 26 },
+  // The × is a single glyph, so its text box alone is a ~15pt target. Pad it out (plus hitSlop)
+  // to something thumb-sized; the negative margin keeps it visually flush with the sheet edge.
+  closeBtn: { paddingHorizontal: 12, paddingVertical: 8, marginRight: -12, marginTop: -4 },
+  close: { color: theme.textDim, fontSize: 26, lineHeight: 28 },
   sub: { color: theme.textFaint, fontSize: 12, marginTop: 4, marginBottom: 8 },
   body: { paddingBottom: 12 },
   label: {

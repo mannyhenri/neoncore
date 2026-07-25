@@ -6,8 +6,6 @@ import type { Agent } from '../types';
 import { QuestionIcon } from '../components/Icons';
 import { SwipeToDismiss } from '../components/SwipeToDismiss';
 import { RemoteLaunchModal } from '../components/RemoteLaunchModal';
-import { ConferModal } from '../components/ConferModal';
-import { ConferProgress } from '../components/ConferProgress';
 import { NewRepoModal } from '../components/NewRepoModal';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
@@ -16,7 +14,6 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
   const [showOffline, setShowOffline] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
-  const [conferOpen, setConferOpen] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
 
   const doRefresh = async () => {
@@ -61,14 +58,12 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
           <TouchableOpacity style={styles.launchBtn} onPress={() => setRepoOpen(true)}>
             <Text style={styles.launchBtnText}>+New Repo</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.launchBtn} onPress={() => setConferOpen(true)}>
-            <Text style={styles.launchBtnText}>Confer</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
+      {/* Confer lives on the Workflows screen — it starts a multi-agent *run*, and its
+          progress belongs next to the other runs rather than on top of the cartridge list. */}
       <RemoteLaunchModal visible={launchOpen} onClose={() => setLaunchOpen(false)} />
-      <ConferModal visible={conferOpen} onClose={() => setConferOpen(false)} />
       <NewRepoModal visible={repoOpen} onClose={() => setRepoOpen(false)} />
 
       <FlatList
@@ -76,7 +71,6 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
         keyExtractor={(a) => a.id}
         contentContainerStyle={{ paddingVertical: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />}
-        ListHeaderComponent={<ConferProgress />}
         ListEmptyComponent={
           <Text style={styles.empty}>
             {hidden.length > 0

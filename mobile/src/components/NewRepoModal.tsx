@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator, Linking,
+  KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -38,7 +39,8 @@ export function NewRepoModal({ visible, onClose }: { visible: boolean; onClose: 
     setName(''); setDescription(''); setIsPrivate(true); setLaunch(true);
     setTool(TOOLS[0].value); setError(''); setResult(null);
   };
-  const close = () => { reset(); onClose(); };
+  // Dismiss the keyboard before the sheet animates out — otherwise it lingers on iOS.
+  const close = () => { Keyboard.dismiss(); reset(); onClose(); };
 
   const create = async () => {
     if (!nameValid) return;
@@ -60,11 +62,19 @@ export function NewRepoModal({ visible, onClose }: { visible: boolean; onClose: 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <View style={styles.backdrop}>
+      {/* Bottom-anchored sheet: without this the keyboard sits on top of it, hiding the fields
+          and the Done button. Padding the backdrop lifts the sheet and shrinks its maxHeight to
+          the space left over. Android resizes the modal window natively. */}
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>New repo</Text>
-            <TouchableOpacity onPress={close}><Text style={styles.close}>Done</Text></TouchableOpacity>
+            <TouchableOpacity onPress={close} style={styles.closeBtn} hitSlop={12}>
+              <Text style={styles.close}>Done</Text>
+            </TouchableOpacity>
           </View>
 
           {result ? (
@@ -84,7 +94,11 @@ export function NewRepoModal({ visible, onClose }: { visible: boolean; onClose: 
               </TouchableOpacity>
             </View>
           ) : (
-            <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={styles.body}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <Text style={styles.sub}>
                 Created on the server host under its projects folder, under your active GitHub account.
               </Text>
@@ -159,7 +173,7 @@ export function NewRepoModal({ visible, onClose }: { visible: boolean; onClose: 
             </ScrollView>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -173,6 +187,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: theme.text, fontSize: 18, fontWeight: '800' },
+  closeBtn: { paddingHorizontal: 8, paddingVertical: 6, marginRight: -8 },
   close: { color: theme.accentSoft, fontSize: 15, fontWeight: '700' },
   body: { paddingBottom: 12, paddingTop: 8 },
   sub: { color: theme.textFaint, fontSize: 12, marginBottom: 6 },
