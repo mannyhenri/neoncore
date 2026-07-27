@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, StatusBar, ActivityIndicator, SafeAreaView, Platform } from 'react-native';
 import { theme } from './src/theme';
-import { loadServerUrl } from './src/config';
+import { loadServers, saveServers, type ServerEntry } from './src/config';
 import { registerForPush, usePushNavigation } from './src/push';
 import { api } from './src/api';
 import { NeonCoreProvider } from './src/NeonCoreProvider';
@@ -24,15 +24,21 @@ type Route =
 
 export default function App() {
   const [booting, setBooting] = useState(true);
-  const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const [servers, setServers] = useState<ServerEntry[]>([]);
   const [route, setRoute] = useState<Route>({ name: 'list' });
 
+  // loadServers migrates a pre-federation install (a single stored URL) on first run, so
+  // upgrading never drops the server this phone was already set up with.
   useEffect(() => {
-    loadServerUrl().then((url) => {
-      setServerUrl(url);
+    loadServers().then((list) => {
+      setServers(list);
       setBooting(false);
     });
   }, []);
+
+  // The server this phone was set up with. Push registration and deep links are
+  // single-server concerns — a notification arrives from one machine, not the fleet.
+  const serverUrl = servers[0]?.url ?? null;
 
   // Once we know the server, register this device for push so it can tell us when a
   // workflow finishes. Idempotent server-side, so re-running on url change is fine.
@@ -67,10 +73,17 @@ export default function App() {
         <View style={styles.center}>
           <ActivityIndicator color={theme.accent} />
         </View>
-      ) : !serverUrl ? (
-        <ConnectScreen onConnected={(url) => { setServerUrl(url); setRoute({ name: 'list' }); }} />
+      ) : servers.length === 0 ? (
+        <ConnectScreen
+          onConnected={(url) => {
+            const first: ServerEntry[] = [{ url, name: url.replace(/^https?:\/\//, ''), serverId: '', token: null, manual: true }];
+            setServers(first);
+            saveServers(first).catch(() => {});
+            setRoute({ name: 'list' });
+          }}
+        />
       ) : (
-        <NeonCoreProvider baseUrl={serverUrl}>
+        <NeonCoreProvider servers={servers} onServersChange={setServers}>
           {/* Persistent brand bar on the tab screens (pushed detail screens own their surface). */}
           {route.name !== 'detail' && route.name !== 'workflowRun' && (
             <BrandHeader />

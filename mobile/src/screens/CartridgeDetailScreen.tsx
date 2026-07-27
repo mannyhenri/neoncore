@@ -14,7 +14,7 @@ import type { Agent, AgentMode, TranscriptEvent } from '../types';
 const MODES: AgentMode[] = ['manual', 'plan', 'trust'];
 
 export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack: () => void }) {
-  const { baseUrl, agents, permissions, onTranscript } = useNeonCore();
+  const { agents, permissions, onTranscript, urlForAgent, urlForPermission } = useNeonCore();
   // Prefer the live agent object so status/mode stay current.
   const live = agents.find((a) => a.id === agent.id) ?? agent;
   // Anything this agent is currently blocked on — answerable inline, below.
@@ -57,12 +57,12 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   const decide = useCallback(
     async (id: string, decision: 'allowed' | 'denied', response?: string | object) => {
       try {
-        await api.decidePermission(baseUrl, id, decision, response);
+        await api.decidePermission(urlForPermission(id), id, decision, response);
       } catch {
         /* socket permission_decided will reconcile */
       }
     },
-    [baseUrl],
+    [urlForPermission],
   );
 
   const [messages, setMessages] = useState<TranscriptEvent[]>([]);
@@ -95,7 +95,7 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   useEffect(() => {
     let active = true;
     api
-      .getMessages(baseUrl, agent.id, { limit: 100 })
+      .getMessages(urlForAgent(agent.id), agent.id, { limit: 100 })
       .then((h) => { if (active) setMessages([...h].reverse()); })
       .catch(() => {})
       .finally(() => { if (active) setLoading(false); });
@@ -104,7 +104,7 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
       setMessages((prev) => (prev.some((m) => m.id === ev.id) ? prev : [ev, ...prev]));
     });
     return () => { active = false; unsub(); };
-  }, [baseUrl, agent.id, onTranscript]);
+  }, [urlForAgent, agent.id, onTranscript]);
 
   const flash = useCallback((msg: string) => {
     setNotice(msg);
@@ -133,7 +133,8 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
       // Fan out to every selected engine (this one + any selected siblings).
       const ids = allTools.filter((a) => targets.has(a.id)).map((a) => a.id);
       const list = ids.length > 0 ? ids : [agent.id];
-      await Promise.all(list.map((id) => api.sendCommand(baseUrl, id, t)));
+      // Selected siblings can live on different servers, so each id resolves its own.
+      await Promise.all(list.map((id) => api.sendCommand(urlForAgent(id), id, t)));
       setText('');
       flash(list.length > 1 ? `Sent to ${list.length} engines` : 'Command sent');
     } catch (e) {
@@ -146,7 +147,7 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   const resumeSession = async () => {
     setRecovering(true);
     try {
-      await api.recoverAgentSession(baseUrl, live.id);
+      await api.recoverAgentSession(urlForAgent(live.id), live.id);
       flash('Recovery dispatched');
     } catch (e) {
       flash(live.status === 'offline'
@@ -158,12 +159,12 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   };
   const dismissRecovery = async () => {
     setRecovDismissed(true);
-    try { await api.dismissAgentRecovery(baseUrl, live.id); } catch { setRecovDismissed(false); }
+    try { await api.dismissAgentRecovery(urlForAgent(live.id), live.id); } catch { setRecovDismissed(false); }
   };
 
   const changeMode = async (mode: AgentMode) => {
     try {
-      await api.setMode(baseUrl, agent.id, mode);
+      await api.setMode(urlForAgent(agent.id), agent.id, mode);
       flash(`Mode → ${mode}`);
     } catch (e) {
       flash(`Mode change failed: ${e instanceof Error ? e.message : String(e)}`);

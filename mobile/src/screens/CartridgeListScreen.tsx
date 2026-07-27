@@ -9,7 +9,7 @@ import { RemoteLaunchModal } from '../components/RemoteLaunchModal';
 import { NewRepoModal } from '../components/NewRepoModal';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
-  const { agents, connected, refresh, dismissAgent, restoreAgent } = useNeonCore();
+  const { agents, connected, refresh, dismissAgent, restoreAgent, servers } = useNeonCore();
   const [refreshing, setRefreshing] = useState(false);
   const [showOffline, setShowOffline] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -132,7 +132,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
         }
         renderItem={({ item }) => (
           <SwipeToDismiss label="Hide" onAction={() => dismissAgent(item.id)}>
-            <CartridgeCard agent={item} onPress={() => onOpen(item)} />
+            <CartridgeCard agent={item} onPress={() => onOpen(item)} showOrigin={servers.length > 1} />
           </SwipeToDismiss>
         )}
       />
@@ -140,7 +140,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
   );
 }
 
-function CartridgeCard({ agent, onPress }: { agent: Agent; onPress: () => void }) {
+function CartridgeCard({ agent, onPress, showOrigin }: { agent: Agent; onPress: () => void; showOrigin: boolean }) {
   const color = statusColor[agent.status as AgentStatus] ?? theme.textDim;
   const hasQuestion = !!agent.pendingQuestion;
   return (
@@ -158,6 +158,13 @@ function CartridgeCard({ agent, onPress }: { agent: Agent; onPress: () => void }
       <Text style={styles.meta} numberOfLines={1}>
         {agent.machine} · {agent.branch || 'no branch'} · {agent.mode}
       </Text>
+      {/* Which SERVER served this cartridge. Shown only once the fleet has more than one:
+          on a single-server setup it would be noise on every row. */}
+      {showOrigin && !!(agent as { originName?: string }).originName && (
+        <Text style={styles.origin} numberOfLines={1}>
+          via {(agent as { originName?: string }).originName}
+        </Text>
+      )}
       {hasQuestion ? (
         <View style={styles.questionRow}>
           <QuestionIcon size={15} color={theme.amber} strokeWidth={2} />
@@ -226,6 +233,7 @@ const styles = StyleSheet.create({
   },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  origin: { color: theme.accentSoft, fontSize: 10, marginTop: 2 },
   meta: { color: theme.textFaint, fontSize: 12, marginTop: 6 },
   last: { color: theme.textDim, fontSize: 13, marginTop: 8, lineHeight: 18 },
   questionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8 },
