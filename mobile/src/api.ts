@@ -1,14 +1,59 @@
 import type { Agent, AgentMode, ConferSession, Machine, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
+/**
+ * Fleet tokens, keyed by base URL.
+ *
+ * Held here rather than threaded through every method because `req` is the only place
+ * that needs it — adding a token parameter to forty call sites would be forty chances to
+ * forget one, and a forgotten one fails as a 401 that reads like an unreachable server.
+ */
+const tokens = new Map<string, string>();
+
+export function setServerToken(base: string, token: string | null | undefined): void {
+  if (token) tokens.set(base, token);
+  else tokens.delete(base);
+}
+
+/**
+ * Typed enough to tell a rejected token from an unreachable machine.
+ *
+ * On a phone this distinction matters more than on a desktop: "can't reach the server" is
+ * the expected state half the time (asleep, off Wi-Fi, on cellular), so a token problem
+ * hiding inside that message would never be noticed.
+ */
+export class ApiError extends Error {
+  readonly kind: 'unreachable' | 'auth' | 'server' | 'bad';
+  readonly status: number | null;
+  constructor(kind: ApiError['kind'], message: string, status: number | null = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
 async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
+  const token = tokens.get(base);
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers || {}),
+      },
+    });
+  } catch (err) {
+    throw new ApiError('unreachable', err instanceof Error ? err.message : String(err));
+  }
+
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    const message = `${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`;
+    const kind = res.status === 401 || res.status === 403 ? 'auth' : res.status >= 500 ? 'server' : 'bad';
+    throw new ApiError(kind, message, res.status);
   }
   // Some endpoints (204) have no body.
   const text = await res.text();
@@ -17,6 +62,13 @@ async function req<T>(base: string, path: string, init?: RequestInit): Promise<T
 
 export const api = {
   health: (base: string) => req<{ status: string }>(base, '/api/health'),
+
+  /** This server's identity plus every peer it knows — how the phone finds the fleet. */
+  getPeers: (base: string) =>
+    req<{
+      self: { serverId: string; name: string; url: string; version: string };
+      peers: { url: string; serverId: string; name: string; stale: boolean }[];
+    }>(base, '/api/peers'),
 
   listAgents: (base: string) => req<Agent[]>(base, '/api/agents'),
 

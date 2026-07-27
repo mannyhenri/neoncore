@@ -7,7 +7,7 @@ import { PermissionCard } from '../components/PermissionCard';
 import { CheckCircleIcon } from '../components/Icons';
 
 export function ApprovalsScreen() {
-  const { baseUrl, permissions, agents, refresh } = useNeonCore();
+  const { permissions, agents, refresh, urlForPermission } = useNeonCore();
   const [refreshing, setRefreshing] = useState(false);
 
   const doRefresh = async () => {
@@ -23,7 +23,7 @@ export function ApprovalsScreen() {
 
   const decide = async (id: string, decision: 'allowed' | 'denied', response?: string | object) => {
     try {
-      await api.decidePermission(baseUrl, id, decision, response);
+      await api.decidePermission(urlForPermission(id), id, decision, response);
     } catch {
       /* socket permission_decided will reconcile; ignore transient errors */
     }
