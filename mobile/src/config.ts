@@ -38,13 +38,31 @@ export function fallbackName(url: string): string {
   return m ? m[1].replace(/\.local$/, '') : url;
 }
 
+/**
+ * Collapse entries that are the SAME server reached by a different name.
+ *
+ * One server answers on its .local hostname, its LAN IP and its Tailscale name, and
+ * advertises itself to peers by whichever one it picked. Add it by hand as
+ * `mac.local:4040`, then let a peer gossip it back as `192.168.4.24:4040`, and URL
+ * comparison sees two servers — so every cartridge on that machine is listed twice, with
+ * nothing to indicate why. `serverId` is the stable identity reported for exactly this.
+ *
+ * The FIRST entry wins: it is the address the phone was set up with and is known to work.
+ */
 function dedupe(list: ServerEntry[]): ServerEntry[] {
-  const seen = new Set<string>();
+  const seenUrls = new Set<string>();
+  const seenIds = new Set<string>();
   const out: ServerEntry[] = [];
   for (const s of list) {
     const url = normalizeUrl(s.url);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
+    if (!url || seenUrls.has(url)) continue;
+    // An entry with no serverId has never been contacted; keep it, or a newly added
+    // server would never get the chance to identify itself.
+    if (s.serverId) {
+      if (seenIds.has(s.serverId)) continue;
+      seenIds.add(s.serverId);
+    }
+    seenUrls.add(url);
     out.push({ ...s, url, name: s.name || fallbackName(url) });
   }
   return out;
@@ -93,6 +111,12 @@ export function upsertServer(
 ): ServerEntry[] {
   const url = normalizeUrl(entry.url);
   if (!url) return servers;
+
+  // A server we ALREADY have, reached by another name. Rejecting it here is what stops
+  // the list from doubling; matching on URL alone cannot catch it.
+  if (entry.serverId && servers.some((s) => s.serverId === entry.serverId && s.url !== url)) {
+    return servers;
+  }
 
   const existing = servers.find((s) => s.url === url);
   if (existing) {

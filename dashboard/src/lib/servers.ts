@@ -70,6 +70,35 @@ function isSameOrigin(url: string): boolean {
   }
 }
 
+/**
+ * Collapse entries that are the SAME server reached by a different name.
+ *
+ * URL comparison alone cannot do this, and assuming it could was a real bug: one server
+ * answers on localhost, on its .local hostname, on its LAN IP and on its Tailscale name,
+ * and it advertises itself to peers by whichever `getServerBaseUrl()` picks. Browse to
+ * `http://localhost:4040` while the server calls itself `http://Mac.local:4040`, let a
+ * peer gossip that name back, and the app adopts your own server a second time — every
+ * cartridge on it renders twice, with nothing to indicate why.
+ *
+ * `serverId` is the stable identity the server reports precisely for this. The FIRST
+ * entry wins, which keeps the local server (always index 0) as the canonical one — it is
+ * the connection already known to work.
+ */
+export function dedupeByServerId(servers: ServerEntry[]): ServerEntry[] {
+  const seen = new Set<string>();
+  const out: ServerEntry[] = [];
+  for (const s of servers) {
+    // An entry with no serverId yet has never been contacted; keep it, since it is the
+    // only way a newly added server gets a chance to identify itself.
+    if (s.serverId) {
+      if (seen.has(s.serverId)) continue;
+      seen.add(s.serverId);
+    }
+    out.push(s);
+  }
+  return out;
+}
+
 export function loadServers(): ServerEntry[] {
   let stored: ServerEntry[] = [];
   try {
@@ -96,8 +125,14 @@ export function loadServers(): ServerEntry[] {
     deduped.push({ ...s, url, name: s.name || fallbackName(url) });
   }
 
-  const local = { ...LOCAL_SERVER, token: stored.find((s) => !s.url)?.token ?? null };
-  return [local, ...deduped];
+  const local = {
+    ...LOCAL_SERVER,
+    token: stored.find((s) => !s.url)?.token ?? null,
+    // Carried across reloads so an alias of ourselves is rejected on the very first
+    // discovery pass, not one render after the duplicates have already appeared.
+    serverId: stored.find((s) => !s.url)?.serverId ?? '',
+  };
+  return dedupeByServerId([local, ...deduped]);
 }
 
 export function saveServers(servers: ServerEntry[]): void {
@@ -115,6 +150,12 @@ export function upsertServer(
 ): ServerEntry[] {
   const url = normalizeServerUrl(entry.url);
   if (!url || isSameOrigin(url)) return servers;
+
+  // A server we ALREADY have, reached by another name. Rejecting it here is what stops
+  // the whole grid from doubling; matching on URL alone cannot catch it.
+  if (entry.serverId && servers.some((s) => s.serverId === entry.serverId && s.url !== url)) {
+    return servers;
+  }
 
   const existing = servers.find((s) => s.url === url);
   if (existing) {
