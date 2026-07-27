@@ -281,7 +281,12 @@ export function CartridgeGrid({
 
             return (
               <CartridgeCard
-                key={agent.id}
+                // Key on the CARTRIDGE (machine:repoName — the same key we grouped by), never
+                // on the primary agent's id. `primary` is whichever sibling currently has the
+                // best status, so a log line arriving for any tool in this repo can promote a
+                // different agent. Keying on agent.id would remount the whole card on that
+                // flip and wipe whatever the user was typing in CommandInput.
+                key={`${agent.machine}:${agent.repoName}`}
                 agent={agent}
                 siblingAgents={siblingIds.map((id) => agents.find((a) => a.id === id)!).filter(Boolean)}
                 allAgents={agents}
