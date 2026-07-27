@@ -34,6 +34,7 @@ import machinesRouter from './routes/machines.js';
 import peersRouter from './routes/peers.js';
 import { fleetAuth, ensureFleetToken, getAuthMode } from './lib/auth.js';
 import { startPeerScheduler, stopPeerScheduler } from './lib/peer-scheduler.js';
+import { findZombies } from './lib/zombie-reaper.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
@@ -135,17 +136,8 @@ import { getIO as getSocketIO, hasActiveSocket } from './ws.js';
 // death sentence — an idle agent stays visible in the grid.
 const IDLE_THRESHOLD_MS = 2 * 60 * 1000;
 
-// An agent going quiet does NOT mean it died. Death is reported, not inferred:
-//   - SessionEnd hook  → POST /api/agents/session-end (the honest signal)
-//   - socket disconnect → markAgentOffline (relay / VS Code extension)
-//   - relay SIGTERM    → POST /api/agents/interrupted
-// This timer only reaps ZOMBIES — sessions killed in a way that fires none of the
-// above (kill -9, terminal window closed, laptop slept). At 24h it can only ever
-// catch the genuinely dead, never someone who stepped away for coffee.
-//
-// It used to be 5 minutes, which is why cartridges vanished out of the grid while
-// their session was still sitting open in a terminal.
-const ZOMBIE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+// Zombie reaping policy lives in lib/zombie-reaper.ts — the threshold now depends on
+// whether the agent type can report its own death at all.
 
 function emitAgentUpdate(row: Record<string, unknown>) {
   const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
@@ -190,21 +182,19 @@ setInterval(() => {
     if (row) emitAgentUpdate(row);
   }
 
-  // Zombie reaper — see ZOMBIE_THRESHOLD_MS. Sessions that died without firing any of
-  // the real death signals would otherwise sit in the grid forever.
-  const zombieCutoff = new Date(Date.now() - ZOMBIE_THRESHOLD_MS).toISOString();
-  const zombies = db.prepare(
-    "SELECT id FROM agents WHERE status IN ('idle', 'waiting', 'working') AND last_seen < ?"
-  ).all(zombieCutoff) as { id: string }[];
-
-  for (const { id } of zombies) {
-    if (hasActiveSocket(id)) continue; // still connected — demonstrably not dead
-    markAgentSessionInterrupted(id, 'zombie');
-    endSession(id);
-    db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(id);
-    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
+  // Zombie reaper. Sessions that died without firing any of the real death signals would
+  // otherwise sit in the grid until the threshold expires — for hooks-only agents that
+  // cannot report death at all, that used to mean a full day of ghosts.
+  for (const zombie of findZombies(db, { hasActiveSocket })) {
+    markAgentSessionInterrupted(zombie.id, 'zombie');
+    endSession(zombie.id);
+    db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(zombie.id);
+    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(zombie.id) as Record<string, unknown>;
     if (row) emitAgentUpdate(row);
-    console.log(`[zombie] Agent ${id} reaped (no activity for 24h, no socket, no SessionEnd)`);
+    console.log(
+      `[zombie] Agent ${zombie.id} (${zombie.agentType}) reaped — quiet for ` +
+        `${Math.round(zombie.ageMs / 60000)}min, threshold ${Math.round(zombie.thresholdMs / 60000)}min, no socket`,
+    );
   }
 
   // Recovery backstop: now that offline agents are marked, flag any running
