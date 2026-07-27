@@ -905,7 +905,9 @@ export function CartridgeCard({
           <CommandInput
             // Keyed on the cartridge (not the focused tool) so toggling send targets never
             // wipes what you're typing. History follows the focused tool via agentId.
-            key={agent.id}
+            // Must be machine:repoName, not agent.id — `agent` is the primary, which changes
+            // whenever a sibling's status outranks it (e.g. a live log line makes it 'working').
+            key={`${agent.machine}:${agent.repoName}`}
             agentId={selectedAgent.id}
             mode={selectedAgent.mode}
             placeholder={effectiveStatus === 'waiting'
