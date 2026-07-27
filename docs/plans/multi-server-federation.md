@@ -166,9 +166,9 @@ no test AND no handling AND silent).
 Also add the missing `"test": "vitest run"` script to `dashboard/package.json` — vitest is
 configured and 53 tests pass, but there is no npm script to run them.
 
-## Remote access
+## Remote access — VERIFIED 2026-07-27
 
-Tailscale on each server plus `tailscale serve 4040`. Not currently installed.
+Tailscale on each server plus `tailscale serve --bg 4040`.
 
 `tailscale serve` matters specifically because `mobile/ios/NeonCore/Info.plist:33` sets
 `NSAllowsArbitraryLoads=false` with `NSAllowsLocalNetworking=true`. That permits plain
@@ -176,6 +176,31 @@ Tailscale on each server plus `tailscale serve 4040`. Not currently installed.
 `100.64.0.0/10` CGNAT addresses, which are **not** covered — plain http to a `100.x` address
 would be blocked by App Transport Security. `tailscale serve` terminates TLS with a real
 certificate on `*.ts.net`, so no Info.plist change is needed.
+
+Measured on `mannys-mac-pro` (100.123.100.109), NeonCore on :4040:
+
+```
+  https://mannys-mac-pro.tail6387b6.ts.net/api/health -> 200
+  TLS verify result 0 (strict, system trust store, no -k)
+  issuer  Let's Encrypt CN=YE1        SAN  mannys-mac-pro.tail6387b6.ts.net
+  TLS 1.3, TLS_AES_128_GCM_SHA256     expires 2026-10-25 (auto-renewed)
+```
+
+Every ATS requirement is met: valid chain, TLS 1.2+, forward-secret AEAD cipher, SHA-256.
+**The Info.plist stays as-is.**
+
+Two setup steps are not obvious and cost time here:
+
+- **HTTPS Certificates must be enabled per tailnet** (admin console → DNS). Off by default.
+  Until it is on, `tailscale cert` returns `500 ... does not support getting TLS certs` and
+  bare `tailscale serve` *hangs* rather than erroring — it blocks trying to provision a cert
+  it cannot get, and writes no config. Enable this first on every new machine's tailnet.
+- **The macOS installer needs an interactive sudo password**, so `brew install --cask
+  tailscale-app` cannot be scripted headlessly. Relevant to the fleet-rollout story.
+
+Scope note: `tailscale serve` publishes tailnet-only. Every device on the tailnet can reach
+the server, which is the intent — the fleet token is still the actual gate. Do **not**
+reach for `tailscale funnel`; that is public-internet exposure.
 
 ## NOT in scope
 
