@@ -4,7 +4,7 @@ NeonCore has three roles. Install the one you need:
 
 | Role | What it is | Install with |
 |---|---|---|
-| **Server host** | Runs the orchestrator + dashboard (port 4040). One per network. | `neoncore-full.zip` → `install-neoncore.sh` / `.ps1` |
+| **Server host** | Runs the orchestrator + dashboard (port 4040). One per computer you work from — they federate into one grid. | `neoncore-full.zip` → `install-neoncore.sh` / `.ps1` |
 | **Agent machine** | A Mac/Linux/Windows box whose Claude Code sessions show up as cartridges. Many per network. | `neoncore-agent-mac.zip` / `-linux.zip` / `-windows.zip` → `bootstrap.sh` / `.ps1` |
 | **Phone** | iOS app — watch cartridges, read transcripts, answer approvals, launch workflows. | TestFlight → see [Phone (iOS)](#phone-ios) |
 
@@ -14,7 +14,11 @@ The three distributable packages are built into `dist/` by [`scripts/package.sh`
 
 ## 1. Server host — install the full orchestrator
 
-The machine that everyone else connects to. **One per LAN.**
+The machine that everyone else connects to.
+
+You can run **one per LAN**, or **one on every computer you work from**. With more than
+one, the servers gossip and every client shows a single merged grid — see
+**[FLEET.md](FLEET.md)**. Servers stay independent: separate databases, separate queues.
 
 **Prerequisites:** [Node.js 18+](https://nodejs.org) (ships with npm).
 
@@ -71,6 +75,38 @@ You should get `{"status":"ok"}`. If the hostname doesn't resolve, fall back to 
 Flags: `--start` (start without prompting), `--no-start` (build only), `--dev` (hot-reload dev mode). On Windows use `-Start` / `-NoStart` / `-Dev`.
 
 > **Firewall:** allow inbound TCP **4040** on the host so other machines can reach it. macOS: System Settings → Network → Firewall. Windows: Windows Defender Firewall → inbound rule.
+
+---
+
+### Adding a second computer
+
+One command on the new machine, using the fleet token from the first:
+
+```bash
+# Mac / Linux
+./install-neoncore.sh --start --fleet-token <TOKEN> --peer http://first-machine.local:4040
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File .\install-neoncore.ps1 -Start `
+  -FleetToken <TOKEN> -Peer http://first-machine.local:4040
+```
+
+The token is printed once in the first server's startup banner. If it has scrolled away:
+
+```bash
+sqlite3 server/neoncore.db "SELECT value FROM settings WHERE key='fleet_token';"
+```
+
+Both flags matter:
+
+- **`--fleet-token`** — without it the new machine mints its own token and the two servers
+  reject each other with `401`. It is saved on first launch, so you pass it once.
+- **`--peer`** — one introduction, one direction. Gossip does the rest. Optional; you can
+  add the address later from the dashboard's fleet panel.
+
+Full details, remote access and troubleshooting: **[FLEET.md](FLEET.md)**.
 
 ---
 

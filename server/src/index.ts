@@ -321,7 +321,7 @@ server.listen(PORT, '0.0.0.0', () => {
   // Generate the fleet token on first launch. A secret nobody ever saw is useless — the
   // whole point is that you can copy it onto the next machine — so a freshly generated
   // one is printed in full, once, right here in the startup box.
-  const { token, generated } = ensureFleetToken();
+  const { token, generated, adopted } = ensureFleetToken();
   const lines = [
     'NeonCore Server',
     '',
@@ -344,7 +344,9 @@ server.listen(PORT, '0.0.0.0', () => {
           'token. It is shown in full only this once — after',
           'this it is redacted from the settings API.',
         ]
-      : ['Fleet token: configured (redacted)']),
+      : adopted
+        ? ['Fleet token: adopted from the environment and saved.', 'This server has joined your existing fleet.']
+        : ['Fleet token: configured (redacted)']),
   ];
   const width = Math.max(...lines.map((l) => l.length)) + 6;
   const box = [
