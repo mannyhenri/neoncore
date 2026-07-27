@@ -97,10 +97,13 @@ echo
 # about this machine within a tick, and teaches this machine about everyone else.
 seed_peer_when_up() {
   [[ -z "$PEER_URL" ]] && return 0
+  # Honour PORT. Hardcoding 4040 meant a server started on any other port never joined —
+  # the background poll simply timed out with nothing in the foreground to say so.
+  local self_port="${PORT:-${NEONCORE_PORT:-4040}}"
   (
     for _ in $(seq 1 60); do
-      if curl -fsS -m 2 "http://localhost:4040/api/health" >/dev/null 2>&1; then
-        curl -fsS -m 5 -X POST "http://localhost:4040/api/peers" \
+      if curl -fsS -m 2 "http://localhost:${self_port}/api/health" >/dev/null 2>&1; then
+        curl -fsS -m 5 -X POST "http://localhost:${self_port}/api/peers" \
           -H 'Content-Type: application/json' \
           ${NEONCORE_FLEET_TOKEN:+-H "Authorization: Bearer $NEONCORE_FLEET_TOKEN"} \
           -d "{\"url\":\"$PEER_URL\"}" >/dev/null 2>&1 \

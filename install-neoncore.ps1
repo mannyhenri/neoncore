@@ -56,19 +56,22 @@ function Start-PeerSeed {
     if (-not $Peer) { return }
     $tok = $env:NEONCORE_FLEET_TOKEN
     $peerUrl = $Peer
+    # Honour PORT. Hardcoding 4040 meant a server on any other port never joined, and the
+    # background job timed out with nothing in the foreground to say so.
+    $selfPort = if ($env:PORT) { $env:PORT } elseif ($env:NEONCORE_PORT) { $env:NEONCORE_PORT } else { "4040" }
     Start-Job -ScriptBlock {
-        param($peerUrl, $tok)
+        param($peerUrl, $tok, $selfPort)
         for ($i = 0; $i -lt 60; $i++) {
             try {
-                Invoke-RestMethod -Uri "http://localhost:4040/api/health" -TimeoutSec 2 | Out-Null
+                Invoke-RestMethod -Uri "http://localhost:$selfPort/api/health" -TimeoutSec 2 | Out-Null
                 $headers = @{ "Content-Type" = "application/json" }
                 if ($tok) { $headers["Authorization"] = "Bearer $tok" }
-                Invoke-RestMethod -Uri "http://localhost:4040/api/peers" -Method Post `
+                Invoke-RestMethod -Uri "http://localhost:$selfPort/api/peers" -Method Post `
                     -Headers $headers -Body (@{ url = $peerUrl } | ConvertTo-Json) -TimeoutSec 5 | Out-Null
                 return
             } catch { Start-Sleep -Seconds 1 }
         }
-    } -ArgumentList $peerUrl, $tok | Out-Null
+    } -ArgumentList $peerUrl, $tok, $selfPort | Out-Null
     Info "Will join the fleet via $Peer once the server is up."
 }
 
