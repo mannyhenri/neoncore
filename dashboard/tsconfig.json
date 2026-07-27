@@ -12,7 +12,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@neoncore/client": ["../packages/client/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../packages/client/src"]
 }

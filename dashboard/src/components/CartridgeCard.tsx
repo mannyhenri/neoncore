@@ -426,6 +426,9 @@ export function CartridgeCard({
   onDismissStuck,
   onActivityClick,
 }: CartridgeCardProps) {
+  // Only label cartridges from OTHER servers. Badging every card with "this machine"
+  // would be noise on the single-server setup that most sessions still are.
+  const originName = agent.origin ? agent.originName || agent.origin : '';
   // ---------------------------------------------------------------------------
   // Client-side status: "working" if ANY activity in the feed is < 120s old.
   // This overrides the server status so the dashboard always reflects reality.
@@ -787,6 +790,19 @@ export function CartridgeCard({
             <span className="text-[13px] text-gray-500 font-mono truncate">
               {shortMachine(agent.machine)}
             </span>
+            {/*
+              Which SERVER this cartridge came from — shown only when it is not the local
+              one. In a merged grid two machines can run the same repo on the same branch,
+              and without this the two cards are indistinguishable.
+            */}
+            {originName && (
+              <span
+                className="text-[11px] text-violet-300/80 border border-violet-400/25 bg-violet-500/10 px-1.5 py-px rounded-full truncate max-w-[10rem]"
+                title={`Served by ${originName}`}
+              >
+                {originName}
+              </span>
+            )}
           </div>
 
           {shouldOfferSessionRecovery && (
