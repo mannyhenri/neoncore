@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NeonCore Activity + Transcript Reporter — OpenAI Codex CLI variant.
 
-Fires on PostToolUse, Stop, and UserPromptSubmit. Reports activity AND ships
+Fires on PostToolUse, Stop, UserPromptSubmit and SessionEnd. Reports activity AND ships
 transcript events (tool calls + results, assistant turn messages, user prompts)
 so the mobile/dashboard feed renders Codex sessions the same way it renders
 Claude — including long-press-to-copy on mobile.
@@ -170,6 +170,26 @@ def main():
             repo_name = os.path.basename(git_root)
     except Exception:
         pass
+
+    # SessionEnd = the session is really gone (quit, Ctrl-C, /exit). Report the death and
+    # STOP — this must return BEFORE the register below, which unconditionally marks the
+    # agent alive and would otherwise resurrect the very session that just exited.
+    #
+    # Codex fires this itself (the CLI flushes the transcript tail first), which is the
+    # only honest death signal available: `Stop` fires at the end of every turn, so it can
+    # never mean "dead". Without this the server had to wait out a timeout, and a codex
+    # cartridge closed hours ago sat in the grid looking live.
+    if hook_event == "SessionEnd":
+        post_json(f"{ORCHESTRATOR_URL}/api/agents/session-end", json.dumps({
+            "sessionId": session_id,
+            "machine": machine,
+            "repoPath": cwd,
+            # Required: a repo often has both a claude and a codex cartridge, and without
+            # this the server can resolve the wrong one and end the other engine's session.
+            "agentType": "codex",
+            "reason": d.get("reason", ""),
+        }))
+        return
 
     # Register first so /transcript can resolve the agent by (session, machine, repo).
     if session_id:

@@ -92,3 +92,40 @@ test('repo path matching is case- and separator-insensitive', () => {
   assert.equal(normalizeRepoPath('/Code/BaseBack'), '/code/baseback');
   assert.equal(normalizeRepoPath(''), '');
 });
+
+// ── session-end must not kill the other engine in the same repo ──────────────
+//
+// This became reachable the moment Codex started firing SessionEnd. Before that, codex
+// never sent a death signal at all, so the bug sat latent: /session-end dropped the
+// agentType its callers were already sending, and with no session id to fall back on the
+// resolver defaults to DEFAULT_AGENT_TYPE — claude. Quitting Codex would then mark the
+// CLAUDE cartridge offline, silently, because ending a session is an ordinary thing to do.
+
+test('session-end: dropping agentType resolves a codex exit to the CLAUDE row', () => {
+  const candidates = [
+    { id: 'claude-row', repo_path: '/r', agent_type: 'claude', session_id: '' },
+    { id: 'codex-row', repo_path: '/r', agent_type: 'codex', session_id: '' },
+  ];
+  // Documents the broken behaviour, so a future refactor that stops forwarding
+  // agentType fails here instead of in the grid.
+  assert.equal(pickAgentCandidate(candidates, {})!.id, 'claude-row');
+});
+
+test('session-end: forwarding agentType ends the engine that actually exited', () => {
+  const candidates = [
+    { id: 'claude-row', repo_path: '/r', agent_type: 'claude', session_id: '' },
+    { id: 'codex-row', repo_path: '/r', agent_type: 'codex', session_id: '' },
+  ];
+  assert.equal(pickAgentCandidate(candidates, { agentType: 'codex' })!.id, 'codex-row');
+  assert.equal(pickAgentCandidate(candidates, { agentType: 'claude' })!.id, 'claude-row');
+});
+
+test('session-end: agentType wins even when a stale sessionId points elsewhere', () => {
+  // Codex reuses/omits session ids more freely than Claude; the engine that fired the
+  // hook is the more trustworthy signal.
+  const candidates = [
+    { id: 'claude-row', repo_path: '/r', agent_type: 'claude', session_id: 'shared' },
+    { id: 'codex-row', repo_path: '/r', agent_type: 'codex', session_id: '' },
+  ];
+  assert.equal(pickAgentCandidate(candidates, { agentType: 'codex', sessionId: 'shared' })!.id, 'codex-row');
+});
