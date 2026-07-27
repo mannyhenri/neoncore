@@ -69,8 +69,13 @@ router.post('/:id/restore', (req, res) => {
  * the session was still sitting right there, open.
  */
 router.post('/session-end', (req, res) => {
-  const { agentId, machine, repoPath, sessionId, reason } = req.body || {};
-  const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId });
+  // agentType is load-bearing here, not decoration. One repo commonly has a claude AND a
+  // codex cartridge; both reporters send agentType, and dropping it meant the resolver
+  // had to fall back to session id or row order to decide whose death this was. Get it
+  // wrong and quitting codex marks the CLAUDE session offline — silently, since ending
+  // a session is a perfectly ordinary thing to do.
+  const { agentId, machine, repoPath, sessionId, agentType, reason } = req.body || {};
+  const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId, agentType });
   if (!resolved) return res.status(404).json({ error: 'agent not found' });
 
   markAgentSessionInterrupted(resolved, 'session-end');

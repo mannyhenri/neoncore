@@ -316,6 +316,10 @@ router.post('/install/:tool', (req, res) => {
           // shows prose, not just tool calls.
           Stop: [{ matcher: '.*', hooks: [{ type: 'command', command: reporter }] }],
           UserPromptSubmit: [{ matcher: '.*', hooks: [{ type: 'command', command: reporter }] }],
+          // SessionEnd is the only honest death signal — Stop fires at the end of every
+          // turn, so it can never mean "dead". Without it a closed Codex cartridge sat in
+          // the grid looking live until a timeout eventually reaped it.
+          SessionEnd: [{ matcher: '.*', hooks: [{ type: 'command', command: reporter }] }],
         },
       });
 
