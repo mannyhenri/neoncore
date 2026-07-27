@@ -41,7 +41,12 @@ const { local, remote } = vi.hoisted(() => {
         getActivity: () => guard([] as unknown[]),
         getPendingPermissions: () => guard([] as unknown[]),
         getTasks: () => guard([] as unknown[]),
-        getPeers: () => guard({ self: { serverId: `sid-${name}`, name, url: name, version: '1' }, peers: [] }),
+        getPeers: () => guard({
+          self: { serverId: `sid-${name}`, name, url: name, version: '1' },
+          // Typed explicitly: an empty literal infers never[], which then rejects the
+          // populated rosters the aliasing tests substitute in.
+          peers: [] as { url: string; serverId: string; name: string; stale: boolean }[],
+        }),
         sendCommand: (agentId: string, text: string) => {
           sent.push({ agentId, text });
           return Promise.resolve({ id: 'c1' });
@@ -193,5 +198,60 @@ describe('merged grid', () => {
     const { result } = renderHook(() => useAgents());
     await waitFor(() => expect(result.current.servers.length).toBe(2));
     expect(result.current.servers.filter((s) => !s.url)).toHaveLength(1);
+  });
+});
+
+describe('server aliasing — the duplicate-cartridge bug', () => {
+  it('does NOT adopt the local server again under the name it advertises to peers', async () => {
+    // The real-world shape of the bug: you browse to http://localhost:4040, but the
+    // server advertises itself to peers as http://mannys-mac-pro.local:4040. A peer
+    // gossips that name back, and URL comparison alone sees a brand-new server — so the
+    // local server is added twice and EVERY cartridge on it renders twice.
+    const SELF_ALIAS = 'http://mannys-mac-pro.local:4040';
+
+    local.client.getPeers = () => Promise.resolve({
+      self: { serverId: 'sid-local', name: 'Mannys-Mac-Pro', url: SELF_ALIAS, version: '1' },
+      peers: [],
+    });
+    // The remote knows this machine by its advertised name and gossips it back.
+    remote.client.getPeers = () => Promise.resolve({
+      self: { serverId: 'sid-remote', name: 'studio', url: REMOTE, version: '1' },
+      peers: [{ url: SELF_ALIAS, serverId: 'sid-local', name: 'Mannys-Mac-Pro', stale: false }],
+    });
+
+    const { result } = renderHook(() => useAgents());
+    await waitFor(() => expect(result.current.agents.length).toBeGreaterThan(0));
+    // Give discovery a tick to do its damage, if it is going to.
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    const localish = result.current.servers.filter(
+      (s) => !s.url || s.url === SELF_ALIAS || s.serverId === 'sid-local',
+    );
+    expect(localish).toHaveLength(1);
+
+    // The symptom the user actually sees.
+    const ids = result.current.agents.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.filter((id) => id === 'a-local')).toHaveLength(1);
+  });
+
+  it('collapses an alias already sitting in storage from a previous session', async () => {
+    // Anyone who ran the buggy build has the duplicate persisted in localStorage. It has
+    // to heal on load, not require the user to find and delete it by hand.
+    localStorage.setItem('neoncore.servers.v1', JSON.stringify([
+      { url: 'http://mannys-mac-pro.local:4040', serverId: 'sid-local', name: 'dupe', manual: false },
+      { url: REMOTE, serverId: 'sid-remote', name: 'studio', manual: true },
+    ]));
+    local.client.getPeers = () => Promise.resolve({
+      self: { serverId: 'sid-local', name: 'Mannys-Mac-Pro', url: 'http://mannys-mac-pro.local:4040', version: '1' },
+      peers: [],
+    });
+
+    const { result } = renderHook(() => useAgents());
+    await waitFor(() => expect(result.current.agents.length).toBeGreaterThan(0));
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    const ids = result.current.agents.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

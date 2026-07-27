@@ -7,7 +7,7 @@ import { ApiError } from '@neoncore/client';
 import { api, apiFor } from '../lib/api';
 import {
   loadServers, saveServers, upsertServer, removeServer, setServerHidden,
-  setFleetToken, activeServers, fallbackName,
+  setFleetToken, activeServers, fallbackName, dedupeByServerId,
 } from '../lib/servers';
 import { useSockets } from './useSocket';
 
@@ -160,19 +160,32 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
 
       setServersState((prev) => {
         let next = prev;
+
+        // PASS 1 — record what each server says its own identity is.
+        //
+        // This must complete before any peer is merged. A peer's roster names the other
+        // servers by whatever URL they advertise, which for THIS server is usually not
+        // the URL the browser is using (`Mac.local` vs `localhost`). Until we know our
+        // own serverId there is nothing to recognise that alias against, and we adopt
+        // ourselves a second time — doubling every cartridge in the grid.
         for (const r of results) {
           if (r.status !== 'fulfilled') continue;
           const { from, roster } = r.value;
-
-          // Record the identity the server reports for ITSELF, so the grid can show a
-          // real name instead of a hostname guess.
           next = next.map((s) =>
             s.url === from.url
-              ? { ...s, serverId: roster.self.serverId || s.serverId, name: s.manual && s.name ? s.name : roster.self.name || s.name }
+              ? {
+                  ...s,
+                  serverId: roster.self.serverId || s.serverId,
+                  name: s.manual && s.name ? s.name : roster.self.name || s.name,
+                }
               : s,
           );
+        }
 
-          for (const peer of roster.peers) {
+        // PASS 2 — merge peers, now that every known serverId is in hand.
+        for (const r of results) {
+          if (r.status !== 'fulfilled') continue;
+          for (const peer of r.value.roster.peers) {
             next = upsertServer(next, {
               url: peer.url,
               name: peer.name,
@@ -181,6 +194,11 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
             });
           }
         }
+
+        // Belt-and-braces: collapse any alias that slipped in before its id was known
+        // (e.g. added by hand, then identified on the next tick).
+        next = dedupeByServerId(next);
+
         if (next !== prev) saveServers(next);
         return next;
       });

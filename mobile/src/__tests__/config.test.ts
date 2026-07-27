@@ -143,3 +143,34 @@ describe('roster operations', () => {
     expect(await loadServers()).toHaveLength(1);
   });
 });
+
+describe('server aliasing — the duplicate-cartridge bug', () => {
+  it('does not add the same server twice under a second address', () => {
+    // Added by hand as mac.local, then gossiped back as its LAN IP. Same machine.
+    let servers = upsertServer([], { url: 'mac.local:4040', serverId: 'sid-1', manual: true });
+    servers = upsertServer(servers, { url: '192.168.4.24:4040', serverId: 'sid-1', manual: false });
+    expect(servers).toHaveLength(1);
+    expect(servers[0].url).toBe('http://mac.local:4040');
+  });
+
+  it('heals an alias already stored by a buggy build', async () => {
+    await saveServers([
+      { url: 'http://mac.local:4040', name: 'mac', serverId: 'sid-1', manual: true },
+      { url: 'http://192.168.4.24:4040', name: 'dupe', serverId: 'sid-1', manual: false },
+    ]);
+    expect(await loadServers()).toHaveLength(1);
+  });
+
+  it('still allows two genuinely different servers', () => {
+    let servers = upsertServer([], { url: 'a.local:4040', serverId: 'sid-a' });
+    servers = upsertServer(servers, { url: 'b.local:4040', serverId: 'sid-b' });
+    expect(servers).toHaveLength(2);
+  });
+
+  it('does not collapse servers that have not identified themselves yet', () => {
+    // Empty serverId is "unknown", not "the same as the other unknown one".
+    let servers = upsertServer([], { url: 'a.local:4040' });
+    servers = upsertServer(servers, { url: 'b.local:4040' });
+    expect(servers).toHaveLength(2);
+  });
+});
