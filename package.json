@@ -5,7 +5,8 @@
   "description": "Atari-themed orchestrator for AI agents and canvas workflows",
   "workspaces": [
     "server",
-    "dashboard"
+    "dashboard",
+    "packages/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=server & npm run dev --workspace=dashboard",

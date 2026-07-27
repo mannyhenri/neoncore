@@ -11,6 +11,7 @@ import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
+import { ServerPicker } from './components/ServerPicker';
 import { api } from './lib/api';
 import type { AgentType, Activity, VirtualCartridge } from './types';
 
@@ -38,7 +39,6 @@ export default function App() {
     activitiesByAgent,
     pendingPermissions,
     loading,
-    connected,
     stuckAlertsArray,
     workflowNotifications,
     decidePermission,
@@ -55,6 +55,12 @@ export default function App() {
     updateTask,
     dispatchTask,
     completeTask,
+    servers,
+    serverStatuses,
+    addServer,
+    forgetServer,
+    hideServer,
+    applyFleetToken,
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
@@ -180,10 +186,14 @@ export default function App() {
             <span className="text-sm text-gray-500">
               {onlineAgents.length} online
             </span>
-            <span className={`flex items-center gap-1.5 text-xs ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
-              <span className={`w-2 h-2 rounded-full ${connected ? 'bg-[#00ff88] gl-glow-online' : 'bg-red-400 animate-pulse'}`} />
-              {connected ? 'Live' : 'Polling'}
-            </span>
+            <ServerPicker
+              servers={servers}
+              statuses={serverStatuses}
+              onAdd={addServer}
+              onForget={forgetServer}
+              onHide={hideServer}
+              onSetToken={applyFleetToken}
+            />
           </div>
         </div>
       </header>

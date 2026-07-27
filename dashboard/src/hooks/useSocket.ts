@@ -1,23 +1,37 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine, ServerEntry } from '../types';
+
+/**
+ * One socket per server, always (D6).
+ *
+ * Sharing a connection is not an option — each server is a separate process with its own
+ * event stream. The reconnect and backoff logic here is the same proven code as before,
+ * now instantiated N times rather than once.
+ *
+ * Every handler receives the ORIGIN that emitted the event. Without it an incoming
+ * `agent_updated` cannot be attributed: agent ids are unique per database, not across the
+ * fleet, so an event from studio could silently patch a same-id row belonging to desktop.
+ *
+ * Revisit around ~5 servers, where per-tab connection count starts to matter.
+ */
 
 interface SocketHandlers {
-  onAgentRegistered?: (agent: Agent) => void;
-  onAgentUpdated?: (agent: Agent) => void;
-  onActivityLogged?: (activity: Activity) => void;
-  onPermissionRequested?: (request: PermissionRequest) => void;
-  onPermissionDecided?: (request: PermissionRequest) => void;
-  onCommandSend?: (command: Command) => void;
-  onAgentStuck?: (alert: StuckAlert) => void;
-  onAgentUnstuck?: (data: { agentId: string }) => void;
-  onMemoryUpdated?: (data: { agentId: string }) => void;
-  onPermissionsExpired?: (data: { count: number }) => void;
-  onEpicUpdated?: (run: EpicRun) => void;
-  onWorkflowUpdated?: (workflow: Workflow) => void;
-  onWorkflowDeleted?: (data: { id: string }) => void;
-  onWorkflowStepUpdated?: (step: WorkflowStep) => void;
-  onWorkflowStepLog?: (log: WorkflowStepLog) => void;
+  onAgentRegistered?: (agent: Agent, origin: string) => void;
+  onAgentUpdated?: (agent: Agent, origin: string) => void;
+  onActivityLogged?: (activity: Activity, origin: string) => void;
+  onPermissionRequested?: (request: PermissionRequest, origin: string) => void;
+  onPermissionDecided?: (request: PermissionRequest, origin: string) => void;
+  onCommandSend?: (command: Command, origin: string) => void;
+  onAgentStuck?: (alert: StuckAlert, origin: string) => void;
+  onAgentUnstuck?: (data: { agentId: string }, origin: string) => void;
+  onMemoryUpdated?: (data: { agentId: string }, origin: string) => void;
+  onPermissionsExpired?: (data: { count: number }, origin: string) => void;
+  onEpicUpdated?: (run: EpicRun, origin: string) => void;
+  onWorkflowUpdated?: (workflow: Workflow, origin: string) => void;
+  onWorkflowDeleted?: (data: { id: string }, origin: string) => void;
+  onWorkflowStepUpdated?: (step: WorkflowStep, origin: string) => void;
+  onWorkflowStepLog?: (log: WorkflowStepLog, origin: string) => void;
   onWorkflowStepRecovery?: (data: {
     stepId: string;
     workflowId: string;
@@ -26,153 +40,131 @@ interface SocketHandlers {
     recoveryStatus: string;
     interruptedAt: string | null;
     recoveryAttempts: number;
-  }) => void;
-  onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => void;
-  onWorkflowNotification?: (n: WorkflowNotification) => void;
-  onTaskCreated?: (task: Task) => void;
-  onTaskUpdated?: (task: Task) => void;
-  onMachineUpdated?: (machine: Machine) => void;
-  onReconnect?: () => void;
+  }, origin: string) => void;
+  onVirtualCartridgeUpdated?: (vc: VirtualCartridge, origin: string) => void;
+  onWorkflowNotification?: (n: WorkflowNotification, origin: string) => void;
+  onTaskCreated?: (task: Task, origin: string) => void;
+  onTaskUpdated?: (task: Task, origin: string) => void;
+  onMachineUpdated?: (machine: Machine, origin: string) => void;
+  /** Fired per server, with the origin that just came back. */
+  onReconnect?: (origin: string) => void;
 }
 
-export function useSocket(handlers: SocketHandlers) {
-  const socketRef = useRef<Socket | null>(null);
+export function useSockets(servers: ServerEntry[], handlers: SocketHandlers) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
-  const hasConnectedOnce = useRef(false);
-  const [connected, setConnected] = useState(false);
+
+  const [connectedOrigins, setConnectedOrigins] = useState<Record<string, boolean>>({});
+
+  // Re-subscribe only when the SET of servers changes, not on every render. Keying on the
+  // urls+tokens means a token edit reconnects that server and nothing else.
+  const key = useMemo(
+    () => servers.map((s) => `${s.url}|${s.token ?? ''}`).join(','),
+    [servers],
+  );
 
   useEffect(() => {
-    const socket = io(window.location.origin, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: Infinity,
-      timeout: 10000,
-    });
+    const sockets: Socket[] = [];
+    const seenOnce = new Set<string>();
 
-    socketRef.current = socket;
+    for (const server of servers) {
+      const origin = server.url;
+      // Empty origin means the server that served this page — socket.io's own default.
+      const target = origin || window.location.origin;
 
-    socket.on('connect', () => {
-      console.log('[ws] Connected to orchestrator');
-      setConnected(true);
-      if (hasConnectedOnce.current) {
-        console.log('[ws] Reconnected — refreshing data');
-        handlersRef.current.onReconnect?.();
-      }
-      hasConnectedOnce.current = true;
-    });
+      const socket = io(target, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: Infinity,
+        timeout: 10000,
+        // Presented for when the fleet moves to strict. Harmless while permissive.
+        auth: server.token ? { token: server.token } : undefined,
+      });
+      sockets.push(socket);
 
-    socket.on('disconnect', () => {
-      console.log('[ws] Disconnected from orchestrator');
-      setConnected(false);
-    });
-
-    socket.on('agent_registered', (agent: Agent) => {
-      handlersRef.current.onAgentRegistered?.(agent);
-    });
-
-    socket.on('agent_updated', (agent: Agent) => {
-      handlersRef.current.onAgentUpdated?.(agent);
-    });
-
-    socket.on('activity_logged', (activity: Activity) => {
-      handlersRef.current.onActivityLogged?.(activity);
-    });
-
-    socket.on('permission_requested', (request: PermissionRequest) => {
-      handlersRef.current.onPermissionRequested?.(request);
-    });
-
-    socket.on('permission_decided', (request: PermissionRequest) => {
-      handlersRef.current.onPermissionDecided?.(request);
-    });
-
-    socket.on('command_send', (command: Command) => {
-      handlersRef.current.onCommandSend?.(command);
-    });
-
-    socket.on('agent_stuck' as any, (alert: StuckAlert) => {
-      handlersRef.current.onAgentStuck?.(alert);
-    });
-
-    socket.on('agent_unstuck' as any, (data: { agentId: string }) => {
-      handlersRef.current.onAgentUnstuck?.(data);
-    });
-
-    socket.on('memory_updated' as any, (data: { agentId: string }) => {
-      handlersRef.current.onMemoryUpdated?.(data);
-    });
-
-    socket.on('permissions_expired' as any, (data: { count: number }) => {
-      handlersRef.current.onPermissionsExpired?.(data);
-    });
-
-    socket.on('epic_updated' as any, (run: EpicRun) => {
-      handlersRef.current.onEpicUpdated?.(run);
-    });
-
-    socket.on('workflow_updated' as any, (workflow: Workflow) => {
-      handlersRef.current.onWorkflowUpdated?.(workflow);
-    });
-
-    socket.on('workflow_deleted' as any, (data: { id: string }) => {
-      handlersRef.current.onWorkflowDeleted?.(data);
-    });
-
-    socket.on('workflow_step_updated' as any, (step: WorkflowStep) => {
-      handlersRef.current.onWorkflowStepUpdated?.(step);
-    });
-
-    socket.on('workflow_step_recovery' as any, (data: {
-      stepId: string; workflowId: string; name: string; status: string;
-      recoveryStatus: string; interruptedAt: string | null; recoveryAttempts: number;
-    }) => {
-      handlersRef.current.onWorkflowStepRecovery?.(data);
-    });
-
-    socket.on('workflow_step_log' as any, (log: WorkflowStepLog) => {
-      handlersRef.current.onWorkflowStepLog?.(log);
-    });
-
-    socket.on('virtual_cartridge_updated' as any, (vc: VirtualCartridge) => {
-      handlersRef.current.onVirtualCartridgeUpdated?.(vc);
-    });
-
-    socket.on('workflow_notification' as any, (n: WorkflowNotification) => {
-      handlersRef.current.onWorkflowNotification?.(n);
-    });
-
-    socket.on('task_created' as any, (task: Task) => {
-      handlersRef.current.onTaskCreated?.(task);
-    });
-
-    socket.on('task_updated' as any, (task: Task) => {
-      handlersRef.current.onTaskUpdated?.(task);
-    });
-
-    socket.on('machine_updated' as any, (machine: Machine) => {
-      handlersRef.current.onMachineUpdated?.(machine);
-    });
-
-    // Mobile: refresh data when tab becomes visible again
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('[ws] Tab visible — reconnecting and refreshing');
-        if (!socket.connected) {
-          socket.connect();
+      socket.on('connect', () => {
+        console.log(`[ws] Connected to ${server.name || target}`);
+        setConnectedOrigins((prev) => ({ ...prev, [origin]: true }));
+        if (seenOnce.has(origin)) {
+          console.log(`[ws] Reconnected to ${server.name || target} — refreshing`);
+          handlersRef.current.onReconnect?.(origin);
         }
-        handlersRef.current.onReconnect?.();
+        seenOnce.add(origin);
+      });
+
+      socket.on('disconnect', () => {
+        console.log(`[ws] Disconnected from ${server.name || target}`);
+        setConnectedOrigins((prev) => ({ ...prev, [origin]: false }));
+      });
+
+      const on = <T,>(event: string, pick: (h: SocketHandlers) => ((data: T, origin: string) => void) | undefined) => {
+        socket.on(event as never, (data: T) => pick(handlersRef.current)?.(data, origin));
+      };
+
+      on<Agent>('agent_registered', (h) => h.onAgentRegistered);
+      on<Agent>('agent_updated', (h) => h.onAgentUpdated);
+      on<Activity>('activity_logged', (h) => h.onActivityLogged);
+      on<PermissionRequest>('permission_requested', (h) => h.onPermissionRequested);
+      on<PermissionRequest>('permission_decided', (h) => h.onPermissionDecided);
+      on<Command>('command_send', (h) => h.onCommandSend);
+      on<StuckAlert>('agent_stuck', (h) => h.onAgentStuck);
+      on<{ agentId: string }>('agent_unstuck', (h) => h.onAgentUnstuck);
+      on<{ agentId: string }>('memory_updated', (h) => h.onMemoryUpdated);
+      on<{ count: number }>('permissions_expired', (h) => h.onPermissionsExpired);
+      on<EpicRun>('epic_updated', (h) => h.onEpicUpdated);
+      on<Workflow>('workflow_updated', (h) => h.onWorkflowUpdated);
+      on<{ id: string }>('workflow_deleted', (h) => h.onWorkflowDeleted);
+      on<WorkflowStep>('workflow_step_updated', (h) => h.onWorkflowStepUpdated);
+      on<WorkflowStepLog>('workflow_step_log', (h) => h.onWorkflowStepLog);
+      on<Parameters<NonNullable<SocketHandlers['onWorkflowStepRecovery']>>[0]>(
+        'workflow_step_recovery', (h) => h.onWorkflowStepRecovery,
+      );
+      on<VirtualCartridge>('virtual_cartridge_updated', (h) => h.onVirtualCartridgeUpdated);
+      on<WorkflowNotification>('workflow_notification', (h) => h.onWorkflowNotification);
+      on<Task>('task_created', (h) => h.onTaskCreated);
+      on<Task>('task_updated', (h) => h.onTaskUpdated);
+      on<Machine>('machine_updated', (h) => h.onMachineUpdated);
+    }
+
+    // Mobile: refresh when the tab comes back. Every server is refreshed, since any of
+    // them could have moved on while the tab was backgrounded.
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      console.log('[ws] Tab visible — reconnecting and refreshing');
+      for (let i = 0; i < sockets.length; i++) {
+        if (!sockets[i].connected) sockets[i].connect();
+        handlersRef.current.onReconnect?.(servers[i].url);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      socket.disconnect();
+      for (const s of sockets) s.disconnect();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
-  return { connected };
+  return { connectedOrigins };
+}
+
+/** The local server, as a stable single-element list. */
+const LOCAL_ONLY: ServerEntry[] = [{ url: '', serverId: '', name: 'This machine', token: null, manual: true }];
+
+/**
+ * Subscribe to the LOCAL server only.
+ *
+ * Kept for the panels whose subject matter is inherently single-server — workflows,
+ * goals, machine launching. Cross-server workflows are explicitly out of scope: a shared
+ * queue would imply a hub, and the whole topology is built on servers being independent.
+ * When one of these panels does become fleet-aware, it moves to `useSockets`.
+ *
+ * Handlers written before federation take one argument. TypeScript allows those wherever
+ * a two-argument handler is expected, so every existing call site compiles unchanged.
+ */
+export function useSocket(handlers: SocketHandlers) {
+  const { connectedOrigins } = useSockets(LOCAL_ONLY, handlers);
+  return { connected: connectedOrigins[''] ?? false };
 }
