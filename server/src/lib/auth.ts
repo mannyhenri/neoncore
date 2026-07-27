@@ -79,13 +79,24 @@ export function getFleetToken(): string | null {
  * to be. A silently-generated secret nobody ever saw is useless: the whole point is that
  * you can copy it onto the next machine.
  */
-export function ensureFleetToken(): { token: string; generated: boolean } {
-  const existing = getFleetToken();
-  if (existing) return { token: existing, generated: false };
+export function ensureFleetToken(): { token: string; generated: boolean; adopted: boolean } {
+  const stored = readSetting(TOKEN_KEY);
+  if (stored) return { token: stored, generated: false, adopted: false };
+
+  // A token supplied by the environment on FIRST launch is persisted, so joining a fleet
+  // is a one-time step. Without this, `NEONCORE_FLEET_TOKEN=... npm start` would work for
+  // exactly that run: the next plain `npm start` finds no stored token, mints a fresh one,
+  // and the machine silently drops out of the fleet with 401s that look like a network
+  // fault. That is the whole reason the installer can take --fleet-token.
+  const fromEnv = process.env.NEONCORE_FLEET_TOKEN?.trim();
+  if (fromEnv) {
+    writeSetting(TOKEN_KEY, fromEnv);
+    return { token: fromEnv, generated: false, adopted: true };
+  }
 
   const token = randomBytes(32).toString('base64url');
   writeSetting(TOKEN_KEY, token);
-  return { token, generated: true };
+  return { token, generated: true, adopted: false };
 }
 
 export function getAuthMode(): AuthMode {

@@ -5,13 +5,27 @@ many Claude Code (and other CLI) agents across machines and repos from a single
 dashboard — with permission gating, a shared task queue, goal/cost tracking, MCP
 server management, and canvas workflows.
 
+Run one server, or one on every computer you work from and see them all in one grid.
+
 ```
-┌──────────────────────────────┐        ┌─────────────────────────────┐
-│  Your machines / repos       │        │   NeonCore server (:4040)   │
-│  Claude Code + hooks         │◀──────▶│   • dashboard UI            │
-│  + VS Code ext  OR  relay    │  WS/HTTP│   • task queue + goals      │
-│  ("Gridlight terminal")      │        │   • permissions + activity  │
-└──────────────────────────────┘        └─────────────────────────────┘
+  ┌──────────────────────────────┐        ┌─────────────────────────────┐
+  │  Your machines / repos       │        │   NeonCore server (:4040)   │
+  │  Claude Code + hooks         │◀──────▶│   • dashboard UI            │
+  │  + VS Code ext  OR  relay    │ WS/HTTP│   • task queue + goals      │
+  │  ("Gridlight terminal")      │        │   • permissions + activity  │
+  └──────────────────────────────┘        └─────────────────────────────┘
+
+  …and with more than one computer, every server is a peer:
+
+        ┌──────────┐   gossip 15s   ┌──────────┐
+        │ desktop  │◀──────────────▶│  studio  │     separate databases,
+        │ own DB   │                │  own DB  │     separate queues
+        └────┬─────┘                └────┬─────┘
+             └─────────────┬─────────────┘
+                  ┌────────┴────────┐          no hub, no primary —
+                  │  web  /  iOS    │          clients merge at read time
+                  │  MERGED GRID    │
+                  └─────────────────┘
 ```
 
 ## What it does
@@ -63,6 +77,21 @@ npm start          # serves dashboard + API on http://localhost:4040
 
 Open **http://localhost:4040**. The server also listens on `0.0.0.0`, so other machines
 on your LAN can reach it too.
+
+On first launch the server prints a **fleet token** in its startup banner. You need it
+only if you add a second computer — copy it somewhere now, since it is redacted from the
+settings API afterwards.
+
+### Add another computer
+
+One command on the new machine, using the token from the first:
+
+```bash
+./install-neoncore.sh --start --fleet-token <TOKEN> --peer http://first-machine.local:4040
+```
+
+Both machines' cartridges then appear in one grid, from either machine's dashboard and
+from the phone. See **[FLEET.md](FLEET.md)**.
 
 ### `<SERVER>` — the address agent machines and your phone connect to
 
