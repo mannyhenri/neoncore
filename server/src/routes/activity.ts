@@ -5,37 +5,19 @@ import { getIO } from '../ws.js';
 import type { Activity } from '../types.js';
 import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
 import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
+import { resolveAgentId } from '../lib/resolve-agent.js';
 
 const router = Router();
-
-/** Normalize a repo path for cross-platform matching (Windows ↔ POSIX). */
-function normalizeRepoPath(p: string): string {
-  if (!p) return '';
-  let n = p.replace(/\\/g, '/');
-  n = n.replace(/^([a-zA-Z]):\//, '/$1/');
-  n = n.replace(/\/+$/, '');
-  return n.toLowerCase();
-}
 
 // Log an activity event (called by hooks)
 router.post('/', (req, res) => {
   const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult, agentType } = req.body;
 
-  // Resolve agent by ID, machine+repoPath (with cross-platform normalization), or sessionId.
-  // agentType disambiguates when two engines share a repo (Claude + Codex): otherwise
-  // Codex activity would land on the Claude cartridge.
-  let resolvedAgentId = agentId;
-  if (!resolvedAgentId && machine && repoPath) {
-    const normalizedIncoming = normalizeRepoPath(repoPath);
-    const candidates = db.prepare('SELECT id, repo_path, agent_type FROM agents WHERE machine = ?').all(machine) as { id: string; repo_path: string; agent_type: string }[];
-    const sameRepo = candidates.filter((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
-    const typed = agentType ? sameRepo.find((a) => a.agent_type === agentType) : undefined;
-    resolvedAgentId = (typed || sameRepo[0])?.id;
-  }
-  if (!resolvedAgentId && sessionId) {
-    const agent = db.prepare('SELECT id FROM agents WHERE session_id = ?').get(sessionId) as { id: string } | undefined;
-    resolvedAgentId = agent?.id;
-  }
+  // Resolution lives in lib/resolve-agent.ts — this route used to carry its own copy,
+  // which drifted: the shared helper gained an untyped-payload default while this one
+  // still fell through to insertion order, so Claude hook events landed on the Codex
+  // cartridge whenever Codex's row happened to be created first.
+  const resolvedAgentId = resolveAgentId({ agentId, machine, repoPath, sessionId, agentType });
 
   if (!resolvedAgentId) {
     return res.status(400).json({ error: 'agentId, machine+repoPath, or valid sessionId required' });
@@ -111,20 +93,12 @@ function normalizeActivity(row: Record<string, unknown>): Activity {
 
 // Report session token usage (called from Stop/SubagentStop hook)
 router.post('/usage', (req, res) => {
-  const { sessionId, machine, repoPath, inputTokens, outputTokens, model } = req.body;
+  const { sessionId, machine, repoPath, inputTokens, outputTokens, model, agentType } = req.body;
 
-  // Resolve agent
-  let resolvedAgentId: string | undefined;
-  if (machine && repoPath) {
-    const normalizedIncoming = normalizeRepoPath(repoPath);
-    const candidates = db.prepare('SELECT id, repo_path FROM agents WHERE machine = ?').all(machine) as { id: string; repo_path: string }[];
-    const match = candidates.find((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
-    resolvedAgentId = match?.id;
-  }
-  if (!resolvedAgentId && sessionId) {
-    const agent = db.prepare('SELECT id FROM agents WHERE session_id = ?').get(sessionId) as { id: string } | undefined;
-    resolvedAgentId = agent?.id;
-  }
+  // Same shared resolver as the activity route. This path used to take the FIRST
+  // repo match with no agentType consideration at all, so in a two-engine repo the
+  // token spend of one engine was billed to the other.
+  const resolvedAgentId = resolveAgentId({ machine, repoPath, sessionId, agentType });
 
   if (!resolvedAgentId) {
     return res.status(400).json({ error: 'Could not resolve agent' });

@@ -16,17 +16,67 @@ export function normalizeRepoPath(p: string): string {
   return n.toLowerCase();
 }
 
+/** The columns disambiguation needs. Kept structural so it can be unit-tested with no db. */
+export interface AgentCandidate {
+  id: string;
+  repo_path: string;
+  agent_type: string;
+  session_id: string;
+}
+
+/**
+ * The default engine when a caller omits `agentType`. MUST match the default in
+ * `routes/agents.ts` register (`agentType || 'claude'`) — the two disagreeing is
+ * exactly the bug this exists to prevent: register created the Claude row, while
+ * activity resolved the same untyped payload to whichever row was inserted first.
+ */
+export const DEFAULT_AGENT_TYPE = 'claude';
+
+/**
+ * Pick one cartridge when several engines share a machine+repo (e.g. a Claude
+ * cartridge and a Codex cartridge side by side in one checkout).
+ *
+ * Precedence, most specific first:
+ *   1. explicit `agentType` — the documented disambiguator
+ *   2. exact `sessionId` — identity, so it beats any guess
+ *   3. `DEFAULT_AGENT_TYPE` when the caller sent no agentType at all
+ *   4. first row — unchanged last resort
+ *
+ * Step 3 is the fix: without it an untyped payload fell straight to step 4, which
+ * is `SELECT ... WHERE machine = ?` with no ORDER BY — i.e. insertion order. A repo
+ * whose Codex row was created before its Claude row silently attributed every
+ * untyped Claude event to Codex.
+ */
+export function pickAgentCandidate(
+  candidates: AgentCandidate[],
+  opts: { agentType?: string; sessionId?: string } = {},
+): AgentCandidate | undefined {
+  if (candidates.length <= 1) return candidates[0];
+  const { agentType, sessionId } = opts;
+
+  if (agentType) {
+    const typed = candidates.find((a) => a.agent_type === agentType);
+    if (typed) return typed;
+  }
+  if (sessionId) {
+    const bySession = candidates.find((a) => a.session_id === sessionId);
+    if (bySession) return bySession;
+  }
+  if (!agentType) {
+    const byDefault = candidates.find((a) => a.agent_type === DEFAULT_AGENT_TYPE);
+    if (byDefault) return byDefault;
+  }
+  return candidates[0];
+}
+
 /**
  * Resolve an agent id from any of the identifiers hooks/extensions send.
  * Order: explicit agentId → machine + repoPath (cross-platform normalized) → sessionId.
  * Returns undefined when no agent matches.
  *
- * `agentType` disambiguates when several engines run in the SAME repo on the same
- * machine (e.g. a Claude cartridge and a Codex cartridge side by side): register
- * gives each engine its own row, so a machine+repo match alone is ambiguous and
- * would otherwise attach, say, a Codex transcript to the Claude agent. When
- * omitted, resolution is unchanged (first repo match wins) — so existing
- * single-engine callers keep their exact behavior.
+ * When several engines share the repo, `pickAgentCandidate` decides which one —
+ * see its precedence rules. Single-engine callers are unaffected: one candidate
+ * always resolves to itself.
  */
 export function resolveAgentId(opts: {
   agentId?: string;
@@ -42,12 +92,11 @@ export function resolveAgentId(opts: {
   if (machine && repoPath) {
     const normalizedIncoming = normalizeRepoPath(repoPath);
     const candidates = db
-      .prepare('SELECT id, repo_path, agent_type FROM agents WHERE machine = ?')
-      .all(machine) as { id: string; repo_path: string; agent_type: string }[];
+      .prepare('SELECT id, repo_path, agent_type, session_id FROM agents WHERE machine = ?')
+      .all(machine) as AgentCandidate[];
     const sameRepo = candidates.filter((a) => normalizeRepoPath(a.repo_path) === normalizedIncoming);
     if (sameRepo.length) {
-      const typed = agentType ? sameRepo.find((a) => a.agent_type === agentType) : undefined;
-      return (typed || sameRepo[0]).id;
+      return pickAgentCandidate(sameRepo, { agentType, sessionId })!.id;
     }
   }
 

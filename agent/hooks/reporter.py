@@ -21,6 +21,13 @@ from urllib.request import Request, urlopen
 
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 
+# Which engine these hooks report for. Every payload carries it, because a repo can
+# hold a Claude cartridge and a Codex cartridge at once and the server has to tell
+# them apart — an untyped payload used to resolve to whichever row was created
+# first, so Claude's tool events were recorded against the Codex cartridge.
+# codex-reporter.py sends "codex" for the same reason.
+AGENT_TYPE = "claude"
+
 # Size caps to avoid DB bloat (mirrors the existing tool_result truncation).
 BLOCK_CAP = 8000        # per text/thinking/tool_result block
 TOOL_INPUT_CAP = 4000   # per tool_use input (serialized)
@@ -80,6 +87,7 @@ def main():
         "sessionId": session_id,
         "machine": machine,
         "repoPath": cwd,
+        "agentType": AGENT_TYPE,
         "eventType": hook_event,
         "toolName": tool_name,
         "toolInput": tool_input,
@@ -105,6 +113,7 @@ def main():
             "sessionId": session_id,
             "machine": machine,
             "repoPath": cwd,
+            "agentType": AGENT_TYPE,
             "reason": d.get("reason", ""),
         }))
         sys.exit(0)
@@ -115,6 +124,7 @@ def main():
         "machine": machine,
         "repoPath": cwd,
         "repoName": repo_name,
+        "agentType": AGENT_TYPE,
         "status": "working",
     }
     # Per-machine opt-in: NEONCORE_TRUST=1 means new agents from this machine start in trust mode
@@ -136,6 +146,7 @@ def main():
             "sessionId": session_id,
             "machine": machine,
             "repoPath": cwd,
+            "agentType": AGENT_TYPE,
         }))
 
     # Ship new transcript events (assistant text/thinking/tool_use, tool_result,
