@@ -31,6 +31,9 @@ import heartbeatsRouter from './routes/heartbeats.js';
 import tasksRouter from './routes/tasks.js';
 import pushRouter from './routes/push.js';
 import machinesRouter from './routes/machines.js';
+import peersRouter from './routes/peers.js';
+import { fleetAuth, ensureFleetToken, getAuthMode } from './lib/auth.js';
+import { startPeerScheduler, stopPeerScheduler } from './lib/peer-scheduler.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
@@ -47,6 +50,12 @@ const app = express();
 const server = createServer(app);
 
 // Middleware
+//
+// CORS MUST STAY OPEN. Federation is cross-origin by definition: the web app served by
+// the desktop server talks directly to the studio server, and a browser will block that
+// the moment an origin allowlist appears here. The bearer token is the gate, not the
+// origin — an allowlist adds no security over a shared secret and silently breaks the
+// merged grid. Do not "harden" this without replacing the auth model first.
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
@@ -57,6 +66,11 @@ app.use((req, _res, next) => {
   }
   next();
 });
+
+// Fleet auth. Mounted before the routes and after the body parser, so a rejected request
+// costs nothing downstream. Permissive by default — see lib/auth.ts for why flipping
+// straight to strict is a fleet-wide outage.
+app.use(fleetAuth());
 
 // Routes
 app.use('/api/agents', agentsRouter);
@@ -83,6 +97,7 @@ app.use('/api/heartbeats', heartbeatsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/push', pushRouter);
 app.use('/api/machines', machinesRouter);
+app.use('/api/peers', peersRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -260,12 +275,14 @@ startCleanupScheduler();
 startWorkflowExecutorV2();
 startHeartbeatScheduler();
 startConferConductor();
+startPeerScheduler();
 
 // Graceful shutdown — stop the schedulers that own intervals.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     console.log(`[shutdown] ${sig} received — stopping schedulers`);
     stopHeartbeatScheduler();
+    stopPeerScheduler();
     process.exit(0);
   });
 }
@@ -311,6 +328,10 @@ server.listen(PORT, '0.0.0.0', () => {
   // agents, confer callbacks and workflow webhooks should be given. The IP is a
   // DHCP lease that changes, silently breaking any config that pinned it, so it
   // is shown only as a fallback for clients that can't resolve .local names.
+  // Generate the fleet token on first launch. A secret nobody ever saw is useless — the
+  // whole point is that you can copy it onto the next machine — so a freshly generated
+  // one is printed in full, once, right here in the startup box.
+  const { token, generated } = ensureFleetToken();
   const lines = [
     'NeonCore Server',
     '',
@@ -320,6 +341,20 @@ server.listen(PORT, '0.0.0.0', () => {
     '',
     'Give other machines the Reachable URL — the',
     'IP is a DHCP lease and will eventually change.',
+    '',
+    `Fleet auth: ${getAuthMode()}`,
+    ...(generated
+      ? [
+          '',
+          'A fleet token was generated for this server:',
+          '',
+          `  ${token}`,
+          '',
+          'Give every other server, client and agent the SAME',
+          'token. It is shown in full only this once — after',
+          'this it is redacted from the settings API.',
+        ]
+      : ['Fleet token: configured (redacted)']),
   ];
   const width = Math.max(...lines.map((l) => l.length)) + 6;
   const box = [

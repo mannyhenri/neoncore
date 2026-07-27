@@ -4,7 +4,16 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'neoncore.db');
+
+// NEONCORE_DB_PATH lets a process pick its own database file.
+//
+// Two reasons this exists, one operational and one for tests:
+//   - Federation gives every server its OWN database. Running two on one machine (a
+//     second port for staging, or a peer under test) needs two files; without this they
+//     would silently share one and stop being independent servers at all.
+//   - Tests import modules that hold this singleton. Pointing them at a temp file is what
+//     keeps a test run from mutating the real neoncore.db underneath a live server.
+const DB_PATH = process.env.NEONCORE_DB_PATH?.trim() || path.join(__dirname, '..', 'neoncore.db');
 
 const db: DatabaseType = new Database(DB_PATH);
 
@@ -550,12 +559,9 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_workflow_steps_recovery ON workflow_steps(recovery_status)`);
 }
 
-// Migration: add token_budget to goals (replaces budget_usd)
-try {
-  db.prepare('SELECT token_budget FROM goals LIMIT 1').get();
-} catch {
-  db.exec(`ALTER TABLE goals ADD COLUMN token_budget INTEGER`);
-}
+// NB: the goals token_budget migration used to sit here, ABOVE the CREATE TABLE that
+// makes `goals`. See the note where it now lives (after the schema block) — running it
+// here made a fresh database impossible to create at all.
 
 // Virtual Cartridges table — local folder workspaces.
 db.exec(`
@@ -570,6 +576,33 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_virtual_cartridges_path ON virtual_cartridges(directory_path);
+`);
+
+// Federation peers — the other NeonCore servers this one gossips with.
+//
+// This is a grow-only set of URLs, NOT a replicated dataset. Union is the whole merge
+// algorithm; removal is a staleness rule, not consensus. Deliberately no tombstones and
+// no conflict resolution — a peer list of URLs does not warrant either.
+//
+// `url` is the primary key and is stored NORMALIZED (see normalizePeerUrl in
+// lib/federation.ts). Without that, `host:4040` and `host:4040/` are two rows and the
+// same server gets pinged, counted, and merged twice.
+//
+// The peer list carries NO SECRETS — only URLs. The one fleet token authenticates every
+// direction, so there is nothing per-peer to store.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS peers (
+    url TEXT PRIMARY KEY,
+    server_id TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    version TEXT NOT NULL DEFAULT '',
+    last_ok_at TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_peers_last_ok ON peers(last_ok_at);
 `);
 
 // Cleanup: expire stale pending permissions from past sessions
@@ -714,6 +747,26 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 `);
+
+// Migration: add token_budget to goals (replaces budget_usd).
+//
+// This MUST stay below the CREATE TABLE for `goals`. It previously ran ~120 lines higher,
+// before the table existed, which made a brand-new database impossible to initialize:
+// the probing SELECT threw "no such table: goals", the catch then ran ALTER TABLE against
+// the same missing table, and *that* throw was uncaught — so db.ts crashed at import and
+// took the whole server down on boot.
+//
+// It went unnoticed because every existing install already had the table from an older
+// build; only a first-ever launch hits it. Federation is exactly that case — every new
+// machine in the fleet starts from an empty database.
+//
+// The probe-then-ALTER shape is still right; the ordering was the bug. Adding the column
+// to CREATE TABLE instead would silently skip it for everyone who already has the table.
+try {
+  db.prepare('SELECT token_budget FROM goals LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE goals ADD COLUMN token_budget INTEGER`);
+}
 
 // Add project column to notes table (migration-safe)
 try {

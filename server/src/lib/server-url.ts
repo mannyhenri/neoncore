@@ -17,6 +17,8 @@
  *   5. "localhost"    — same-machine fallback of last resort.
  */
 import os from 'os';
+import { randomUUID } from 'crypto';
+import db from '../db.js';
 
 /** The port the HTTP server listens on. PORT wins; NEONCORE_PORT is the legacy alias. */
 export function getServerPort(): string {
@@ -53,3 +55,66 @@ export function getServerBaseUrl(): string {
   if (explicit) return explicit.replace(/\/+$/, '');
   return `http://${getServerHost()}:${getServerPort()}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Federation identity — WHO this server is, as distinct from how to reach it.
+//
+// A URL cannot be the identity. It changes with DHCP, with Tailscale, with a port
+// override, and a laptop legitimately answers on several at once. Peers and clients
+// need one stable handle to attribute cartridges, activity and push notifications to.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readSetting(key: string): string | null {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value?.trim() || null;
+}
+
+function writeSetting(key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(key, value, new Date().toISOString());
+}
+
+/**
+ * This server's stable identity. Generated once, then persisted forever.
+ *
+ * It MUST survive restarts. If it were regenerated on boot, every peer and every client
+ * would see a brand-new server after each restart: the old id lingers in their rosters
+ * as a dead entry while the cartridges appear to migrate to a stranger. That failure is
+ * completely silent — everything still "works", the grid just slowly fills with ghosts.
+ */
+export function getServerId(): string {
+  const existing = readSetting('server_id');
+  if (existing) return existing;
+
+  const generated = randomUUID();
+  writeSetting('server_id', generated);
+  return generated;
+}
+
+/** Human-readable label for this server in the grid. Defaults to the machine's short hostname. */
+export function getServerName(): string {
+  const override = process.env.NEONCORE_SERVER_NAME?.trim() || readSetting('server_name');
+  if (override) return override;
+  return (os.hostname() || 'neoncore').split('.')[0];
+}
+
+/** Identity as advertised to peers and clients. */
+export function getServerIdentity(): { serverId: string; name: string; url: string; version: string } {
+  return {
+    serverId: getServerId(),
+    name: getServerName(),
+    url: getServerBaseUrl(),
+    version: SERVER_VERSION,
+  };
+}
+
+/**
+ * Protocol version, declared on every peer exchange. Per D8 this is advisory: a mismatch
+ * warns, it never blocks. Refusing to federate on skew would mean one un-upgraded laptop
+ * partitions the whole fleet — strictly worse than a degraded merge.
+ */
+export const SERVER_VERSION = '1';

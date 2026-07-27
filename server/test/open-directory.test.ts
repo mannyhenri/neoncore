@@ -3,7 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { samePath } from '../src/lib/open-directory.ts';
+
+// open-directory.ts pulls in db.ts, which opens a database and seeds 20 workflow
+// templates AT IMPORT. Without this override that is the developer's real neoncore.db:
+// every test run wrote into live data, and because `node --test` runs files in parallel,
+// two processes seeding at once raced into "FOREIGN KEY constraint failed" — a flake that
+// looked like it belonged to whichever file lost.
+//
+// Must be set BEFORE the import below; db.ts reads it at module load.
+process.env.NEONCORE_DB_PATH = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'neoncore-opendir-db-')),
+  'test.db',
+);
+
+const { samePath } = await import('../src/lib/open-directory.ts');
 
 function tmpdir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'neoncore-opendir-'));
