@@ -272,7 +272,9 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
             <Text style={styles.questionText}>{live.pendingQuestion}</Text>
           </View>
           <Text style={styles.questionHint}>
-            No longer answerable — the agent stopped waiting.
+            {live.status === 'waiting'
+              ? 'Reply below to answer — the agent is waiting on you.'
+              : 'No longer answerable — the agent stopped waiting.'}
           </Text>
         </View>
       ) : null}

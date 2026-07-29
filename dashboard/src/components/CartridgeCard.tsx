@@ -816,6 +816,19 @@ export function CartridgeCard({
             )}
           </div>
 
+          {/* A question the agent asked and is waiting on. Previously the web showed nothing
+              at all for this — only mobile did — so a cartridge could sit blocked on a
+              question you would never see unless you opened its terminal. */}
+          {selectedAgent.status === 'waiting' && selectedAgent.pendingQuestion && (
+            <div className="mt-2 rounded border border-amber-400/30 bg-amber-500/10 px-2 py-2">
+              <div className="text-[12px] text-amber-200 font-medium">Waiting on your answer</div>
+              <div className="text-[11px] text-amber-100/70 mt-0.5 whitespace-pre-wrap break-words">
+                {selectedAgent.pendingQuestion.slice(0, 400)}
+              </div>
+              <div className="text-[11px] text-amber-200/50 mt-1">Reply in the prompt box below.</div>
+            </div>
+          )}
+
           {selectedAgent.standardState === 'needs_review' && (
             <div className="mt-2 rounded border border-amber-500/30 bg-amber-950/30 px-2 py-2">
               <div className="flex items-center justify-between gap-2">
