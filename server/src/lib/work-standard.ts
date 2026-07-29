@@ -114,6 +114,47 @@ export function shouldInjectStandard(text: string): boolean {
   return true;
 }
 
+/**
+ * Is this dispatch an ANSWER to a question the agent is already blocked on, rather than a
+ * new ask?
+ *
+ * The agent row carries this already: the permission proxy sets `status = 'waiting'` and
+ * `pending_question` when an agent asks something, and clears them when it is answered.
+ * Treating an answer as a new ask is expensive and wrong in three separate ways:
+ *
+ *   1. It re-injects the whole standard into a session that is already under it — pure
+ *      token waste, several hundred per answer.
+ *   2. It overwrites `active_objective` with the answer text, so the dashboard and the stop
+ *      gate both forget what the agent was actually doing.
+ *   3. Worst: it RESETS the arming. An agent that had already edited files stops being held
+ *      to a completion report the moment you answer its question — which is exactly when
+ *      you are most likely to be answering from the phone rather than the terminal.
+ *
+ * Answering mid-process is the normal way to drive a cartridge from the dashboard, so this
+ * has to be free.
+ */
+export function isAnswerToPendingQuestion(
+  agent: { status?: string; pendingQuestion?: string } | undefined | null,
+): boolean {
+  if (!agent) return false;
+  return agent.status === 'waiting' || Boolean(agent.pendingQuestion?.trim());
+}
+
+/**
+ * The dispatch-time decision: inject the standard and (re)start the contract?
+ *
+ * Text alone cannot answer this — "use the registry approach and keep the old field" is a
+ * perfectly ordinary answer to a question AND looks exactly like a new ask. The agent's
+ * state is what disambiguates.
+ */
+export function shouldInjectForDispatch(
+  text: string,
+  agent: { status?: string; pendingQuestion?: string } | undefined | null,
+): boolean {
+  if (isAnswerToPendingQuestion(agent)) return false;
+  return shouldInjectStandard(text);
+}
+
 export interface CompletionBlock {
   scope: string;
   verify: string;
