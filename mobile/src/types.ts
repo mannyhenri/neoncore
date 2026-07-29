@@ -65,6 +65,12 @@ export interface Agent {
   recoveryStatus?: string;
   /** The last objective driven to this cartridge — shown in the recovery offer. */
   activeObjective?: string;
+  /**
+   * Work-standard gate: 'needs_review' means the cartridge stopped without filing a
+   * completion report, so the task is probably half-done. Optional — a federated peer on an
+   * older server build does not send it at all.
+   */
+  standardState?: '' | 'needs_review';
 }
 
 export type TranscriptRole = 'user' | 'assistant' | 'tool_result' | 'system';

@@ -102,6 +102,10 @@ export const api = {
   dismissAgentRecovery: (base: string, agentId: string) =>
     req<{ ok: boolean }>(base, `/api/agents/${agentId}/dismiss-recovery`, { method: 'POST' }),
 
+  // Acknowledge a cartridge the work-standard gate flagged as having stopped unfinished.
+  clearStandardReview: (base: string, agentId: string) =>
+    req<{ ok: boolean }>(base, `/api/agents/${agentId}/clear-review`, { method: 'POST' }),
+
   // Put a cartridge away / bring it back. NOT a delete, and NOT a status change — the session
   // keeps running. It reappears on its own the next time the agent does anything.
   dismissAgent: (base: string, agentId: string) =>

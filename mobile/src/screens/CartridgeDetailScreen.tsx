@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
+import { needsStandardReview } from '../standardBanner';
 import { useNeonCore } from '../NeonCoreProvider';
 import { MessageBlocks, messageToText } from '../components/MessageBlocks';
 import { PermissionCard } from '../components/PermissionCard';
@@ -47,6 +48,7 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   // Session recovery offer (crash/interruption). 'dismissed' hides it; a local flag hides it
   // instantly on tap before the socket round-trips.
   const [recovDismissed, setRecovDismissed] = useState(false);
+  const [reviewCleared, setReviewCleared] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const offerRecovery = !recovDismissed
     && live.recoveryStatus !== 'dismissed'
@@ -161,6 +163,12 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
     setRecovDismissed(true);
     try { await api.dismissAgentRecovery(urlForAgent(live.id), live.id); } catch { setRecovDismissed(false); }
   };
+  // The gate let this cartridge stop without a completion report. Clearing is a human
+  // acknowledgement, so it needs an explicit tap — never a timer.
+  const clearStandardReview = async () => {
+    setReviewCleared(true);
+    try { await api.clearStandardReview(urlForAgent(live.id), live.id); } catch { setReviewCleared(false); }
+  };
 
   const changeMode = async (mode: AgentMode) => {
     try {
@@ -209,6 +217,20 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
           </TouchableOpacity>
         ))}
       </View>
+
+      {needsStandardReview(live) && !reviewCleared ? (
+        <View style={styles.stdBanner}>
+          <View style={styles.recovTextWrap}>
+            <Text style={styles.stdTitle}>Stopped without a completion report</Text>
+            <Text style={styles.stdObjective} numberOfLines={1}>
+              {live.activeObjective || 'The task may be only partially done — check before trusting it.'}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.stdBtn} onPress={clearStandardReview}>
+            <Text style={styles.stdBtnText}>Reviewed</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {offerRecovery ? (
         <View style={styles.recovBanner}>
@@ -353,6 +375,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
   },
   recovTextWrap: { flex: 1 },
+  stdBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginBottom: 4,
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
+  },
+  stdTitle: { color: '#fde68a', fontSize: 13, fontWeight: '700' },
+  stdObjective: { color: 'rgba(253,230,138,0.6)', fontSize: 11, marginTop: 1 },
+  stdBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: 'rgba(245,158,11,0.2)',
+  },
+  stdBtnText: { color: '#fde68a', fontSize: 12, fontWeight: '700' },
   recovTitle: { color: '#fecaca', fontSize: 13, fontWeight: '700' },
   recovObjective: { color: 'rgba(254,202,202,0.6)', fontSize: 11, marginTop: 1 },
   recovBtn: {
