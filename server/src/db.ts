@@ -214,6 +214,15 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN standard_state TEXT NOT NULL DEFAULT ''`);
 }
 
+// standard_offered — the contract was handed to this agent, but is not binding until it
+// edits something (lib/work-standard.ts armOnWork). Separate migration block because the
+// columns above already shipped; agents upgraded from that build have them but not this.
+try {
+  db.prepare('SELECT standard_offered FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN standard_offered INTEGER NOT NULL DEFAULT 0`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (

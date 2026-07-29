@@ -25,7 +25,10 @@ state the test) → REPRODUCE (set-based failing test first) → FIX (the whole 
 deferrals) → VERIFY (run it, paste real output) → REPORT (end with the NEONCORE-DONE block).
 
 It is enforced, not advisory:
-- The standard is injected into dispatched prompts (`server/src/lib/send-command.ts`).
+- The standard is injected into dispatched prompts (`server/src/lib/send-command.ts`),
+  which OFFERS the contract. It becomes binding only when the agent first edits a file
+  (`armOnWork`, called from the activity route) — investigating and answering a question
+  never arms it.
 - The Stop hook refuses to let an agent finish without a completion report
   (`agent/hooks/reporter.py` → `POST /api/agents/completion-check`), capped at 2 blocks,
   after which the cartridge is flagged `needs_review` in the dashboard.
