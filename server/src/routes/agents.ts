@@ -12,6 +12,7 @@ import { handleAgentInterrupted } from '../lib/recovery.js';
 import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
 import { evaluateStop } from '../lib/work-standard.js';
+import { detectTrailingQuestion } from '../lib/trailing-question.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
@@ -605,8 +606,25 @@ router.post('/completion-check', (req, res) => {
       console.log(`[standard] Blocking stop for session ${String(sessionId).slice(0, 8)} — no completion report filed`);
     }
 
-    // Any state change (cleared objective, needs_review flag) must reach the grid, or the
-    // dashboard keeps showing an objective the agent already closed.
+    // A turn that ends by asking the human something must reach the phone. Only
+    // AskUserQuestion ever set this, so an agent that simply wrote "which approach do you
+    // prefer?" asked into the void — nothing surfaced, and the eventual reply was then
+    // misread as a new task. Detect it here, where the final message already arrives.
+    //
+    // Never clobber an existing pending question: AskUserQuestion stores structured options
+    // there, and overwriting them with prose would strip the tappable choices.
+    if (decision.decision === 'allow') {
+      const question = detectTrailingQuestion(finalText || '');
+      if (question) {
+        db.prepare(
+          `UPDATE agents SET status = 'waiting', pending_question = ?
+           WHERE session_id = ? AND TRIM(COALESCE(pending_question, '')) = ''`,
+        ).run(question, sessionId);
+      }
+    }
+
+    // Any state change (cleared objective, needs_review flag, a surfaced question) must
+    // reach the grid, or the dashboard keeps showing an objective the agent already closed.
     const row = db.prepare('SELECT * FROM agents WHERE session_id = ? LIMIT 1').get(sessionId) as Record<string, unknown> | undefined;
     if (row) getIO().emit('agent_updated', normalizeAgent(row));
 
