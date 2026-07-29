@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ServerEntry, ServerStatus } from '../types';
+import { serverAddIssue } from '../lib/servers';
 
 /**
  * Fleet status and server management.
@@ -36,14 +37,15 @@ export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSet
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
-    const before = servers.length;
+    // Decide BEFORE dispatching. The old check compared servers.length after a
+    // setTimeout(0), but `servers` is captured in this render's closure, so it always read
+    // the pre-add value and reported "Not added" even when the add had worked.
+    const issue = serverAddIssue(servers, trimmed);
+    if (issue) { setError(issue); return; }
     onAdd(trimmed, token.trim() || undefined);
-    // upsertServer rejects a URL that is unusable or is this very server, in which case
-    // the list does not grow. Say so rather than appearing to silently accept it.
-    setTimeout(() => {
-      if (servers.length === before) setError('Not added — check the address, or it may be this server.');
-      else { setError(''); setUrl(''); }
-    }, 0);
+    setError('');
+    setUrl('');
+    setToken('');
   };
 
   return (

@@ -144,6 +144,22 @@ export function saveServers(servers: ServerEntry[]): void {
 }
 
 /** Add or update a server. Returns the new list, unchanged if the URL was unusable or a duplicate. */
+/**
+ * Why a URL cannot be added — so the UI can say which, instead of guessing.
+ *
+ * ServerPicker used to infer failure by checking whether the list grew after calling
+ * onAdd. That check can never work: `servers` is a prop captured in the render's closure,
+ * so the post-update read sees the OLD array and reports "Not added" on every add,
+ * including the successful ones.
+ */
+export function serverAddIssue(servers: ServerEntry[], raw: string): string | null {
+  const url = normalizeServerUrl(raw);
+  if (!url) return 'That does not look like an address. Try studio.local:4040';
+  if (isSameOrigin(url)) return 'That is this server — you are already connected to it.';
+  if (servers.some((s) => s.url === url)) return 'Already in your fleet.';
+  return null;
+}
+
 export function upsertServer(
   servers: ServerEntry[],
   entry: { url: string; name?: string; serverId?: string; token?: string | null; manual?: boolean },
