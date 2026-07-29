@@ -178,14 +178,15 @@ export function sendCommandToAgent(
   // queued tasks, agent-to-agent handoffs — so this is the one place that can guarantee
   // the contract travels with the work.
   //
-  // Arming is the same decision as injecting, deliberately: the Stop gate fires only for
-  // armed agents, so an agent can never be held to a standard it was not handed. Prompts
-  // that are replies rather than asks ("yes", "continue") inject nothing and leave any
-  // existing arming alone — a continuation mid-task is still the same task.
+  // Dispatch OFFERS the contract; it becomes binding only when the agent actually edits
+  // something (armOnWork, from the activity route). Arming here instead made questions
+  // binding — a long question looks exactly like an ask, so answering one and stopping was
+  // treated as abandoning a task. Prompts that are replies ("yes", "continue") inject
+  // nothing and leave any existing offer alone: a continuation mid-task is the same task.
   if (opts.standard !== false && shouldInjectStandard(text)) {
     finalText = `${finalText}\n\n${WORK_STANDARD_SHORT}`;
     db.prepare(
-      `UPDATE agents SET standard_armed = 1, standard_blocks = 0, standard_state = '' WHERE id = ?`,
+      `UPDATE agents SET standard_offered = 1, standard_armed = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
     ).run(agentId);
   }
 

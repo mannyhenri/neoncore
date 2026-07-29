@@ -4,8 +4,10 @@ import Database from 'better-sqlite3';
 import {
   COMPLETION_MARKER,
   MAX_STOP_BLOCKS,
+  MUTATING_TOOLS,
   STANDARD_OPT_OUT,
   WORK_STANDARD_SHORT,
+  armOnWork,
   evaluateStop,
   parseCompletionBlock,
   shouldInjectStandard,
@@ -20,6 +22,7 @@ function freshDb() {
       session_id TEXT NOT NULL DEFAULT '',
       agent_type TEXT NOT NULL DEFAULT 'claude',
       active_objective TEXT NOT NULL DEFAULT '',
+      standard_offered INTEGER NOT NULL DEFAULT 0,
       standard_armed INTEGER NOT NULL DEFAULT 0,
       standard_blocks INTEGER NOT NULL DEFAULT 0,
       standard_state TEXT NOT NULL DEFAULT ''
@@ -30,15 +33,16 @@ function freshDb() {
 
 function addAgent(db: ReturnType<typeof freshDb>, o: {
   id?: string; sessionId?: string; type?: string;
-  objective?: string; armed?: boolean; blocks?: number;
+  objective?: string; armed?: boolean; offered?: boolean; blocks?: number;
 } = {}) {
   db.prepare(
-    'INSERT INTO agents (id, session_id, agent_type, active_objective, standard_armed, standard_blocks) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO agents (id, session_id, agent_type, active_objective, standard_offered, standard_armed, standard_blocks) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(
     o.id ?? 'agent-1',
     o.sessionId ?? 'sess-1',
     o.type ?? 'claude',
     o.objective ?? 'Fix the report copy bug',
+    o.offered === false ? 0 : 1,
     o.armed === false ? 0 : 1,
     o.blocks ?? 0,
   );
@@ -264,4 +268,100 @@ test('the gate resolves the right cartridge when one repo runs two engines', () 
   evaluateStop(db, { sessionId: 'shared', agentType: 'codex', finalText: 'no report' });
   assert.equal(readAgent(db, 'codex-1').standard_blocks, 1);
   assert.equal(readAgent(db, 'claude-1').standard_blocks, 0, 'the other engine\'s cartridge must be untouched');
+});
+
+// ─── Lazy arming: offered at dispatch, binding at the first edit ────────────
+
+test('every mutating tool in the registry arms an offered agent', () => {
+  const missed: string[] = [];
+  for (const tool of MUTATING_TOOLS) {
+    const db = freshDb();
+    addAgent(db, { offered: true, armed: false });
+    armOnWork(db, { agentId: 'agent-1', toolName: tool });
+    if (!readAgent(db).standard_armed) missed.push(tool);
+  }
+  assert.deepEqual(missed, [], `these edits failed to arm the gate: ${missed.join(', ')}`);
+});
+
+test('tool names are matched case-insensitively', () => {
+  const missed = [...MUTATING_TOOLS].filter((tool) => {
+    const db = freshDb();
+    addAgent(db, { offered: true, armed: false });
+    armOnWork(db, { agentId: 'agent-1', toolName: tool.toUpperCase() });
+    return !readAgent(db).standard_armed;
+  });
+  assert.deepEqual(missed, [], `case-sensitive miss on: ${missed.join(', ')}`);
+});
+
+// The whole point of the fix: investigating must never arm. Bash is the load-bearing
+// entry — answering a question with a dozen greps is what falsely armed the gate before.
+const READ_ONLY_TOOLS = [
+  'Bash', 'Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'TodoWrite',
+  'Task', 'AskUserQuestion', 'ExitPlanMode', 'shell', 'read_file', 'search_file_content',
+];
+
+test('no read-only tool arms the gate', () => {
+  const armed = READ_ONLY_TOOLS.filter((tool) => {
+    const db = freshDb();
+    addAgent(db, { offered: true, armed: false });
+    armOnWork(db, { agentId: 'agent-1', toolName: tool });
+    return Boolean(readAgent(db).standard_armed);
+  });
+  assert.deepEqual(armed, [], `these investigation tools wrongly armed the gate: ${armed.join(', ')}`);
+});
+
+test('an edit with no offer outstanding does not arm', () => {
+  const db = freshDb();
+  addAgent(db, { offered: false, armed: false });
+  armOnWork(db, { agentId: 'agent-1', toolName: 'Edit' });
+  assert.equal(readAgent(db).standard_armed, 0);
+});
+
+test('arming reports true once, then is idempotent', () => {
+  const db = freshDb();
+  addAgent(db, { offered: true, armed: false });
+  assert.equal(armOnWork(db, { agentId: 'agent-1', toolName: 'Edit' }), true);
+  assert.equal(armOnWork(db, { agentId: 'agent-1', toolName: 'Write' }), false);
+  assert.equal(readAgent(db).standard_armed, 1);
+});
+
+test('a missing agent or empty tool name is a no-op, not a crash', () => {
+  const db = freshDb();
+  assert.equal(armOnWork(db, { agentId: '', toolName: 'Edit' }), false);
+  assert.equal(armOnWork(db, { agentId: 'agent-1', toolName: '' }), false);
+  assert.equal(armOnWork(db, { agentId: 'ghost', toolName: 'Edit' }), false);
+});
+
+test('THE BUG: a question answered without edits is never blocked', () => {
+  // Offered (the prompt carried the standard) but nothing was edited — a pure Q&A turn.
+  const db = freshDb();
+  addAgent(db, { offered: true, armed: false, objective: 'Did we open a PR for drift services?' });
+  const d = evaluateStop(db, { sessionId: 'sess-1', finalText: 'No — nothing was opened today.' });
+  assert.equal(d.decision, 'allow', 'answering a question must not require a completion report');
+});
+
+test('the same turn IS gated once a file is edited', () => {
+  const db = freshDb();
+  addAgent(db, { offered: true, armed: false, objective: 'Fix the report copy bug' });
+  armOnWork(db, { agentId: 'agent-1', toolName: 'Edit' });
+  const d = evaluateStop(db, { sessionId: 'sess-1', finalText: 'Fixed two sections.' });
+  assert.equal(d.decision, 'block');
+});
+
+test('filing a report clears the offer, so a later unrelated edit does not re-arm', () => {
+  const db = freshDb();
+  addAgent(db, { offered: true, armed: true });
+  evaluateStop(db, { sessionId: 'sess-1', finalText: GOOD_BLOCK });
+  assert.equal(readAgent(db).standard_offered, 0);
+  armOnWork(db, { agentId: 'agent-1', toolName: 'Edit' });
+  assert.equal(readAgent(db).standard_armed, 0, 'a closed contract must not re-arm itself');
+});
+
+test('release at the cap also clears the offer', () => {
+  const db = freshDb();
+  addAgent(db, { offered: true, armed: true, blocks: MAX_STOP_BLOCKS });
+  evaluateStop(db, { sessionId: 'sess-1', finalText: 'no report' });
+  const row = readAgent(db);
+  assert.equal(row.standard_offered, 0);
+  assert.equal(row.standard_state, 'needs_review');
 });

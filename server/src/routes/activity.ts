@@ -6,6 +6,7 @@ import type { Activity } from '../types.js';
 import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
 import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
+import { armOnWork } from '../lib/work-standard.js';
 
 const router = Router();
 
@@ -35,6 +36,13 @@ router.post('/', (req, res) => {
 
   // Update agent's last_seen and status
   db.prepare(`UPDATE agents SET last_seen = ?, status = 'working' WHERE id = ?`).run(now, resolvedAgentId);
+
+  // Work-standard gate: an offered contract becomes binding the first time the agent edits
+  // something. This is the ingest point every engine's reporter posts to, so it covers all
+  // of them in one place. No-op for read-only tools and for agents with no offer.
+  if (armOnWork(db, { agentId: resolvedAgentId, toolName: toolName || '' })) {
+    console.log(`[standard] Armed ${resolvedAgentId.slice(0, 8)} — first edit (${toolName}) under an offered contract`);
+  }
 
   const activity: Activity = {
     id,

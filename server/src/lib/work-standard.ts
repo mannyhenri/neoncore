@@ -14,14 +14,22 @@
  *                           called by the Stop hook in agent/hooks/reporter.py)
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * WHY THE GATE IS ARMED, NOT ALWAYS-ON
+ * OFFERED, THEN ARMED — WHY IT IS TWO STEPS
  *
  * `agents.active_objective` is set by EVERY dispatched command, including "yes" and
- * "continue". Gating on that alone would block an agent for failing to file a completion
- * report on a one-word conversational reply. So the contract is only enforced where it was
- * actually stated: send-command.ts sets `standard_armed` at the same moment it injects the
- * standard into a prompt, and the gate fires only for armed agents. Injection and
- * enforcement therefore cannot drift apart — they are the same decision.
+ * "continue", so it cannot decide who is under the contract. The first version armed at
+ * dispatch instead, keyed on the same predicate that injects the standard — but that made a
+ * QUESTION binding: "did we open a PR for X?" is long enough to look like an ask, so the
+ * agent answered it, changed nothing, tried to stop, and was refused for not filing a
+ * completion report on a conversation.
+ *
+ * Work is what the agent DID, not how the prompt was phrased. So:
+ *
+ *   dispatch  → standard_offered = 1   (the contract rides along in the prompt)
+ *   first edit → standard_armed  = 1   (armOnWork, from the activity ingest route)
+ *   report/cap → both cleared          (evaluateStop)
+ *
+ * Investigate and answer freely; change a file and you owe a completion report.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -52,6 +60,32 @@ ${COMPLETION_MARKER}
 scope: <done>/<total> — <what the set was>
 verify: <exact command run> → <actual result>
 deferred: none`;
+
+/**
+ * Tools whose use means the agent CHANGED something, as opposed to investigating.
+ *
+ * This registry is what arms the gate (see armOnWork). It is deliberately narrow:
+ *
+ *  - Bash is NOT here. Most Bash in a session is read-only investigation — grep, ls, git
+ *    status, running a test — and there is no reliable way to tell those from `sed -i` or
+ *    `rm`. Including it would re-create the bug this exists to fix: answering a question
+ *    with a dozen greps would demand a completion report.
+ *  - The cost is a task performed ENTIRELY through Bash never arming the gate. That is the
+ *    safer direction to fail: a missed gate is a return to the old behaviour, whereas a
+ *    false arm blocks a conversation. Dispatched tasks and workflow steps are still covered
+ *    by the completion checks in the tasks/workflows routes, which do not depend on arming.
+ *
+ * Non-Claude names are here for future-proofing only: the stop gate itself is Claude Code
+ * only, so an engine whose edit tool is missing from this list loses nothing today.
+ */
+export const MUTATING_TOOLS = new Set([
+  // Claude Code
+  'edit', 'write', 'multiedit', 'notebookedit',
+  // Codex CLI
+  'apply_patch',
+  // Gemini CLI
+  'write_file', 'replace',
+]);
 
 /** Prompts that are replies, not asks — injecting the standard into these is noise. */
 const CONTINUATION_RE = /^(y|n|yes|no|ok|okay|k|sure|go|go ahead|proceed|continue|next|stop|wait|thanks|thank you|ty|done|nice|good|great|perfect)\b[\s.!]*$/i;
@@ -169,6 +203,34 @@ export function validateCompletionPayload(payload: {
   };
 }
 
+/**
+ * Arm the gate the first time an offered agent actually changes something.
+ *
+ * Called from the activity ingest route, which every engine's reporter posts to. Dispatch
+ * only OFFERS the contract (`standard_offered`); this is what makes it binding.
+ *
+ * The split exists because arming at dispatch time meant a question armed the gate: the
+ * agent answered, touched nothing, tried to stop, and was refused for not filing a
+ * completion report on a conversation. Work is defined by what the agent DID, not by how
+ * long the prompt was.
+ *
+ * Returns true if this call armed the gate (useful for logging); idempotent afterwards.
+ */
+export function armOnWork(
+  db: DatabaseType,
+  opts: { agentId: string; toolName: string },
+): boolean {
+  if (!opts.agentId || !opts.toolName) return false;
+  if (!MUTATING_TOOLS.has(opts.toolName.trim().toLowerCase())) return false;
+
+  const changed = db.prepare(
+    `UPDATE agents SET standard_armed = 1
+     WHERE id = ? AND standard_offered = 1 AND standard_armed = 0`,
+  ).run(opts.agentId).changes;
+
+  return changed > 0;
+}
+
 export type StopDecision =
   | { decision: 'allow'; cleared: boolean }
   | { decision: 'block'; reason: string };
@@ -226,14 +288,14 @@ export function evaluateStop(
   if (block) {
     // Contract satisfied: close the objective so the next turn starts clean.
     db.prepare(
-      `UPDATE agents SET active_objective = '', standard_armed = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
+      `UPDATE agents SET active_objective = '', standard_armed = 0, standard_offered = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
     ).run(row.id);
     return { decision: 'allow', cleared: true };
   }
 
   if (opts.stopHookActive || row.standard_blocks >= maxBlocks) {
     db.prepare(
-      `UPDATE agents SET standard_armed = 0, standard_blocks = 0, standard_state = 'needs_review' WHERE id = ?`,
+      `UPDATE agents SET standard_armed = 0, standard_offered = 0, standard_blocks = 0, standard_state = 'needs_review' WHERE id = ?`,
     ).run(row.id);
     return { decision: 'allow', cleared: false };
   }
