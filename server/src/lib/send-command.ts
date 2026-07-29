@@ -5,6 +5,7 @@ import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command, CommandAttachmentInput } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
+import { WORK_STANDARD_SHORT, shouldInjectStandard } from './work-standard.js';
 
 /**
  * Shared command dispatch — used by the commands route.
@@ -70,7 +71,7 @@ export function sendCommandToAgent(
   text: string,
   includeMemory = false,
   attachments?: CommandAttachmentInput[],
-  opts: { trackObjective?: boolean } = {},
+  opts: { trackObjective?: boolean; standard?: boolean } = {},
 ): Command | null {
   const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, agent_type, session_id FROM agents WHERE id = ?')
     .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; agent_type: string; session_id: string } | undefined;
@@ -94,12 +95,22 @@ export function sendCommandToAgent(
   // Broadcast if we changed anything the grid renders. Reviving MUST emit too — otherwise the
   // agent un-hides in the DB but the grid keeps hiding it until the next refresh.
   const trackObjective = opts.trackObjective !== false;
+  // A continuation ("continue", "yes") is not a new objective — it is more of the current
+  // one. Overwriting on every command meant the live objective decayed to the last word
+  // typed, so the dashboard showed "continue" as the task and the work-standard gate quoted
+  // it back to the agent as the thing it had failed to finish. Keep the real ask; only a
+  // genuine new ask replaces it.
+  const isNewObjective = shouldInjectStandard(text);
   const objectiveChanged = trackObjective
     ? db.prepare(
         `UPDATE agents
-         SET active_objective = ?, recovery_status = '', interrupted_at = NULL, recovery_session_id = ''
+         SET active_objective = CASE
+               WHEN ? = 1 OR TRIM(COALESCE(active_objective, '')) = '' THEN ?
+               ELSE active_objective
+             END,
+             recovery_status = '', interrupted_at = NULL, recovery_session_id = ''
          WHERE id = ?`,
-      ).run(text.slice(0, 4000), agentId).changes > 0
+      ).run(isNewObjective ? 1 : 0, text.slice(0, 4000), agentId).changes > 0
     : false;
 
   if (cleared || revived || objectiveChanged) {
@@ -126,6 +137,7 @@ export function sendCommandToAgent(
       recoveryStatus: ((updated.recovery_status ?? '') as string) as Agent['recoveryStatus'],
       interruptedAt: (updated.interrupted_at ?? '') as string,
       activeObjective: (updated.active_objective ?? '') as string,
+      standardState: ((updated.standard_state ?? '') as string) as Agent['standardState'],
     };
     getIO().emit('agent_updated', normalized);
   }
@@ -158,6 +170,23 @@ export function sendCommandToAgent(
       // silently vanished from the prompt.
       finalText = `[Memory: ${memoryBlock}]\n${finalText}`;
     }
+  }
+
+  // ── Work-standard injection (docs/WORK-STANDARD.md) ────────────────────────
+  //
+  // Every prompt in the fleet funnels through here — dashboard, mobile, workflow steps,
+  // queued tasks, agent-to-agent handoffs — so this is the one place that can guarantee
+  // the contract travels with the work.
+  //
+  // Arming is the same decision as injecting, deliberately: the Stop gate fires only for
+  // armed agents, so an agent can never be held to a standard it was not handed. Prompts
+  // that are replies rather than asks ("yes", "continue") inject nothing and leave any
+  // existing arming alone — a continuation mid-task is still the same task.
+  if (opts.standard !== false && shouldInjectStandard(text)) {
+    finalText = `${finalText}\n\n${WORK_STANDARD_SHORT}`;
+    db.prepare(
+      `UPDATE agents SET standard_armed = 1, standard_blocks = 0, standard_state = '' WHERE id = ?`,
+    ).run(agentId);
   }
 
   const id = uuid();

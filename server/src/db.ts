@@ -197,6 +197,23 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN active_objective TEXT NOT NULL DEFAULT ''`);
 }
 
+// Work-standard gate state (see lib/work-standard.ts and docs/WORK-STANDARD.md).
+//
+//   standard_armed  — the dispatched prompt carried the standard, so the completion
+//                     contract applies to this objective. The Stop gate fires ONLY when
+//                     armed, which is what keeps conversational turns out of it.
+//   standard_blocks — how many times we have already refused to let this agent stop.
+//                     Capped, so a genuinely stuck agent is released rather than pinned.
+//   standard_state  — 'needs_review' once released without a completion report: the
+//                     half-done state made visible instead of silently accepted.
+try {
+  db.prepare('SELECT standard_armed FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN standard_armed INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE agents ADD COLUMN standard_blocks INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE agents ADD COLUMN standard_state TEXT NOT NULL DEFAULT ''`);
+}
+
 // Epic Autopilot table
 db.exec(`
   CREATE TABLE IF NOT EXISTS epic_runs (

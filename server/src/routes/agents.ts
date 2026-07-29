@@ -11,6 +11,7 @@ import { deleteAgentCascade } from '../lib/agent-cleanup.js';
 import { handleAgentInterrupted } from '../lib/recovery.js';
 import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
+import { evaluateStop } from '../lib/work-standard.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
@@ -578,6 +579,54 @@ router.post('/plan-executed', (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * The work-standard stop gate (docs/WORK-STANDARD.md).
+ *
+ * Called by the Stop hook on every end-of-turn. If the agent is mid-objective under the
+ * standard and is stopping WITHOUT a completion report, we answer 'block' and the hook
+ * feeds the reason back into the session — the agent keeps working instead of leaving a
+ * half-finished task looking finished.
+ *
+ * Fails OPEN in every ambiguous case: unknown session, unarmed agent, no objective, or any
+ * server-side error all answer 'allow'. A gate that accidentally traps agents when the
+ * server hiccups would be far worse than one that occasionally misses a report.
+ */
+router.post('/completion-check', (req, res) => {
+  const { sessionId, agentType, finalText, stopHookActive } = req.body || {};
+  try {
+    const decision = evaluateStop(db, {
+      sessionId: sessionId || '',
+      agentType: agentType || undefined,
+      finalText: finalText || '',
+      stopHookActive: Boolean(stopHookActive),
+    });
+
+    if (decision.decision === 'block') {
+      console.log(`[standard] Blocking stop for session ${String(sessionId).slice(0, 8)} — no completion report filed`);
+    }
+
+    // Any state change (cleared objective, needs_review flag) must reach the grid, or the
+    // dashboard keeps showing an objective the agent already closed.
+    const row = db.prepare('SELECT * FROM agents WHERE session_id = ? LIMIT 1').get(sessionId) as Record<string, unknown> | undefined;
+    if (row) getIO().emit('agent_updated', normalizeAgent(row));
+
+    return res.json(decision);
+  } catch (err) {
+    console.error(`[standard] completion-check failed, allowing stop: ${err instanceof Error ? err.message : String(err)}`);
+    return res.json({ decision: 'allow', cleared: false });
+  }
+});
+
+/** Clear the needs_review flag once a human has looked at the cartridge. */
+router.post('/:id/clear-review', (req, res) => {
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  db.prepare("UPDATE agents SET standard_state = '', standard_blocks = 0 WHERE id = ?").run(req.params.id);
+  const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+  getIO().emit('agent_updated', normalizeAgent(updated));
+  res.json({ ok: true });
+});
+
 // Focus an agent's VS Code window
 router.post('/:id/focus', (req, res) => {
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
@@ -772,6 +821,7 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     recoveryStatus: ((row.recovery_status ?? '') as string) as Agent['recoveryStatus'],
     interruptedAt: (row.interrupted_at ?? '') as string,
     activeObjective: (row.active_objective ?? '') as string,
+    standardState: ((row.standard_state ?? '') as string) as Agent['standardState'],
   };
 }
 

@@ -47,6 +47,21 @@ def post_json(url: str, body: str, retries: int = 3) -> bool:
     return False
 
 
+def post_json_read(url: str, body: str, timeout: int = 4):
+    """POST JSON and return the decoded response, or None.
+
+    Single attempt, short timeout, no retry: this runs on the stop path of EVERY turn.
+    A slow or unreachable server must cost the agent nothing and must never be able to
+    hold up (or, worse, alter) the end of a turn.
+    """
+    try:
+        req = Request(url, data=body.encode(), headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return None
+
+
 def get_machine_name() -> str:
     return platform.node()
 
@@ -171,6 +186,89 @@ def main():
                 save_transcript_state(session_id, new_offset, new_seq)
         except Exception:
             pass
+
+    # Work-standard gate. `Stop` only — SubagentStop is a subagent handing work back to its
+    # parent, which is not the end of the task and must never be blocked (blocking it would
+    # also strand the parent, which is still mid-turn).
+    if hook_event == "Stop":
+        check_completion(session_id, transcript_path, d.get("stop_hook_active", False))
+
+
+# ── Work-standard stop gate ─────────────────────────────────────────────────
+#
+# See docs/WORK-STANDARD.md. On Stop, ask the server whether this agent is allowed to
+# finish. If it is mid-task under the standard and has not filed a NEONCORE-DONE report,
+# the server answers 'block' and we hand the reason back to Claude Code, which resumes the
+# session instead of ending the turn. This is what stops "I fixed a few of the sections"
+# from looking like a completed task.
+#
+# Fails open at every step: no transcript, no server, bad JSON, missing fields — all end
+# with the turn proceeding normally.
+
+TAIL_BYTES = 512_000       # plenty for the last few messages of any transcript
+LAST_MESSAGES = 3          # tolerate a short sign-off after the report block
+
+
+def last_assistant_text(transcript_path: str, limit: int = LAST_MESSAGES) -> str:
+    """Concatenated text of the most recent assistant messages, newest last."""
+    try:
+        size = os.path.getsize(transcript_path)
+        with open(transcript_path, "rb") as f:
+            f.seek(max(0, size - TAIL_BYTES))
+            chunk = f.read()
+    except Exception:
+        return ""
+
+    messages = []
+    for raw in reversed(chunk.split(b"\n")):
+        if len(messages) >= limit:
+            break
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line.decode("utf-8", errors="replace"))
+        except Exception:
+            continue  # first line of the tail is usually a partial record
+        msg = entry.get("message")
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "\n".join(b.get("text", "") for b in content
+                             if isinstance(b, dict) and b.get("type") == "text")
+        else:
+            text = ""
+        if text.strip():
+            messages.append(text)
+
+    return "\n".join(reversed(messages))
+
+
+def check_completion(session_id: str, transcript_path: str, stop_hook_active: bool) -> None:
+    """Ask the server whether this stop is allowed; emit a block decision if not."""
+    if not session_id or not transcript_path:
+        return
+
+    final_text = last_assistant_text(transcript_path)
+    if not final_text:
+        return
+
+    decision = post_json_read(f"{ORCHESTRATOR_URL}/api/agents/completion-check", json.dumps({
+        "sessionId": session_id,
+        "agentType": AGENT_TYPE,
+        "finalText": final_text[-20000:],
+        "stopHookActive": bool(stop_hook_active),
+    }))
+
+    if not isinstance(decision, dict) or decision.get("decision") != "block":
+        return
+
+    reason = decision.get("reason") or "Task is not complete under the NeonCore work standard."
+    # Claude Code reads this off stdout and feeds `reason` back into the session.
+    print(json.dumps({"decision": "block", "reason": reason}))
 
 
 # ── Transcript parsing ──────────────────────────────────────────────────────

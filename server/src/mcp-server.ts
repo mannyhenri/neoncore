@@ -128,15 +128,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'neoncore_report_step_done',
       description:
-        'Signal that a NeonCore workflow step is fully complete. Call this (instead of curling the webhook) when you finish a step that was dispatched to you — the workflow stays paused until you do. Provide a result summary of what you did and what the next step should focus on.',
+        'Signal that a NeonCore workflow step is fully complete. Call this (instead of curling the webhook) when you finish a step that was dispatched to you — the workflow stays paused until you do. Under the NeonCore work standard a step is not complete until it is VERIFIED: scope and verify are required, and a step reported without real verification output is rejected.',
       inputSchema: {
         type: 'object',
         properties: {
           sessionId: { type: 'string', description: 'Session identifier from neoncore_register' },
           stepId:    { type: 'string', description: 'The workflow step id (given in the task instructions)' },
           result:    { type: 'string', description: 'Summary of what was done + guidance for the next step' },
+          scope:     { type: 'string', description: 'Completed vs total items this step covered, e.g. "15/15 — 12 sections + 3 attachment types". Enumerate from the code, not the description.' },
+          verify:    { type: 'string', description: 'The exact command you ran and its REAL output, e.g. "npm test -- report-copy → 15 passed". Never report verification you did not perform.' },
+          deferred:  { type: 'string', description: 'Anything in scope you did not do, and why. "none" if nothing.' },
         },
-        required: ['stepId', 'result'],
+        required: ['stepId', 'result', 'scope', 'verify'],
       },
     },
     {
@@ -167,17 +170,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'neoncore_report_task_done',
       description:
-        'Complete a task you claimed, recording the outcome. Set status to "failed" (with an error) if you could not finish.',
+        'Complete a task you claimed, recording the outcome. Under the NeonCore work standard a task is not done until it is VERIFIED — scope and verify are required for status "done", and the server rejects a completion whose verify field has no real command output. Set status to "failed" (with an error) if you could not finish; a failure honestly reported is always preferred over a "done" that was never verified.',
       inputSchema: {
         type: 'object',
         properties: {
           sessionId: { type: 'string', description: 'Session identifier from neoncore_register' },
           taskId:    { type: 'string', description: 'The task id you claimed' },
           result:    { type: 'string', description: 'Summary of the outcome / what you produced' },
+          scope:     { type: 'string', description: 'Completed vs total items the ask covered, e.g. "15/15 — 12 report sections + 3 attachment types, per REPORT_SECTIONS". Enumerate from the code, not the description.' },
+          verify:    { type: 'string', description: 'The exact command you ran and its REAL output, e.g. "npm test -- report-copy → 15 passed, 0 failed". Required for "done".' },
+          deferred:  { type: 'string', description: 'Anything in scope you did not do, and why. "none" if nothing.' },
           status:    { type: 'string', enum: ['done', 'failed'], description: 'Defaults to "done"' },
           error:     { type: 'string', description: 'Error detail if status is "failed"' },
         },
-        required: ['sessionId', 'taskId', 'result'],
+        required: ['sessionId', 'taskId', 'result', 'scope', 'verify'],
       },
     },
     {
@@ -334,10 +340,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === 'neoncore_report_step_done') {
-    const { stepId, result } = args as Record<string, string>;
+    const { stepId, result, scope, verify, deferred } = args as Record<string, string>;
     if (!stepId) return text('ERROR: stepId is required to report step completion.');
     try {
-      await post(`/api/workflows/webhook/${stepId}/complete`, { result: result || 'Completed.' });
+      await post(`/api/workflows/webhook/${stepId}/complete`, {
+        result: result || 'Completed.', scope, verify, deferred,
+      });
       log(`Step ${stepId} reported complete`);
       return text(`Step ${stepId} marked complete in NeonCore. The workflow will now advance.`);
     } catch (err) {
@@ -385,14 +393,19 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === 'neoncore_report_task_done') {
-    const { sessionId, taskId, result, status, error } = args as Record<string, string>;
+    const { sessionId, taskId, result, status, error, scope, verify, deferred } = args as Record<string, string>;
     if (!taskId) return text('ERROR: taskId is required.');
     try {
-      await post(`/api/tasks/${taskId}/complete`, { sessionId, result, status: status || 'done', error });
+      await post(`/api/tasks/${taskId}/complete`, {
+        sessionId, result, status: status || 'done', error, scope, verify, deferred,
+      });
       return text(`Task ${taskId} marked ${status === 'failed' ? 'failed' : 'done'} in NeonCore.`);
     } catch (err) {
-      log(`report_task_done failed: ${err}`);
-      return text(`Could not complete task ${taskId}: ${err}.`);
+      // A rejection here is the work standard refusing an unverified completion. The
+      // message explains what is missing — pass it through verbatim so the agent acts on
+      // it rather than treating the task as closed.
+      log(`report_task_done rejected: ${err}`);
+      return text(`Task ${taskId} was NOT completed. ${err}`);
     }
   }
 
