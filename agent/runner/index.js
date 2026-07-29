@@ -169,13 +169,30 @@ function launchCartridge({ repoPath, agentType, sessionId, context }) {
 // ─── Connect + stay online ──────────────────────────────────────
 const socket = io(cfg.serverUrl, { transports: ['websocket', 'polling'] });
 
+let announceRetry = null;
+
 async function announce() {
+  // Join the room FIRST, and unconditionally. Room membership is the ONLY thing that makes
+  // this machine launchable: the server's socketToMachine map is built here, and
+  // isMachineOnline() reads nothing else.
+  //
+  // This used to sit AFTER `await register()`, inside the try. On a server restart the
+  // socket reconnects in milliseconds while the HTTP endpoint is still coming up, so
+  // register() threw, the room join never happened, and the machine was stranded offline
+  // PERMANENTLY — its 30s heartbeat kept updating last_seen, so it looked alive in the
+  // database while "+ Launch" refused to list it. "Retry on next connect" never fired
+  // because the socket never disconnected again. Only restarting the runner fixed it.
+  socket.emit('join_machine_room', { machineId: identity.machineId });
+
+  if (announceRetry) { clearTimeout(announceRetry); announceRetry = null; }
+
   try {
     await register();
-    socket.emit('join_machine_room', { machineId: identity.machineId });
     log(`Registered "${identity.hostname}" with ${identity.repos.length} repo(s).`);
   } catch (err) {
-    log(`register error: ${err.message} — will retry on next connect`);
+    // Retry on a timer rather than waiting for a reconnect that may never come.
+    log(`register error: ${err.message} — retrying in 5s`);
+    announceRetry = setTimeout(announce, 5000);
   }
 }
 
