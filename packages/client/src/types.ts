@@ -53,6 +53,14 @@ export interface Agent {
   interruptedAt: string;
   activeObjective: string;
   /**
+   * Work-standard gate state (docs/WORK-STANDARD.md). 'needs_review' = the agent stopped
+   * without filing a completion report, so the task is probably half-done.
+   *
+   * Optional on purpose: a federated peer running an older server build will not send this
+   * field at all, and a missing field must read as "fine", not as a type error.
+   */
+  standardState?: '' | 'needs_review';
+  /**
    * When the user put this cartridge away ('' = visible). Orthogonal to `status`: a
    * dismissed agent is often still alive and working. Any activity from the session
    * clears it, so it comes back the moment it's used again.

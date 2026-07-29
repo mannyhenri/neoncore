@@ -9,6 +9,7 @@ import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
+import { validateCompletionPayload } from '../lib/work-standard.js';
 
 const router = Router();
 
@@ -272,8 +273,61 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
 }
 
 // Create V2 workflow with steps
+/**
+ * Append the work-standard verify gate to a step list, unless one is already there.
+ *
+ * The gate depends on every TERMINAL step (nothing depends on it), so it runs after all
+ * the work regardless of how the graph branches — appending it to the last step in the
+ * array would silently skip parallel branches.
+ *
+ * Skipped when: the caller opted out, the workflow already ends in a gate (don't stack two
+ * critics), or there is no work step to audit.
+ */
+export function withStandardGate(
+  steps: Record<string, unknown>[],
+  opts: { skip?: boolean } = {},
+): Record<string, unknown>[] {
+  if (opts.skip) return steps;
+
+  const GATE_TYPES = new Set(['quality-gate', 'review-gate']);
+  if (steps.some((s) => GATE_TYPES.has((s.executorType as string) || ''))) return steps;
+
+  const WORK_TYPES = new Set(['claude-code', 'command', '']);
+  const workSteps = steps.filter((s) => WORK_TYPES.has((s.executorType as string) || ''));
+  if (workSteps.length === 0) return steps;
+
+  const dependedOn = new Set<string>();
+  for (const s of steps) {
+    for (const dep of (s.dependsOn as string[] | undefined) || []) dependedOn.add(dep);
+  }
+  const terminal = steps.filter((s) => !dependedOn.has(s.id as string)).map((s) => s.id as string);
+
+  // Inherit the executor from the last work step so the gate lands on a cartridge that
+  // actually has the repo. A gate with no executor fails at dispatch.
+  const executorId = (workSteps[workSteps.length - 1].executorId as string) || '';
+
+  return [
+    ...steps,
+    {
+      id: `standard-gate-${uuid().slice(0, 8)}`,
+      name: 'Work Standard Check',
+      description: 'Verifies the work covered the complete set and is proven by a set-based test.',
+      executorType: 'quality-gate',
+      executorId,
+      executorConfig: { gateType: 'standard', maxRetries: 1 },
+      dependsOn: terminal.length > 0 ? terminal : [steps[steps.length - 1].id],
+      autoAdvance: true,
+      positionX: 0,
+      positionY: 0,
+    },
+  ];
+}
+
 router.post('/v2/create', (req, res) => {
-  const { name, description, targetRepos, steps } = req.body;
+  const { name, description, targetRepos, skipStandardGate } = req.body;
+  const steps = Array.isArray(req.body?.steps)
+    ? withStandardGate(req.body.steps, { skip: Boolean(skipStandardGate) })
+    : req.body?.steps;
 
   if (!name || !Array.isArray(steps) || steps.length === 0) {
     return res.status(400).json({ error: 'name and non-empty steps array required' });
@@ -971,7 +1025,7 @@ function validateResult(result: unknown): string | null {
 // Gate verdicts (PASS/FAIL), retries and loop re-dispatch are all routed by completeStepFromSignal.
 // Usage: curl -X POST http://localhost:4040/api/workflows/webhook/<stepId>/complete -H 'Content-Type: application/json' -d '{"result": "done"}'
 router.post('/webhook/:stepId/complete', (req, res) => {
-  const { result } = req.body || {};
+  const { result, scope, verify, deferred } = req.body || {};
   const invalid = validateResult(result);
   if (invalid) return res.status(400).json({ error: invalid });
 
@@ -984,11 +1038,31 @@ router.post('/webhook/:stepId/complete', (req, res) => {
     return res.status(400).json({ error: `Step is not running (current status: ${step.status})` });
   }
 
+  // Work-standard check — WORK steps only.
+  //
+  // Gates (review-gate / quality-gate) speak a different protocol: their result must start
+  // with PASS or FAIL and is parsed as a verdict, not a completion report. Demanding a
+  // scope/verify pair from a critic that was asked to judge someone else's work would be
+  // incoherent, and would break every existing gate. Deliberation panels report through
+  // their own endpoint and never reach here.
+  const WORK_STEP_TYPES = new Set(['claude-code', 'command', '']);
+  let standardNote = '';
+  if (WORK_STEP_TYPES.has(step.executorType)) {
+    const check = validateCompletionPayload({ result, scope, verify, deferred });
+    if (!check.ok) {
+      // 400 leaves the step RUNNING on purpose: the agent must come back with real
+      // verification rather than the workflow advancing on an unverified claim.
+      return res.status(400).json({ error: check.reason });
+    }
+    standardNote = `\n\n---\nscope: ${check.block.scope}\nverify: ${check.block.verify}\ndeferred: ${check.block.deferred}`;
+  }
+
   // Prepend captured plan content (from ExitPlanMode with plansIncluded) if present
   const planContent = (row.plan_content as string) || '';
+  const baseResult = (result || 'Completed via webhook') + standardNote;
   const finalResult = planContent
-    ? `[Plan]\n${planContent}\n\n[Implementation Summary]\n${result || 'Completed via webhook'}`
-    : (result || 'Completed via webhook');
+    ? `[Plan]\n${planContent}\n\n[Implementation Summary]\n${baseResult}`
+    : baseResult;
 
   const tokensIn = Math.round(((row.dispatched_prompt as string) || '').length / 4);
   const tokensOut = Math.round(finalResult.length / 4);

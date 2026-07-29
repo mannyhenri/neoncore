@@ -577,6 +577,17 @@ export function CartridgeCard({
     }
   }
 
+  // The work-standard gate let this cartridge stop without a completion report. The flag is
+  // the whole point of the gate's fallback path — it converts a silently half-finished task
+  // into something visible, so it needs a human acknowledgement to clear, not a timer.
+  async function handleClearStandardReview() {
+    try {
+      await api.clearStandardReview(selectedAgent.id);
+    } catch {
+      // Non-critical: the banner stays until the next successful clear.
+    }
+  }
+
   // Terminal tab state
   const logScrollRef = useRef<HTMLDivElement>(null);
   const logHoveredRef = useRef(false);
@@ -804,6 +815,28 @@ export function CartridgeCard({
               </span>
             )}
           </div>
+
+          {selectedAgent.standardState === 'needs_review' && (
+            <div className="mt-2 rounded border border-amber-500/30 bg-amber-950/30 px-2 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[12px] text-amber-200 font-medium">
+                    Stopped without a completion report
+                  </div>
+                  <div className="text-[11px] text-amber-200/60 truncate">
+                    {selectedAgent.activeObjective || 'The task may be only partially done — check before trusting it.'}
+                  </div>
+                </div>
+                <button
+                  onClick={handleClearStandardReview}
+                  className="px-2 py-1 rounded bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 text-[12px] font-medium transition-colors shrink-0"
+                  title="Mark as reviewed — clears the flag"
+                >
+                  Reviewed
+                </button>
+              </div>
+            </div>
+          )}
 
           {shouldOfferSessionRecovery && (
             <div className="mt-2 rounded border border-red-500/30 bg-red-950/30 px-2 py-2">

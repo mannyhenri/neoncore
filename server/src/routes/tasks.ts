@@ -4,6 +4,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { resolveAgentId, projectIdsForAgent, agentIdsForProject } from '../lib/resolve-agent.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
+import { validateCompletionPayload } from '../lib/work-standard.js';
 import type { Task, TaskStatus } from '../types.js';
 
 const router = Router();
@@ -235,7 +236,7 @@ router.post('/:id/start', (req, res) => {
 
 // Complete a task (owner only). status defaults to 'done'.
 router.post('/:id/complete', (req, res) => {
-  const { result, status, error } = req.body || {};
+  const { result, status, error, scope, verify, deferred } = req.body || {};
   const agentId = callerAgentId(req.body || {});
   const task = getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
@@ -243,9 +244,22 @@ router.post('/:id/complete', (req, res) => {
     return res.status(403).json({ error: 'Not the owner of this task' });
   }
   const finalStatus: TaskStatus = status === 'failed' ? 'failed' : 'done';
+
+  // The work standard applies to 'done' only (docs/WORK-STANDARD.md). An honest 'failed'
+  // is always accepted — the point is to stop unverified SUCCESS claims, not to make it
+  // hard to admit a task didn't work. Rejecting failures would just push agents to report
+  // a fake 'done', which is the opposite of what we want.
+  let completionNote = '';
+  if (finalStatus === 'done') {
+    const check = validateCompletionPayload({ result, scope, verify, deferred });
+    if (!check.ok) return res.status(400).json({ error: check.reason });
+    completionNote =
+      `\n\n---\nscope: ${check.block.scope}\nverify: ${check.block.verify}\ndeferred: ${check.block.deferred}`;
+  }
+
   const now = new Date().toISOString();
   db.prepare('UPDATE tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
-    .run(finalStatus, result || '', error || '', now, req.params.id);
+    .run(finalStatus, (result || '') + completionNote, error || '', now, req.params.id);
   const updated = getTask(req.params.id)!;
   getIO().emit('task_updated', updated);
   res.json(updated);

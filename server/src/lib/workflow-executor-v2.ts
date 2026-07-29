@@ -32,9 +32,27 @@ const POLL_INTERVAL_MS = 12_000;
  * Every dispatched prompt now carries a completion instruction, and the step stays
  * `running` until the agent calls it. Silence is never a completion signal.
  */
-function buildCompletionSuffix(stepId: string): string {
+/**
+ * The completion instruction appended to every dispatched step.
+ *
+ * `structured` steps (real work) must report scope + verify under the work standard, and
+ * the webhook REJECTS them if either is missing — an unverified claim leaves the step
+ * running instead of advancing the workflow. Gates pass `structured: false`: they answer
+ * PASS/FAIL as a verdict on someone else's work, so a scope/verify pair is meaningless
+ * there and demanding one would break every existing gate.
+ */
+function buildCompletionSuffix(stepId: string, structured = true): string {
   const baseUrl = getServerBaseUrl();
-  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+  const url = `"\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete"`;
+
+  if (!structured) {
+    return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running:\ncurl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+  }
+
+  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running:\n`
+    + `curl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "<what you did + what the next step should focus on>", "scope": "<done>/<total> — <what the complete set was>", "verify": "<exact command run> → <actual output>", "deferred": "none"}'\n`
+    + `\`scope\` and \`verify\` are REQUIRED and are checked: a completion with no real verification output is rejected and this step stays running. Do not report verification you did not actually run.\n`
+    + `Do NOT signal completion until all work is finished.`;
 }
 
 /**
@@ -416,8 +434,11 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
 
   const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
 
-  const baseUrl = getServerBaseUrl();
-  const webhookSuffix = `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running this command:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${step.id}/complete" -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT call this webhook until all work is finished. This step will remain in a "running" state until the webhook is called.`;
+  // Was an inline copy of the completion instruction. It has to come from
+  // buildCompletionSuffix: a `command` step is a WORK step, so its webhook now requires
+  // scope + verify — a prompt that forgot to ask for them would have its completions
+  // rejected forever, with the step wedged in `running` and no clue why.
+  const webhookSuffix = buildCompletionSuffix(step.id);
 
   const finalPrompt = context + template.content + webhookSuffix;
 
@@ -446,7 +467,7 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const maxRetries = (step.executorConfig.maxRetries as number) || 3;
 
   const reviewPrompt = `You are a code review critic. Evaluate the following work against these criteria:\n\n**Criteria:** ${criteria}\n\n---\n${depContext || 'No dependency output available.'}\n---\n\nYou MUST respond with exactly **PASS** or **FAIL** on the FIRST line of your response.\nThen provide your detailed reasoning.\nIf FAIL, provide specific actionable feedback for improvement.\n\nRetry ${currentRetry + 1} of ${maxRetries + 1}.`
-    + buildCompletionSuffix(step.id)
+    + buildCompletionSuffix(step.id, false)
     + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
   const agentName = getAgentName(reviewAgentId);
@@ -552,6 +573,44 @@ function dispatchDeliberationPrompts(step: WorkflowStep, panelAgentIds: string[]
 // Each preset instructs the agent to perform a quality check and respond with a verdict.
 
 const QUALITY_GATE_PRESETS: Record<string, { label: string; prompt: string }> = {
+  /**
+   * The work-standard gate (docs/WORK-STANDARD.md). Appended to new workflows by default.
+   *
+   * Distinct from the `test` gate, which asks "does the suite pass?" — a suite passes
+   * happily when the fix only covered three of twelve cases and the tests only covered
+   * those three. This gate asks the question that catches that: was the COMPLETE set
+   * enumerated, and does a test exist that fails on a partial fix?
+   */
+  standard: {
+    label: 'Work Standard',
+    prompt: `You are auditing the preceding work against the NeonCore work standard (docs/WORK-STANDARD.md). You are NOT re-doing the work; you are checking whether it is genuinely finished.
+
+## Step 1: Recover the scope
+From the dependency output above, identify what was asked. Then go to the CODE and establish the complete set it should have touched — the registry, schema, enum, or call sites involved. State the count you find.
+
+Do not take the reported scope on trust. The failure this gate exists to catch is work that handled the cases it happened to notice and reported success.
+
+## Step 2: Check coverage
+Compare what was changed against the set from Step 1. Name any member of the set that was missed.
+
+## Step 3: Check the test
+Find the test covering this work and read it. Ask specifically:
+- Is it SET-BASED (iterates the registry / asserts the count), or example-based?
+- Would it still pass if only SOME members of the set were handled?
+
+An example-based test that passes on a partial fix is a FAIL even when the suite is green — that is the exact hole this standard closes.
+
+## Step 4: Run it
+Run the relevant tests and the type check. Record the real output.
+
+## Step 5: Verdict
+Respond on the FIRST LINE with exactly **PASS** or **FAIL**.
+- PASS: every member of the set is handled, a set-based test covers it, and it passes.
+- FAIL: members missed, no test, an example-based test that a partial fix would satisfy, or a failing check.
+
+If FAIL, list precisely what is missing so the next attempt can finish it — name the specific unhandled members, not "incomplete coverage".`,
+  },
+
   test: {
     label: 'Test Suite',
     prompt: `You are a QA engineer. Run the full test suite for this project.
@@ -735,7 +794,7 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
 
   const depContext = gatherDependencyContext(step);
   const finalPrompt = depContext + feedbackBlock + basePrompt
-    + buildCompletionSuffix(step.id)
+    + buildCompletionSuffix(step.id, false)
     + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
   const agentName = getAgentName(agentId);
@@ -1494,7 +1553,7 @@ export function recordPanelResult(stepId: string, agentId: string, result: strin
     .join('\n\n---\n\n');
 
   const synthesisPrompt = `You are synthesizing multiple expert perspectives into a unified consensus.\n\nHere are the independent responses:\n\n${responsesBlock}\n\nProvide a unified recommendation that:\n1. Identifies areas of agreement\n2. Resolves conflicting viewpoints with reasoning\n3. Combines the best elements from each perspective\n4. Provides a clear, actionable conclusion`
-    + buildCompletionSuffix(step.id);
+    + buildCompletionSuffix(step.id, false);
 
   emitStepLog(workflowId, step.id, step.name, `Dispatching synthesis to "${getAgentName(synthesisAgentId)}"`, 'info');
   db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')

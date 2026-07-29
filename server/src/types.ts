@@ -62,6 +62,12 @@ export interface Agent {
   interruptedAt: string;
   activeObjective: string;
   /**
+   * Work-standard gate (docs/WORK-STANDARD.md). 'needs_review' means the agent stopped
+   * without filing a completion report and was released after the block cap — the task is
+   * probably half-done and a human should look. '' is the normal state.
+   */
+  standardState: '' | 'needs_review';
+  /**
    * When the user put this cartridge away ('' = visible). Orthogonal to `status`: a
    * dismissed agent is often still alive and working. Any activity from the session
    * clears it automatically, so it comes back the moment you use it again.

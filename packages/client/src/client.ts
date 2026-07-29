@@ -124,6 +124,9 @@ export function createClient(config: ClientConfig = {}) {
   // Turn off the Resume offer without replaying anything.
   dismissAgentRecovery: (id: string) =>
     request<{ ok: boolean }>(`/agents/${id}/dismiss-recovery`, { method: 'POST' }),
+  // Acknowledge a cartridge the work-standard gate flagged as stopping unfinished.
+  clearStandardReview: (id: string) =>
+    request<{ ok: boolean }>(`/agents/${id}/clear-review`, { method: 'POST' }),
 
   // Activity
   getActivity: (limit = 50) => request<import('./types').Activity[]>(`/activity?limit=${limit}`),

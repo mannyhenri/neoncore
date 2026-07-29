@@ -448,6 +448,7 @@ function emitAgentUpdate(agentId: string) {
     recoveryStatus: ((row.recovery_status as string) ?? '') as import('../types.js').Agent['recoveryStatus'],
     interruptedAt: (row.interrupted_at as string) ?? '',
     activeObjective: (row.active_objective as string) ?? '',
+    standardState: ((row.standard_state as string) ?? '') as '' | 'needs_review',
   });
 }
 
