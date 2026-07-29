@@ -40,6 +40,7 @@ export function SettingsModal({ onClose }: Props) {
   const [tab, setTab] = useState<SettingsTab>('projects');
   const [currentPath, setCurrentPath] = useState('');
   const [parentPath, setParentPath] = useState<string | null>(null);
+  const [browseError, setBrowseError] = useState('');
   const [dirs, setDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,13 +56,20 @@ export function SettingsModal({ onClose }: Props) {
 
   const browse = useCallback((dirPath?: string) => {
     setLoading(true);
+    setBrowseError('');
     api.browseDir(dirPath)
       .then(({ current, parent, dirs }) => {
         setCurrentPath(current);
         setParentPath(parent);
         setDirs(dirs);
       })
-      .catch(() => {})
+      // Swallowing this is what made the bare-path bug invisible: the server answered 400
+      // and the folder list simply never changed, with nothing on screen to explain why.
+      .catch((err) => {
+        setBrowseError(
+          `Could not open that folder${err instanceof Error && err.message ? ` — ${err.message}` : ''}`,
+        );
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -207,6 +215,12 @@ export function SettingsModal({ onClose }: Props) {
               <span className="text-gray-500 font-mono truncate">{currentPath}</span>
             </div>
 
+            {browseError && (
+              <div className="mx-4 mt-2 md:mx-6 rounded border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
+                {browseError}
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto px-2 py-2 md:px-4">
               {loading ? (
                 <div className="text-sm text-gray-500 text-center py-8">Loading...</div>
@@ -215,7 +229,12 @@ export function SettingsModal({ onClose }: Props) {
                   {dirs.map((dir) => (
                     <button
                       key={dir}
-                      onClick={() => browse(dir)}
+                      // `dirs` are bare NAMES. The server resolves whatever it is given with
+                      // path.resolve(), which is relative to the SERVER's cwd — so sending
+                      // "Documents" asked for <repo>/server/Documents, 400'd, and the click
+                      // did nothing. Always send the absolute child of the folder on screen,
+                      // the same way NewRepoModal and GoalsPage already do.
+                      onClick={() => browse(`${currentPath}/${dir}`)}
                       className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-white/5 rounded-md font-mono truncate"
                     >
                       {dir.split('/').pop() || dir}
