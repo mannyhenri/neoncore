@@ -9,6 +9,8 @@ import {
   WORK_STANDARD_SHORT,
   armOnWork,
   evaluateStop,
+  isAnswerToPendingQuestion,
+  shouldInjectForDispatch,
   parseCompletionBlock,
   shouldInjectStandard,
   validateCompletionPayload,
@@ -364,4 +366,51 @@ test('release at the cap also clears the offer', () => {
   const row = readAgent(db);
   assert.equal(row.standard_offered, 0);
   assert.equal(row.standard_state, 'needs_review');
+});
+
+// ─── Answering a question mid-process is not a new ask ──────────────────────
+
+const SUBSTANTIVE_ANSWER =
+  'use the registry approach and keep the old field for now, we can drop it next release';
+
+// Every shape of "this agent is blocked on a question" the row can be in.
+const IN_FLIGHT_STATES = [
+  { status: 'waiting', pendingQuestion: '' },
+  { status: 'waiting', pendingQuestion: 'Which approach?' },
+  { status: 'working', pendingQuestion: 'Which approach?' },
+  { status: 'idle', pendingQuestion: 'Which approach?' },
+];
+
+test('no in-flight state treats an answer as a new ask', () => {
+  const wrong = IN_FLIGHT_STATES.filter((a) => shouldInjectForDispatch(SUBSTANTIVE_ANSWER, a));
+  assert.deepEqual(wrong, [], `these states re-injected the standard into an answer: ${JSON.stringify(wrong)}`);
+});
+
+test('every in-flight state is recognised as answering', () => {
+  const missed = IN_FLIGHT_STATES.filter((a) => !isAnswerToPendingQuestion(a));
+  assert.deepEqual(missed, [], `not recognised as a pending question: ${JSON.stringify(missed)}`);
+});
+
+test('a genuine new ask still gets the standard when nothing is pending', () => {
+  for (const status of ['idle', 'working', 'offline']) {
+    assert.equal(
+      shouldInjectForDispatch('Fix the bug where new reports drop sections', { status, pendingQuestion: '' }),
+      true,
+      `a real ask was skipped for an agent in status "${status}"`,
+    );
+  }
+});
+
+test('a short reply is still skipped regardless of agent state', () => {
+  assert.equal(shouldInjectForDispatch('yes', { status: 'idle', pendingQuestion: '' }), false);
+});
+
+test('a missing or empty agent record never blocks injection of a real ask', () => {
+  assert.equal(isAnswerToPendingQuestion(undefined), false);
+  assert.equal(isAnswerToPendingQuestion({}), false);
+  assert.equal(shouldInjectForDispatch('Fix the report copy bug across every section', {}), true);
+});
+
+test('whitespace in pending_question does not count as a question', () => {
+  assert.equal(isAnswerToPendingQuestion({ status: 'idle', pendingQuestion: '   ' }), false);
 });

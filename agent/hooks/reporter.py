@@ -206,7 +206,19 @@ def main():
 # with the turn proceeding normally.
 
 TAIL_BYTES = 512_000       # plenty for the last few messages of any transcript
-LAST_MESSAGES = 3          # tolerate a short sign-off after the report block
+LAST_MESSAGES = 6          # tolerate narration lines between tool calls before the report
+
+# The Stop hook can fire before the final assistant message is durable on disk. Observed:
+# the message was timestamped 18:06:42 and the refusal landed at 18:06:43, having read a
+# transcript that did not yet contain it — so a correctly-filed report was rejected.
+#
+# When no report is found we therefore re-read a few times before believing it. Only the
+# ABSENT case waits: a report found on the first read returns immediately, so the common
+# path costs nothing. Total worst case is under a second, which is invisible next to the
+# turn that just ended, and vastly cheaper than a false refusal that makes the agent redo
+# work it already finished.
+REREAD_ATTEMPTS = 4
+REREAD_DELAY_S = 0.25
 
 
 def last_assistant_text(transcript_path: str, limit: int = LAST_MESSAGES) -> str:
@@ -252,7 +264,19 @@ def check_completion(session_id: str, transcript_path: str, stop_hook_active: bo
     if not session_id or not transcript_path:
         return
 
-    final_text = last_assistant_text(transcript_path)
+    # Re-read only while the report is missing — see REREAD_ATTEMPTS. The marker check here
+    # is deliberately cheap and permissive: the server does the real parsing and decides
+    # whether the block is valid. All this loop has to establish is that we are not looking
+    # at a transcript the final message has not reached yet.
+    import time
+    final_text = ""
+    for attempt in range(REREAD_ATTEMPTS):
+        final_text = last_assistant_text(transcript_path)
+        if final_text and "NEONCORE-DONE" in final_text:
+            break
+        if attempt < REREAD_ATTEMPTS - 1:
+            time.sleep(REREAD_DELAY_S)
+
     if not final_text:
         return
 

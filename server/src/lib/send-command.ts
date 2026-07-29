@@ -5,7 +5,7 @@ import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command, CommandAttachmentInput } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
-import { WORK_STANDARD_SHORT, shouldInjectStandard } from './work-standard.js';
+import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
 
 /**
  * Shared command dispatch — used by the commands route.
@@ -73,8 +73,8 @@ export function sendCommandToAgent(
   attachments?: CommandAttachmentInput[],
   opts: { trackObjective?: boolean; standard?: boolean } = {},
 ): Command | null {
-  const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, agent_type, session_id FROM agents WHERE id = ?')
-    .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; agent_type: string; session_id: string } | undefined;
+  const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id FROM agents WHERE id = ?')
+    .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string } | undefined;
   if (!agentCheck) return null;
 
   // Driving an agent un-dismisses it. Sending it a prompt (from the dashboard, the phone, or
@@ -84,6 +84,13 @@ export function sendCommandToAgent(
   const revived = db
     .prepare('UPDATE agents SET dismissed_at = NULL WHERE id = ? AND dismissed_at IS NOT NULL')
     .run(agentId).changes > 0;
+
+  // Is this an ANSWER to a question the agent is blocked on, rather than a new ask?
+  // MUST be computed before the 'waiting' clear below, which erases the signal.
+  const answeringQuestion = isAnswerToPendingQuestion({
+    status: agentCheck.status,
+    pendingQuestion: agentCheck.pending_question,
+  });
 
   // Clear 'waiting' status when user responds from dashboard
   const cleared = agentCheck.status === 'waiting';
@@ -100,7 +107,7 @@ export function sendCommandToAgent(
   // typed, so the dashboard showed "continue" as the task and the work-standard gate quoted
   // it back to the agent as the thing it had failed to finish. Keep the real ask; only a
   // genuine new ask replaces it.
-  const isNewObjective = shouldInjectStandard(text);
+  const isNewObjective = shouldInjectForDispatch(text, { status: agentCheck.status, pendingQuestion: agentCheck.pending_question });
   const objectiveChanged = trackObjective
     ? db.prepare(
         `UPDATE agents
@@ -183,7 +190,15 @@ export function sendCommandToAgent(
   // binding — a long question looks exactly like an ask, so answering one and stopping was
   // treated as abandoning a task. Prompts that are replies ("yes", "continue") inject
   // nothing and leave any existing offer alone: a continuation mid-task is the same task.
-  if (opts.standard !== false && shouldInjectStandard(text)) {
+  //
+  // Answering a pending question injects NOTHING and touches no gate state: the agent is
+  // already under the contract, so re-stating it wastes tokens and resetting the arming
+  // would release an agent that is mid-edit. `answeringQuestion` is captured above, before
+  // the waiting-status clear erases it.
+  if (opts.standard !== false && !answeringQuestion && shouldInjectForDispatch(text, {
+    status: agentCheck.status,
+    pendingQuestion: agentCheck.pending_question,
+  })) {
     finalText = `${finalText}\n\n${WORK_STANDARD_SHORT}`;
     db.prepare(
       `UPDATE agents SET standard_offered = 1, standard_armed = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
