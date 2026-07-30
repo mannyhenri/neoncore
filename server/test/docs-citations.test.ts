@@ -13,7 +13,14 @@ import path from 'path';
  */
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
-const DOCS = ['docs/research/local-vs-frontier.md', 'docs/plans/gridlight-integration.md'];
+const DOCS = [
+  'docs/research/local-vs-frontier.md',
+  'docs/plans/gridlight-integration.md',
+  // The consolidated explainer. Held to the same standard as the plans it summarises — a
+  // summary that outlives its own citations is worse than a stale plan, not better,
+  // because it is the document someone reads first.
+  'docs/gridlight-strategy.md',
+];
 
 /**
  * Files the plan proposes to CREATE. Excluded from the existence check by name, not by
