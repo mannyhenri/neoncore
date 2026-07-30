@@ -1,7 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
-import { api } from '../lib/api';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { api, apiFor } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
-import type { Machine } from '../types';
+import type { Machine, ServerEntry } from '../types';
+import { activeServers } from '../lib/servers';
+
+/**
+ * A machine plus the server that owns it.
+ *
+ * Machines are NOT gossiped between servers — a runner registers with exactly one. So the
+ * launcher has to ask every server itself, and remember which answered, because launching
+ * or editing folders has to go back to that same server. Dispatching to the page's own
+ * server instead would target a box that has never heard of the machine.
+ */
+type FleetMachine = Machine & { origin: string };
+
+interface Props {
+  /** The fleet roster. Empty/omitted = just the server that served this page. */
+  servers?: ServerEntry[];
+}
 
 // Agent types the remote runner can launch (it spawns the relay, which defaults to claude).
 const AGENT_TYPES: { key: string; label: string; color: string }[] = [
@@ -17,8 +33,8 @@ const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', li
  * daemon. Repos come from each machine's allowlist and the launch is dispatched to that
  * machine's runner. Also supports editing a machine's exposed folders inline.
  */
-export function MachineLauncher() {
-  const [machines, setMachines] = useState<Machine[]>([]);
+export function MachineLauncher({ servers = [] }: Props) {
+  const [machines, setMachines] = useState<FleetMachine[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [expandedRepo, setExpandedRepo] = useState<string | null>(null); // `${machineId}:${path}`
@@ -27,6 +43,22 @@ export function MachineLauncher() {
   const [newPath, setNewPath] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
+  // Every server we should ask. '' is the server that served this page, and is the only
+  // entry when no roster is supplied — which keeps single-server installs behaving exactly
+  // as before.
+  const bases = useMemo(() => {
+    const list = activeServers(servers).map((s) => s.url);
+    return list.length > 0 ? list : [''];
+  }, [servers]);
+  // Primitive dep for the fetch effect: the array identity changes every render.
+  const baseKey = bases.join('|');
+
+  /** The client for one server. Mirrors useAgents' clientFor — '' means same-origin. */
+  const clientFor = (base: string) => {
+    if (!base) return api;
+    return apiFor(base, servers.find((s) => s.url === base)?.token);
+  };
+
   const onlineCount = machines.filter((m) => m.status === 'online').length;
 
   // Live status updates so a machine coming online/offline reflects without reopening.
@@ -34,9 +66,9 @@ export function MachineLauncher() {
     onMachineUpdated: (m) =>
       setMachines((prev) => {
         const i = prev.findIndex((x) => x.id === m.id);
-        if (i === -1) return [...prev, m];
+        if (i === -1) return [...prev, { ...m, origin: '' }];
         const next = prev.slice();
-        next[i] = m;
+        next[i] = { ...m, origin: prev[i].origin };
         return next;
       }),
   });
@@ -54,25 +86,35 @@ export function MachineLauncher() {
 
   useEffect(() => {
     if (!open) return;
-    const fetchMachines = () => {
+    const fetchMachines = async () => {
       setLoading((prev) => (machines.length === 0 ? true : prev));
-      api.getMachines().then(setMachines).catch(() => setMachines([])).finally(() => setLoading(false));
+      // allSettled, not all: a sleeping laptop in the fleet must not blank the machines
+      // from every healthy server. Same tolerance useAgents applies to agents.
+      const results = await Promise.allSettled(
+        bases.map((base) =>
+          clientFor(base)
+            .getMachines()
+            .then((list) => list.map((m) => ({ ...m, origin: base }))),
+        ),
+      );
+      setMachines(results.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])));
+      setLoading(false);
     };
     fetchMachines();
     const interval = setInterval(fetchMachines, 20000);
     return () => clearInterval(interval);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, baseKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flash = (kind: 'ok' | 'err', msg: string) => {
     setNotice({ kind, msg });
     setTimeout(() => setNotice(null), 5000);
   };
 
-  const launch = async (machine: Machine, repoPath: string, repoName: string, agentType: string) => {
+  const launch = async (machine: FleetMachine, repoPath: string, repoName: string, agentType: string) => {
     setOpen(false);
     setExpandedRepo(null);
     try {
-      await api.launchOnMachine(machine.id, repoPath, agentType);
+      await clientFor(machine.origin).launchOnMachine(machine.id, repoPath, agentType);
       flash('ok', `Launching ${agentType} in ${repoName} on ${machine.hostname}…`);
     } catch (e) {
       flash('err', e instanceof Error ? e.message : 'Launch failed');
@@ -82,29 +124,29 @@ export function MachineLauncher() {
   // Push a new folder list to the machine's runner. It validates against its own disk, so
   // an added path that doesn't exist there is silently dropped; the list refreshes via the
   // machine_updated socket event.
-  const setRepos = async (m: Machine, repos: { path: string; name?: string }[]) => {
+  const setRepos = async (m: FleetMachine, repos: { path: string; name?: string }[]) => {
     try {
-      await api.setMachineRepos(m.id, repos);
+      await clientFor(m.origin).setMachineRepos(m.id, repos);
       flash('ok', 'Updated exposed folders');
     } catch (e) {
       flash('err', e instanceof Error ? e.message : 'Update failed');
     }
   };
-  const removeRepo = (m: Machine, path: string) =>
+  const removeRepo = (m: FleetMachine, path: string) =>
     setRepos(m, m.repos.filter((r) => r.path !== path).map((r) => ({ path: r.path, name: r.name })));
-  const addRepo = (m: Machine) => {
+  const addRepo = (m: FleetMachine) => {
     const p = newPath.trim();
     if (!p) return;
     setNewPath('');
     setRepos(m, [...m.repos.map((r) => ({ path: r.path, name: r.name })), { path: p }]);
   };
   // Treat the input as a parent folder: the runner adds every git repo under it (on its disk).
-  const scanFolder = async (m: Machine) => {
+  const scanFolder = async (m: FleetMachine) => {
     const root = newPath.trim();
     if (!root) return;
     setNewPath('');
     try {
-      await api.scanMachineFolder(m.id, root);
+      await clientFor(m.origin).scanMachineFolder(m.id, root);
       flash('ok', `Scanning ${root} on ${m.hostname}…`);
     } catch (e) {
       flash('err', e instanceof Error ? e.message : 'Scan failed');
@@ -147,7 +189,7 @@ export function MachineLauncher() {
             machines.map((m) => {
               const editing = editingId === m.id;
               return (
-              <div key={m.id} className="border-b border-white/5 last:border-0 pb-1 mb-1 last:mb-0 last:pb-0">
+              <div key={`${m.origin}:${m.id}`} className="border-b border-white/5 last:border-0 pb-1 mb-1 last:mb-0 last:pb-0">
                 <div className="flex items-center gap-2 px-3 py-1.5">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-600'}`} />
                   <span className="text-xs text-gray-200 font-medium flex-1 truncate">{m.hostname || m.id.slice(0, 8)}</span>

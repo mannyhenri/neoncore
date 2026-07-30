@@ -134,7 +134,7 @@ export default function App() {
               </button>
             </div>
             {/* Launch a cartridge on any registered machine (local or remote) */}
-            <MachineLauncher />
+            <MachineLauncher servers={servers} />
             {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
             <button
               onClick={() => setNewRepoOpen(true)}
