@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
+import { fetchPeerAgent } from '../lib/peer-forward.js';
 import {
   startConfer,
   recordMilestoneDone,
@@ -12,7 +13,7 @@ import {
 const router = Router();
 
 // POST /api/confer/start — begin a milestone-driven confer between 2+ live agents.
-router.post('/start', (req, res) => {
+router.post('/start', async (req, res) => {
   const { participantIds, task } = req.body as { participantIds?: unknown; task?: unknown };
   if (!Array.isArray(participantIds) || participantIds.length < 2) {
     return res.status(400).json({ error: 'Pick at least two cartridges to confer.' });
@@ -36,10 +37,30 @@ router.post('/start', (req, res) => {
   }
 
   const ph = ids.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT id, repo_name, repo_path, status FROM agents WHERE id IN (${ph})`).all(...ids) as
-    { id: string; repo_name: string; repo_path: string; status: string }[];
+  type ConferRow = { id: string; repo_name: string; repo_path: string; status: string; remote?: boolean };
+  const localRows = db.prepare(`SELECT id, repo_name, repo_path, status FROM agents WHERE id IN (${ph})`).all(...ids) as ConferRow[];
+
+  // A cartridge registers with exactly ONE server, so in a two-machine fleet the other
+  // machine's participants are legitimately absent here. Rejecting them as "no longer
+  // exist" is what made every cross-machine confer impossible to even start.
+  const localIds = new Set(localRows.map((r) => r.id));
+  const remoteIds = ids.filter((id) => !localIds.has(id));
+  const hydrated = await Promise.all(remoteIds.map((id) => fetchPeerAgent(id)));
+  const remoteRows = hydrated
+    .map((a, i) => (a ? {
+      id: (a.id as string) || remoteIds[i],
+      repo_name: (a.repoName as string) || '',
+      repo_path: (a.repoPath as string) || '',
+      status: (a.status as string) || 'idle',
+      remote: true,
+    } : null))
+    .filter(Boolean) as ConferRow[];
+
+  const rows = [...localRows, ...remoteRows];
   if (rows.length !== ids.length) {
-    return res.status(400).json({ error: 'One or more selected cartridges no longer exist.' });
+    return res.status(400).json({
+      error: 'One or more selected cartridges no longer exist on this server or any reachable peer.',
+    });
   }
   const offline = rows.filter((r) => r.status === 'offline');
   if (offline.length > 0) {
@@ -54,9 +75,20 @@ router.post('/start', (req, res) => {
   // out, so each agent gets a path that resolves in its own checkout. Failing here is a
   // hard 400 — a confer that started without the evidence it was supposed to work from is
   // worse than one that never started.
+  const remoteParticipants = rows.filter((r) => r.remote);
+  if (remoteParticipants.length > 0 && Array.isArray(attachments) && attachments.length > 0) {
+    // Materializing copies files into each participant's checkout, which this server cannot
+    // do for a repo on another machine. Refusing is the honest outcome: a confer that starts
+    // with half its participants missing the evidence is worse than one that never started.
+    return res.status(400).json({
+      error: 'Attachments cannot be sent to participants on another server yet — start this confer without attachments, or use participants on one machine.',
+    });
+  }
+
   let attachmentBlocks;
   try {
-    attachmentBlocks = materializeForRepos(rows.map((r) => r.repo_path), attachments);
+    // Only local checkouts can be written to; remote participants are skipped by construction.
+    attachmentBlocks = materializeForRepos(rows.filter((r) => !r.remote).map((r) => r.repo_path), attachments);
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }

@@ -97,7 +97,23 @@ export function MachineLauncher({ servers = [] }: Props) {
             .then((list) => list.map((m) => ({ ...m, origin: base }))),
         ),
       );
-      setMachines(results.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])));
+      // Collapse a machine that two servers both know about.
+      //
+      // A runner keeps ONE stable machineId, so re-pointing it at a different server leaves
+      // the old server holding a stale row forever. Rendering both means the same laptop
+      // appears twice — once live, once as "Runner not connected" with a frozen folder list
+      // — which reads as a broken install rather than as a leftover.
+      //
+      // The ONLINE copy wins, because exactly one server can hold its live socket. A machine
+      // nobody has online is still listed: genuinely offline is worth seeing and explaining,
+      // and hiding it is what made folders look lost in the first place.
+      const merged = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+      const byId = new Map<string, FleetMachine>();
+      for (const m of merged) {
+        const seen = byId.get(m.id);
+        if (!seen || (seen.status !== 'online' && m.status === 'online')) byId.set(m.id, m);
+      }
+      setMachines([...byId.values()]);
       setLoading(false);
     };
     fetchMachines();

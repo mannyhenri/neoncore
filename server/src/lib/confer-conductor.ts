@@ -3,6 +3,7 @@ import fs from 'fs';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
+import { deliverToAgent, fetchPeerAgent } from './peer-forward.js';
 import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { blockForRepo, parseAttachmentBlocks, type AttachmentBlocks } from './attachments.js';
@@ -272,6 +273,44 @@ function loadParticipants(ids: string[]): Participant[] {
 }
 
 /**
+ * Participants, including any owned by a peer server.
+ *
+ * A cartridge registers with exactly one server, so in a two-machine fleet half the
+ * participants are routinely absent from this database. The local-only query did not just
+ * fail to message them — it dropped them from the list, and the confer then ran as though
+ * that machine had never been invited, waiting forever for a signal from an agent it had
+ * silently excluded.
+ *
+ * A participant we cannot find anywhere is skipped rather than faked: better a confer with
+ * a missing member, loudly, than one that pretends to include a machine that is switched off.
+ */
+async function loadParticipantsAcrossFleet(ids: string[]): Promise<Participant[]> {
+  const local = loadParticipants(ids);
+  const found = new Set(local.map((p) => p.id));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length === 0) return local;
+
+  const hydrated = await Promise.all(missing.map((id) => fetchPeerAgent(id)));
+  const remote: Participant[] = [];
+  hydrated.forEach((a, i) => {
+    if (!a) {
+      console.warn(`[confer] participant ${missing[i]} is not on this server or any reachable peer — excluded`);
+      return;
+    }
+    remote.push({
+      id: (a.id as string) || missing[i],
+      agentType: (a.agentType as string) || 'claude',
+      name: (a.name as string) || '',
+      status: (a.status as string) || 'idle',
+      repoPath: (a.repoPath as string) || '',
+    });
+  });
+  // Preserve the caller's ordering so "you are agent 2 of 3" stays stable.
+  const byId = new Map([...local, ...remote].map((p) => [p.id, p]));
+  return ids.map((id) => byId.get(id)).filter(Boolean) as Participant[];
+}
+
+/**
  * Provision a git worktree per participant whose repo lives on THIS machine (the server
  * runs the git commands locally, so it cannot create a worktree on a remote box). Each
  * gets its own branch, so per-agent work is isolated and independently mergeable at
@@ -331,7 +370,7 @@ export function startConfer(input: {
     ).run(uuid(), id, idx, m.key, m.name);
   });
 
-  dispatchMilestone(id, 0);
+  void dispatchMilestone(id, 0).catch((err) => console.error(`[confer] start dispatch failed: ${err}`));
   return emit(id) || hydrateSession(sessionRow(id)!);
 }
 
@@ -373,7 +412,7 @@ export function recordMilestoneDone(sessionId: string, agentId: string, result: 
   const nextIdx = idx + 1;
   if (nextIdx < CONFER_MILESTONE_COUNT) {
     db.prepare('UPDATE confer_sessions SET current_milestone = ? WHERE id = ?').run(nextIdx, sessionId);
-    dispatchMilestone(sessionId, nextIdx);
+    void dispatchMilestone(sessionId, nextIdx).catch((err) => console.error(`[confer] advance dispatch failed: ${err}`));
   } else {
     db.prepare(`UPDATE confer_sessions SET status = 'completed', completed_at = ? WHERE id = ?`).run(now, sessionId);
     console.log(`[confer] ${sessionId} completed all ${CONFER_MILESTONE_COUNT} milestones`);
@@ -397,12 +436,10 @@ export function cancelConfer(id: string): ConferSession | null {
     const participantIds: string[] = JSON.parse((row.participant_ids as string) || '[]');
     for (const pid of participantIds) {
       try {
-        sendCommandToAgent(
+        void deliverToAgent(
           pid,
           '[NeonCore Confer · cancelled] This confer has been cancelled. Stop working on the confer task and wait for new instructions.',
-          false,
-          undefined,
-          { trackObjective: false },
+          (id, body) => sendCommandToAgent(id, body, false, undefined, { trackObjective: false }),
         );
       } catch (err) {
         console.warn(`[confer] ${id} cancel: could not notify ${pid}: ${err instanceof Error ? err.message : String(err)}`);
@@ -503,11 +540,11 @@ function buildPrompt(
 }
 
 /** Send milestone `idx` to every participant and mark it active. */
-export function dispatchMilestone(sessionId: string, idx: number): void {
+export async function dispatchMilestone(sessionId: string, idx: number): Promise<void> {
   const row = sessionRow(sessionId);
   if (!row) return;
   const session = hydrateSession(row);
-  const participants = loadParticipants(session.participantIds);
+  const participants = await loadParticipantsAcrossFleet(session.participantIds);
   const msRow = db.prepare('SELECT id FROM confer_milestones WHERE session_id = ? AND idx = ?').get(sessionId, idx) as { id: string } | undefined;
   if (!msRow) return;
 
@@ -522,10 +559,14 @@ export function dispatchMilestone(sessionId: string, idx: number): void {
   for (const me of participants) {
     const peers = participants.filter((p) => p.id !== me.id);
     const prompt = buildPrompt(session, idx, me, peers, attachmentBlocks);
-    const cmd = sendCommandToAgent(me.id, prompt, false);
-    if (!cmd || cmd.delivered === false) {
+    // Fleet-aware: participants on a peer server are reached through their owner. Local
+    // delivery still runs first and synchronously, so a single-server confer is unchanged.
+    const out = await deliverToAgent(me.id, prompt, (id, body) => sendCommandToAgent(id, body, false));
+    if (!out.delivered) {
       undelivered += 1;
-      console.error(`[confer] ${sessionId} milestone ${idx} (${milestoneName}): NOT delivered to ${me.agentType} ${me.id}`);
+      console.error(`[confer] ${sessionId} milestone ${idx} (${milestoneName}): NOT delivered to ${me.agentType} ${me.id} — ${out.reason || 'unknown'}`);
+    } else if (out.origin) {
+      console.log(`[confer] ${sessionId} milestone ${idx} → ${me.id} forwarded to ${out.origin}`);
     }
   }
   if (undelivered > 0) {
@@ -553,7 +594,7 @@ export function reconcileConfers(now = Date.now()): void {
 
     // Crash between advance and dispatch: current milestone still pending → dispatch it.
     if (ms.status === 'pending') {
-      dispatchMilestone(row.id as string, idx);
+      void dispatchMilestone(row.id as string, idx).catch((err) => console.error(`[confer] watchdog dispatch failed: ${err}`));
       continue;
     }
     if (ms.status !== 'active' || !ms.dispatched_at) continue;

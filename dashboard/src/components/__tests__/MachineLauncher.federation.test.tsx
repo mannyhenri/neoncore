@@ -134,3 +134,38 @@ describe('+ Launch across the fleet', () => {
     expect(clients[LOCAL].getMachines).toHaveBeenCalled();
   });
 });
+
+// ─── The same machine seen from two servers ─────────────────────────────────
+
+describe('duplicate machines across servers', () => {
+  it('collapses a stale copy in favour of the server where it is ONLINE', async () => {
+    const stale = { ...machine('mb1', 'Emmanuels-MacBook-Pro.local'), status: 'offline', repos: [] } as Machine;
+    const live = { ...machine('mb1', 'Emmanuels-MacBook-Pro.local'), status: 'online' } as Machine;
+    clients = {
+      [LOCAL]: { ...makeClient(LOCAL), getMachines: vi.fn().mockResolvedValue([stale]) },
+      [REMOTE]: { ...makeClient(REMOTE), getMachines: vi.fn().mockResolvedValue([live]) },
+    } as typeof clients;
+
+    const { container } = await openLauncher();
+    await waitFor(() => expect(container.textContent).toContain('Emmanuels-MacBook-Pro.local'));
+
+    const text = container.textContent || '';
+    const hits = text.split('Emmanuels-MacBook-Pro.local').length - 1;
+    expect(hits, 'a machine known to two servers must render once, not twice').toBe(1);
+    expect(text, 'the ONLINE copy must win — the stale one is what makes folders look lost')
+      .not.toMatch(/Runner not connected/);
+  });
+
+  it('keeps a genuinely offline machine when no server has it online', async () => {
+    const offline = { ...machine('desk', 'DESKTOP-MGGCGSG'), status: 'offline', repos: [{ path: '/r/one', name: 'one' }] } as Machine;
+    clients = {
+      [LOCAL]: { ...makeClient(LOCAL), getMachines: vi.fn().mockResolvedValue([offline]) },
+      [REMOTE]: { ...makeClient(REMOTE), getMachines: vi.fn().mockResolvedValue([]) },
+    } as typeof clients;
+
+    const { container } = await openLauncher();
+    await waitFor(() => expect(container.textContent).toContain('DESKTOP-MGGCGSG'));
+    expect(container.textContent, 'an offline machine must still be listed and explained')
+      .toMatch(/Runner not connected/);
+  });
+});
