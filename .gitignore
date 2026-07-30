@@ -51,3 +51,4 @@ agent/runner/node_modules/
 agent/runner/runner.config.json
 agent/runner/logs/
 .neoncore/attachments/
+package-lock.json
