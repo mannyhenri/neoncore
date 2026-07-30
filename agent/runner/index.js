@@ -18,6 +18,7 @@ import os from 'os';
 import path from 'path';
 import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
+import { findGitRepos, rescanRoots } from './scan.js';
 import { fileURLToPath } from 'url';
 import { io } from 'socket.io-client';
 
@@ -58,10 +59,16 @@ function loadConfig() {
   cfg.serverUrl = String(cfg.serverUrl).replace(/\/+$/, '');
   cfg.hostname = cfg.hostname || os.hostname();
   cfg.repos = Array.isArray(cfg.repos) ? cfg.repos : [];
+  // Roots the user asked us to keep watching. Absent on configs written before rescanning
+  // existed — those keep working, they just track nothing until the next Scan.
+  cfg.scanRoots = Array.isArray(cfg.scanRoots) ? cfg.scanRoots : [];
   return cfg;
 }
 
 const cfg = loadConfig();
+
+/** Directories re-scanned on a timer so hand-cloned repos appear by themselves. */
+const scanRoots = cfg.scanRoots;
 
 const identity = {
   machineId: cfg.machineId,
@@ -254,20 +261,43 @@ socket.on('machine_scan', (payload) => {
       log(`Scan: not a directory here: ${root}`);
       return;
     }
-    const found = [];
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const p = path.join(root, entry.name);
-      if (fs.existsSync(path.join(p, '.git'))) found.push({ path: p, name: entry.name });
+    // Remember the root. Scanning used to be a ONE-TIME snapshot, which is why a repo
+    // cloned into the folder afterwards never showed up in "+ Launch" — the folder was
+    // never actually watched, despite being presented that way.
+    if (!scanRoots.includes(root)) {
+      scanRoots.push(root);
+      cfg.scanRoots = scanRoots;
     }
-    const byPath = new Map(identity.repos.map((r) => [r.path, r]));
-    for (const r of found) byPath.set(r.path, r);
-    const merged = [...byPath.values()];
-    persistAndRegister(merged, `Scan ${root}: found ${found.length} git repo(s) → ${merged.length} total`);
+    const found = findGitRepos(root);
+    const { repos } = rescanRoots({ existing: identity.repos, roots: scanRoots });
+    persistAndRegister(repos, `Scan ${root}: found ${found.length} git repo(s) → ${repos.length} total (root now tracked)`);
   } catch (err) {
     log(`Scan failed for ${root}: ${err.message}`);
   }
 });
+
+/**
+ * Re-scan the tracked roots so repos cloned by hand appear on their own.
+ *
+ * Quiet by design: it re-registers only when the set actually changed, so a stable machine
+ * costs the server nothing. RESCAN_MS is minutes, not seconds — a new clone showing up
+ * within a couple of minutes is indistinguishable from instant in practice, and polling
+ * hard would put a readdir on every root of every machine constantly.
+ */
+// Overridable so an operator can verify the behaviour immediately instead of waiting out
+// the default interval.
+const RESCAN_MS = Number(process.env.NEONCORE_RESCAN_MS) || 2 * 60 * 1000;
+setInterval(() => {
+  if (scanRoots.length === 0) return;
+  try {
+    const { repos, changed } = rescanRoots({ existing: identity.repos, roots: scanRoots });
+    if (!changed) return;
+    const before = identity.repos.length;
+    persistAndRegister(repos, `Rescan: ${before} → ${repos.length} folder(s) across ${scanRoots.length} tracked root(s)`);
+  } catch (err) {
+    log(`Rescan failed: ${err.message}`);
+  }
+}, RESCAN_MS);
 
 // Heartbeat so the server's last_seen stays fresh even if it never disconnects.
 setInterval(() => {

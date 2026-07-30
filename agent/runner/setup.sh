@@ -226,6 +226,7 @@ if [[ -f "$INSTALL_DIR/runner.config.json" ]]; then
 fi
 
 # Build repos JSON from the --repo list.
+SCAN_ROOTS_JSON="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' "${SCANS[@]}" 2>/dev/null || echo "[]")"
 REPOS_JSON="$(node -e '
   const path = require("path");
   const repos = process.argv.slice(1).map(p => ({ path: p, name: path.basename(p.replace(/[\\/]+$/,"")) || p }));
@@ -234,16 +235,19 @@ REPOS_JSON="$(node -e '
 
 node -e '
   const fs = require("fs");
-  const [out, server, token, name, machineId, reposJson] = process.argv.slice(1);
+  const [out, server, token, name, machineId, reposJson, scanRootsJson] = process.argv.slice(1);
   const cfg = {
     serverUrl: server,
     token: token || "",
     machineId: machineId || "",
     hostname: name || "",
     repos: JSON.parse(reposJson),
+    // Roots given with --scan stay tracked: the runner re-scans them periodically, so a
+    // repo cloned into one later appears in "+ Launch" without re-running setup.
+    scanRoots: JSON.parse(scanRootsJson || "[]"),
   };
   fs.writeFileSync(out, JSON.stringify(cfg, null, 2) + "\n");
-' "$INSTALL_DIR/runner.config.json" "$SERVER" "$TOKEN" "$NAME" "$MACHINE_ID" "$REPOS_JSON"
+' "$INSTALL_DIR/runner.config.json" "$SERVER" "$TOKEN" "$NAME" "$MACHINE_ID" "$REPOS_JSON" "$SCAN_ROOTS_JSON"
 info "Wrote $INSTALL_DIR/runner.config.json ($(echo "${#REPOS[@]}") repo(s))"
 
 # ── Foreground mode ────────────────────────────────────────
