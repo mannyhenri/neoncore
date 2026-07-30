@@ -123,9 +123,27 @@ subtle cross-file reasoning*, which is exactly what frontier buys.
 
 ## 4. Recommendation for NeonCore
 
-**Both, scoped differently.** Escalate-on-trouble as the default loop; draft-then-verify
-reserved for a narrow high-stakes class. Not one or the other — they defend against
-different failures, and picking one leaves the other failure uncovered.
+**Three layers, cheap to expensive, each blind where the next one sees.**
+
+| Layer | Catches | Cost |
+|---|---|---|
+| 1. Escalate-on-trouble | Floundering — prose instead of tool calls, retries, stalls | One wasted local turn |
+| 2. `testSuite` signal | Regressions the suite covers | Free — observed passively |
+| 3. Scoped draft-then-verify | Quiet wrongness on high-stakes work | Frontier review, narrow class only |
+
+Layer 2 is live: Gridlight now emits `signals.testSuite = 'green' | 'red' | 'unknown'`,
+observed by correlating tool-call ids to results across npm/pnpm/yarn/bun, pytest, jest,
+vitest, mocha, go, cargo, rspec, phpunit and `node --test`. No extra model call.
+
+Three properties the router must respect:
+
+- **`'unknown'` is not `'green'`.** A turn that edited code and never ran tests is a
+  different risk from one that ran them and passed.
+- **It is weighted separately from `escalationHint`**, deliberately. A red suite with no
+  floundering persists as `escalation:none` + `testSuite: red`. Correctness and liveness
+  must not share a threshold.
+- **It is partial cover only.** It fires only when tests actually run, and sees only what
+  the suite covers — thin-test repos stay invisible. It does **not** displace layer 3.
 
 Reasoning, honestly stated:
 
