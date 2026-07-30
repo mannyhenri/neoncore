@@ -47,7 +47,24 @@ export function MachineLauncher({ servers = [] }: Props) {
   // entry when no roster is supplied — which keeps single-server installs behaving exactly
   // as before.
   const bases = useMemo(() => {
-    const list = activeServers(servers).map((s) => s.url);
+    // Collapse aliases of ONE server before querying.
+    //
+    // The browser stores the server it is on as '' and, once gossip names it, ALSO as the
+    // URL that server advertises ('localhost' vs 'mac.local'). Same box, one serverId, two
+    // roster rows. Asking both turned a single launch click into two dispatches — and the
+    // target machine dutifully opened two terminals.
+    //
+    // Prefer '' when it is one of the aliases: the same-origin client needs no token and is
+    // the connection we already know works.
+    const active = activeServers(servers);
+    const byIdentity = new Map<string, string>();
+    for (const s of active) {
+      // No serverId yet (first poll hasn't answered) → key on the URL so it is still asked.
+      const key = s.serverId || `url:${s.url}`;
+      const existing = byIdentity.get(key);
+      if (existing === undefined || (existing !== '' && s.url === '')) byIdentity.set(key, s.url);
+    }
+    const list = [...byIdentity.values()];
     return list.length > 0 ? list : [''];
   }, [servers]);
   // Primitive dep for the fetch effect: the array identity changes every render.

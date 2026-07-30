@@ -169,3 +169,57 @@ describe('duplicate machines across servers', () => {
       .toMatch(/Runner not connected/);
   });
 });
+
+// ─── The same server, present twice in the roster ───────────────────────────
+
+describe('one server reachable by two names', () => {
+  // The browser stores the server it is ON as '' and, once gossip names it, ALSO as its
+  // advertised URL. They are one machine with one serverId. Querying both asks the same
+  // server twice — which turned a single launch click into two dispatches, and opened two
+  // terminals on the target machine.
+  const SELF_ALIAS = 'http://mannys-mac-pro.local:4040';
+  const doubled: ServerEntry[] = [
+    { url: LOCAL, serverId: 'same-box', name: 'local', token: null, manual: true } as ServerEntry,
+    { url: SELF_ALIAS, serverId: 'same-box', name: 'advertised', token: null, manual: false } as ServerEntry,
+  ];
+
+  it('asks that server ONCE, not once per alias', async () => {
+    clients = {
+      [LOCAL]: makeClient(LOCAL),
+      [SELF_ALIAS]: { ...makeClient(LOCAL), getMachines: vi.fn().mockResolvedValue(FLEET[0].machines) },
+    } as typeof clients;
+
+    render(<MachineLauncher servers={doubled} />);
+    fireEvent.click(await screenFind('+ Launch'));
+    await waitFor(() => expect(clients[LOCAL].getMachines).toHaveBeenCalled());
+
+    const aliasCalls = clients[SELF_ALIAS].getMachines.mock.calls.length;
+    expect(aliasCalls, 'an alias of the server we are already on must not be queried again').toBe(0);
+  });
+
+  it('launches exactly once per click', async () => {
+    clients = {
+      [LOCAL]: makeClient(LOCAL),
+      [SELF_ALIAS]: { ...makeClient(LOCAL), getMachines: vi.fn().mockResolvedValue(FLEET[0].machines) },
+    } as typeof clients;
+
+    const view = render(<MachineLauncher servers={doubled} />);
+    fireEvent.click(await view.findByText('+ Launch'));
+    await waitFor(() => expect(view.container.textContent).toContain('Mannys-Mac-Pro'));
+    fireEvent.click(await view.findByText('mp1'));
+    fireEvent.click(await view.findByText('Claude'));
+
+    await waitFor(() => {
+      const total = clients[LOCAL].launchOnMachine.mock.calls.length
+        + clients[SELF_ALIAS].launchOnMachine.mock.calls.length;
+      expect(total, 'one click must dispatch one launch — two opens two terminals').toBe(1);
+    });
+  });
+});
+
+async function screenFind(text: string) {
+  const { findByText } = await import('@testing-library/react').then((m) => ({
+    findByText: (t: string) => m.screen.findByText(t),
+  }));
+  return findByText(text);
+}
