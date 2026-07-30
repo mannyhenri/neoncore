@@ -75,8 +75,20 @@ export function useSockets(servers: ServerEntry[], handlers: SocketHandlers) {
       const socket = io(target, {
         transports: ['websocket', 'polling'],
         reconnection: true,
+        // Start fast so an ordinary blip costs a second, then back off hard.
         reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
+        //
+        // The ceiling is the whole point. At the old 5s max, a server that cannot be
+        // reached was retried ~12 times a MINUTE, per open tab, indefinitely — so adding
+        // one unreachable machine to the fleet aimed a permanent connection storm at it.
+        // A laptop logged an unbroken connect/disconnect cycle because of this.
+        //
+        // Attempts stay unlimited on purpose: capping them would strand a machine that
+        // wakes up later, which is the normal case for a laptop. Only the pacing changes.
+        reconnectionDelayMax: 30000,
+        // Jitter: without it every tab and every peer retries in lockstep, so the storm
+        // arrives as synchronized bursts rather than spread out.
+        randomizationFactor: 0.5,
         reconnectionAttempts: Infinity,
         timeout: 10000,
         // Presented for when the fleet moves to strict. Harmless while permissive.
