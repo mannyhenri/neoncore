@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
+import { forwardMessageToOwner } from '../lib/peer-forward.js';
 import type { Command, CommandAttachmentInput } from '../types.js';
 
 const router = Router();
 
 // Send a command to an agent (from dashboard)
-router.post('/send', (req, res) => {
+router.post('/send', async (req, res) => {
   const { agentId, text, includeMemory, attachments } = req.body;
 
   if (!agentId || !text) {
@@ -34,7 +35,16 @@ router.post('/send', (req, res) => {
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-  if (!command) return res.status(404).json({ error: 'Agent not found' });
+  // Not ours — ask the fleet. A cartridge registers with exactly ONE server, so an agent
+  // missing here is routinely alive on a peer; before this, that was simply a 404 and any
+  // cross-machine coordination (a confer, an agent messaging its peer) died right here.
+  if (!command) {
+    const forwarded = await forwardMessageToOwner(agentId, text);
+    if (forwarded.ok) {
+      return res.status(201).json({ forwardedTo: forwarded.origin, delivered: true });
+    }
+    return res.status(404).json({ error: `Agent not found locally; ${forwarded.reason}` });
+  }
 
   res.status(201).json(command);
 });
