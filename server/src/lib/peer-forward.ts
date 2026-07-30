@@ -135,3 +135,48 @@ export async function forwardMessageToOwner(agentId: string, message: string): P
     return { ok: false, origin: owner, reason: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Fetch one agent's record from whichever peer owns it.
+ *
+ * The confer needs this because its participants are loaded straight from the local agents
+ * table: a participant owned by a peer did not merely fail to receive messages, it silently
+ * vanished from the confer, which then ran as if that machine had never been invited.
+ */
+export async function fetchPeerAgent(agentId: string): Promise<Record<string, unknown> | null> {
+  const owner = await findAgentOwner(agentId);
+  if (!owner) return null;
+  try {
+    const res = await fetch(`${owner}/api/agents/${encodeURIComponent(agentId)}`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deliver to an agent wherever it lives: locally if we own it, otherwise via its owner.
+ *
+ * The single entry point for any dispatch that must work across the fleet. Local delivery
+ * stays synchronous underneath, so a single-server install pays nothing and behaves exactly
+ * as before — the peer lookup only happens on a miss.
+ */
+export async function deliverToAgent(
+  agentId: string,
+  text: string,
+  sendLocal: (id: string, body: string) => { delivered?: boolean } | null,
+): Promise<{ delivered: boolean; origin?: string; reason?: string }> {
+  const local = sendLocal(agentId, text);
+  if (local && local.delivered !== false) return { delivered: true, origin: '' };
+
+  // Known locally but with no live channel: forwarding cannot help, and pretending
+  // otherwise would hide a dead relay behind a healthy-looking fleet.
+  if (local) return { delivered: false, origin: '', reason: 'no live command channel on this server' };
+
+  const forwarded = await forwardMessageToOwner(agentId, text);
+  return { delivered: forwarded.ok, origin: forwarded.origin, reason: forwarded.reason };
+}

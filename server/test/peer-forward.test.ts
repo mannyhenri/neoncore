@@ -55,7 +55,7 @@ function seedPeers(urls: string[]) {
 // and inheriting NEONCORE_DB_PATH would point that at a developer's real database.
 process.env.NEONCORE_DB_PATH = `/tmp/neoncore-peerfwd-${process.pid}.db`;
 
-const { findAgentOwner, forwardMessageToOwner, listFleetAgents } = await import('../src/lib/peer-forward.ts');
+const { findAgentOwner, forwardMessageToOwner, listFleetAgents, deliverToAgent, fetchPeerAgent } = await import('../src/lib/peer-forward.ts');
 
 // ─── Ownership resolution ───────────────────────────────────────────────────
 
@@ -177,5 +177,49 @@ test('an unreachable peer does not blank the local list', async () => {
   try {
     const all = await listFleetAgents([{ id: 'local-1' }]);
     assert.deepEqual(all.map((a) => a.id), ['local-1']);
+  } finally { f.restore(); }
+});
+
+// ─── Fleet-wide delivery (what the confer conductor uses) ───────────────────
+
+test('delivers locally without touching the fleet when we own the agent', async () => {
+  seedPeers([PEER_B]);
+  const f = withFleet(() => ({ status: 200, body: { id: 'a1' } }));
+  try {
+    const out = await deliverToAgent('a1', 'hi', () => ({ delivered: true }));
+    assert.equal(out.delivered, true);
+    assert.equal(out.origin, '');
+    assert.equal(f.calls.length, 0, 'owning the agent must cost zero peer calls');
+  } finally { f.restore(); }
+});
+
+test('forwards when the agent is unknown locally', async () => {
+  seedPeers([PEER_B]);
+  const f = withFleet((url) =>
+    url.includes('/api/agents/') ? { status: 200, body: { id: 'a1' } } : { status: 201, body: { delivered: true } });
+  try {
+    const out = await deliverToAgent('a1', 'hi', () => null);
+    assert.equal(out.delivered, true);
+    assert.equal(out.origin, PEER_B);
+  } finally { f.restore(); }
+});
+
+test('a local agent with no channel is NOT masked by forwarding', async () => {
+  seedPeers([PEER_B]);
+  const f = withFleet(() => ({ status: 200, body: { id: 'a1' } }));
+  try {
+    const out = await deliverToAgent('a1', 'hi', () => ({ delivered: false }));
+    assert.equal(out.delivered, false, 'a dead local relay must not be reported as delivered elsewhere');
+    assert.match(out.reason || '', /no live command channel/i);
+    assert.equal(f.calls.length, 0, 'must not go hunting the fleet for an agent we already own');
+  } finally { f.restore(); }
+});
+
+test('hydrates a participant record from the owning peer', async () => {
+  seedPeers([PEER_B]);
+  const f = withFleet(() => ({ status: 200, body: { id: 'a1', name: 'macbook/neoncore', agentType: 'claude' } }));
+  try {
+    const agent = await fetchPeerAgent('a1');
+    assert.equal(agent?.name, 'macbook/neoncore');
   } finally { f.restore(); }
 });
