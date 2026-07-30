@@ -163,7 +163,27 @@ export function MachineLauncher() {
                 </div>
 
                 {m.status !== 'online' ? (
-                  <div className="text-[11px] text-gray-600 px-3 pb-1 pl-7">Offline</div>
+                  /*
+                   * An offline machine used to render the bare word "Offline" and nothing
+                   * else — no folder count, no cause, no remedy. That is how a perfectly
+                   * good install reads as a broken one: the folders ARE registered and
+                   * safe, but with the row silent about them they look lost, and the only
+                   * conclusion available is "my repos are gone".
+                   *
+                   * A runner that is merely disconnected is recoverable, so say that, say
+                   * what is still being held, and say how to get it back.
+                   */
+                  <div className="text-[11px] px-3 pb-1.5 pl-7 space-y-0.5">
+                    <div className="text-gray-500">
+                      Runner not connected
+                      {m.repos.length > 0 && (
+                        <> — {m.repos.length} folder{m.repos.length === 1 ? '' : 's'} still registered</>
+                      )}
+                    </div>
+                    <div className="text-gray-600">
+                      Start the runner on {m.hostname || 'that machine'} to launch here.
+                    </div>
+                  </div>
                 ) : editing ? (
                   <div className="px-3 pb-2 pl-7 space-y-1">
                     {m.repos.length === 0 && <div className="text-[11px] text-gray-600">No folders yet — add one below.</div>}
