@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import { consumeActivityEvent } from '../lib/engine-store.js';
 import { getIO } from '../ws.js';
 import type { Activity } from '../types.js';
 import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
@@ -33,6 +34,16 @@ router.post('/', (req, res) => {
     INSERT INTO activity (id, agent_id, event_type, tool_name, tool_input, tool_result, timestamp)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(id, resolvedAgentId, eventType || 'tool_use', toolName || '', toolInputStr, toolResultStr, now);
+
+  // Close the loop. These events have been arriving since the second confer and NOTHING
+  // has ever read them — the router honoured a demotion argument that nothing produced.
+  // Consuming here keeps it on the path that already works and needs no change on the
+  // emitting side. Never let a consumer error break activity ingestion.
+  try {
+    consumeActivityEvent(String(eventType || ''), typeof toolInput === 'string' ? toolInput : undefined, resolvedAgentId);
+  } catch (err) {
+    console.warn(`[activity] trouble-signal consumer failed: ${err instanceof Error ? err.message : err}`);
+  }
 
   // Update agent's last_seen and status
   db.prepare(`UPDATE agents SET last_seen = ?, status = 'working' WHERE id = ?`).run(now, resolvedAgentId);

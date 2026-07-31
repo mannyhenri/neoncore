@@ -106,6 +106,17 @@ interface LocalStep {
   dispatchedPrompt: string;
   result?: string;
   error?: string;
+  /**
+   * Why this step ran somewhere other than where it was pinned. Distinct from `error` on
+   * purpose — a capability-routing substitution is information, not a failure.
+   *
+   * REQUIRED, unlike its neighbours, and deliberately so. This field was dropped by three
+   * separate mapping sites here because an optional field can be silently omitted and the
+   * compiler says nothing — which is the same "written, never read" defect that produced
+   * it. Required makes every future construction site a compile error instead of a bug
+   * nobody notices until the note fails to appear.
+   */
+  routingNote: string;
   recoveryStatus?: string;
 }
 
@@ -670,6 +681,10 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             dispatchedPrompt: step.dispatchedPrompt || s.dispatchedPrompt,
             result: step.result ?? s.result,
             error: step.error ?? s.error,
+            // Routing substitutions are recorded at launch, so the note arrives on this live
+            // update rather than in the initial fetch. Dropping it here would leave the field
+            // populated on the server and invisible in the UI for the whole run.
+            routingNote: step.routingNote ?? s.routingNote,
             recoveryStatus: step.recoveryStatus ?? s.recoveryStatus,
           } : s
         ));
@@ -725,6 +740,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         dispatchedPrompt: s.dispatchedPrompt || '',
         result: s.result || '',
         error: s.error || '',
+        routingNote: s.routingNote || '',
         recoveryStatus: s.recoveryStatus || '',
       }));
 
@@ -1019,6 +1035,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       status: 'pending',
       dependsOn: [],
       dispatchedPrompt: '',
+      routingNote: '',
     };
 
     setSteps((prev) => [...prev, newStep]);
@@ -1172,7 +1189,10 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           executorType: s.executorType, executorId: s.executorId,
           executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
           status: s.status, dependsOn: s.dependsOn, dispatchedPrompt: s.dispatchedPrompt || '',
-          result: s.result || '', error: s.error || '',
+          // Routing notes are written DURING launch, so this post-start remap is the first
+          // render that can show one. Dropping it here hid the note at the exact moment it
+          // was created.
+          result: s.result || '', error: s.error || '', routingNote: s.routingNote || '',
         })));
       }
       setWorkflowStatus(result.workflow.status);
@@ -1210,7 +1230,10 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           executorType: s.executorType, executorId: s.executorId,
           executorConfig: s.executorConfig, autoAdvance: s.autoAdvance,
           status: s.status, dependsOn: s.dependsOn, dispatchedPrompt: s.dispatchedPrompt || '',
-          result: s.result || '', error: s.error || '',
+          // Routing notes are written DURING launch, so this post-start remap is the first
+          // render that can show one. Dropping it here hid the note at the exact moment it
+          // was created.
+          result: s.result || '', error: s.error || '', routingNote: s.routingNote || '',
         })));
       }
       setWorkflowStatus(result.workflow.status);
@@ -1371,6 +1394,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     autoAdvance: true,
                     status: 'pending',
                     dispatchedPrompt: '',
+                    routingNote: '',
                     dependsOn: [],
                   };
                   setSteps((prev) => [...prev, newStep]);
@@ -1397,6 +1421,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     autoAdvance: true,
                     status: 'pending',
                     dispatchedPrompt: '',
+                    routingNote: '',
                     dependsOn: [],
                   };
                   setSteps((prev) => [...prev, newStep]);
@@ -3466,6 +3491,21 @@ function SidePanel({
         {/* Message sent to agent */}
         {step.dispatchedPrompt && (
           <DispatchedPromptSection prompt={step.dispatchedPrompt} />
+        )}
+
+        {/* Where this step actually ran, when that differs from where it was pinned.
+            Shown at ANY status and styled as information, not failure: a step sent to
+            frontier because the capability router said the local model cannot do this
+            function ran correctly, and painting that red teaches the user to distrust
+            routing. This is also the only place the decision is visible — without it the
+            router silently changes engines and nothing in the UI ever says so. */}
+        {step.routingNote && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5">Routing</label>
+            <div className="text-[13px] text-cyan-300/90 bg-cyan-500/10 border border-cyan-500/20 rounded px-2.5 py-1.5 whitespace-pre-wrap font-mono">
+              {step.routingNote}
+            </div>
+          </div>
         )}
 
         {/* Step result — shown when completed or failed */}

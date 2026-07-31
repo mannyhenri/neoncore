@@ -178,6 +178,10 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     recoveryStatus: (row.recovery_status as string) || '',
     interruptedAt: (row.interrupted_at as string) || null,
     recoveryAttempts: (row.recovery_attempts as number) || 0,
+    // This copy is the one that emits `workflow_step_updated` DURING execution, which is
+    // exactly when a routing substitution is recorded. Surfacing it only in the routes'
+    // serializer would have left the live path dropping the field.
+    routingNote: (row.routing_note as string) || '',
   };
 }
 

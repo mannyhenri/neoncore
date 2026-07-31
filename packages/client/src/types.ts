@@ -61,6 +61,12 @@ export interface Agent {
    */
   standardState?: '' | 'needs_review';
   /**
+   * Which model this cartridge runs, as the capability router keys on it. Reported by
+   * the engine in its trouble-signal payload, NOT at registration — the relay registers
+   * every cartridge and does not know the model.
+   */
+  model?: string;
+  /**
    * When the user put this cartridge away ('' = visible). Orthogonal to `status`: a
    * dismissed agent is often still alive and working. Any activity from the session
    * clears it, so it comes back the moment it's used again.
@@ -368,6 +374,13 @@ export interface WorkflowStep {
   recoveryStatus: string; // '' | 'interrupted' | 'recovering' | 'recovered' | 'recovery_failed'
   interruptedAt: string | null;
   recoveryAttempts: number;
+  /**
+   * Why this step ran somewhere other than where it was pinned — a capability-routing
+   * substitution, or a missing cartridge. Deliberately NOT `error`: the step ran correctly,
+   * and the UI paints `error` red, so recording it there makes working behaviour look
+   * broken and erodes trust in the routing we want left enabled.
+   */
+  routingNote: string;
 }
 
 // Workflow step execution log

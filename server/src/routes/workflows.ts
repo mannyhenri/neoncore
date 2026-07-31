@@ -4,6 +4,8 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
+import { routeFunction } from '../lib/engine-router.js';
+import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
@@ -12,6 +14,19 @@ import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.j
 import { validateCompletionPayload } from '../lib/work-standard.js';
 
 const router = Router();
+
+/**
+ * Record an engine substitution in `routing_note`, NOT in `error`.
+ *
+ * `error` is painted red by the execution log, and a step that ran correctly on frontier
+ * because the router said so is not an error. Appends rather than overwrites so one note
+ * cannot erase another.
+ */
+function recordStepNote(stepId: string, note: string): void {
+  const row = db.prepare('SELECT routing_note FROM workflow_steps WHERE id = ?').get(stepId) as { routing_note: string } | undefined;
+  const merged = row?.routing_note ? `${row.routing_note}\n${note}` : note;
+  db.prepare('UPDATE workflow_steps SET routing_note = ? WHERE id = ?').run(merged, stepId);
+}
 
 // --- Helpers ---
 
@@ -269,6 +284,7 @@ function normalizeStep(row: Record<string, unknown>): WorkflowStep {
     recoveryStatus: (row.recovery_status as string) || '',
     interruptedAt: (row.interrupted_at as string) || null,
     recoveryAttempts: (row.recovery_attempts as number) || 0,
+    routingNote: (row.routing_note as string) || '',
   };
 }
 
@@ -710,8 +726,8 @@ router.post('/v2/:id/start', (req, res) => {
 
     // Reset loop counters
     const loopSteps = db.prepare(
-      "SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ? AND executor_config LIKE '%_currentLoop%'"
-    ).all(runId) as { id: string; executor_config: string }[];
+      "SELECT id, executor_config, executor_type FROM workflow_steps WHERE workflow_id = ? AND executor_config LIKE '%_currentLoop%'"
+    ).all(runId) as { id: string; executor_config: string; executor_type: string }[];
     for (const ls of loopSteps) {
       const config = JSON.parse(ls.executor_config);
       delete config._currentLoop;
@@ -764,22 +780,60 @@ router.post('/v2/:id/start', (req, res) => {
       const a = db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(runAgentId) as { repo_path: string } | undefined;
       workflowRepo = a?.repo_path || '';
     }
-    const engineSteps = db.prepare('SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ?')
-      .all(runId) as { id: string; executor_config: string }[];
+    const engineSteps = db.prepare('SELECT id, executor_config, executor_type FROM workflow_steps WHERE workflow_id = ?')
+      .all(runId) as { id: string; executor_config: string; executor_type: string }[];
     for (const s of engineSteps) {
       const config = JSON.parse(s.executor_config || '{}') as Record<string, unknown>;
       const wantType = typeof config.agentType === 'string' ? config.agentType : '';
       if (!wantType) continue;
       if (!workflowRepo) {
-        console.warn(`[workflow] step ${s.id}: agentType='${wantType}' but no repo to resolve against — launch with a cartridge.`);
+        const note = `Requested ${wantType} but the run has no repo to resolve against — ran on the pre-assigned agent`;
+        recordStepNote(s.id, note);
+        console.warn(`[workflow] step ${s.id}: ${note}`);
         continue;
       }
-      const resolved = agentIdForRepoAndType(workflowRepo, wantType);
+      // CAPABILITY ROUTING. Consult the measured profile before honouring a local pin.
+      // Safe by construction: with no stored profile every function is UNMEASURED, and
+      // UNMEASURED routes frontier — which is exactly the behaviour before this existed.
+      // So on an unmeasured machine this block is a no-op.
+      let effectiveType = wantType;
+      let routingNote = '';
+      if (wantType === 'gridlight') {
+        // executor_type IS a registry function id ('claude-code', 'review-gate', ...), so
+        // the step already tells us which function it performs. No new config needed, and
+        // no defaulting every step to 'claude-code' and routing the wrong function.
+        const functionId = s.executor_type || 'claude-code';
+        // The model comes from the cartridge itself. Gridlight reports it at registration;
+        // reading a settings key nobody writes made this whole block inert.
+        const cartridge = db.prepare('SELECT model FROM agents WHERE repo_path = ? AND agent_type = ? AND status != ? ORDER BY last_seen DESC LIMIT 1')
+          .get(workflowRepo, 'gridlight', 'offline') as { model: string } | undefined;
+        const modelId = typeof config.modelId === 'string' ? config.modelId : (cartridge?.model || '');
+        const profile = modelId ? loadProfile(modelId) : null;
+        const decision = routeFunction(functionId, profile, modelId ? loadDemotions(modelId) : []);
+        if (decision.engine === 'frontier') {
+          effectiveType = 'claude';
+          routingNote = `capability routing: ${functionId} -> frontier (${decision.state}: ${decision.reason})`;
+          console.log(`[workflow] step ${s.id}: ${routingNote}`);
+        }
+      }
+
+      const resolved = agentIdForRepoAndType(workflowRepo, effectiveType);
       if (resolved) {
         db.prepare('UPDATE workflow_steps SET executor_id = ? WHERE id = ?').run(resolved, s.id);
-        console.log(`[workflow] step ${s.id}: pinned to ${wantType} cartridge ${resolved}`);
+        if (routingNote) recordStepNote(s.id, routingNote);
+        console.log(`[workflow] step ${s.id}: pinned to ${effectiveType} cartridge ${resolved}`);
       } else {
-        console.warn(`[workflow] step ${s.id}: no live ${wantType} cartridge in ${workflowRepo} — start one, or override at launch.`);
+        // DO NOT FAIL SILENTLY. Previously this warned and `continue`d, leaving executor_id
+        // untouched, so the step ran on whatever agent was already assigned while the run
+        // reported success. That made a routing bug and a missing cartridge
+        // indistinguishable — and it manufactured false evidence that local-first was
+        // working when nothing had run locally.
+        //
+        // Keep running (a sleeping cartridge should not fail a workflow) but RECORD the
+        // substitution where the UI already renders it, so the user can see it.
+        const note = `Requested ${effectiveType}, ran on the pre-assigned agent — no live ${effectiveType} cartridge in ${workflowRepo}`;
+        recordStepNote(s.id, note);
+        console.warn(`[workflow] step ${s.id}: ${note}`);
       }
     }
   }
