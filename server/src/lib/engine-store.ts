@@ -171,7 +171,15 @@ export function consumeActivityEvent(
   // carry both. The rest CANNOT be attributed, and they are DROPPED. Defaulting them would
   // pin a working function to frontier on evidence from a different one, and nothing
   // downstream could tell the difference.
-  const functionId = payload.functionId || resolveFunctionIdFromStep(payload.stepId);
+  // ...and when it does not resolve, the AGENT still identifies the step. Measured on the
+  // nine real events: the stepId lookup attributed 0 of 9, because the engine names its own
+  // steps ('converge-1', 'step-0', 's1') while ours are uuids, and NeonCore never hands its
+  // step id to the engine at all (open-directory.ts passes session id, machine, url and
+  // permission mode — no step id). Without this fallback the loop could not fire on
+  // production data however many turns failed.
+  const functionId = payload.functionId
+    || resolveFunctionIdFromStep(payload.stepId)
+    || resolveFunctionIdFromAgent(agentId);
   if (!functionId) return;
   observeTroubleSignals(functionId, payload);
 }
@@ -183,5 +191,25 @@ function resolveFunctionIdFromStep(stepId?: string): string | null {
     const row = db.prepare('SELECT executor_type FROM workflow_steps WHERE id = ?')
       .get(stepId) as { executor_type: string } | undefined;
     return row?.executor_type || null;
+  } catch { return null; }
+}
+
+/**
+ * The step this agent is executing right now, when the payload's own id is not ours.
+ *
+ * Exact rather than inferred: while a cartridge runs a step, that row carries
+ * `executor_id = <agent>` and `status = 'running'`, so any turn it takes belongs to that
+ * step. Attribution happens ONLY when there is exactly one — zero is nothing to attribute
+ * to, two is ambiguous, and both drop. That keeps the rule the whole consumer is built on:
+ * demoting the wrong function is worse than demoting nothing, because it removes work the
+ * model can do while leaving the real failure in place.
+ */
+function resolveFunctionIdFromAgent(agentId?: string): string | null {
+  if (!agentId) return null;
+  try {
+    const rows = db.prepare(
+      "SELECT executor_type FROM workflow_steps WHERE executor_id = ? AND status = 'running'"
+    ).all(agentId) as { executor_type: string }[];
+    return rows.length === 1 ? rows[0].executor_type || null : null;
   } catch { return null; }
 }
