@@ -20,6 +20,7 @@ const DOCS = [
   // summary that outlives its own citations is worse than a stale plan, not better,
   // because it is the document someone reads first.
   'docs/gridlight-strategy.md',
+  'docs/local-model-routing.md',
 ];
 
 /**
