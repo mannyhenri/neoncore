@@ -95,6 +95,30 @@ db.exec(`
     FOREIGN KEY (agent_id) REFERENCES agents(id)
   );
 
+  -- Capability-gated engine routing. TWO tables, not one, because the grain and the
+  -- lifetime differ: a profile is per (model_id) and is replaced wholesale by a re-probe;
+  -- a demotion is per (model_id, function_id) and accumulates BETWEEN probes as runtime
+  -- evidence. Collapsing them would make it impossible to clear evidence on re-measurement
+  -- without also discarding the measurement.
+  CREATE TABLE IF NOT EXISTS model_capability_profiles (
+    model_id TEXT PRIMARY KEY,
+    measured_at TEXT NOT NULL,
+    profile_json TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS engine_demotions (
+    model_id TEXT NOT NULL,
+    function_id TEXT NOT NULL,
+    demoted INTEGER NOT NULL DEFAULT 1,
+    reason TEXT NOT NULL DEFAULT '',
+    demoted_at TEXT NOT NULL,
+    -- The streak lives in the table, not in a Map. An in-memory counter resets on every
+    -- restart, so two failures + a restart + a third never reaches the threshold and
+    -- demotion silently never fires on a server that restarts often.
+    failure_streak INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (model_id, function_id)
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -557,6 +581,33 @@ try {
   db.prepare('SELECT dispatched_prompt FROM workflow_steps LIMIT 1').get();
 } catch {
   db.exec(`ALTER TABLE workflow_steps ADD COLUMN dispatched_prompt TEXT NOT NULL DEFAULT ''`);
+}
+
+
+// Capability-routing substitutions are recorded separately from `error`, which the UI
+// paints red. A step that ran correctly on frontier because the router said so is not an
+// error, and decorating it as one erodes trust in the feature we want left enabled.
+try {
+  db.prepare('SELECT routing_note FROM workflow_steps LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE workflow_steps ADD COLUMN routing_note TEXT NOT NULL DEFAULT ''`);
+}
+
+// engine_demotions predates failure_streak on any database created before the streak was
+// persisted; CREATE TABLE IF NOT EXISTS will not add a column to an existing table.
+try {
+  db.prepare('SELECT failure_streak FROM engine_demotions LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE engine_demotions ADD COLUMN failure_streak INTEGER NOT NULL DEFAULT 0`);
+}
+
+// Gridlight already SENDS its model at registration; the server was dropping it. Without
+// this column nothing can say which model a cartridge runs, so the router can never find a
+// profile and every decision is UNMEASURED -> frontier.
+try {
+  db.prepare('SELECT model FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`);
 }
 
 // Migration: add token tracking columns to workflow_steps

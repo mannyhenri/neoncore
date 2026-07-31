@@ -63,6 +63,16 @@ export interface CapabilityProfile {
   trials?: Partial<Record<Dimension, number>>;
   /** Median wall-clock seconds per dimension: a read turn and a synthesis turn differ hugely. */
   perDimensionSeconds?: Partial<Record<Dimension, number>>;
+  /**
+   * Per-dimension history across runs, oldest first: [{ n, rate }, ...].
+   *
+   * Recorded because the trend changed a conclusion. safeEdit measured 1.00 (N=5), then
+   * 0.80 (N=5), then 0.70 (N=10) — and on the strength of the first number a caution was
+   * reported as falsified. Small-N results were optimistic in the flattering direction
+   * twice, on the one dimension where the reviewer had a stake in the answer. A single
+   * final rate hides that; the history makes it visible to whoever reads the profile next.
+   */
+  history?: Partial<Record<Dimension, Array<{ n: number; rate: number }>>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +146,19 @@ export const TIER_BARS: Record<Tier, Partial<Record<Dimension, number>>> = {
  * job. A capable-but-slow model is not wasted — it keeps every `batch` function.
  */
 export const INTERACTIVE_MAX_TURN_SECONDS = 30;
+
+/**
+ * How many CONSECUTIVE failing turns demote a (model, function).
+ *
+ * Deliberately a count, not a rate: at demotion time we have very few samples, and a rate
+ * over 3 observations is the same small-N trap the router already refuses elsewhere. A
+ * streak is a cheap, auditable signal — and a single success resets it, because one bad
+ * turn on a flaky day is noise, not evidence.
+ *
+ * Lives here with the bars rather than inline in the consumer: policy in two places is the
+ * drift defect this codebase has hit five times.
+ */
+export const DEMOTION_CONSECUTIVE_FAILURES = 3;
 
 /**
  * Wilson score lower bound — the honest way to compare a small-sample rate to a bar.

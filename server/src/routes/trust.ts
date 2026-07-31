@@ -127,6 +127,9 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     interruptedAt: (row.interrupted_at ?? '') as string,
     activeObjective: (row.active_objective ?? '') as string,
     standardState: ((row.standard_state ?? '') as string) as Agent['standardState'],
+    // Which model this cartridge runs. The capability router looks a profile up by
+    // this id, so an agent whose model is unknown routes every function to frontier.
+    model: (row.model ?? '') as string,
   };
 }
 
