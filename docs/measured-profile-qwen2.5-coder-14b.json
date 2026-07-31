@@ -1,0 +1,35 @@
+{
+  "modelId": "qwen2.5-coder-14b",
+  "measuredAt": "2026-07-31T12:00:24.508Z",
+  "vector": {
+    "toolCall": 1,
+    "safeEdit": 0.8,
+    "comprehension": 0,
+    "synthesis": 0.6,
+    "planning": 1,
+    "instructionAdherence": 1,
+    "judgement": 0
+  },
+  "trials": {
+    "toolCall": 20,
+    "safeEdit": 5,
+    "comprehension": 5,
+    "synthesis": 5,
+    "planning": 5,
+    "instructionAdherence": 5,
+    "judgement": 5
+  },
+  "perDimensionSeconds": {
+    "toolCall": 8.496,
+    "safeEdit": 13.881,
+    "comprehension": 8.337,
+    "synthesis": 8.779,
+    "planning": 13.999,
+    "instructionAdherence": 9.322,
+    "judgement": 4.066
+  },
+  "timeouts": {
+    "comprehension": 1
+  },
+  "interactiveTurnSeconds": 8.496
+}
