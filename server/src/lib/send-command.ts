@@ -24,7 +24,26 @@ import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch
  * fallback for `claude` agents running in a bare terminal with no VS Code extension
  * connected to receive the command_send socket event.
  */
+/**
+ * Is the unaddressed terminal fallback allowed to run?
+ *
+ * OFF unless explicitly enabled. This path runs AppleScript that types into the FRONTMOST
+ * window — it cannot target a cartridge, so it lands wherever focus happens to be. For two
+ * days that meant dispatches to socket-less cartridges typing into whatever the user was
+ * reading, which looked like phantom messages arriving from nowhere.
+ *
+ * The test-process check is separate and unconditional on purpose. A suite uses a stub io with
+ * no sockets, so EVERY prompt it dispatches takes this path; an isolated database does not
+ * isolate a child process, and `osascript` is a child process — which is also why an egress
+ * guard watching fetch/TCP/listen measured "zero egress" while this was firing.
+ */
+function terminalFallbackEnabled(): boolean {
+  if (process.env.NODE_ENV === 'test' || process.env.NEONCORE_TEST === '1') return false;
+  return process.env.NEONCORE_TERMINAL_FALLBACK === '1';
+}
+
 function typeIntoTerminal(text: string): boolean {
+  if (!terminalFallbackEnabled()) return false;
   if (process.platform !== 'darwin') return false;
 
   // Escape for AppleScript string: backslash and double-quote
@@ -274,3 +293,6 @@ export function sendCommandToAgent(
 
   return command;
 }
+
+/** TEST ONLY — lets the suite prove the gate blocks injection from inside a test process. */
+export const __typeIntoTerminalForTests = typeIntoTerminal;
