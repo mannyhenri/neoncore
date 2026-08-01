@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
+import { isWaitingSession } from '../types';
 import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem } from '../types';
 
 // ─── Browser notification helper ────────────────────
@@ -197,10 +198,11 @@ export function WorkflowPanel({ agents }: Props) {
 
   // Confers: running ones live under Active Runs; finished ones (last 10 min) archive under Recent Runs.
   const activeConfers = confers.filter((c) => c.status === 'running');
-  // Waiting to start, because a target cartridge is busy. Shown next to the running ones —
-  // to whoever just started it, "running" and "about to run" are the same thing. Prompts are
-  // NOT promoted here: they are not sessions and they already live in the task list.
-  const waiting = queue.filter((q) => q.status === 'queued' || q.status === 'running');
+  // Waiting to start, because a target cartridge is busy. isWaitingSession keys on `handle`,
+  // not status: a dispatched item carries the id of the session it created, and that session's
+  // card owns the rendering from then on. Filtering on status alone showed one confer twice —
+  // once as its own running queue item, once as the real ConferCard.
+  const waiting = queue.filter(isWaitingSession);
   const queuedConfers = waiting.filter((q) => q.kind === 'confer');
   const queuedWorkflows = waiting.filter((q) => q.kind === 'workflow');
   const recentConfers = confers.filter(

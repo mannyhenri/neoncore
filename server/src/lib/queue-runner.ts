@@ -159,6 +159,28 @@ export function resumeLane(lane: string): void {
  * or by a human — stays stopped, otherwise retrying one item silently restarts work somebody
  * deliberately paused.
  */
+/**
+ * Statuses a row may be cleared in. Derived from what each MEANS, not from the words "done,
+ * failed, cancelled": `blocked` reads as finished and is not — it is stopped and waiting on a
+ * human, and removing it discards the only record of why a lane stopped.
+ */
+const CLEARABLE: QueueStatus[] = ['done', 'failed', 'cancelled'];
+
+/**
+ * Delete ONE finished row. Returns false if it is still live, so the caller cannot quietly
+ * remove work in flight by passing the wrong id.
+ *
+ * Deliberately per item rather than a bulk sweep: a bulk clear removes rows the user never
+ * looked at, and this is the only destructive action on the page with no undo.
+ */
+export function removeItem(id: string): boolean {
+  const marks = CLEARABLE.map(() => '?').join(',');
+  const info = db.prepare(`DELETE FROM queue_items WHERE id = ? AND status IN (${marks})`)
+    .run(id, ...CLEARABLE);
+  if (info.changes) emit();
+  return info.changes > 0;
+}
+
 export function retryItem(id: string): boolean {
   const row = db.prepare('SELECT id, lane, status FROM queue_items WHERE id = ?').get(id) as
     { id: string; lane: string; status: QueueStatus } | undefined;

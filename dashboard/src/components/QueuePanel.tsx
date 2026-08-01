@@ -94,10 +94,17 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
           cartridge, start a confer, start a workflow — and the server queues it when that
           cartridge is busy (routes/commands.ts, confer.ts, workflows.ts). A second form here
           would be a second way to do the same thing, in the wrong place. This panel WATCHES. */}
-      {items.length === 0 && <p className="text-[11px] text-gray-500">Nothing queued.</p>}
+      {!haltedOnly && items.length === 0 && <p className="text-[11px] text-gray-500">Nothing queued.</p>}
 
       {/* One block per lane — the lane IS the unit of serial execution, and the unit that halts */}
-      {Object.entries(byLane).map(([lane, laneItems]) => {
+      {Object.entries(byLane)
+        .filter(([lane]) => {
+          // Strip mode lists ONLY stopped lanes. Showing every lane here would put the whole
+          // queue back on screen next to the task cards that already render it.
+          const m = laneOf(lane);
+          return !haltedOnly || Boolean(m?.paused || m?.haltedReason);
+        })
+        .map(([lane, laneItems]) => {
         const meta = laneOf(lane);
         const halted = Boolean(meta?.paused || meta?.haltedReason);
         return (
@@ -123,6 +130,10 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
               <p className="text-[11px] text-amber-400/90 mb-1 pl-1">{meta.haltedReason}</p>
             )}
 
+            {/* Items are CARDS in the task list, never rows here. Rendering them in strip mode
+                showed the same four items twice — once unstyled without a retry button, and
+                once as a filtered card — which is the duplication the merge removed. */}
+            {!haltedOnly && (
             <ul className="space-y-1">
               {laneItems.map((i) => (
                 <li key={i.id} className="flex items-start gap-2 text-[11px]">
@@ -146,6 +157,7 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
                 </li>
               ))}
             </ul>
+            )}
           </div>
         );
       })}

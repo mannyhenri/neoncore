@@ -57,7 +57,7 @@ const ARTEFACTS = [
         // The panel mounts inside TasksPage now, not App.tsx: the queue and the task list are
         // ONE surface. enqueueItem is absent on purpose — see API_ONLY below.
         dir: 'dashboard/src', entry: 'dashboard/src/components/TasksPage.tsx', mounts: '<QueuePanel',
-        calls: ['getQueue', 'cancelQueueItem', 'retryQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
+        calls: ['getQueue', 'cancelQueueItem', 'retryQueueItem', 'removeQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
       },
       {
         // Pause/resume/tick are desk work and deliberately absent from a phone.
@@ -75,8 +75,8 @@ const ARTEFACTS = [
      * orphan check would be correct to fail.
      */
     apiOnly: ['enqueueItem'],
-    // 7: the 6 that survived /validate's deletion, plus POST /:id/retry.
-    expectedRouteCount: 7,
+    // 8: 6 after /validate went, plus POST /:id/retry and DELETE /:id/remove.
+    expectedRouteCount: 8,
   },
 ];
 

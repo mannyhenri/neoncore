@@ -100,6 +100,10 @@ export function createClient(config: ClientConfig = {}) {
   /** Put a failed or cancelled item back. The server clears the attempt/stall counters and the
    *  lane halt it caused — a status reset alone would leave it queued and unable to run. */
   retryQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/retry`, { method: 'POST' }),
+  /** Remove ONE finished queue row. 409 if it is still live. */
+  removeQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/remove`, { method: 'DELETE' }),
+  /** Remove ONE finished task. Same rule. */
+  removeTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
   pauseQueueLane: (lane: string) =>
     request<{ ok: boolean }>(`/queue/lanes/${encodeURIComponent(lane)}/pause`, { method: 'POST' }),
   resumeQueueLane: (lane: string) =>

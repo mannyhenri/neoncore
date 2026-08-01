@@ -281,6 +281,19 @@ router.post('/:id/done', (req, res) => {
 });
 
 // Cancel a task (dashboard action — no owner check).
+/**
+ * Remove ONE finished task. Never a queued, claimed or in-progress one — that is work somebody
+ * is waiting on, and there is no undo.
+ */
+router.delete('/:id', (req, res) => {
+  const info = db.prepare("DELETE FROM tasks WHERE id = ? AND status IN ('done','failed','cancelled')")
+    .run(req.params.id);
+  if (!info.changes) {
+    return res.status(409).json({ error: 'only a finished task can be cleared — cancel it first' });
+  }
+  res.json({ ok: true });
+});
+
 router.post('/:id/cancel', (req, res) => {
   const task = getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });

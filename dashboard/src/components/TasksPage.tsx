@@ -471,7 +471,7 @@ function TaskDetailModal({
   );
 }
 
-function TaskCard({ task, agents, projects, onCancel, onOpen }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: (id: string) => void; onOpen: (id: string) => void }) {
+function TaskCard({ task, agents, projects, onCancel, onClear, onOpen }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: (id: string) => void; onClear: (id: string) => void; onOpen: (id: string) => void }) {
   const agent = task.assignedAgentId ? agents.find((a) => a.id === task.assignedAgentId) : undefined;
   const project = task.projectId ? projects.find((p) => p.id === task.projectId) : undefined;
   const isTerminal = task.status === 'done' || task.status === 'failed' || task.status === 'cancelled';
@@ -500,12 +500,22 @@ function TaskCard({ task, agents, projects, onCancel, onOpen }: { task: Task; ag
           </div>
           <h3 className="text-sm font-medium text-gray-200 mt-1.5 truncate">{task.title}</h3>
         </div>
-        {!isTerminal && (
+        {/* Exclusive, same rule as a queue row: cancel while it is live, clear once it has
+            finished. Never both, so there is nothing to guess between. */}
+        {!isTerminal ? (
           <button
             onClick={(e) => { e.stopPropagation(); onCancel(task.id); }}
             className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-800/50 transition-colors"
           >
             Cancel
+          </button>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); onClear(task.id); }}
+            title="Remove this task from the list"
+            className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20 transition-colors"
+          >
+            Clear
           </button>
         )}
       </div>
@@ -569,6 +579,9 @@ function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void 
   };
   const retryable = item.status === 'failed' || item.status === 'cancelled';
   const stoppable = item.status === 'queued' || item.status === 'running';
+  // Exclusive by construction: a row is either live (cancel) or finished (clear). `blocked` is
+  // neither — it is stopped and waiting on a human, so tidying it away would lose the reason.
+  const clearable = ['done', 'failed', 'cancelled'].includes(item.status);
 
   return (
     <div
@@ -599,6 +612,16 @@ function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void 
               className="px-2 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
             >
               Cancel
+            </button>
+          )}
+          {clearable && (
+            <button
+              onClick={() => void act(() => api.removeQueueItem(item.id))}
+              disabled={busy}
+              title="Remove this row. Live work is never clearable."
+              className="px-2 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-500 border-gray-700/50 disabled:opacity-40"
+            >
+              Clear
             </button>
           )}
         </div>
@@ -675,11 +698,26 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
     return sorted.filter((t) => t.status === filter);
   }, [tasks, filter]);
 
+  /** Remove one finished task. The server refuses anything still live, so a stale list cannot
+   *  delete work in flight. */
+  const clearTask = useCallback((id: string) => {
+    void api.removeTask(id).then(refreshQueue).catch(() => undefined);
+  }, [refreshQueue]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const t of tasks) c[t.status] = (c[t.status] || 0) + 1;
+    // Queue items count too. The header read "0 queued · 0 active · 1 done" with four queue
+    // items listed directly beneath it — a summary that contradicts the list under it teaches
+    // the reader to ignore the summary.
+    for (const q of queueItems) {
+      const k = q.status === 'running' ? 'in_progress'
+        : q.status === 'blocked' ? 'failed'
+        : q.status;
+      c[k] = (c[k] || 0) + 1;
+    }
     return c;
-  }, [tasks]);
+  }, [tasks, queueItems]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -690,9 +728,9 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
             {(counts.queued || 0)} queued · {(counts.in_progress || 0) + (counts.claimed || 0)} active · {(counts.done || 0)} done
           </p>
         </div>
-        {/* No create button. Work begins by prompting a cartridge or starting a confer or
-            workflow; if that cartridge is busy the server queues it. This page is where you
-            watch it, which is the only job it has now. */}
+        {/* No create button, and no bulk clear. Each row carries its own controls: cancel it
+            while it is live, clear it once it has finished. A sweep removes rows nobody
+            looked at. */}
       </div>
 
       {/* Lanes only — and only when one has HALTED, which is the single case that needs a
@@ -730,7 +768,7 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
             <QueueRow key={q.id} item={q} onChanged={refreshQueue} />
           ))}
           {filtered.map((t) => (
-            <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} onOpen={setSelectedId} />
+            <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} onClear={clearTask} onOpen={setSelectedId} />
           ))}
         </div>
       )}
