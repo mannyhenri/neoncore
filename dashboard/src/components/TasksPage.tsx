@@ -537,18 +537,25 @@ function TaskCard({ task, agents, projects, onCancel, onOpen }: { task: Task; ag
  * A queue item rendered as a task row. Deliberately the same visual weight as a TaskCard:
  * a queued prompt and a task are the same thing to the person reading the list.
  */
+/**
+ * A queue item, styled as the TaskCard it sits beside.
+ *
+ * Reuses STATUS_META and the card idiom from this same file rather than inventing a second
+ * visual language for the same list — the whole point of merging the two views was that a
+ * queued prompt and a task are the same thing to the person reading them.
+ */
 function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void }) {
-  // Collapsed by default, expandable in place. The row has to stay scannable in a list, but the
-  // whole request must be reachable without opening the database — which is where it lived
-  // before this.
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const tone =
-    item.status === 'failed' || item.status === 'blocked' ? 'text-red-400'
-    : item.status === 'running' ? 'text-violet-300'
-    : item.status === 'done' ? 'text-emerald-400'
-    : 'text-gray-400';
+  // Queue statuses onto the task vocabulary the page already speaks.
+  const asTask: TaskStatus =
+    item.status === 'running' ? 'in_progress'
+    : item.status === 'done' ? 'done'
+    : item.status === 'queued' ? 'queued'
+    : item.status === 'cancelled' ? 'cancelled'
+    : 'failed';
+  const meta = STATUS_META[asTask];
 
   const full =
     (item.payload?.text as string)
@@ -560,47 +567,54 @@ function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void 
     setBusy(true);
     try { await fn(); onChanged(); } finally { setBusy(false); }
   };
-
   const retryable = item.status === 'failed' || item.status === 'cancelled';
+  const stoppable = item.status === 'queued' || item.status === 'running';
 
   return (
-    <div className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400">{item.kind}</span>
-        <span className={`text-[11px] ${tone}`}>{item.status}</span>
-        <span className="text-[10px] text-gray-600 font-mono truncate">{item.lane}</span>
-        <div className="ml-auto flex items-center gap-2">
+    <div
+      onClick={() => setOpen((v) => !v)}
+      className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2 cursor-pointer hover:border-white/20 hover:bg-white/[0.05] transition-colors"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex items-center gap-2 flex-wrap">
+          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${meta.cls}`}>{meta.label}</span>
+          <span className="text-[11px] px-2 py-0.5 rounded-full border bg-white/[0.04] text-gray-400 border-white/10">
+            {item.kind}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           {retryable && (
             <button
               onClick={() => void act(() => api.retryQueueItem(item.id))}
               disabled={busy}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-200 hover:bg-violet-900 disabled:opacity-40"
+              className="px-2 py-1 text-xs rounded transition-colors border bg-violet-900/40 hover:bg-violet-900/70 text-violet-300 border-violet-800/50 disabled:opacity-40"
             >
-              retry
+              Retry
             </button>
           )}
-          {(item.status === 'queued' || item.status === 'running') && (
+          {stoppable && (
             <button
               onClick={() => void act(() => api.cancelQueueItem(item.id))}
               disabled={busy}
-              className="text-[10px] text-gray-500 hover:text-red-400 disabled:opacity-40"
+              className="px-2 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
             >
-              cancel
+              Cancel
             </button>
           )}
         </div>
       </div>
 
-      <button onClick={() => setOpen((v) => !v)} className="text-left w-full">
-        <p className={`text-[13px] text-gray-300 whitespace-pre-wrap ${open ? '' : 'line-clamp-2'}`}>{full}</p>
-        {full.length > 120 && (
-          <span className="text-[10px] text-gray-600 hover:text-gray-400">
-            {open ? 'show less' : 'show the whole request'}
-          </span>
-        )}
-      </button>
+      <p className={`text-sm text-gray-300 whitespace-pre-wrap ${open ? '' : 'line-clamp-2'}`}>{full}</p>
+      {full.length > 120 && (
+        <span className="text-[11px] text-gray-600">{open ? 'Show less' : 'Show the whole request'}</span>
+      )}
 
-      {item.error && <p className="text-[11px] text-red-400/90 mt-1 whitespace-pre-wrap">{item.error}</p>}
+      <div className="flex items-center gap-2 text-[11px] text-gray-600">
+        <span className="font-mono truncate">{item.lane}</span>
+      </div>
+      {item.error && (
+        <p className="text-[11px] text-red-400/90 whitespace-pre-wrap border-t border-white/[0.06] pt-2">{item.error}</p>
+      )}
     </div>
   );
 }
