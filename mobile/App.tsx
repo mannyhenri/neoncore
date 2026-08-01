@@ -10,6 +10,7 @@ import { CartridgeListScreen } from './src/screens/CartridgeListScreen';
 import { CartridgeDetailScreen } from './src/screens/CartridgeDetailScreen';
 import { ApprovalsScreen } from './src/screens/ApprovalsScreen';
 import { QueueScreen } from './src/screens/QueueScreen';
+import { ProjectMemoryScreen } from './src/screens/ProjectMemoryScreen';
 import { WorkflowsScreen } from './src/screens/WorkflowsScreen';
 import { WorkflowRunDetailScreen } from './src/screens/WorkflowRunDetailScreen';
 import { TabBar, type TabName } from './src/components/TabBar';
@@ -22,6 +23,7 @@ type Route =
   | { name: 'approvals' }
   | { name: 'workflows' }
   | { name: 'queue' }
+  | { name: 'memory' }
   | { name: 'workflowRun'; run: Workflow };
 
 export default function App() {
@@ -102,6 +104,7 @@ export default function App() {
               <WorkflowsScreen onOpenRun={(run) => setRoute({ name: 'workflowRun', run })} />
             )}
             {route.name === 'queue' && <QueueScreen />}
+            {route.name === 'memory' && <ProjectMemoryScreen />}
             {route.name === 'workflowRun' && (
               <WorkflowRunDetailScreen run={route.run} onBack={() => setRoute({ name: 'workflows' })} />
             )}

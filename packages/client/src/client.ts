@@ -173,15 +173,27 @@ export function createClient(config: ClientConfig = {}) {
     }),
 
   // Commands
+  /**
+   * Send a prompt to a cartridge.
+   *
+   * `queueIfBusy` defaults to TRUE here because this is the HUMAN path: a person typing at a
+   * busy cartridge means "do this next", not "interrupt". System delivery uses the route
+   * directly and leaves it off — peer-forward must never queue, or a confer milestone bound
+   * for another machine would be parked behind the confer it belongs to.
+   *
+   * Returns either the dispatched Command or { queued: true, item } — callers must handle
+   * both, because "it ran" and "it is next" are different things to tell a user.
+   */
   sendCommand: (
     agentId: string,
     text: string,
     includeMemory = true,
     attachments?: import('./types').CommandAttachmentInput[],
+    queueIfBusy = true,
   ) =>
-    request<import('./types').Command>('/commands/send', {
+    request<import('./types').Command & { queued?: boolean; item?: import('./types').QueueItem; note?: string }>('/commands/send', {
       method: 'POST',
-      body: JSON.stringify({ agentId, text, includeMemory, attachments }),
+      body: JSON.stringify({ agentId, text, includeMemory, attachments, queueIfBusy }),
     }),
 
   // Memory
@@ -567,9 +579,9 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),
   getGoalProject: (id: string) =>
     request<{ project: import('./types').Project; workflows: Record<string, unknown>[] }>(`/projects/${id}`),
-  createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string }) =>
+  createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
     request<import('./types').Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string }) =>
+  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
     request<import('./types').Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
 

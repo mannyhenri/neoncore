@@ -92,10 +92,12 @@ export const api = {
     return req<TranscriptEvent[]>(base, `/api/agents/${agentId}/messages${qs ? `?${qs}` : ''}`);
   },
 
-  sendCommand: (base: string, agentId: string, text: string) =>
-    req(base, '/api/commands/send', {
+  // queueIfBusy: a prompt typed at a busy cartridge means "do this next", not "interrupt".
+  // The server answers 202 with { queued: true, item } instead of dispatching.
+  sendCommand: (base: string, agentId: string, text: string, queueIfBusy = true) =>
+    req<{ queued?: boolean; note?: string }>(base, '/api/commands/send', {
       method: 'POST',
-      body: JSON.stringify({ agentId, text }),
+      body: JSON.stringify({ agentId, text, queueIfBusy }),
     }),
 
   setMode: (base: string, agentId: string, mode: AgentMode) =>
@@ -292,4 +294,35 @@ export const api = {
     }),
   cancelQueueItem: (base: string, id: string) =>
     req<{ ok: boolean }>(base, `/api/queue/${id}`, { method: 'DELETE' }),
+
+  // ── Project memory ────────────────────────────────────────────────────────
+  // The same four knowledge files and the same note CRUD the web panel offers, so a fix
+  // typed on a phone lands in the place the next agent actually reads. Session history and
+  // journal search are deliberately absent — see NOT_ON_MOBILE in mobile-memory-parity.test.ts.
+  getKnowledgeFile: (base: string, project: string, filename: string) =>
+    req<{ project: string; filename: string; content: string; updatedAt: string }>(
+      base, `/api/journal/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(filename)}`),
+  updateKnowledgeFile: (base: string, project: string, filename: string, content: string) =>
+    req<{ ok: boolean }>(base, `/api/journal/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(filename)}`, {
+      method: 'PUT', body: JSON.stringify({ content }),
+    }),
+  getProjectNotes: (base: string, project: string) =>
+    req<ProjectNote[]>(base, `/api/journal/projects/${encodeURIComponent(project)}/notes`),
+  createProjectNote: (base: string, project: string, content: string) =>
+    req<ProjectNote>(base, `/api/journal/projects/${encodeURIComponent(project)}/notes`, {
+      method: 'POST', body: JSON.stringify({ content }),
+    }),
+  updateProjectNote: (base: string, project: string, noteId: string, content: string) =>
+    req<ProjectNote>(base, `/api/journal/projects/${encodeURIComponent(project)}/notes/${noteId}`, {
+      method: 'PUT', body: JSON.stringify({ content }),
+    }),
+  deleteProjectNote: (base: string, project: string, noteId: string) =>
+    req<{ ok: boolean }>(base, `/api/journal/projects/${encodeURIComponent(project)}/notes/${noteId}`, { method: 'DELETE' }),
 };
+
+export interface ProjectNote {
+  id: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}

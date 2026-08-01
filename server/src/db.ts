@@ -889,6 +889,32 @@ db.exec(`
   );
 `);
 
+// ── Projects own CARTRIDGES ────────────────────────────────────────────────────────────
+// A project used to be linked to work by hanging project_id on each TASK, which meant only
+// work someone filed as a task counted — a prompt, confer or workflow run in the same repo was
+// invisible to the project it obviously belonged to. A cartridge IS a repo checkout, so
+// project -> repo is the durable link and everything happening in that repo is attributable
+// with nobody tagging anything.
+//
+// `primary_repo` was already this link, singular. This makes it a set so a project spanning a
+// server and a dashboard no longer has to pick one.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS project_cartridges (
+    project_id TEXT NOT NULL,
+    repo_path TEXT NOT NULL,
+    PRIMARY KEY (project_id, repo_path)
+  );
+`);
+
+// BACKFILL, and it must be idempotent: every existing project keeps its repo as a cartridge.
+// Without this an upgrade silently unlinks live projects, and the only symptom is a project
+// that suddenly looks idle — nothing errors, so nobody notices.
+db.exec(`
+  INSERT OR IGNORE INTO project_cartridges (project_id, repo_path)
+  SELECT id, primary_repo FROM projects WHERE COALESCE(primary_repo, '') != '';
+`);
+
+
 // Migration: add token_budget to goals (replaces budget_usd).
 //
 // This MUST stay below the CREATE TABLE for `goals`. It previously ran ~120 lines higher,

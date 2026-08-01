@@ -127,23 +127,53 @@ export function agentIdForRepoAndType(repoPath: string, agentType: string): stri
 }
 
 /**
- * Projects an agent "serves" — those whose primary_repo matches the agent's
- * repo_path (cross-platform normalized). This is the join used to hard-pin a
- * task to the cartridge an agent is working in: a task scoped to project P is
- * only claimable by an agent whose repo matches P's primary_repo.
+ * Projects a cartridge serves — every project that lists its repo.
+ *
+ * MANY, not one: a monorepo legitimately serves several projects, and forcing a single owner
+ * would make the second one silently lose all its work. Paths are normalised the same way the
+ * rest of resolution normalises them, so a trailing slash or a case difference never quietly
+ * unlinks a project from its own cartridge.
  */
-export function projectIdsForAgent(agentId: string): string[] {
+export function projectsForAgent(agentId: string): string[] {
   const agent = db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(agentId) as
     | { repo_path: string }
     | undefined;
   if (!agent) return [];
   const norm = normalizeRepoPath(agent.repo_path);
   if (!norm) return [];
-  const projects = db.prepare("SELECT id, primary_repo FROM projects WHERE primary_repo != ''").all() as {
-    id: string;
-    primary_repo: string;
+  const rows = db.prepare('SELECT project_id, repo_path FROM project_cartridges').all() as {
+    project_id: string;
+    repo_path: string;
   }[];
-  return projects.filter((p) => normalizeRepoPath(p.primary_repo) === norm).map((p) => p.id);
+  return [...new Set(
+    rows.filter((r) => normalizeRepoPath(r.repo_path) === norm).map((r) => r.project_id),
+  )];
+}
+
+/** Kept as the old name so existing callers do not change meaning under them. */
+export const projectIdsForAgent = projectsForAgent;
+
+/** The repos a project claims. */
+export function getProjectCartridges(projectId: string): string[] {
+  return (db.prepare('SELECT repo_path FROM project_cartridges WHERE project_id = ? ORDER BY repo_path')
+    .all(projectId) as { repo_path: string }[]).map((r) => r.repo_path);
+}
+
+/**
+ * REPLACE a project's cartridges. Replace rather than merge, because the UI sends the whole
+ * set — an append would make removing a repo impossible without a second endpoint, and the
+ * absence of a repo in the payload is exactly how a user says "not this one any more".
+ */
+export function setProjectCartridges(projectId: string, repoPaths: string[]): void {
+  const tx = db.transaction((paths: string[]) => {
+    db.prepare('DELETE FROM project_cartridges WHERE project_id = ?').run(projectId);
+    const ins = db.prepare('INSERT OR IGNORE INTO project_cartridges (project_id, repo_path) VALUES (?, ?)');
+    for (const p of paths) {
+      const trimmed = (p || '').trim();
+      if (trimmed) ins.run(projectId, trimmed);
+    }
+  });
+  tx(repoPaths);
 }
 
 /**

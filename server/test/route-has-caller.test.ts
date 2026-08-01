@@ -54,15 +54,27 @@ const ARTEFACTS = [
     // intent rather than a gap the guard cannot distinguish from an accident.
     surfaces: [
       {
-        dir: 'dashboard/src', entry: 'dashboard/src/App.tsx', mounts: '<QueuePanel',
-        calls: ['getQueue', 'enqueueItem', 'cancelQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
+        // The panel mounts inside TasksPage now, not App.tsx: the queue and the task list are
+        // ONE surface. enqueueItem is absent on purpose — see API_ONLY below.
+        dir: 'dashboard/src', entry: 'dashboard/src/components/TasksPage.tsx', mounts: '<QueuePanel',
+        calls: ['getQueue', 'cancelQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
       },
       {
         // Pause/resume/tick are desk work and deliberately absent from a phone.
         dir: 'mobile/src', entry: 'mobile/App.tsx', mounts: '<QueueScreen',
-        calls: ['getQueue', 'enqueueItem', 'cancelQueueItem'],
+        calls: ['getQueue', 'cancelQueueItem'],
       },
     ],
+    /**
+     * Client functions with NO UI caller, by design rather than by omission.
+     *
+     * POST /api/queue is now filled by the SERVER — commands.ts, confer.ts and workflows.ts
+     * enqueue when the target cartridge is busy — not by a form. The route stays because it is
+     * the documented way to queue work from a script or another machine, and the contract test
+     * drives it. Recorded here so "no caller" reads as a decision; without this entry the
+     * orphan check would be correct to fail.
+     */
+    apiOnly: ['enqueueItem'],
     // 6 since /validate was deleted — it had a route, a client wrapper and zero callers.
     expectedRouteCount: 6,
   },
@@ -113,7 +125,13 @@ for (const art of ARTEFACTS) {
       .map((m) => m[1])
       .filter((n) => /Queue|queue/.test(n));
     const claimed = new Set(art.surfaces.flatMap((s) => s.calls));
-    const orphans = declared.filter((d) => !claimed.has(d));
+    // apiOnly names functions with no UI caller ON PURPOSE. An exemption list is only honest
+    // if it cannot rot, so anything listed must still exist in the client — otherwise the
+    // exemption silently widens to cover a name nothing recognises.
+    const apiOnly = new Set((art as { apiOnly?: string[] }).apiOnly ?? []);
+    const stale = [...apiOnly].filter((a) => !declared.includes(a));
+    assert.deepEqual(stale, [], `apiOnly names functions the client no longer exposes: ${stale.join(', ')}`);
+    const orphans = declared.filter((d) => !claimed.has(d) && !apiOnly.has(d));
     assert.deepEqual(orphans, [],
       `client exposes queue functions no surface calls: ${orphans.join(', ')} — call them or delete them`);
   });

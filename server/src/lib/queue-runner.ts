@@ -185,6 +185,27 @@ function busyTargets(item: QueueItem): string[] {
   return rows.map((r) => r.id);
 }
 
+/**
+ * Can this cartridge take new work RIGHT NOW?
+ *
+ * 'working' and 'waiting' both mean no: waiting is blocked on a question, and dropping a new
+ * prompt on top of an unanswered one is how the answer gets misread as a reply to the wrong
+ * thing. A stamped agent is mid queue-item even if its status has not caught up yet, so the
+ * stamp counts too.
+ *
+ * An UNKNOWN agent is deliberately not busy. Treating absence as busy would queue work against
+ * a cartridge that does not exist, where it would wait forever with nothing to release it —
+ * absence of evidence is not evidence of work.
+ */
+export function isCartridgeBusy(agentId: string): boolean {
+  if (!agentId) return false;
+  const row = db.prepare('SELECT status, active_queue_item_id FROM agents WHERE id = ?')
+    .get(agentId) as { status?: string; active_queue_item_id?: string } | undefined;
+  if (!row) return false;
+  if (row.active_queue_item_id) return true;
+  return row.status === 'working' || row.status === 'waiting';
+}
+
 function finish(item: QueueItem, status: QueueStatus, detail: string): void {
   db.prepare('UPDATE queue_items SET status = ?, finished_at = ?, result = ?, error = ? WHERE id = ?')
     .run(status, nowIso(), status === 'done' ? detail : '', status === 'done' ? '' : detail, item.id);
