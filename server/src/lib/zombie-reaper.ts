@@ -68,7 +68,7 @@ export function zombieThresholdFor(agentType: string | null | undefined): number
     : SILENT_ZOMBIE_THRESHOLD_MS;
 }
 
-const KNOWN_TYPES = new Set(['claude', 'gridlight', 'gemini', 'amazonq', 'codex', 'cursor']);
+const KNOWN_TYPES = new Set(['claude', 'gridlight', 'codex']);
 function isKnownType(type: string): boolean {
   return KNOWN_TYPES.has(type);
 }

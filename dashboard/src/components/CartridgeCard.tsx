@@ -59,10 +59,7 @@ type ToolMeta = { label: string; short: string; badge: string };
 function toolMeta(agentType: string): ToolMeta {
   switch (agentType) {
     case 'gridlight': return { label: 'Gridlight', short: 'Gridlight', badge: 'bg-pink-900/60 text-pink-300' };
-    case 'gemini':    return { label: 'Gemini CLI', short: 'Gemini', badge: 'bg-teal-900/60 text-teal-300' };
-    case 'amazonq':   return { label: 'Amazon Q', short: 'Amazon Q', badge: 'bg-orange-900/60 text-orange-300' };
     case 'codex':     return { label: 'Codex CLI', short: 'Codex', badge: 'bg-green-900/60 text-green-300' };
-    case 'cursor':    return { label: 'Cursor', short: 'Cursor', badge: 'bg-violet-900/60 text-violet-300' };
     default:          return { label: 'Claude CC', short: 'Claude', badge: 'bg-blue-900/60 text-blue-300' };
   }
 }
@@ -71,9 +68,6 @@ function launchTypeFor(agentType: string): string {
   switch (agentType) {
     case 'gridlight': return 'gridlight-cli';
     case 'codex': return 'codex-cli';
-    case 'gemini': return 'gemini';
-    case 'amazonq': return 'amazonq';
-    case 'cursor': return 'cursor';
     default: return 'claude-cli';
   }
 }

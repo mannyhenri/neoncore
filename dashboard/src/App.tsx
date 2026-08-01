@@ -77,7 +77,7 @@ export default function App() {
   const filteredAgents = typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter);
 
   // Gridlight always shown; other types only when at least one online agent uses them
-  const TYPE_ORDER: AgentType[] = ['gridlight', 'claude', 'gemini', 'amazonq', 'codex', 'cursor'];
+  const TYPE_ORDER: AgentType[] = ['gridlight', 'claude', 'codex'];
   const visibleTypeFilters: (AgentType | 'all')[] = [
     'all',
     ...TYPE_ORDER.filter((t) =>
@@ -224,14 +224,10 @@ export default function App() {
                   all:      'bg-white/10 text-gray-200',
                   gridlight:'bg-pink-900/60 text-pink-300',
                   claude:   'bg-blue-900/60 text-blue-300',
-                  gemini:   'bg-teal-900/60 text-teal-300',
-                  amazonq:  'bg-orange-900/60 text-orange-300',
                   codex:    'bg-green-900/60 text-green-300',
-                  cursor:   'bg-violet-900/60 text-violet-300',
                 };
                 const LABELS: Partial<Record<AgentType | 'all', string>> = {
-                  all: 'All', gridlight: 'Gridlight', claude: 'Claude',
-                  gemini: 'Gemini', amazonq: 'Amazon Q', codex: 'Codex', cursor: 'Cursor',
+                  all: 'All', gridlight: 'Gridlight', claude: 'Claude', codex: 'Codex',
                 };
                 return (
                   <button

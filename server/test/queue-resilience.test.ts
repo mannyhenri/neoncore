@@ -59,6 +59,22 @@ async function tickAndSettle(now = Date.now()): Promise<void> {
   await new Promise((r) => setTimeout(r, 80));
 }
 
+/**
+ * Wait for a condition rather than for a duration.
+ *
+ * startItem() is async while tickQueue() is sync, so dispatch settles a turn or more later. A
+ * fixed sleep passes alone and fails under parallel load — and it fails FAST, which reads as a
+ * real assertion failure rather than as "the work had not happened yet". Polling makes the test
+ * deterministic instead of load-dependent.
+ */
+async function waitFor(predicate: () => boolean, ms = 3000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
 /** Make every outbound dispatch fail, without touching the developer's live server on :4040.
  *  This is the real transient class: the runner's first tick landing before the socket is up. */
 async function withFailingDispatch<T>(fn: () => Promise<T>): Promise<T> {
@@ -168,7 +184,11 @@ test('a queued prompt ARMS the work standard at dispatch, so a read-only turn ca
   db.prepare("UPDATE agents SET standard_offered = 1, standard_armed = 0 WHERE id = ?").run(a);
   const out = enqueue({ kind: 'prompt', payload: { text: 'research X and report' }, targets: [a] });
   assert.ok(out.ok);
-  await tickAndSettle();
+  tickQueue();
+  await waitFor(() => {
+    const r = db.prepare('SELECT standard_armed FROM agents WHERE id = ?').get(a) as { standard_armed: number };
+    return r?.standard_armed === 1;
+  });
 
   const row = db.prepare('SELECT standard_armed, active_objective FROM agents WHERE id = ?')
     .get(a) as { standard_armed: number; active_objective: string };

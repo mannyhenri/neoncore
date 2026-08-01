@@ -1,5 +1,5 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
-export type AgentType = 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor';
+export type AgentType = 'claude' | 'gridlight' | 'codex';
 
 /** A directory a machine runner is allowed to launch a cartridge in. */
 export interface MachineRepo {
