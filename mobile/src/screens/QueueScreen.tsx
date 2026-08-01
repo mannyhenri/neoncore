@@ -59,24 +59,6 @@ export function QueueScreen() {
 
   const live = agents.filter((a) => a.status !== 'offline');
 
-  async function enqueue() {
-    if (!baseUrl || !text.trim() || !target) return;
-    // POST returns the created item; a rejection is a 400 the client THROWS. Unwrapped,
-    // that throw is an unhandled rejection — a redbox on a phone rather than a message.
-    try {
-      await api.enqueueItem(baseUrl, {
-        kind: 'prompt',
-        payload: { text: text.trim() },
-        targets: [target],
-      });
-      setText('');
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'could not queue that');
-      return;
-    }
-    await load();
-  }
 
   async function cancel(id: string) {
     if (!baseUrl) return;
@@ -89,39 +71,8 @@ export function QueueScreen() {
     <View style={s.wrap}>
       {error ? <Text style={s.err}>{error}</Text> : null}
 
-      <View style={s.form}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          placeholder="prompt to queue…"
-          placeholderTextColor={theme.textDim}
-          style={s.input}
-        />
-        <FlatList
-          horizontal
-          data={live}
-          keyExtractor={(a) => a.id}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({ item: a }) => (
-            <TouchableOpacity
-              onPress={() => setTarget(a.id)}
-              style={[s.chip, target === a.id && s.chipOn]}
-            >
-              <Text style={[s.chipText, target === a.id && s.chipTextOn]}>
-                {a.name || a.id.slice(0, 8)}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
-        <TouchableOpacity
-          onPress={() => void enqueue()}
-          disabled={!text.trim() || !target}
-          style={[s.btn, (!text.trim() || !target) && s.btnOff]}
-        >
-          <Text style={s.btnText}>Queue it</Text>
-        </TouchableOpacity>
-      </View>
-
+      {/* No enqueue form. Work starts by prompting a cartridge or launching a confer or
+          workflow; the server queues it when that cartridge is busy. This screen watches. */}
       <FlatList
         data={items}
         keyExtractor={(i) => i.id}

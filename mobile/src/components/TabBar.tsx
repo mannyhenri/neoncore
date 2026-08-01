@@ -4,7 +4,7 @@ import { theme } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import { CartridgesIcon, WorkflowsIcon, ApprovalsIcon } from './Icons';
 
-export type TabName = 'list' | 'workflows' | 'queue' | 'approvals';
+export type TabName = 'list' | 'workflows' | 'queue' | 'memory' | 'approvals';
 
 type IconCmp = (p: { size?: number; color?: string; strokeWidth?: number }) => React.JSX.Element;
 
@@ -14,6 +14,9 @@ const TABS: { name: TabName; Icon: IconCmp; label: string }[] = [
   // Reuses WorkflowsIcon deliberately rather than inventing a glyph — the queue drives
   // workflows, prompts and confers, and a wrong-looking new icon reads as a different product.
   { name: 'queue', Icon: WorkflowsIcon, label: 'Queue' },
+  // Project memory is what the NEXT agent reads before it starts, so being able to correct
+  // a wrong line from a phone stops every dispatch in between inheriting it.
+  { name: 'memory', Icon: WorkflowsIcon, label: 'Memory' },
   { name: 'approvals', Icon: ApprovalsIcon, label: 'Approvals' },
 ];
 

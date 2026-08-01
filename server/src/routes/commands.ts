@@ -2,13 +2,14 @@ import { Router } from 'express';
 import db from '../db.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { forwardMessageToOwner } from '../lib/peer-forward.js';
+import { isCartridgeBusy, enqueue } from '../lib/queue-runner.js';
 import type { Command, CommandAttachmentInput } from '../types.js';
 
 const router = Router();
 
 // Send a command to an agent (from dashboard)
 router.post('/send', async (req, res) => {
-  const { agentId, text, includeMemory, attachments } = req.body;
+  const { agentId, text, includeMemory, attachments, queueIfBusy } = req.body;
 
   if (!agentId || !text) {
     return res.status(400).json({ error: 'agentId and text required' });
@@ -27,6 +28,26 @@ router.post('/send', async (req, res) => {
     ) {
       return res.status(400).json({ error: 'Each attachment needs name, size, and dataBase64' });
     }
+  }
+
+  // QUEUE INSTEAD OF INTERRUPT. A cartridge works one thing at a time, so a prompt typed while
+  // it is busy used to land on top of work in progress. Now it lines up behind it.
+  //
+  // OPT-IN, and that is load-bearing rather than cautious: this same route carries in-flight
+  // confer traffic to participants on OTHER machines (peer-forward.ts posts here). If queueing
+  // were the default, a milestone dispatch to a remote participant would be parked behind the
+  // very confer it belongs to and the session would never advance. User surfaces ask for it;
+  // system delivery does not.
+  if (queueIfBusy === true && isCartridgeBusy(agentId)) {
+    const queued = enqueue({ kind: 'prompt', payload: { text }, targets: [agentId] });
+    if (!queued.ok) return res.status(400).json({ error: queued.error });
+    return res.status(202).json({
+      queued: true,
+      item: queued.item,
+      // The caller must be able to tell "it ran" from "it is next", or the UI reports a
+      // dispatch that has not happened yet.
+      note: 'the cartridge is busy — this was added to its queue',
+    });
   }
 
   let command: Command | null;

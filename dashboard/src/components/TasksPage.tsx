@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { QueuePanel } from './QueuePanel';
 import { api } from '../lib/api';
-import type { Task, TaskStatus, Agent, Goal, Project } from '../types';
+import type { Task, TaskStatus, Agent, Goal, Project, QueueItem } from '../types';
 
 interface TasksPageProps {
   tasks: Task[];
@@ -532,7 +533,49 @@ function TaskCard({ task, agents, projects, onCancel, onOpen }: { task: Task; ag
   );
 }
 
+/**
+ * A queue item rendered as a task row. Deliberately the same visual weight as a TaskCard:
+ * a queued prompt and a task are the same thing to the person reading the list.
+ */
+function QueueRow({ item, onCancel }: { item: QueueItem; onCancel: (id: string) => void }) {
+  const tone =
+    item.status === 'failed' || item.status === 'blocked' ? 'text-red-400'
+    : item.status === 'running' ? 'text-violet-300'
+    : item.status === 'done' ? 'text-emerald-400'
+    : 'text-gray-400';
+  return (
+    <div className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400">{item.kind}</span>
+        <span className={`text-[11px] ${tone}`}>{item.status}</span>
+        <span className="text-[10px] text-gray-600 font-mono truncate">{item.lane}</span>
+        {(item.status === 'queued' || item.status === 'running') && (
+          <button
+            onClick={() => onCancel(item.id)}
+            className="ml-auto text-[10px] text-gray-500 hover:text-red-400"
+          >
+            cancel
+          </button>
+        )}
+      </div>
+      <p className="text-[13px] text-gray-300 line-clamp-2">
+        {(item.payload?.text as string) || (item.payload?.task as string) || item.kind}
+      </p>
+      {item.error && <p className="text-[11px] text-red-400/90 mt-1">{item.error}</p>}
+    </div>
+  );
+}
+
 export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, dispatchTask, completeTask }: TasksPageProps) {
+  // Queue items are shown as rows in the SAME list as tasks. They are the same thing to a user:
+  // work that is waiting, running, or finished on a cartridge.
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  useEffect(() => {
+    const load = () => api.getQueue().then((v) => setQueueItems(v.items)).catch(() => undefined);
+    void load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
   const [filter, setFilter] = useState<'all' | 'active' | TaskStatus>('active');
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -546,6 +589,26 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
       .then(([g, p]) => { setGoals(g); setProjects(p); })
       .catch(() => { /* tasks still work unpinned if goals/projects fail to load */ });
   }, []);
+
+  /**
+   * Queue items under the SAME filter as tasks, by mapping their status onto the task
+   * vocabulary. A user picking "Active" means the same thing for both, and asking them to learn
+   * two status words for one idea is the duplication we just removed at the tab level.
+   */
+  const visibleQueue = useMemo(() => {
+    const asTaskStatus = (q: QueueItem): TaskStatus =>
+      q.status === 'running' ? 'in_progress'
+      : q.status === 'done' ? 'done'
+      : q.status === 'queued' ? 'queued'
+      : q.status === 'cancelled' ? 'cancelled'
+      : 'failed'; // failed | blocked
+    const rows = [...queueItems].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    if (filter === 'all') return rows;
+    if (filter === 'active') return rows.filter((q) => ['queued', 'running'].includes(q.status));
+    return rows.filter((q) => asTaskStatus(q) === filter);
+  }, [queueItems, filter]);
 
   const filtered = useMemo(() => {
     const sorted = [...tasks].sort(
@@ -571,13 +634,16 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
             {(counts.queued || 0)} queued · {(counts.in_progress || 0) + (counts.claimed || 0)} active · {(counts.done || 0)} done
           </p>
         </div>
-        <button
-          onClick={() => setCreating(true)}
-          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-sm rounded-md transition-colors"
-        >
-          + New task
-        </button>
+        {/* No create button. Work begins by prompting a cartridge or starting a confer or
+            workflow; if that cartridge is busy the server queues it. This page is where you
+            watch it, which is the only job it has now. */}
       </div>
+
+      {/* Lanes only — and only when one has HALTED, which is the single case that needs a
+          person. Queue ITEMS are rows in the list below, because a queued prompt is a task;
+          giving it its own panel above the list was the same "two lists" complaint in a
+          smaller box. */}
+      <QueuePanel haltedOnly />
 
       <div className="flex gap-1.5 mb-4 flex-wrap">
         {FILTERS.map((f) => (
@@ -593,22 +659,20 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && visibleQueue.length === 0 ? (
         <div className="text-center py-16 border border-white/[0.06] rounded-xl bg-white/[0.02]">
           <div className="text-3xl mb-3">🗂️</div>
           <h3 className="text-sm font-medium text-gray-400 mb-1">No tasks here</h3>
-          <p className="text-[12px] text-gray-600 max-w-xs mx-auto">
-            Queue work for your agents — they'll claim and complete it via NeonCore's coordination tools.
+          <p className="text-[12px] text-gray-600 max-w-sm mx-auto">
+            Prompt a cartridge, or start a confer or workflow. Anything aimed at a busy
+            cartridge lands here and runs as soon as it is free.
           </p>
-          <button
-            onClick={() => setCreating(true)}
-            className="mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm rounded-md transition-colors"
-          >
-            Create first task
-          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {visibleQueue.map((q) => (
+            <QueueRow key={q.id} item={q} onCancel={(id) => void api.cancelQueueItem(id)} />
+          ))}
           {filtered.map((t) => (
             <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} onOpen={setSelectedId} />
           ))}

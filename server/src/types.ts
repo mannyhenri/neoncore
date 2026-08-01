@@ -369,6 +369,9 @@ export interface Project {
   name: string;
   description: string;
   primaryRepo: string;
+  /** Repos this project owns. Work done in any of them is the project's work — replaces
+   *  hanging a project_id on individual tasks, which only counted work someone tagged. */
+  cartridges?: string[];
   color: string;
   createdAt: string;
   updatedAt: string;

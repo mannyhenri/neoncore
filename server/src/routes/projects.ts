@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
+import { setProjectCartridges, getProjectCartridges } from '../lib/resolve-agent.js';
 import type { Project } from '../types.js';
 import { projectCostUsd } from '../lib/goal-cost.js';
 
@@ -10,8 +11,9 @@ function estimateTokens(inputChars: number, outputChars: number): number {
   return Math.round((inputChars + outputChars) / 4);
 }
 
-function normalizeProject(row: Record<string, unknown>, extra?: { goalName?: string; runCount?: number; tokensUsed?: number; costUsd?: number; lastRunStatus?: string | null; lastRunAt?: string | null; activeRunCount?: number }): Project {
+function normalizeProject(row: Record<string, unknown>, extra?: { cartridges?: string[]; goalName?: string; runCount?: number; tokensUsed?: number; costUsd?: number; lastRunStatus?: string | null; lastRunAt?: string | null; activeRunCount?: number }): Project {
   return {
+    cartridges: extra?.cartridges ?? [],
     id: row.id as string,
     goalId: (row.goal_id as string) || null,
     name: row.name as string,
@@ -26,6 +28,10 @@ function normalizeProject(row: Record<string, unknown>, extra?: { goalName?: str
 
 function withComputedFields(row: Record<string, unknown>): Project {
   const projectId = row.id as string;
+  // The cartridges a project owns, and the live cartridge rows behind them. Surfaced on every
+  // read so a client never has to make a second call to know what a project is made of — and
+  // so no UI is tempted to re-derive it from primary_repo, which is now only a seed.
+  const cartridges = getProjectCartridges(projectId);
 
   const goalRow = row.goal_id
     ? (db.prepare('SELECT name FROM goals WHERE id = ?').get(row.goal_id) as { name: string } | undefined)
@@ -54,6 +60,7 @@ function withComputedFields(row: Record<string, unknown>): Project {
   `).get(projectId) as { activeRunCount: number };
 
   return normalizeProject(row, {
+    cartridges,
     goalName: goalRow?.name,
     runCount,
     tokensUsed: estimateTokens(inputChars, outputChars),
@@ -86,7 +93,7 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, description, goalId, primaryRepo, color } = req.body;
+  const { name, description, goalId, primaryRepo, color, cartridges } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
 
   const id = randomUUID();
@@ -97,6 +104,14 @@ router.post('/', (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, goalId || null, name.trim(), description?.trim() || '', primaryRepo?.trim() || '', color || '#a855f7', now, now);
 
+  // Tie the cartridges at CREATION. A project without them is a name with no work attached,
+  // and asking the user to come back and link them later is how they stay unlinked. The
+  // primaryRepo field still seeds the set so older clients keep working unchanged.
+  const initial = Array.isArray(cartridges) && cartridges.length
+    ? (cartridges as string[])
+    : (primaryRepo?.trim() ? [primaryRepo.trim()] : []);
+  if (initial.length) setProjectCartridges(id, initial);
+
   const created = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Record<string, unknown>;
   res.status(201).json(withComputedFields(created));
 });
@@ -105,7 +120,7 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Project not found' });
 
-  const { name, description, goalId, primaryRepo, color } = req.body;
+  const { name, description, goalId, primaryRepo, color, cartridges } = req.body;
   const now = new Date().toISOString();
 
   db.prepare(`
@@ -120,6 +135,11 @@ router.put('/:id', (req, res) => {
     now,
     req.params.id,
   );
+
+  // Only when the caller SENDS cartridges — an absent field means "leave them alone", while an
+  // empty array means "this project owns none". Collapsing those would silently unlink every
+  // project edited by a client that does not know about cartridges yet.
+  if (Array.isArray(cartridges)) setProjectCartridges(req.params.id, cartridges as string[]);
 
   const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   res.json(withComputedFields(updated));

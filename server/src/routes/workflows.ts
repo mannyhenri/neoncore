@@ -6,6 +6,7 @@ import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, Work
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
+import { isCartridgeBusy, enqueue } from '../lib/queue-runner.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
@@ -596,6 +597,29 @@ router.post('/v2/:id/steps/:stepId/steer', (req, res) => {
 router.post('/v2/:id/start', (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
+
+  // Same rule as prompts and confers: if the cartridges this run would drive are mid-task,
+  // queue the run rather than starting it on top of work in progress. Targets are the agents
+  // already pinned to this workflow's steps — the ones it will actually dispatch to.
+  if (req.body?.queueIfBusy !== false) {
+    const pinned = (db.prepare(
+      "SELECT DISTINCT executor_id AS id FROM workflow_steps WHERE workflow_id = ? AND executor_id != '' AND executor_id != '__deferred__'"
+    ).all(req.params.id) as { id: string }[]).map((r) => r.id);
+    const busy = pinned.filter((id) => isCartridgeBusy(id));
+    if (busy.length > 0) {
+      const queued = enqueue({
+        kind: 'workflow',
+        payload: { workflowId: req.params.id, startOptions: req.body ?? {} },
+        targets: [],
+      });
+      if (!queued.ok) return res.status(400).json({ error: queued.error });
+      return res.status(202).json({
+        queued: true,
+        item: queued.item,
+        note: `${busy.length} cartridge(s) busy — the run was queued and starts when they are free`,
+      });
+    }
+  }
 
   // Shape-check the upload before anything is cloned — a malformed payload should never
   // leave a half-created run behind.

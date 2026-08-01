@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Agent, QueueItem, QueueLane, QueueKind } from '../types';
+import type { QueueItem, QueueLane } from '../types';
 import { api } from '../lib/api';
 
 /**
@@ -22,25 +22,22 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled: 'bg-white/[0.04] text-gray-500',
 };
 
-export function QueuePanel({ agents }: { agents: Agent[] }) {
+/**
+ * `haltedOnly` renders just the lanes that have STOPPED and need a person. Queue items
+ * themselves are rows in the task list — a queued prompt is a task, and giving it a second
+ * panel above the list was the duplication the user asked us to remove.
+ */
+export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [lanes, setLanes] = useState<QueueLane[]>([]);
-  // The server tells us which kinds it accepts (GET /api/queue -> kinds). Re-declaring them
-  // here would be a fourth hand-maintained copy of a registry that already ships.
-  const [kinds, setKinds] = useState<QueueKind[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  const [kind, setKind] = useState<QueueKind>('prompt');
-  const [text, setText] = useState('');
-  const [targets, setTargets] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     try {
       const view = await api.getQueue();
       setItems(view.items ?? []);
       setLanes(view.lanes ?? []);
-      setKinds(view.kinds ?? []);
       setError('');
     } catch (err) {
       // A 404 here means the SERVER PROCESS predates the queue — the SPA catch-all returns
@@ -66,16 +63,8 @@ export function QueuePanel({ agents }: { agents: Agent[] }) {
     } finally { setBusy(false); }
   }
 
-  async function submit() {
-    if (!text.trim() || targets.length === 0) return;
-    const payload = kind === 'prompt' ? { text: text.trim() } : { repoPath: text.trim() };
-    // POST returns the created item (201). A rejection is a 400, which the client throws —
-    // so failure arrives as an exception and is caught by run(), not as a field on the
-    // response. Branching on `res.ok` here reported "rejected" on every success.
-    await api.enqueueItem({ kind, payload, targets });
-    setText('');
-    setError('');
-  }
+  const anyHalted = lanes.some((l) => l.paused || l.haltedReason);
+  if (haltedOnly && !anyHalted) return null;
 
   const laneOf = (name: string) => lanes.find((l) => l.lane === name);
   const byLane = items.reduce<Record<string, QueueItem[]>>((acc, i) => {
@@ -101,40 +90,10 @@ export function QueuePanel({ agents }: { agents: Agent[] }) {
 
       {error && <p className="text-[11px] text-red-400 mb-2">{error}</p>}
 
-      {/* Enqueue */}
-      <div className="flex flex-wrap gap-2 items-center mb-4">
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as QueueKind)}
-          className="bg-white/[0.06] text-xs text-gray-200 rounded px-2 py-1 border border-white/10"
-        >
-          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={kind === 'prompt' ? 'prompt text…' : 'repo path…'}
-          className="flex-1 min-w-[14rem] bg-white/[0.06] text-xs text-gray-200 rounded px-2 py-1 border border-white/10"
-        />
-        <select
-          multiple
-          value={targets}
-          onChange={(e) => setTargets([...e.target.selectedOptions].map((o) => o.value))}
-          className="bg-white/[0.06] text-xs text-gray-200 rounded px-2 py-1 border border-white/10 min-w-[10rem]"
-        >
-          {agents.filter((a) => a.status !== 'offline').map((a) => (
-            <option key={a.id} value={a.id}>{a.name || a.id.slice(0, 8)}</option>
-          ))}
-        </select>
-        <button
-          onClick={() => void run(submit)}
-          disabled={busy || !text.trim() || targets.length === 0}
-          className="px-3 py-1 text-xs rounded bg-violet-900/60 text-violet-200 hover:bg-violet-900 disabled:opacity-40"
-        >
-          Queue it
-        </button>
-      </div>
-
+      {/* NO ENQUEUE FORM, deliberately. Work starts the way it always has — prompt a
+          cartridge, start a confer, start a workflow — and the server queues it when that
+          cartridge is busy (routes/commands.ts, confer.ts, workflows.ts). A second form here
+          would be a second way to do the same thing, in the wrong place. This panel WATCHES. */}
       {items.length === 0 && <p className="text-[11px] text-gray-500">Nothing queued.</p>}
 
       {/* One block per lane — the lane IS the unit of serial execution, and the unit that halts */}

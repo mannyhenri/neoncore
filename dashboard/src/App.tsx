@@ -7,7 +7,6 @@ import { MachineLauncher } from './components/MachineLauncher';
 import { NewRepoModal } from './components/NewRepoModal';
 import { ConferModal } from './components/ConferModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
-import { QueuePanel } from './components/QueuePanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsPage } from './components/GoalsPage';
 import { TasksPage } from './components/TasksPage';
@@ -65,7 +64,7 @@ export default function App() {
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
-  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks' | 'queue'>('agents');
+  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [conferOpen, setConferOpen] = useState(false);
@@ -127,15 +126,6 @@ export default function App() {
               <button
                 onClick={() => setActiveView('tasks')}
                 className={`px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5 ${activeView === 'tasks' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-              >
-                Tasks
-                {activeTaskCount > 0 && (
-                  <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveView('queue')}
-                className={`px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5 ${activeView === 'queue' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
               >
                 Tasks
                 {activeTaskCount > 0 && (
@@ -213,10 +203,13 @@ export default function App() {
       <main className="p-3 md:p-6 space-y-4 md:space-y-6">
         {activeView === 'goals' ? (
           <GoalsPage />
-        ) : activeView === 'queue' ? (
-          <QueuePanel agents={agents} />
         ) : activeView === 'tasks' ? (
-          <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
+          <>
+            {/* ONE place for everything a cartridge will work through. "What is queued" and
+                "what is running" are the same question, and splitting them across two tabs
+                made the user ask why there were two Tasks sections — they were right. */}
+            <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
+          </>
         ) : (
         <>
         {/* Workflow Panel */}

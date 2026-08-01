@@ -307,7 +307,7 @@ function GoalForm({ initial, onSave, onCancel }: GoalFormProps) {
 interface ProjectFormProps {
   goals: Goal[];
   initial?: Partial<Project>;
-  onSave: (data: { name: string; description: string; goalId: string | null; primaryRepo: string; color: string }) => void;
+  onSave: (data: { name: string; description: string; goalId: string | null; primaryRepo: string; color: string; cartridges: string[] }) => void;
   onCancel: () => void;
 }
 
@@ -317,6 +317,20 @@ function ProjectForm({ goals, initial, onSave, onCancel }: ProjectFormProps) {
   const [goalId, setGoalId] = useState<string | null>(initial?.goalId || null);
   const [primaryRepo, setPrimaryRepo] = useState(initial?.primaryRepo || '');
   const [color, setColor] = useState(initial?.color || '#a855f7');
+  // The cartridges this project owns. Seeded from primaryRepo for a project created before
+  // projects had a set, so editing an old project does not silently unlink it.
+  const [cartridges, setCartridges] = useState<string[]>(
+    initial?.cartridges?.length ? initial.cartridges : (initial?.primaryRepo ? [initial.primaryRepo] : []),
+  );
+  // Every repo a cartridge has ever registered in — the real candidates, deduped.
+  const [known, setKnown] = useState<string[]>([]);
+  useEffect(() => {
+    api.getAgents()
+      .then((as) => setKnown([...new Set(as.map((a) => a.repoPath).filter(Boolean))].sort()))
+      .catch(() => setKnown([]));
+  }, []);
+  const toggle = (repo: string) =>
+    setCartridges((prev) => (prev.includes(repo) ? prev.filter((r) => r !== repo) : [...prev, repo]));
 
   return (
     <div className="space-y-3">
@@ -358,6 +372,35 @@ function ProjectForm({ goals, initial, onSave, onCancel }: ProjectFormProps) {
         <FolderPicker value={primaryRepo} onChange={setPrimaryRepo} />
       </div>
       <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+          Cartridges — every repo whose work belongs to this project
+        </label>
+        {known.length === 0 ? (
+          <p className="text-[11px] text-gray-600">No cartridges have registered yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+            {known.map((repo) => (
+              <button
+                key={repo}
+                onClick={() => toggle(repo)}
+                title={repo}
+                className={`px-2 py-1 text-[11px] rounded transition-colors ${
+                  cartridges.includes(repo)
+                    ? 'bg-violet-900/60 text-violet-200'
+                    : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {repo.split('/').pop()}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="text-[10px] text-gray-600 mt-1">
+          Anything these cartridges do — prompts, confers, workflow runs — counts as this
+          project's work. Nothing needs tagging.
+        </p>
+      </div>
+      <div>
         <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Color</label>
         <div className="flex gap-2 flex-wrap">
           {PROJECT_COLORS.map((c) => (
@@ -372,7 +415,7 @@ function ProjectForm({ goals, initial, onSave, onCancel }: ProjectFormProps) {
       </div>
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave({ name: name.trim(), description: description.trim(), goalId, primaryRepo: primaryRepo.trim(), color })}
+          onClick={() => onSave({ name: name.trim(), description: description.trim(), goalId, primaryRepo: primaryRepo.trim(), color, cartridges })}
           disabled={!name.trim()}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
         >
