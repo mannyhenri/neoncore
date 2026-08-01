@@ -1,4 +1,15 @@
 import type { Agent, AgentMode, ConferSession, Machine, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
+/**
+ * Queue types come from the SHARED package, not a local copy.
+ *
+ * mobile was not a workspace member until now, so `@neoncore/client` was unresolvable here
+ * and this app hand-copied the server's types with a comment asking a human to keep them in
+ * sync. Nobody does: mobile still declared six engines a day after the removal landed.
+ * Importing is the mechanism that makes drift impossible rather than merely discouraged.
+ */
+import type { QueueItem, QueueKind, QueueLane, QueueView } from '@neoncore/client';
+
+export type { QueueItem, QueueKind, QueueLane, QueueView };
 
 /**
  * Fleet tokens, keyed by base URL.
@@ -268,4 +279,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ id, decision, response }),
     }),
+
+  // Queue — view, enqueue and cancel. Pausing a lane is desk work and stays on the portal.
+  getQueue: (base: string) => req<QueueView>(base, '/api/queue'),
+  enqueueItem: (
+    base: string,
+    input: { kind: QueueKind; payload: Record<string, unknown>; targets?: string[]; lane?: string },
+  ) =>
+    req<{ ok: boolean; item?: QueueItem; error?: string }>(base, '/api/queue', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  cancelQueueItem: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}`, { method: 'DELETE' }),
 };

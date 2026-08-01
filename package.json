@@ -6,7 +6,8 @@
   "workspaces": [
     "server",
     "dashboard",
-    "packages/*"
+    "packages/*",
+    "mobile"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=server & npm run dev --workspace=dashboard",

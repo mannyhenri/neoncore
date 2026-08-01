@@ -83,6 +83,26 @@ export function createClient(config: ClientConfig = {}) {
   removePeer: (url: string) =>
     request<{ ok: boolean }>('/peers', { method: 'DELETE', body: JSON.stringify({ url }) }),
 
+  // Queue — request() prefixes /api, so these paths are the /api/queue* routes.
+  getQueue: () => request<import('./types').QueueView>('/queue'),
+  enqueueItem: (input: {
+    kind: import('./types').QueueKind;
+    payload: Record<string, unknown>;
+    targets?: string[];
+    lane?: string;
+    // Returns the CREATED ITEM, because that is what POST /api/queue sends (201 + the item).
+    // It previously declared an { ok, item, error } envelope the server never sends, so
+    // `!res.ok` was true on every success and every accepted enqueue reported "rejected".
+    // A rejection is a 400, which request() throws — so failure arrives as an exception,
+    // not as a field.
+  }) => request<import('./types').QueueItem>('/queue', { method: 'POST', body: JSON.stringify(input) }),
+  cancelQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}`, { method: 'DELETE' }),
+  pauseQueueLane: (lane: string) =>
+    request<{ ok: boolean }>(`/queue/lanes/${encodeURIComponent(lane)}/pause`, { method: 'POST' }),
+  resumeQueueLane: (lane: string) =>
+    request<{ ok: boolean }>(`/queue/lanes/${encodeURIComponent(lane)}/resume`, { method: 'POST' }),
+  tickQueue: () => request<{ ok: boolean }>('/queue/tick', { method: 'POST' }),
+
   // Agents
   getAgents: () => request<import('./types').Agent[]>('/agents'),
   deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
