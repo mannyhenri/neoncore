@@ -35,6 +35,15 @@ import { installStubIO } from './helpers/stub-io.js';
 const io = installStubIO();
 
 const now = () => Date.now();
+
+/** Poll until `cond` holds or the budget expires — deterministic where a fixed sleep is not. */
+async function waitFor(cond: () => boolean, budgetMs = 2000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
 const item = (id: string) => listQueue().find((i) => i.id === id)!;
 
 function makeAgent(id: string, status = 'working'): string {
@@ -271,9 +280,12 @@ test('ATTACK: a READ-ONLY prompt must still be able to complete — most queued 
   const a = makeAgent('adv-readonly');
   const it = mustEnqueue({ kind: 'prompt', payload: { text: 'research X and tell me what you find' }, targets: [a] });
   tickQueue(now());
-  // tickQueue is synchronous but startItem awaits dispatch, so arming lands after this
-  // turn of the loop. Asserting immediately reads state before the await resolves.
-  await new Promise((r) => setTimeout(r, 200));
+  // tickQueue is synchronous but startItem awaits dispatch, so arming lands after this turn
+  // of the loop. POLL for it rather than sleeping a fixed 200ms: a fixed sleep passed alone
+  // and flaked once under full-suite load, which is a race the test invents, not one the
+  // queue has.
+  await waitFor(() => (db.prepare('SELECT standard_armed FROM agents WHERE id = ?')
+    .get(a) as { standard_armed: number } | undefined)?.standard_armed === 1);
   const armed = db.prepare('SELECT standard_armed, active_queue_item_id FROM agents WHERE id = ?')
     .get(a) as { standard_armed: number; active_queue_item_id: string };
   assert.equal(armed.active_queue_item_id, it.id, 'queue dispatch did not stamp the agent');
