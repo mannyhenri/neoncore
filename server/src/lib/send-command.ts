@@ -20,7 +20,7 @@ import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch
  * Type a command directly into the frontmost terminal via AppleScript (macOS only).
  * Tries iTerm2 first, then Terminal.app. Returns true if delivery succeeded.
  *
- * Used for CLI agents that have no WebSocket relay (gemini/codex/amazonq), and as a
+ * Used for CLI agents that have no WebSocket relay (codex), and as a
  * fallback for `claude` agents running in a bare terminal with no VS Code extension
  * connected to receive the command_send socket event.
  */

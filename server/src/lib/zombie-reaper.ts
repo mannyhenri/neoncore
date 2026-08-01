@@ -18,7 +18,7 @@
  * is why the threshold was raised from 5 minutes.
  *
  * But that reasoning does not transfer. Only `agent/hooks/reporter.py` posts session-end.
- * The codex, gemini, amazonq and cursor reporters have no such path at all, because those
+ * The codex reporter has no such path at all, because that
  * CLIs have no SessionEnd-equivalent hook to attach one to. For them, silence is the ONLY
  * signal that will ever arrive. Giving them 24h does not protect a live session — it just
  * guarantees a full day of ghost cartridges for sessions that ended the moment you pressed

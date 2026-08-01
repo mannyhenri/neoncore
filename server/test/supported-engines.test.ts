@@ -22,7 +22,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.join(import.meta.dirname, '..', '..');
-const REMOVED = ['gemini', 'amazonq', 'cursor'] as const;
+/**
+ * Removed engines, and how safely each NAME can be matched.
+ *
+ * `cursor` is a CSS property AND an ordinary English word ("cursor is on the first line"), so
+ * bare-identifier matching floods with prose. `gemini` and `amazonq` are distinctive, and
+ * matching them bare is what catches an unquoted object key. Encoding the ambiguity per engine
+ * beats one matcher that is either too narrow for two of them or too loud for the third.
+ */
+const REMOVED = [
+  { id: 'gemini', bareSafe: true },
+  { id: 'amazonq', bareSafe: true },
+  { id: 'cursor', bareSafe: false },
+] as const;
 const SUPPORTED = ['claude', 'codex', 'gridlight'] as const;
 
 /** Source trees that ship. Tests and build output are excluded on purpose: this file names the
@@ -34,6 +46,11 @@ const SURFACES = [
   'agent/hooks',
   'agent/relay',
   'mcp',
+  // extension/ and mobile/ ship too, and omitting them is how this guard passed 8/8 while
+  // BOTH still declared the full six-engine union — extension.ts:29 and mobile/types.ts:5.
+  // A scan that excludes a shipping surface is a green number pointed at the wrong scope.
+  'extension/src',
+  'mobile/src',
 ];
 
 function walk(dir: string): string[] {
@@ -51,15 +68,20 @@ test('the shipped surfaces are non-empty — an empty scan would pass vacuously'
   assert.ok(FILES.length > 50, `expected to scan the real tree, found ${FILES.length} files`);
 });
 
-for (const engine of REMOVED) {
+for (const { id: engine, bareSafe } of REMOVED) {
   test(`'${engine}' appears nowhere as an engine value in shipped code`, () => {
     const hits: string[] = [];
     for (const file of FILES) {
       const lines = fs.readFileSync(file, 'utf8').split('\n');
       lines.forEach((line, i) => {
-        // Quoted value only — `cursor-pointer` and `cursor: 'grab'` are CSS, not engines.
-        if (!new RegExp(`['"\`]${engine}['"\`]`).test(line)) return;
-        if (/cursor-(pointer|not|default|grab|text|move|help|wait)/.test(line)) return;
+        // Quoted VALUE or bare IDENTIFIER/KEY. Matching only quoted values passed 9/9 while
+        // SettingsModal.tsx still carried `gemini: {...}` and `amazonq: {...}` as unquoted object
+        // keys — a dead engine fully wired into the settings UI, invisible to the guard meant to
+        // find exactly that. A matcher narrower than the thing it guards is its own dead drop.
+        const quoted = new RegExp(`['"\`]${engine}['"\`]`).test(line);
+        const bare = bareSafe
+          && new RegExp(`(^|[^a-zA-Z0-9'"\`_-])${engine}([^a-zA-Z0-9'"\`_-]|$)`).test(line);
+        if (!quoted && !bare) return;
         hits.push(`${path.relative(ROOT, file)}:${i + 1}: ${line.trim().slice(0, 90)}`);
       });
     }
@@ -93,6 +115,6 @@ test('TranscriptEngine carries no removed engine either', () => {
   const src = fs.readFileSync(path.join(ROOT, 'server/src/types.ts'), 'utf8');
   const line = src.split('\n').find((l) => l.includes('export type TranscriptEngine')) ?? '';
   const listed = [...line.matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-  const strays = listed.filter((e) => (REMOVED as readonly string[]).includes(e));
+  const strays = listed.filter((e) => REMOVED.some((r) => r.id === e));
   assert.deepEqual(strays, [], `TranscriptEngine still lists ${strays.join(', ')}`);
 });
