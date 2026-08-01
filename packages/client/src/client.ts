@@ -97,6 +97,9 @@ export function createClient(config: ClientConfig = {}) {
     // not as a field.
   }) => request<import('./types').QueueItem>('/queue', { method: 'POST', body: JSON.stringify(input) }),
   cancelQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}`, { method: 'DELETE' }),
+  /** Put a failed or cancelled item back. The server clears the attempt/stall counters and the
+   *  lane halt it caused — a status reset alone would leave it queued and unable to run. */
+  retryQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/retry`, { method: 'POST' }),
   pauseQueueLane: (lane: string) =>
     request<{ ok: boolean }>(`/queue/lanes/${encodeURIComponent(lane)}/pause`, { method: 'POST' }),
   resumeQueueLane: (lane: string) =>

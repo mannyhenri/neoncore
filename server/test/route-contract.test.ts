@@ -118,7 +118,7 @@ test('the call table covers every queue route the server mounts', () => {
   // passing while a new route goes unchecked — a green number pointed at a shrinking scope.
   const routeSrc = fs.readFileSync(path.join(ROOT, 'server/src/routes/queue.ts'), 'utf8');
   const mounted = [...routeSrc.matchAll(/^router\.(get|post|delete|put)\(/gm)].length;
-  const covered = CALLS.length + 1; // + DELETE /:id, driven separately below
+  const covered = CALLS.length + 2; // + DELETE /:id and POST /:id/retry, driven separately below
   assert.equal(covered, mounted,
     `the server mounts ${mounted} queue routes but this table drives ${covered} — add the missing one`);
 });
@@ -159,6 +159,21 @@ test('DELETE /api/queue/:id: the client\'s declared response matches the REAL bo
 
   const invented = declaredFields('cancelQueueItem').filter((f) => !Object.keys(body).includes(f));
   assert.deepEqual(invented, [], `cancelQueueItem declares field(s) the server never sends: ${invented.join(', ')}`);
+});
+
+test('POST /api/queue/:id/retry: the client\'s declared response matches the REAL body', async () => {
+  const created = await fetch(BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'prompt', payload: { text: 'to retry' }, targets: [AGENT] }),
+  });
+  const made = (await created.json()) as { id?: string };
+  await fetch(`${BASE}/${made.id}`, { method: 'DELETE' }); // cancel it so it becomes retryable
+  const res = await fetch(`${BASE}/${made.id}/retry`, { method: 'POST' });
+  assert.ok(res.ok, `retry returned HTTP ${res.status}`);
+  const body = (await res.json()) as Record<string, unknown>;
+  const invented = declaredFields('retryQueueItem').filter((f) => !Object.keys(body).includes(f));
+  assert.deepEqual(invented, [], `retryQueueItem declares field(s) the server never sends: ${invented.join(', ')}`);
 });
 
 /**

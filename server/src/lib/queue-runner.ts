@@ -125,21 +125,58 @@ function laneState(lane: string): { paused: boolean; haltedReason: string } {
 
 /** Stop a lane WITH a reason. Other lanes keep draining — a problem in one cartridge is never a
  *  reason to stop the machine. */
-export function haltLane(lane: string, reason: string): void {
+export function haltLane(lane: string, reason: string, haltedBy = ''): void {
   db.prepare(`
-    INSERT INTO queue_lanes (lane, paused, halted_reason) VALUES (?, 1, ?)
-    ON CONFLICT(lane) DO UPDATE SET paused = 1, halted_reason = excluded.halted_reason
-  `).run(lane, reason);
+    INSERT INTO queue_lanes (lane, paused, halted_reason, halted_by) VALUES (?, 1, ?, ?)
+    ON CONFLICT(lane) DO UPDATE SET paused = 1, halted_reason = excluded.halted_reason,
+                                    halted_by = excluded.halted_by
+  `).run(lane, reason, haltedBy);
   console.warn(`[queue] lane ${lane} HALTED: ${reason}`);
 }
 
 export function resumeLane(lane: string): void {
   db.prepare(`
-    INSERT INTO queue_lanes (lane, paused, halted_reason) VALUES (?, 0, '')
-    ON CONFLICT(lane) DO UPDATE SET paused = 0, halted_reason = ''
+    INSERT INTO queue_lanes (lane, paused, halted_reason, halted_by) VALUES (?, 0, '', '')
+    ON CONFLICT(lane) DO UPDATE SET paused = 0, halted_reason = '', halted_by = ''
   `).run(lane);
   db.prepare("UPDATE queue_items SET attempts = 0, stall_ticks = 0 WHERE lane = ? AND status = 'queued'").run(lane);
   emit();
+}
+
+/**
+ * Put a finished-but-unsuccessful item back in its lane.
+ *
+ * Retry is not "clear the error". Four separate pieces of state independently prevent an item
+ * from running again — the terminal status, the attempt counter (which would halt the lane
+ * after one more failure), the stall counter, and the lane halt the failure caused. Clearing
+ * three of them yields an item that sits in the queue looking healthy and never runs, which is
+ * strictly worse than a visible failure.
+ *
+ * started_at is cleared too, or the 6h ceiling would measure from the ORIGINAL start and a
+ * retried item could time out immediately.
+ *
+ * The lane is resumed ONLY if it was halted by THIS item. A lane stopped by something else —
+ * or by a human — stays stopped, otherwise retrying one item silently restarts work somebody
+ * deliberately paused.
+ */
+export function retryItem(id: string): boolean {
+  const row = db.prepare('SELECT id, lane, status FROM queue_items WHERE id = ?').get(id) as
+    { id: string; lane: string; status: QueueStatus } | undefined;
+  if (!row) return false;
+  // Only terminal states. Retrying a running item would double-dispatch it.
+  if (!['failed', 'cancelled'].includes(row.status)) return false;
+
+  db.prepare(`UPDATE queue_items
+              SET status = 'queued', attempts = 0, stall_ticks = 0, error = '',
+                  started_at = NULL, finished_at = NULL
+              WHERE id = ?`).run(id);
+
+  const lane = db.prepare('SELECT paused, halted_by FROM queue_lanes WHERE lane = ?')
+    .get(row.lane) as { paused: number; halted_by: string } | undefined;
+  if (lane?.paused && lane.halted_by === id) resumeLane(row.lane);
+
+  emit();
+  return true;
 }
 
 export function cancelItem(id: string): boolean {
@@ -249,7 +286,7 @@ function tickLane(lane: string, now: number): void {
   // block the lane on a row nobody can fix without seeing it.
   if (next.corrupt) {
     finish(next, 'failed', 'unreadable queue row — payload or targets is not valid JSON');
-    haltLane(lane, `item ${next.id.slice(0, 8)} is corrupt`);
+    haltLane(lane, `item ${next.id.slice(0, 8)} is corrupt`, next.id);
     return;
   }
 
@@ -266,7 +303,7 @@ function settleRunning(item: QueueItem, lane: string, now: number): 'wait' | 'ad
   const started = item.startedAt ? Date.parse(item.startedAt) : now;
   if (now - started > ITEM_CEILING_MS) {
     finish(item, 'failed', `exceeded the ${Math.round(ITEM_CEILING_MS / 3600000)}h ceiling with no completion signal`);
-    haltLane(lane, `item ${item.id.slice(0, 8)} timed out`);
+    haltLane(lane, `item ${item.id.slice(0, 8)} timed out`, item.id);
     return 'wait';
   }
 
@@ -280,7 +317,7 @@ function settleRunning(item: QueueItem, lane: string, now: number): 'wait' | 'ad
     db.prepare('UPDATE queue_items SET stall_ticks = ? WHERE id = ?').run(ticks, item.id);
     if (ticks >= MAX_STALL_TICKS) {
       finish(item, 'failed', `target unreachable for ${ticks} ticks: ${unreachable.join(', ')}`);
-      haltLane(lane, `a target of ${item.id.slice(0, 8)} stayed offline`);
+      haltLane(lane, `a target of ${item.id.slice(0, 8)} stayed offline`, item.id);
     }
     return 'wait';
   }
@@ -293,14 +330,14 @@ function settleRunning(item: QueueItem, lane: string, now: number): 'wait' | 'ad
     // A throwing detector is "cannot tell", which halts. It must never read as complete, and it
     // must not take the tick down with it.
     finish(item, 'failed', `detector threw: ${err instanceof Error ? err.message : String(err)}`);
-    haltLane(lane, `detector for ${item.kind} threw`);
+    haltLane(lane, `detector for ${item.kind} threw`, item.id);
     return 'wait';
   }
 
   if (verdict.state === 'running') return 'wait';
   if (verdict.state === 'needs_attention') {
     finish(item, 'failed', verdict.reason);
-    haltLane(lane, verdict.reason);
+    haltLane(lane, verdict.reason, item.id);
     return 'wait';
   }
   finish(item, 'done', verdict.reason);
@@ -358,7 +395,7 @@ async function startItem(item: QueueItem): Promise<void> {
     // and completes nothing.
     db.prepare('UPDATE queue_items SET attempts = ? WHERE id = ?').run(attempts, item.id);
     finish(item, 'failed', `dispatch failed ${attempts}x: ${reason}`);
-    haltLane(item.lane, `dispatch failed ${attempts}x: ${reason}`);
+    haltLane(item.lane, `dispatch failed ${attempts}x: ${reason}`, item.id);
   }
 }
 
@@ -386,7 +423,7 @@ export function reconcileQueue(): void {
     });
     finish(item, 'failed', 'server restarted while this prompt was running — its completion could not be observed');
     if (stillWorking.length) {
-      haltLane(item.lane, `restarted while ${stillWorking.join(', ')} was still working — may still be mid-prompt`);
+      haltLane(item.lane, `restarted while ${stillWorking.join(', ')} was still working — may still be mid-prompt`, item.id);
     } else {
       console.log(`[queue] reconcile: lane ${item.lane} continues — no target was still working`);
     }

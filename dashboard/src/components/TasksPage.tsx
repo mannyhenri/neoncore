@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QueuePanel } from './QueuePanel';
 import { api } from '../lib/api';
 import type { Task, TaskStatus, Agent, Goal, Project, QueueItem } from '../types';
@@ -537,31 +537,70 @@ function TaskCard({ task, agents, projects, onCancel, onOpen }: { task: Task; ag
  * A queue item rendered as a task row. Deliberately the same visual weight as a TaskCard:
  * a queued prompt and a task are the same thing to the person reading the list.
  */
-function QueueRow({ item, onCancel }: { item: QueueItem; onCancel: (id: string) => void }) {
+function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void }) {
+  // Collapsed by default, expandable in place. The row has to stay scannable in a list, but the
+  // whole request must be reachable without opening the database — which is where it lived
+  // before this.
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
   const tone =
     item.status === 'failed' || item.status === 'blocked' ? 'text-red-400'
     : item.status === 'running' ? 'text-violet-300'
     : item.status === 'done' ? 'text-emerald-400'
     : 'text-gray-400';
+
+  const full =
+    (item.payload?.text as string)
+    || (item.payload?.task as string)
+    || (item.payload?.workflowId as string)
+    || item.kind;
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try { await fn(); onChanged(); } finally { setBusy(false); }
+  };
+
+  const retryable = item.status === 'failed' || item.status === 'cancelled';
+
   return (
     <div className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400">{item.kind}</span>
         <span className={`text-[11px] ${tone}`}>{item.status}</span>
         <span className="text-[10px] text-gray-600 font-mono truncate">{item.lane}</span>
-        {(item.status === 'queued' || item.status === 'running') && (
-          <button
-            onClick={() => onCancel(item.id)}
-            className="ml-auto text-[10px] text-gray-500 hover:text-red-400"
-          >
-            cancel
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {retryable && (
+            <button
+              onClick={() => void act(() => api.retryQueueItem(item.id))}
+              disabled={busy}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-200 hover:bg-violet-900 disabled:opacity-40"
+            >
+              retry
+            </button>
+          )}
+          {(item.status === 'queued' || item.status === 'running') && (
+            <button
+              onClick={() => void act(() => api.cancelQueueItem(item.id))}
+              disabled={busy}
+              className="text-[10px] text-gray-500 hover:text-red-400 disabled:opacity-40"
+            >
+              cancel
+            </button>
+          )}
+        </div>
       </div>
-      <p className="text-[13px] text-gray-300 line-clamp-2">
-        {(item.payload?.text as string) || (item.payload?.task as string) || item.kind}
-      </p>
-      {item.error && <p className="text-[11px] text-red-400/90 mt-1">{item.error}</p>}
+
+      <button onClick={() => setOpen((v) => !v)} className="text-left w-full">
+        <p className={`text-[13px] text-gray-300 whitespace-pre-wrap ${open ? '' : 'line-clamp-2'}`}>{full}</p>
+        {full.length > 120 && (
+          <span className="text-[10px] text-gray-600 hover:text-gray-400">
+            {open ? 'show less' : 'show the whole request'}
+          </span>
+        )}
+      </button>
+
+      {item.error && <p className="text-[11px] text-red-400/90 mt-1 whitespace-pre-wrap">{item.error}</p>}
     </div>
   );
 }
@@ -570,9 +609,12 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
   // Queue items are shown as rows in the SAME list as tasks. They are the same thing to a user:
   // work that is waiting, running, or finished on a cartridge.
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const refreshQueue = useCallback(() => {
+    void api.getQueue().then((v) => setQueueItems(v.items)).catch(() => undefined);
+  }, []);
   useEffect(() => {
-    const load = () => api.getQueue().then((v) => setQueueItems(v.items)).catch(() => undefined);
-    void load();
+    const load = refreshQueue;
+    load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, []);
@@ -671,7 +713,7 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {visibleQueue.map((q) => (
-            <QueueRow key={q.id} item={q} onCancel={(id) => void api.cancelQueueItem(id)} />
+            <QueueRow key={q.id} item={q} onChanged={refreshQueue} />
           ))}
           {filtered.map((t) => (
             <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} onOpen={setSelectedId} />

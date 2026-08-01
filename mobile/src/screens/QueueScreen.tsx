@@ -34,6 +34,7 @@ export function QueueScreen() {
   const [lanes, setLanes] = useState<QueueLane[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [text, setText] = useState('');
   const [target, setTarget] = useState('');
 
@@ -65,6 +66,11 @@ export function QueueScreen() {
     try { await api.cancelQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
   }
 
+  /** Put a failed item back. The server clears the counters and the lane halt it caused. */
+  async function retry(id: string) {
+    try { await api.retryQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
+  }
+
   if (loading) return <ActivityIndicator style={s.pad} color={theme.accent} />;
 
   return (
@@ -90,9 +96,13 @@ export function QueueScreen() {
                 <Text style={s.kind}>{item.kind}</Text>
                 {halted ? <Text style={s.halted}>LANE HALTED</Text> : null}
               </View>
-              <Text style={s.body} numberOfLines={2}>
-                {String(item.payload?.text ?? item.payload?.repoPath ?? item.id.slice(0, 8))}
-              </Text>
+              {/* Tap to read the whole request. Two clipped lines is fine for scanning a list
+                  and useless when you need to know what was actually asked. */}
+              <TouchableOpacity onPress={() => setExpanded((p) => ({ ...p, [item.id]: !p[item.id] }))}>
+                <Text style={s.body} numberOfLines={expanded[item.id] ? undefined : 2}>
+                  {String(item.payload?.text ?? item.payload?.task ?? item.payload?.repoPath ?? item.id.slice(0, 8))}
+                </Text>
+              </TouchableOpacity>
               <Text style={s.lane}>{item.lane}</Text>
               {/* WHY it stopped — without this a halt is indistinguishable from a bug */}
               {lane?.haltedReason ? <Text style={s.reason}>{lane.haltedReason}</Text> : null}
@@ -100,6 +110,11 @@ export function QueueScreen() {
               {(item.status === 'queued' || item.status === 'running') && (
                 <TouchableOpacity onPress={() => void cancel(item.id)}>
                   <Text style={s.cancel}>cancel</Text>
+                </TouchableOpacity>
+              )}
+              {(item.status === 'failed' || item.status === 'cancelled') && (
+                <TouchableOpacity onPress={() => void retry(item.id)}>
+                  <Text style={[s.cancel, { color: theme.accent }]}>retry</Text>
                 </TouchableOpacity>
               )}
             </View>

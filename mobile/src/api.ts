@@ -295,6 +295,8 @@ export const api = {
     }),
   cancelQueueItem: (base: string, id: string) =>
     req<{ ok: boolean }>(base, `/api/queue/${id}`, { method: 'DELETE' }),
+  retryQueueItem: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}/retry`, { method: 'POST' }),
 
   // ── Project memory ────────────────────────────────────────────────────────
   // The same four knowledge files and the same note CRUD the web panel offers, so a fix
