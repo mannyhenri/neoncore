@@ -93,6 +93,10 @@ const INTERNAL_AGENT_COLUMNS: Record<string, string> = {
   standard_armed: 'work-standard internals; standard_state is the surfaced rollup',
   standard_blocks: 'work-standard internals; standard_state is the surfaced rollup',
   standard_offered: 'work-standard internals; standard_state is the surfaced rollup',
+  active_queue_item_id:
+    'the queue binding stamp — read by queue-kinds.recordQueueCompletion to bind a completion ' +
+    'report to the item that caused it, never by a client. Revisit when a queue UI needs to show ' +
+    'which item a cartridge is on.',
 };
 
 const CASES = [
@@ -145,8 +149,11 @@ test('the API actually returns routingNote — not just a serializer that mentio
   const app = express();
   app.use(express.json());
   const server = http.createServer(app);
-  // The routes emit socket events on mutation; a real io instance keeps that from throwing.
-  (await import('../src/ws.js')).initWebSocket(server);
+  // The routes emit on mutation, so io must exist — but a RECORDING STUB, not a real Socket.IO
+  // Server. A test must not be able to emit to anything a human is reading, and constructing a
+  // real server from a test sets the same module-global that production reads. The HTTP round
+  // trip below is the point of this test and is unaffected.
+  (await import('./helpers/stub-io.js')).installStubIO();
   app.use('/api/workflows', (await import('../src/routes/workflows.js')).default);
 
   const now = new Date().toISOString();

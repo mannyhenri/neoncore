@@ -439,6 +439,8 @@ export type ServerToClientEvents = {
   permission_requested: (request: PermissionRequest) => void;
   permission_decided: (request: PermissionRequest) => void;
   command_send: (command: Command) => void;
+  /** The queue changed — an item enqueued, started, finished, or a lane halted. */
+  queue_updated: (items: unknown[]) => void;
   agent_stuck: (alert: StuckAlert) => void;
   agent_unstuck: (data: { agentId: string }) => void;
   memory_updated: (data: { agentId: string }) => void;

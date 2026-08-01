@@ -18,6 +18,8 @@ import reposRouter from './routes/repos.js';
 import githubRouter from './routes/github.js';
 import conferRouter from './routes/confer.js';
 import { startConferConductor } from './lib/confer-conductor.js';
+import queueRouter from './routes/queue.js';
+import { startQueueRunner } from './lib/queue-runner.js';
 import gitRouter from './routes/git.js';
 import epicsRouter from './routes/epics.js';
 import workflowsRouter from './routes/workflows.js';
@@ -85,6 +87,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/repos', reposRouter);
 app.use('/api/github', githubRouter);
 app.use('/api/confer', conferRouter);
+app.use('/api/queue', queueRouter);
 app.use('/api/git', gitRouter);
 app.use('/api/epics', epicsRouter);
 app.use('/api/workflows', workflowsRouter);
@@ -266,6 +269,7 @@ startCleanupScheduler();
 startWorkflowExecutorV2();
 startHeartbeatScheduler();
 startConferConductor();
+  startQueueRunner();
 startPeerScheduler();
 
 // Graceful shutdown — stop the schedulers that own intervals.

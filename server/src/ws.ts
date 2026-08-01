@@ -263,6 +263,19 @@ export function dispatchScanToMachine(machineId: string, root: string): boolean 
   return true;
 }
 
+/**
+ * TEST ONLY — install a stand-in for the socket server.
+ *
+ * A test suite must not be able to emit to anything a human is reading. Constructing a real
+ * Socket.IO Server from a test sets the same module-global `io` that production code reads,
+ * which is a capability the suite should simply not have — independent of whether any given
+ * suite currently misuses it. A recording stub gives tests the dispatch happy path with no
+ * blast radius, and makes emissions assertable instead of invisible.
+ */
+export function setIOForTests(fake: unknown): void {
+  io = fake as typeof io;
+}
+
 export function getIO() {
   if (!io) {
     throw new Error('WebSocket not initialized. Call initWebSocket first.');
