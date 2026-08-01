@@ -285,18 +285,13 @@ export const api = {
 
   // Queue — view, enqueue and cancel. Pausing a lane is desk work and stays on the portal.
   getQueue: (base: string) => req<QueueView>(base, '/api/queue'),
-  enqueueItem: (
-    base: string,
-    input: { kind: QueueKind; payload: Record<string, unknown>; targets?: string[]; lane?: string },
-  ) =>
-    req<{ ok: boolean; item?: QueueItem; error?: string }>(base, '/api/queue', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
   cancelQueueItem: (base: string, id: string) =>
     req<{ ok: boolean }>(base, `/api/queue/${id}`, { method: 'DELETE' }),
   retryQueueItem: (base: string, id: string) =>
     req<{ ok: boolean }>(base, `/api/queue/${id}/retry`, { method: 'POST' }),
+  /** Remove ONE finished row. The server refuses anything still live. */
+  removeQueueItem: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}/remove`, { method: 'DELETE' }),
 
   // ── Project memory ────────────────────────────────────────────────────────
   // The same four knowledge files and the same note CRUD the web panel offers, so a fix

@@ -118,7 +118,7 @@ test('the call table covers every queue route the server mounts', () => {
   // passing while a new route goes unchecked — a green number pointed at a shrinking scope.
   const routeSrc = fs.readFileSync(path.join(ROOT, 'server/src/routes/queue.ts'), 'utf8');
   const mounted = [...routeSrc.matchAll(/^router\.(get|post|delete|put)\(/gm)].length;
-  const covered = CALLS.length + 2; // + DELETE /:id and POST /:id/retry, driven separately below
+  const covered = CALLS.length + 3; // + DELETE /:id, POST /:id/retry and DELETE / (clear)
   assert.equal(covered, mounted,
     `the server mounts ${mounted} queue routes but this table drives ${covered} — add the missing one`);
 });
@@ -143,6 +143,19 @@ for (const call of CALLS) {
     );
   });
 }
+
+test('DELETE /api/queue/:id/remove: the client\'s declared response matches the REAL body', async () => {
+  const made = await (await fetch(BASE, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'prompt', payload: { text: 'to clear' }, targets: [AGENT] }),
+  })).json() as { id: string };
+  await fetch(`${BASE}/${made.id}`, { method: 'DELETE' });          // cancel -> finished
+  const res = await fetch(`${BASE}/${made.id}/remove`, { method: 'DELETE' });
+  assert.ok(res.ok, `remove returned HTTP ${res.status}`);
+  const body = (await res.json()) as Record<string, unknown>;
+  const invented = declaredFields('removeQueueItem').filter((f) => !Object.keys(body).includes(f));
+  assert.deepEqual(invented, [], `removeQueueItem declares field(s) the server never sends: ${invented.join(', ')}`);
+});
 
 test('DELETE /api/queue/:id: the client\'s declared response matches the REAL body', async () => {
   const created = await fetch(BASE, {

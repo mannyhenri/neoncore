@@ -71,6 +71,11 @@ export function QueueScreen() {
     try { await api.retryQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
   }
 
+  /** Remove one FINISHED row. Cancel stops live work; clear tidies what has already stopped. */
+  async function clear(id: string) {
+    try { await api.removeQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
+  }
+
   if (loading) return <ActivityIndicator style={s.pad} color={theme.accent} />;
 
   return (
@@ -112,9 +117,21 @@ export function QueueScreen() {
                   <Text style={s.cancel}>cancel</Text>
                 </TouchableOpacity>
               )}
+              {/* Exclusive, same rule as the web: cancel while live, clear once finished.
+                  `blocked` gets neither — it is stopped and waiting on a human. */}
               {(item.status === 'failed' || item.status === 'cancelled') && (
-                <TouchableOpacity onPress={() => void retry(item.id)}>
-                  <Text style={[s.cancel, { color: theme.accent }]}>retry</Text>
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <TouchableOpacity onPress={() => void retry(item.id)}>
+                    <Text style={[s.cancel, { color: theme.accent }]}>retry</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => void clear(item.id)}>
+                    <Text style={s.cancel}>clear</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {item.status === 'done' && (
+                <TouchableOpacity onPress={() => void clear(item.id)}>
+                  <Text style={s.cancel}>clear</Text>
                 </TouchableOpacity>
               )}
             </View>

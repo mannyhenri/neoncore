@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { KIND_IDS, type QueueKind } from '../lib/queue-kinds.js';
-import { enqueue, listQueue, cancelItem, retryItem, haltLane, resumeLane, tickQueue } from '../lib/queue-runner.js';
+import { enqueue, listQueue, cancelItem, retryItem, removeItem, haltLane, resumeLane, tickQueue } from '../lib/queue-runner.js';
 
 const router = Router();
 
@@ -47,6 +47,17 @@ router.delete('/:id', (req, res) => {
 });
 
 /** Put a failed or cancelled item back in its lane, undoing everything that stopped it. */
+/**
+ * Remove ONE finished row. 409 rather than 404 when the row is still live: the item exists,
+ * the action just does not apply to it yet, and the caller should be told which.
+ */
+router.delete('/:id/remove', (req, res) => {
+  if (!removeItem(req.params.id)) {
+    return res.status(409).json({ error: 'only a finished item can be cleared — cancel it first' });
+  }
+  res.json({ ok: true });
+});
+
 router.post('/:id/retry', (req, res) => {
   if (!retryItem(req.params.id)) {
     return res.status(409).json({ error: 'only a failed or cancelled item can be retried' });
