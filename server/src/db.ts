@@ -646,9 +646,16 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS queue_lanes (
     lane TEXT PRIMARY KEY,
     paused INTEGER NOT NULL DEFAULT 0,
-    halted_reason TEXT NOT NULL DEFAULT ''
+    halted_reason TEXT NOT NULL DEFAULT '',
+    -- WHICH item halted this lane, recorded rather than inferred. Retry needs to resume only
+    -- the halt its own item caused, and some halt reasons name the item while others do not
+    -- ("dispatch failed 3x: ..."), so matching on the human-readable string is unreliable.
+    halted_by TEXT NOT NULL DEFAULT ''
   );
 `);
+
+try { db.prepare('SELECT halted_by FROM queue_lanes LIMIT 1').get(); }
+catch { db.exec(`ALTER TABLE queue_lanes ADD COLUMN halted_by TEXT NOT NULL DEFAULT ''`); }
 
 for (const col of ['attempts', 'stall_ticks']) {
   try { db.prepare(`SELECT ${col} FROM queue_items LIMIT 1`).get(); }

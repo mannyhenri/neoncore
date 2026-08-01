@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { KIND_IDS, type QueueKind } from '../lib/queue-kinds.js';
-import { enqueue, listQueue, cancelItem, haltLane, resumeLane, tickQueue } from '../lib/queue-runner.js';
+import { enqueue, listQueue, cancelItem, retryItem, haltLane, resumeLane, tickQueue } from '../lib/queue-runner.js';
 
 const router = Router();
 
@@ -43,6 +43,14 @@ router.post('/', (req, res) => {
  *  report from the cancelled item cannot bind to whatever runs next. */
 router.delete('/:id', (req, res) => {
   if (!cancelItem(req.params.id)) return res.status(404).json({ error: 'no queued or running item with that id' });
+  res.json({ ok: true });
+});
+
+/** Put a failed or cancelled item back in its lane, undoing everything that stopped it. */
+router.post('/:id/retry', (req, res) => {
+  if (!retryItem(req.params.id)) {
+    return res.status(409).json({ error: 'only a failed or cancelled item can be retried' });
+  }
   res.json({ ok: true });
 });
 
