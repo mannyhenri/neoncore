@@ -601,6 +601,70 @@ try {
   db.exec(`ALTER TABLE engine_demotions ADD COLUMN failure_streak INTEGER NOT NULL DEFAULT 0`);
 }
 
+// ── Queue: ordered, heterogeneous work that drains unattended ──────────────────────────
+// Separate from `tasks` on purpose: a task is agent-CLAIMED work, this is ordered DISPATCH.
+// Different grain and different lifetime, the same reason profiles and demotions are two
+// tables. `lane` is the serial unit — a cartridge runs one thing at a time, so one long item
+// must not block every other cartridge.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS queue_items (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    targets_json TEXT NOT NULL DEFAULT '[]',
+    lane TEXT NOT NULL DEFAULT 'default',
+    status TEXT NOT NULL DEFAULT 'queued',
+    position INTEGER NOT NULL DEFAULT 0,
+    handle TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    stall_ticks INTEGER NOT NULL DEFAULT 0
+  );
+
+  -- One row per (item, agent) so a report delivered twice counts ONCE. Without this a
+  -- duplicate hook delivery or a reconnect replay advances two items on one completion.
+  CREATE TABLE IF NOT EXISTS queue_completions (
+    item_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    ok INTEGER NOT NULL DEFAULT 1,
+    detail TEXT NOT NULL DEFAULT '',
+    reported_at TEXT NOT NULL,
+    PRIMARY KEY (item_id, agent_id)
+  );
+
+  -- Retry budgets, so a transient failure is distinguishable from a real one. A socket blip
+  -- during startup, a relay reconnect and a deploy restart are ORDINARY; halting a lane on any
+  -- of them means the queue converges on fully stopped over a week of unattended running.
+  -- attempts    = consecutive dispatch failures
+  -- stall_ticks = consecutive ticks a running item's target has been unreachable
+
+  -- A lane can be paused without cancelling what is queued behind it.
+  CREATE TABLE IF NOT EXISTS queue_lanes (
+    lane TEXT PRIMARY KEY,
+    paused INTEGER NOT NULL DEFAULT 0,
+    halted_reason TEXT NOT NULL DEFAULT ''
+  );
+`);
+
+for (const col of ['attempts', 'stall_ticks']) {
+  try { db.prepare(`SELECT ${col} FROM queue_items LIMIT 1`).get(); }
+  catch { db.exec(`ALTER TABLE queue_items ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`); }
+}
+
+// THE BINDING STAMP. A completion report proves an AGENT finished something; it does not say
+// WHICH item. Without this, a late report from the previous item -- or the user's own manual
+// work in the same cartridge -- advances the queue. Same defect shape as an unattributable
+// trouble signal, one level up and with worse consequences.
+try {
+  db.prepare('SELECT active_queue_item_id FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN active_queue_item_id TEXT NOT NULL DEFAULT ''`);
+}
+
 // Gridlight already SENDS its model at registration; the server was dropping it. Without
 // this column nothing can say which model a cartridge runs, so the router can never find a
 // profile and every decision is UNMEASURED -> frontier.

@@ -13,6 +13,7 @@ import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
 import { evaluateStop } from '../lib/work-standard.js';
 import { detectTrailingQuestion } from '../lib/trailing-question.js';
+import { recordQueueCompletion } from '../lib/queue-kinds.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 
 const router = Router();
@@ -618,6 +619,14 @@ router.post('/completion-check', (req, res) => {
     //
     // Never clobber an existing pending question: AskUserQuestion stores structured options
     // there, and overwriting them with prose would strip the tappable choices.
+    // QUEUE BINDING. `cleared` is true ONLY for a valid completion block (work-standard.ts:334);
+    // the cap-reached give-up and ordinary free conversation both return false. Binding to the
+    // bare 'allow' would advance the queue on a give-up and on any chat in the cartridge.
+    if (decision.decision === 'allow' && decision.cleared) {
+      const who = db.prepare('SELECT id FROM agents WHERE session_id = ? LIMIT 1').get(sessionId) as { id: string } | undefined;
+      if (who) recordQueueCompletion(who.id, true, 'work-standard completion report filed');
+    }
+
     if (decision.decision === 'allow') {
       const question = detectTrailingQuestion(finalText || '');
       if (question) {
