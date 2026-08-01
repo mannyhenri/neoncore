@@ -4,18 +4,21 @@ import { theme } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import { CartridgesIcon, WorkflowsIcon, ApprovalsIcon } from './Icons';
 
-export type TabName = 'list' | 'workflows' | 'approvals';
+export type TabName = 'list' | 'workflows' | 'queue' | 'approvals';
 
 type IconCmp = (p: { size?: number; color?: string; strokeWidth?: number }) => React.JSX.Element;
 
 const TABS: { name: TabName; Icon: IconCmp; label: string }[] = [
   { name: 'list', Icon: CartridgesIcon, label: 'Cartridges' },
   { name: 'workflows', Icon: WorkflowsIcon, label: 'Workflows' },
+  // Reuses WorkflowsIcon deliberately rather than inventing a glyph — the queue drives
+  // workflows, prompts and confers, and a wrong-looking new icon reads as a different product.
+  { name: 'queue', Icon: WorkflowsIcon, label: 'Queue' },
   { name: 'approvals', Icon: ApprovalsIcon, label: 'Approvals' },
 ];
 
 /**
- * The app's three top-level destinations. These were previously unlabeled emoji
+ * The app's top-level destinations. These were previously unlabeled emoji
  * tucked into the list header, which made Workflows effectively undiscoverable.
  */
 export function TabBar({

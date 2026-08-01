@@ -1,0 +1,191 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput,
+  ActivityIndicator, RefreshControl,
+} from 'react-native';
+import { theme } from '../theme';
+import { api } from '../api';
+import { useNeonCore } from '../NeonCoreProvider';
+import type { QueueItem, QueueLane } from '../api';
+
+/**
+ * The queue on mobile: view, enqueue, cancel.
+ *
+ * Pausing and resuming a lane is deliberately absent — that is desk work, and a phone is
+ * where you check whether the overnight run is still moving, not where you administer it.
+ *
+ * Like the portal panel, this shows the LANE and the HALT REASON rather than only a status.
+ * Every failure mode in the runner halts a lane with a reason, and "failed" without "which
+ * lane stopped and why" is what teaches a user to stop trusting an unattended queue.
+ */
+
+const STATUS_COLOR: Record<string, string> = {
+  queued: theme.textDim,
+  running: theme.accent,
+  done: '#34d399',
+  failed: '#f87171',
+  blocked: '#fbbf24',
+  cancelled: theme.textDim,
+};
+
+export function QueueScreen() {
+  const { baseUrl, agents } = useNeonCore();
+  const [items, setItems] = useState<QueueItem[]>([]);
+  const [lanes, setLanes] = useState<QueueLane[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [text, setText] = useState('');
+  const [target, setTarget] = useState('');
+
+  const load = useCallback(async () => {
+    if (!baseUrl) return;
+    try {
+      const view = await api.getQueue(baseUrl);
+      setItems(view.items ?? []);
+      setLanes(view.lanes ?? []);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'could not read the queue');
+    } finally {
+      setLoading(false);
+    }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 5000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const live = agents.filter((a) => a.status !== 'offline');
+
+  async function enqueue() {
+    if (!baseUrl || !text.trim() || !target) return;
+    // POST returns the created item; a rejection is a 400 the client THROWS. Unwrapped,
+    // that throw is an unhandled rejection — a redbox on a phone rather than a message.
+    try {
+      await api.enqueueItem(baseUrl, {
+        kind: 'prompt',
+        payload: { text: text.trim() },
+        targets: [target],
+      });
+      setText('');
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'could not queue that');
+      return;
+    }
+    await load();
+  }
+
+  async function cancel(id: string) {
+    if (!baseUrl) return;
+    try { await api.cancelQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
+  }
+
+  if (loading) return <ActivityIndicator style={s.pad} color={theme.accent} />;
+
+  return (
+    <View style={s.wrap}>
+      {error ? <Text style={s.err}>{error}</Text> : null}
+
+      <View style={s.form}>
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          placeholder="prompt to queue…"
+          placeholderTextColor={theme.textDim}
+          style={s.input}
+        />
+        <FlatList
+          horizontal
+          data={live}
+          keyExtractor={(a) => a.id}
+          showsHorizontalScrollIndicator={false}
+          renderItem={({ item: a }) => (
+            <TouchableOpacity
+              onPress={() => setTarget(a.id)}
+              style={[s.chip, target === a.id && s.chipOn]}
+            >
+              <Text style={[s.chipText, target === a.id && s.chipTextOn]}>
+                {a.name || a.id.slice(0, 8)}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+        <TouchableOpacity
+          onPress={() => void enqueue()}
+          disabled={!text.trim() || !target}
+          style={[s.btn, (!text.trim() || !target) && s.btnOff]}
+        >
+          <Text style={s.btnText}>Queue it</Text>
+        </TouchableOpacity>
+      </View>
+
+      <FlatList
+        data={items}
+        keyExtractor={(i) => i.id}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={() => void load()} tintColor={theme.accent} />}
+        ListEmptyComponent={<Text style={s.empty}>Nothing queued.</Text>}
+        renderItem={({ item }) => {
+          const lane = lanes.find((l) => l.lane === item.lane);
+          const halted = Boolean(lane?.paused || lane?.haltedReason);
+          return (
+            <View style={s.row}>
+              <View style={s.rowTop}>
+                <Text style={[s.status, { color: STATUS_COLOR[item.status] ?? theme.textDim }]}>
+                  {item.status}
+                </Text>
+                <Text style={s.kind}>{item.kind}</Text>
+                {halted ? <Text style={s.halted}>LANE HALTED</Text> : null}
+              </View>
+              <Text style={s.body} numberOfLines={2}>
+                {String(item.payload?.text ?? item.payload?.repoPath ?? item.id.slice(0, 8))}
+              </Text>
+              <Text style={s.lane}>{item.lane}</Text>
+              {/* WHY it stopped — without this a halt is indistinguishable from a bug */}
+              {lane?.haltedReason ? <Text style={s.reason}>{lane.haltedReason}</Text> : null}
+              {item.error ? <Text style={s.reason}>{item.error}</Text> : null}
+              {(item.status === 'queued' || item.status === 'running') && (
+                <TouchableOpacity onPress={() => void cancel(item.id)}>
+                  <Text style={s.cancel}>cancel</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  wrap: { flex: 1, backgroundColor: theme.bg },
+  err: { color: '#f87171', fontSize: 12, padding: 12 },
+  pad: { padding: 16 },
+  form: { padding: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: theme.border },
+  input: {
+    backgroundColor: theme.bgElevated, color: theme.text,
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13,
+  },
+  chip: {
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14,
+    backgroundColor: theme.bgElevated, marginRight: 6,
+  },
+  chipOn: { backgroundColor: theme.accent },
+  chipText: { color: theme.textDim, fontSize: 11 },
+  chipTextOn: { color: theme.bg, fontWeight: '600' },
+  btn: { backgroundColor: theme.accent, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
+  btnOff: { opacity: 0.4 },
+  btnText: { color: theme.bg, fontWeight: '600', fontSize: 13 },
+  row: { padding: 12, borderBottomWidth: 1, borderBottomColor: theme.border },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  status: { fontSize: 11, fontWeight: '700' },
+  kind: { fontSize: 11, color: theme.textDim },
+  halted: { fontSize: 10, color: '#fbbf24', fontWeight: '700' },
+  body: { color: theme.text, fontSize: 13, marginTop: 4 },
+  lane: { color: theme.textDim, fontSize: 10, marginTop: 2, fontFamily: 'Menlo' },
+  reason: { color: '#fbbf24', fontSize: 11, marginTop: 3 },
+  cancel: { color: '#f87171', fontSize: 11, marginTop: 6 },
+  empty: { color: theme.textDim, fontSize: 12, padding: 16 },
+});

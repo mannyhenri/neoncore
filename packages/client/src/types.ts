@@ -539,3 +539,60 @@ export interface ServerStatus {
  * happens to be first and simply does nothing.
  */
 export type WithOrigin<T> = T & { origin: string; originName: string };
+
+
+// ---------------------------------------------------------------------------
+// Queue — ordered heterogeneous work that drains unattended
+// ---------------------------------------------------------------------------
+
+/**
+ * Kinds a queue item can be. Mirrors KIND_IDS in server/src/lib/queue-kinds.ts.
+ *
+ * This lives in the shared package rather than being copied per client for a reason this
+ * repo has paid for four times: every hand-maintained copy of a contract here has drifted
+ * (two AgentType copies, two WorkflowStep copies), and mobile/src/types.ts still declared
+ * six engines a day after the removal landed. A comment saying "keep in sync" is not a
+ * mechanism.
+ */
+export type QueueKind = 'prompt' | 'workflow' | 'confer';
+
+export type QueueStatus = 'queued' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled';
+
+export interface QueueItem {
+  id: string;
+  kind: QueueKind;
+  payload: Record<string, unknown>;
+  /** Cartridge ids (prompt) or a single repo path (workflow/confer). */
+  targets: string[];
+  /** Serial execution unit — one cartridge runs one thing at a time. */
+  lane: string;
+  status: QueueStatus;
+  position: number;
+  /** Workflow run id / confer session id; '' for a prompt. */
+  handle: string;
+  result: string;
+  /** Why it failed or halted. Surfacing this is the difference between a queue a user
+   *  trusts overnight and one they switch off. */
+  error: string;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** A lane can be paused by a human or halted by the runner, and the reason must be visible. */
+export interface QueueLane {
+  lane: string;
+  paused: boolean;
+  haltedReason: string;
+}
+
+export interface QueueView {
+  items: QueueItem[];
+  lanes: QueueLane[];
+  /**
+   * Which kinds this server accepts. Sent by GET /api/queue so a client never has to
+   * re-declare the registry — dropping this field from the type is how the portal ended up
+   * hardcoding three <option> tags against a server that was already telling it the answer.
+   */
+  kinds: QueueKind[];
+}

@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import db from '../db.js';
-import { KIND_IDS, getKind, type QueueKind } from '../lib/queue-kinds.js';
+import { KIND_IDS, type QueueKind } from '../lib/queue-kinds.js';
 import { enqueue, listQueue, cancelItem, haltLane, resumeLane, tickQueue } from '../lib/queue-runner.js';
 
 const router = Router();
@@ -39,16 +39,8 @@ router.post('/', (req, res) => {
   return res.status(201).json(out.item);
 });
 
-/** Dry-run validation, so a UI can check an item before adding it. */
-router.post('/validate', (req, res) => {
-  const { kind, payload } = req.body ?? {};
-  if (!KIND_IDS.includes(kind as QueueKind)) {
-    return res.status(400).json({ error: `kind must be one of: ${KIND_IDS.join(', ')}` });
-  }
-  const problem = getKind(kind as QueueKind).validate((payload as Record<string, unknown>) ?? {});
-  return res.json({ ok: problem === null, error: problem });
-});
-
+/** Cancel a queued or running item. Cancelling unstamps its agents, so a late completion
+ *  report from the cancelled item cannot bind to whatever runs next. */
 router.delete('/:id', (req, res) => {
   if (!cancelItem(req.params.id)) return res.status(404).json({ error: 'no queued or running item with that id' });
   res.json({ ok: true });
