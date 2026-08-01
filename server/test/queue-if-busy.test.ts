@@ -62,11 +62,11 @@ test('an unknown agent is NOT busy — absence must not silently queue work fore
 
 // ─── The opt-in boundary: user surfaces queue, system delivery never does ───
 
-test('EVERY user-facing entry point asks to queue when the target is busy', async () => {
-  // Derived from the callers, not from a description: these are the places a HUMAN starts work
-  // on a cartridge. Each must pass queueIfBusy so the server can line it up.
-  // Derived by following the callers, not guessed: the dashboard sends through the SHARED
-  // client (useAgents.ts -> client.sendCommand), so the opt-in lives there, not in a hook.
+test('a DIRECT PROMPT does not queue — a conversation must not wait behind a long turn', async () => {
+  // Learned in production: with prompts queueing by default, messages typed at a busy cartridge
+  // were parked behind a turn that ran for minutes. The dashboard looked dead and two messages
+  // sat unread. Confers and workflows still queue (asserted below) because nobody is waiting on
+  // a reply to those; a conversation is different.
   const USER_CALLERS: { file: string; label: string }[] = [
     { file: 'packages/client/src/client.ts', label: 'dashboard prompt (shared client)' },
     { file: 'mobile/src/api.ts', label: 'mobile prompt' },
@@ -80,9 +80,11 @@ test('EVERY user-facing entry point asks to queue when the target is busy', asyn
     const p = path.join(ROOT, c.file);
     if (!fs.existsSync(p)) { missing.push(`${c.label}: ${c.file} does not exist`); continue; }
     const src = fs.readFileSync(p, 'utf8');
-    if (!src.includes('queueIfBusy')) missing.push(`${c.label} (${c.file}) never sets queueIfBusy`);
+    if (!/queueIfBusy = false/.test(src)) {
+      missing.push(`${c.label} (${c.file}) does not default a direct prompt to NOT queueing`);
+    }
   }
-  assert.deepEqual(missing, [], `these user entry points cannot queue:\n  ${missing.join('\n  ')}`);
+  assert.deepEqual(missing, [], `these prompt paths still park a conversation:\n  ${missing.join('\n  ')}`);
 });
 
 test('SYSTEM delivery never queues — peer-forward carries live confer milestones', async () => {
@@ -98,7 +100,7 @@ test('SYSTEM delivery never queues — peer-forward carries live confer mileston
   );
 });
 
-test('EVERY way a human starts work honours queueIfBusy', async () => {
+test('confer and workflow starts STILL queue against a busy cartridge', async () => {
   // The complete set of entry points, derived from the routes rather than the description:
   // a prompt, a confer, a workflow run. Missing one means that kind of work still lands on
   // top of a busy cartridge while the other two queue politely — the inconsistent half-fix

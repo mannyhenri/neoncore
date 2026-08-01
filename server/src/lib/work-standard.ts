@@ -55,7 +55,7 @@ export const WORK_STANDARD_SHORT = `[NeonCore work standard — this task is exe
 2. REPRODUCE: write that test FIRST and watch it fail. Make it SET-BASED (iterate the registry) — an example-based test passes on a half-done fix, which is the exact failure this prevents.
 3. FIX: every item in the set, one pass. No partial fixes. No silent deferrals — anything you do not do is named in \`deferred:\` with a reason.
 4. VERIFY: run the test you stated and paste the REAL output. A failing verify never ends the task.
-5. REPORT: end your final message with this block, verbatim:
+5. REPORT: end your final message with this block. Keep the ${COMPLETION_MARKER} line verbatim — it is what the gate matches on — and REPLACE every <angle-bracket> field with the real value. An unfilled placeholder is not a completion report.
 ${COMPLETION_MARKER}
 scope: <done>/<total> — <what the set was>
 verify: <exact command run> → <actual result>

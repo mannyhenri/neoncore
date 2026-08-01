@@ -176,10 +176,14 @@ export function createClient(config: ClientConfig = {}) {
   /**
    * Send a prompt to a cartridge.
    *
-   * `queueIfBusy` defaults to TRUE here because this is the HUMAN path: a person typing at a
-   * busy cartridge means "do this next", not "interrupt". System delivery uses the route
-   * directly and leaves it off — peer-forward must never queue, or a confer milestone bound
-   * for another machine would be parked behind the confer it belongs to.
+   * `queueIfBusy` defaults to FALSE for a direct prompt, and that default was learned the
+   * hard way: with it on, every message typed at a cartridge mid-turn was parked behind that
+   * turn. Since a turn can run for minutes, the dashboard simply looked dead — messages went
+   * in, nothing came back, and two of them sat unread in a queue nobody was watching.
+   *
+   * Queueing still applies where the user actually asked for it: starting a CONFER or a
+   * WORKFLOW against a busy cartridge (routes/confer.ts, routes/workflows.ts default it ON).
+   * Those are dispatched work with no one waiting on a reply. A conversation is not.
    *
    * Returns either the dispatched Command or { queued: true, item } — callers must handle
    * both, because "it ran" and "it is next" are different things to tell a user.
@@ -189,7 +193,7 @@ export function createClient(config: ClientConfig = {}) {
     text: string,
     includeMemory = true,
     attachments?: import('./types').CommandAttachmentInput[],
-    queueIfBusy = true,
+    queueIfBusy = false,
   ) =>
     request<import('./types').Command & { queued?: boolean; item?: import('./types').QueueItem; note?: string }>('/commands/send', {
       method: 'POST',

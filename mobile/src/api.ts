@@ -92,9 +92,10 @@ export const api = {
     return req<TranscriptEvent[]>(base, `/api/agents/${agentId}/messages${qs ? `?${qs}` : ''}`);
   },
 
-  // queueIfBusy: a prompt typed at a busy cartridge means "do this next", not "interrupt".
-  // The server answers 202 with { queued: true, item } instead of dispatching.
-  sendCommand: (base: string, agentId: string, text: string, queueIfBusy = true) =>
+  // Defaults to FALSE: a prompt typed at a cartridge is a conversation, and queueing it behind
+  // a multi-minute turn made the app look dead. Confers and workflows still queue — see
+  // client.ts for why the two cases differ.
+  sendCommand: (base: string, agentId: string, text: string, queueIfBusy = false) =>
     req<{ queued?: boolean; note?: string }>(base, '/api/commands/send', {
       method: 'POST',
       body: JSON.stringify({ agentId, text, queueIfBusy }),

@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
-import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput } from '../types';
+import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem } from '../types';
 
 // ─── Browser notification helper ────────────────────
 
@@ -84,6 +84,7 @@ const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [confers, setConfers] = useState<ConferSession[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const [expanded, setExpanded] = useState(true);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
@@ -112,6 +113,17 @@ export function WorkflowPanel({ agents }: Props) {
   useEffect(() => {
     let alive = true;
     const load = () => api.getConfers().then((c) => { if (alive) setConfers(c); }).catch(() => {});
+    load();
+    const t = setInterval(load, 4000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // Poll the queue too. A confer or workflow started against a busy cartridge does NOT become
+  // `running` — it waits as a queued item. Without this it is invisible here, so you start one
+  // and the main screen shows nothing, which reads as "it did not work".
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.getQueue().then((v) => { if (alive) setQueue(v.items); }).catch(() => {});
     load();
     const t = setInterval(load, 4000);
     return () => { alive = false; clearInterval(t); };
@@ -185,6 +197,12 @@ export function WorkflowPanel({ agents }: Props) {
 
   // Confers: running ones live under Active Runs; finished ones (last 10 min) archive under Recent Runs.
   const activeConfers = confers.filter((c) => c.status === 'running');
+  // Waiting to start, because a target cartridge is busy. Shown next to the running ones —
+  // to whoever just started it, "running" and "about to run" are the same thing. Prompts are
+  // NOT promoted here: they are not sessions and they already live in the task list.
+  const waiting = queue.filter((q) => q.status === 'queued' || q.status === 'running');
+  const queuedConfers = waiting.filter((q) => q.kind === 'confer');
+  const queuedWorkflows = waiting.filter((q) => q.kind === 'workflow');
   const recentConfers = confers.filter(
     (c) => c.status !== 'running' && c.completedAt && Date.now() - new Date(c.completedAt).getTime() < 10 * 60 * 1000,
   );
@@ -240,6 +258,19 @@ export function WorkflowPanel({ agents }: Props) {
               {/* Active confers — milestone progress for collaborating cartridges */}
               {activeConfers.map((c) => (
                 <ConferCard key={c.id} confer={c} agents={agents} />
+              ))}
+              {/* Queued sessions — started, waiting on a busy cartridge */}
+              {[...queuedConfers, ...queuedWorkflows].map((q) => (
+                <div key={q.id} className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400">{q.kind}</span>
+                    <span className="text-[11px] text-amber-300/90">waiting — cartridge busy</span>
+                  </div>
+                  <p className="text-[13px] text-gray-300 line-clamp-2">
+                    {(q.payload?.task as string) || (q.payload?.workflowId as string) || q.kind}
+                  </p>
+                  <p className="text-[10px] text-gray-600 mt-1 font-mono truncate">{q.lane}</p>
+                </div>
               ))}
             </div>
           )}
