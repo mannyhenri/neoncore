@@ -20,7 +20,6 @@ const LAUNCH_OPTIONS: { type: string; label: string }[] = [
   { type: 'gridlight', label: 'Gridlight' },
   { type: 'codex-terminal', label: 'Codex · Terminal' },
   { type: 'codex',    label: 'Codex · VS Code' },
-  { type: 'amazonq',  label: 'Amazon Q' },
 ];
 
 export function VirtualCartridgeCard({ cartridge, onUpdate, onDelete }: Props) {

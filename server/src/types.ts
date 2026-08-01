@@ -1,5 +1,5 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
-export type AgentType = 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor';
+export type AgentType = 'claude' | 'gridlight' | 'codex';
 
 // ── Confer (standalone multi-agent collaboration) ──────────────────────────
 export type ConferStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -92,7 +92,7 @@ export interface Activity {
   timestamp: string;
 }
 
-export type TranscriptEngine = 'claude' | 'gridlight' | 'codex' | 'gemini';
+export type TranscriptEngine = 'claude' | 'gridlight' | 'codex';
 export type TranscriptRole = 'user' | 'assistant' | 'tool_result' | 'system';
 
 // A single parsed transcript entry. `content` is a JSON string of content blocks:

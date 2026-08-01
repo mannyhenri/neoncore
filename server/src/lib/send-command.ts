@@ -15,7 +15,6 @@ import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch
 // reach them is typing into the frontmost terminal. Codex is deliberately NOT here: it
 // runs inside the relay PTY (same as Claude), so it takes the reliable, addressed socket
 // path below and only falls back to terminal-typing when no relay socket is connected.
-const CLI_AGENT_TYPES = new Set(['gemini', 'amazonq']);
 
 /**
  * Type a command directly into the frontmost terminal via AppleScript (macOS only).
@@ -240,18 +239,6 @@ export function sendCommandToAgent(
     timestamp: now,
   };
   getIO().emit('activity_logged', activity);
-
-  // ── CLI tools (gemini / codex / amazonq): type into the terminal via AppleScript ──
-  if (CLI_AGENT_TYPES.has(agentCheck.agent_type)) {
-    if (typeIntoTerminal(finalText)) {
-      console.log(`[cmd] Typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
-      command.delivered = true;
-    } else {
-      console.error(`[cmd] NO COMMAND CHANNEL for ${agentCheck.agent_type} agent ${agentId} — command was not delivered`);
-      command.delivered = false;
-    }
-    return command;
-  }
 
   // Emit to the primary socket (most recently registered window) to avoid sending to
   // multiple VS Code windows that may share the same agent room.

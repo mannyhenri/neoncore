@@ -396,7 +396,7 @@ router.post('/transcript', (req, res) => {
   if (!agentId) return res.status(404).json({ error: 'Agent not found' });
   if (!Array.isArray(events) || events.length === 0) return res.json({ inserted: 0 });
 
-  const KNOWN_ENGINES: TranscriptEngine[] = ['gridlight', 'codex', 'gemini'];
+  const KNOWN_ENGINES: TranscriptEngine[] = ['gridlight', 'codex'];
   const resolvedEngine: TranscriptEngine = KNOWN_ENGINES.includes(engine as TranscriptEngine)
     ? (engine as TranscriptEngine)
     : 'claude';

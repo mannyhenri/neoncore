@@ -23,22 +23,6 @@ const HOOKS_DIR = path.resolve(__dirname, '../../../agent/hooks');
 
 // All supported tools and their config file locations + hook script names
 const TOOL_CONFIGS = {
-  gemini: {
-    label: 'Gemini CLI',
-    configFile: path.join(os.homedir(), '.gemini', 'settings.json'),
-    proxyScript: 'gemini-permission-proxy.sh',
-    reporterScript: 'gemini-reporter.sh',
-    installNote: 'Hooks wired into ~/.gemini/settings.json',
-    detectedBy: 'gemini',
-  },
-  amazonq: {
-    label: 'Amazon Q Developer CLI',
-    configFile: path.join(os.homedir(), '.aws', 'amazonq', 'cli-agents', 'neoncore.json'),
-    proxyScript: 'amazonq-permission-proxy.sh',
-    reporterScript: 'amazonq-reporter.sh',
-    installNote: 'Agent config written to ~/.aws/amazonq/cli-agents/neoncore.json',
-    detectedBy: 'q',
-  },
   codex: {
     label: 'Codex CLI (OpenAI)',
     configFile: path.join(os.homedir(), '.codex', 'hooks.json'),
@@ -46,14 +30,6 @@ const TOOL_CONFIGS = {
     reporterScript: 'codex-reporter.sh',
     installNote: 'Hooks wired into ~/.codex/hooks.json (feature flag enabled in config.toml)',
     detectedBy: 'codex',
-  },
-  cursor: {
-    label: 'Cursor',
-    configFile: path.join(os.homedir(), '.cursor', 'hooks.json'),
-    proxyScript: 'cursor-permission-proxy.sh',
-    reporterScript: 'cursor-reporter.sh',
-    installNote: 'Hooks wired into ~/.cursor/hooks.json',
-    detectedBy: 'cursor',
   },
   claude: {
     label: 'Claude Code',
@@ -70,10 +46,7 @@ type ToolKey = keyof typeof TOOL_CONFIGS;
 // CLI binary names + npm package to install them (null = not npm-installable)
 const CLI_INFO: Record<string, { bin: string; npmPkg: string | null; authCmd: string | null }> = {
   claude:  { bin: 'claude',  npmPkg: null,                      authCmd: null },
-  gemini:  { bin: 'gemini',  npmPkg: '@google/gemini-cli',      authCmd: 'gemini auth' },
-  amazonq: { bin: 'q',       npmPkg: null,                      authCmd: null },
   codex:   { bin: 'codex',   npmPkg: '@openai/codex',           authCmd: null },
-  cursor:  { bin: 'cursor',  npmPkg: null,                      authCmd: null },
 };
 
 /** Resolve npm's global bin directory at runtime */
@@ -284,28 +257,7 @@ router.post('/install/:tool', (req, res) => {
   }
 
   try {
-    if (tool === 'gemini') {
-      mergeJsonFile(TOOL_CONFIGS.gemini.configFile, {
-        hooks: {
-          BeforeTool: [{ matcher: '.*', hooks: [{ name: 'neoncore-proxy', type: 'command', command: proxy }] }],
-          AfterTool:  [{ matcher: '.*', hooks: [{ name: 'neoncore-reporter', type: 'command', command: reporter }] }],
-          // AfterAgent carries the turn's prompt + prompt_response, so the feed
-          // shows prose (and turn-complete), not just tool calls.
-          AfterAgent: [{ matcher: '.*', hooks: [{ name: 'neoncore-reporter', type: 'command', command: reporter }] }],
-        },
-      });
-
-    } else if (tool === 'amazonq') {
-      // Amazon Q uses an agent JSON config file (not a hooks.json)
-      mergeJsonFile(TOOL_CONFIGS.amazonq.configFile, {
-        name: 'neoncore',
-        hooks: {
-          preToolUse: [{ matcher: '*', command: proxy, timeout_ms: 125000 }],
-          postToolUse: [{ matcher: '*', command: reporter }],
-        },
-      });
-
-    } else if (tool === 'codex') {
+    if (tool === 'codex') {
       // hooks.json
       mergeJsonFile(TOOL_CONFIGS.codex.configFile, {
         hooks: {
@@ -331,16 +283,6 @@ router.post('/install/:tool', (req, res) => {
         toml += (toml && !toml.endsWith('\n') ? '\n' : '') + '\n[features]\ncodex_hooks = true\n';
         fs.writeFileSync(CODEX_TOML_PATH, toml, 'utf-8');
       }
-
-    } else if (tool === 'cursor') {
-      mergeJsonFile(TOOL_CONFIGS.cursor.configFile, {
-        version: 1,
-        hooks: {
-          beforeShellExecution: [{ command: proxy }],
-          afterFileEdit: [{ command: reporter }],
-          stop: [{ command: reporter }],
-        },
-      });
 
     } else if (tool === 'claude') {
       // Claude Code uses ~/.claude/settings.json hooks array
@@ -393,13 +335,6 @@ router.post('/uninstall/:tool', (req, res) => {
     // Remove hooks section entirely (it was ours)
     delete config['hooks'];
 
-    // For Amazon Q, also clear the name if it's our agent
-    if (tool === 'amazonq' && (config['name'] as string) === 'neoncore') {
-      // Delete the whole file — it was our agent config
-      fs.unlinkSync(cfgFile);
-      res.json({ ok: true, note: 'Agent config removed' });
-      return;
-    }
 
     fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 

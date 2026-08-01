@@ -44,22 +44,6 @@ export function findCodeBinary(): string {
     ?? (isWin ? 'code.cmd' : 'code');
 }
 
-export function findCursorBinary(): string | null {
-  const home = os.homedir();
-  const candidates = process.platform === 'win32'
-    ? [
-        path.join(home, 'AppData', 'Local', 'Programs', 'cursor', 'Cursor.exe'),
-        path.join('C:', 'Program Files', 'Cursor', 'Cursor.exe'),
-      ]
-    : [
-        '/usr/local/bin/cursor',
-        '/opt/homebrew/bin/cursor',
-        '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
-        path.join(home, 'Applications', 'Cursor.app', 'Contents', 'Resources', 'app', 'bin', 'cursor'),
-      ];
-  return findBinary(candidates, process.platform === 'win32' ? 'where cursor' : 'bash -lc "which cursor"');
-}
-
 export function findCliBinary(name: string): string | null {
   const home = os.homedir();
   const candidates = [
@@ -243,10 +227,9 @@ export function registerCliAgent(repoPath: string, agentType: string, sessionId:
 // Open directory in VS Code / Cursor / CLI terminal
 // ---------------------------------------------------------------------------
 
-export const CLI_COMMANDS: Record<string, string> = {
-  gemini:  'gemini',
-  amazonq: 'q chat',
-};
+// Every entry here named an engine that is no longer supported. Kept as an empty map rather
+// than deleted so the terminal-launch branch stays intact for a future CLI engine.
+export const CLI_COMMANDS: Record<string, string> = {};
 
 let _codeBin: string | null = null;
 
@@ -401,18 +384,6 @@ export function openDirectory(dirPath: string, agentType: string): string | null
     return null;
   }
 
-  // Cursor
-  if (agentType === 'cursor') {
-    const cursorBin = findCursorBinary();
-    if (!cursorBin) return 'Cursor not found. Is Cursor installed?';
-    writeVscodeSettings(dirPath, 'cursor');
-    try {
-      execSync(`"${cursorBin}" "${dirPath}"`, { timeout: 5000 });
-      return null;
-    } catch {
-      return 'Failed to open Cursor';
-    }
-  }
 
   // VS Code-based tools (claude, gridlight, codex)
   const resolvedType = agentType === 'gridlight' ? 'gridlight'

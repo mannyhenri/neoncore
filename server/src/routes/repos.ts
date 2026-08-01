@@ -6,7 +6,6 @@ import path from 'path';
 import db from '../db.js';
 import { dispatchSetReposToMachine, isMachineOnline } from '../ws.js';
 import {
-  findCursorBinary,
   openDirectory,
 } from '../lib/open-directory.js';
 
@@ -157,9 +156,6 @@ router.post('/open', (req, res) => {
   }
 
   // Cursor needs a special error message when binary is missing
-  if (agentType === 'cursor' && !findCursorBinary()) {
-    return res.status(400).json({ error: 'Cursor not found. Is Cursor installed?' });
-  }
 
   // openDirectory handles all agent types, including CLI + VS Code + Cursor
   const err = openDirectory(repoPath, agentType);
