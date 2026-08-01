@@ -63,7 +63,7 @@ test('unknown agentType falls back to sessionId before position', () => {
 
 test('unknown agentType with no sessionId is the one case that stays positional', () => {
   // Documents the deliberate last resort — nothing left to disambiguate on.
-  assert.equal(pickAgentCandidate(twoEngines(), { agentType: 'gemini' })?.id, 'codex-row');
+  assert.equal(pickAgentCandidate(twoEngines(), { agentType: 'unsupported-engine' })?.id, 'codex-row');
 });
 
 test('single-engine repos are unaffected by any of this', () => {
@@ -78,7 +78,7 @@ test('single-engine repos are unaffected by any of this', () => {
 test('three engines in one repo still resolve untyped payloads to claude', () => {
   const three: AgentCandidate[] = [
     { id: 'codex-row', repo_path: '/r', agent_type: 'codex', session_id: 'a' },
-    { id: 'gemini-row', repo_path: '/r', agent_type: 'gemini', session_id: 'b' },
+    { id: 'other-row', repo_path: '/r', agent_type: 'unsupported-engine', session_id: 'b' },
     { id: 'claude-row', repo_path: '/r', agent_type: 'claude', session_id: 'c' },
   ];
   assert.equal(pickAgentCandidate(three, {})?.id, 'claude-row');

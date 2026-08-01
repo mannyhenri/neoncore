@@ -9,10 +9,7 @@ const TOOL_ORDER = ['claude', 'codex'] as const;
 
 const TOOL_META: Record<string, { color: string; badge: string }> = {
   claude: { color: 'blue', badge: 'Claude CC' },
-  gemini: { color: 'teal', badge: 'Gemini CLI' },
-  amazonq: { color: 'orange', badge: 'Amazon Q' },
   codex: { color: 'green', badge: 'Codex CLI' },
-  cursor: { color: 'violet', badge: 'Cursor' },
 };
 
 const BADGE_STYLES: Record<string, string> = {
