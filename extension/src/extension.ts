@@ -26,7 +26,7 @@ let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 
 // Agent type — read from config (or auto-detected from host app name)
-let agentType: 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor' = 'claude';
+let agentType: 'claude' | 'gridlight' | 'codex' = 'claude';
 let registeredAgentId: string | null = null;
 
 // All discovered agent-related commands
@@ -59,17 +59,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('neoncore.disconnect', () => disconnectFromOrchestrator()),
   );
 
-  // Read agent type from config, with auto-detection fallback based on host app name.
-  // Cursor returns vscode.env.appName === "Cursor"; VS Code returns "Visual Studio Code".
+  // Read agent type from config. Only claude, codex and gridlight are supported engines,
+  // so host-app sniffing no longer selects a type — an unconfigured host is claude.
   const config = vscode.workspace.getConfiguration('neoncore');
   const configuredType = config.get<string>('agentType', '');
-  if (configuredType) {
-    agentType = configuredType as typeof agentType;
-  } else {
-    const appName = vscode.env.appName.toLowerCase();
-    if (appName.includes('cursor')) agentType = 'cursor';
-    else agentType = 'claude';
-  }
+  agentType = configuredType ? (configuredType as typeof agentType) : 'claude';
 
   // Discover agent extension commands (for command injection)
   discoverAgentCommands();
@@ -141,7 +135,7 @@ async function focusAgentPanel(): Promise<void> {
         }
       }
     }
-  } else if (agentType === 'codex' || agentType === 'gemini' || agentType === 'amazonq') {
+  } else if (agentType === 'codex') {
     // Terminal-based agents — focus the integrated terminal
     try {
       await vscode.commands.executeCommand('workbench.action.terminal.focus');
@@ -191,7 +185,7 @@ async function runAutoApproveCommands(): Promise<boolean> {
 
 async function pasteAndEnter(text: string): Promise<void> {
   // Terminal-based agents: send text directly to the active terminal (no clipboard needed)
-  if (agentType === 'codex' || agentType === 'gemini' || agentType === 'amazonq') {
+  if (agentType === 'codex') {
     await vscode.commands.executeCommand('workbench.action.terminal.focus');
     await sleep(200);
     await vscode.commands.executeCommand('workbench.action.terminal.sendSequence', { text: text + '\n' });
@@ -391,7 +385,6 @@ function detectActiveAIExtensions(): Set<string> {
 
   // Detect host app (Cursor is a VS Code fork — check app name first)
   const appName = vscode.env.appName.toLowerCase();
-  if (appName.includes('cursor')) active.add('cursor');
 
   // Detect active AI extensions by extension ID
   for (const ext of vscode.extensions.all) {
@@ -401,8 +394,6 @@ function detectActiveAIExtensions(): Set<string> {
       if (id.includes('gridlight')) active.add('gridlight');
       if (id.includes('claude') || id.includes('anthropic')) active.add('claude');
       if (id.includes('github.copilot')) active.add('copilot');
-      if (id.includes('amazonwebservices.amazon-q') || id.includes('amazon-q')) active.add('amazonq');
-      if (id.includes('google.gemini') || id.includes('gemini-code')) active.add('gemini');
     }
   }
   return active;

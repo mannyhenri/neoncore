@@ -2,7 +2,7 @@
 // Keep in sync with the server's ServerToClientEvents contract.
 
 export type AgentMode = 'manual' | 'trust' | 'plan';
-export type AgentType = 'claude' | 'gridlight' | 'gemini' | 'amazonq' | 'codex' | 'cursor';
+export type AgentType = 'claude' | 'gridlight' | 'codex';
 
 // Confer (standalone multi-agent collaboration) — mirrors server/src/types.ts.
 export type ConferStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -88,7 +88,7 @@ export interface TranscriptEvent {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
-  engine: 'claude' | 'gridlight' | 'codex' | 'gemini';
+  engine: 'claude' | 'gridlight' | 'codex';
   ts: string;
 }
 
