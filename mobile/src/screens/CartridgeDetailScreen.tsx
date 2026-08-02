@@ -7,6 +7,7 @@ import { theme } from '../theme';
 import { api } from '../api';
 import { needsStandardReview } from '../standardBanner';
 import { useNeonCore } from '../NeonCoreProvider';
+import { ProjectMemoryScreen } from './ProjectMemoryScreen';
 import { MessageBlocks, messageToText } from '../components/MessageBlocks';
 import { PermissionCard } from '../components/PermissionCard';
 import { QuestionIcon } from '../components/Icons';
@@ -18,6 +19,7 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
   const { agents, permissions, onTranscript, urlForAgent, urlForPermission } = useNeonCore();
   // Prefer the live agent object so status/mode stay current.
   const live = agents.find((a) => a.id === agent.id) ?? agent;
+  const [memoryOpen, setMemoryOpen] = useState(false);
   // Anything this agent is currently blocked on — answerable inline, below.
   const myPermissions = permissions.filter((p) => p.agentId === agent.id);
 
@@ -203,8 +205,21 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
           <Text style={styles.backText} numberOfLines={1}>‹ Cartridges</Text>
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{live.repoName || live.name}</Text>
-        <View style={{ width: 96 }} />
+        {/* Memory belongs to THIS cartridge, exactly as on the web (CartridgeCard opens
+            ProjectMemoryPanel with project={agent.repoName}). Opening it from here means the
+            phone never asks which repo — it already knows. */}
+        <TouchableOpacity onPress={() => setMemoryOpen((v) => !v)} style={{ width: 96, alignItems: 'flex-end' }}>
+          <Text style={[styles.backText, memoryOpen && { color: theme.accent }]}>
+            {memoryOpen ? 'Close' : 'Memory'}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {memoryOpen && (
+        <View style={{ flex: 1 }}>
+          <ProjectMemoryScreen project={live.repoName} />
+        </View>
+      )}
 
       <View style={styles.modeRow}>
         {MODES.map((m) => (
