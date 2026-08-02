@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { SectionTitle } from './SectionTitle';
 import { QueuePanel } from './QueuePanel';
 import { api } from '../lib/api';
 import type { Task, TaskStatus, Agent, Goal, Project, QueueItem } from '../types';
@@ -723,7 +724,7 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
     <div className="max-w-5xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-base font-semibold text-gray-200">Task queue</h2>
+          <SectionTitle>Task queue</SectionTitle>
           <p className="text-[12px] text-gray-600 mt-0.5">
             {(counts.queued || 0)} queued · {(counts.in_progress || 0) + (counts.claimed || 0)} active · {(counts.done || 0)} done
           </p>

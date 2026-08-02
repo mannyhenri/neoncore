@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  title: { color: theme.text, fontSize: 26, fontWeight: '800', flexShrink: 1 },
+  title: { color: theme.text, ...theme.screenTitle },
   connection: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10 },
   launchBtn: {

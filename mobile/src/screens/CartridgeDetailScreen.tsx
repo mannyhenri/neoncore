@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
   },
   back: { width: 96 },
   backText: { color: theme.accentSoft, fontSize: 15 },
-  title: { color: theme.text, fontSize: 16, fontWeight: '700', flex: 1, textAlign: 'center' },
+  title: { color: theme.text, ...theme.screenTitle },
   modeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
   modeBtn: {
     flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10,

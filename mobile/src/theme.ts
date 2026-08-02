@@ -1,6 +1,12 @@
 // NeonCore mobile theme — mirrors the dashboard's retro-neon palette
 // (near-black backgrounds, violet accent, amber/teal/pink status hues).
 export const theme = {
+  /**
+   * The one way a mobile screen titles itself. The list screen used 26/800 while every other
+   * screen used 16/700, and the queue screen had no title at all — three different answers to
+   * one question, none of them chosen.
+   */
+  screenTitle: { fontSize: 20, fontWeight: '700' as const, letterSpacing: 0.2 },
   bg: '#0d0f12',
   bgElevated: '#14161c',
   bgCard: '#1a1a2e',
@@ -32,4 +38,5 @@ export const statusLabel: Record<AgentStatus, string> = {
   waiting: 'WAITING',
   idle: 'IDLE',
   offline: 'OFFLINE',
+
 };
