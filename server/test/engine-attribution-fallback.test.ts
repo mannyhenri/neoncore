@@ -32,7 +32,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import db from '../src/db.js';
 import { consumeActivityEvent, loadDemotions, clearDemotionsForModel } from '../src/lib/engine-store.js';
-import { DEMOTION_CONSECUTIVE_FAILURES } from '../src/lib/engine-capability.js';
+import { DEMOTION_FAILURE_THRESHOLD } from '../src/lib/engine-capability.js';
 
 const MODEL = 'qwen2.5-coder-14b';
 
@@ -68,7 +68,7 @@ function makeStep(agentId: string, executorType: string, status: string): string
 
 /** Drive enough failing turns to cross the demotion threshold. */
 function drive(agentId: string, stepId: string) {
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES; i++) {
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD; i++) {
     consumeActivityEvent('trouble_signals', failingSignal(stepId), agentId);
   }
 }
@@ -136,7 +136,7 @@ test('an explicitly EMPTY functionId attributes to nothing, never to a guess', (
   const agent = makeAgent();
   makeStep(agent, 'review-gate', 'running'); // the agent fallback WOULD resolve to this
 
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES; i++) {
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD; i++) {
     consumeActivityEvent('trouble_signals', JSON.stringify({
       model: MODEL,
       functionId: '',              // explicit refusal

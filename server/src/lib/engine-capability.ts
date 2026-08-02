@@ -152,13 +152,20 @@ export const INTERACTIVE_MAX_TURN_SECONDS = 30;
  *
  * Deliberately a count, not a rate: at demotion time we have very few samples, and a rate
  * over 3 observations is the same small-N trap the router already refuses elsewhere. A
- * streak is a cheap, auditable signal — and a single success resets it, because one bad
- * turn on a flaky day is noise, not evidence.
+ * streak is a cheap, auditable signal — and a single ATTRIBUTED success resets it, because one
+ * bad turn on a flaky day is noise, not evidence.
+ *
+ * NOT named "consecutive", deliberately. The reset only fires on a successful turn the producer
+ * could attribute to this function; a clean turn involving several tools is refused attribution
+ * and never reaches the reset. So this counts failures with no OBSERVED success between them,
+ * which is a weaker claim than adjacency and is the one the data actually supports. The old
+ * name asserted the stronger claim and the recorded reason repeated it — a false sentence
+ * written into the evidence.
  *
  * Lives here with the bars rather than inline in the consumer: policy in two places is the
  * drift defect this codebase has hit five times.
  */
-export const DEMOTION_CONSECUTIVE_FAILURES = 3;
+export const DEMOTION_FAILURE_THRESHOLD = 3;
 
 /**
  * Wilson score lower bound — the honest way to compare a small-sample rate to a bar.

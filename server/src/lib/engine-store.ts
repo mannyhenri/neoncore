@@ -11,7 +11,7 @@
  *   - demotions  per (model_id, function_id)  — runtime evidence accumulated BETWEEN probes
  */
 import db from '../db.js';
-import { DEMOTION_CONSECUTIVE_FAILURES, type CapabilityProfile } from './engine-capability.js';
+import { DEMOTION_FAILURE_THRESHOLD, type CapabilityProfile } from './engine-capability.js';
 import type { DemotionRecord } from './engine-router.js';
 
 // ---------------------------------------------------------------------------
@@ -127,9 +127,15 @@ export function observeTroubleSignals(functionId: string, payload: TroubleSignal
   if (!failed) { writeStreak(modelId, functionId, 0); return; }
 
   const next = readStreak(modelId, functionId) + 1;
-  if (next >= DEMOTION_CONSECUTIVE_FAILURES) {
+  if (next >= DEMOTION_FAILURE_THRESHOLD) {
     const why = reasons.length ? reasons.join(', ') : 'turn reported failure';
-    recordDemotion(modelId, functionId, `${next} consecutive failing turns: ${why}`);
+    // "no attributed success between them", NOT "consecutive". The streak only resets when a
+    // SUCCESSFUL turn arrives carrying this function id; a clean turn the producer could not
+    // attribute (several tools ran) never reaches the reset. So the counter can prove no
+    // observed success intervened — it cannot prove the failures were adjacent. A demotion is
+    // evidence, and evidence that overstates itself is worse than none, because nothing
+    // downstream can tell the difference.
+    recordDemotion(modelId, functionId, `${next} failing turns with no attributed success between them: ${why}`);
     writeStreak(modelId, functionId, 0);
   } else {
     writeStreak(modelId, functionId, next);
