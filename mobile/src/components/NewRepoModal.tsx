@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bgElevated,
   },
   checkOn: { backgroundColor: theme.accent, borderColor: theme.accent },
-  checkMark: { color: '#0d0f12', fontSize: 13, fontWeight: '900' },
+  checkMark: { color: theme.bg, fontSize: 13, fontWeight: '900' },
   checkLabel: { color: theme.textDim, fontSize: 13 },
   err: { color: theme.danger, fontSize: 13, marginTop: 12 },
   warn: { color: theme.amber, fontSize: 12, marginTop: 6 },
@@ -220,5 +220,5 @@ const styles = StyleSheet.create({
   link: { color: theme.accentSoft, fontSize: 14, fontWeight: '600', marginBottom: 4 },
   runBtn: { marginTop: 18, backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   runBtnOff: { opacity: 0.4 },
-  runBtnText: { color: '#0d0f12', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  runBtnText: { color: theme.bg, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
 });

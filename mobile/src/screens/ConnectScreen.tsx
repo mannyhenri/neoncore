@@ -86,5 +86,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 28,
   },
-  btnText: { color: '#0d0f12', fontWeight: '800', letterSpacing: 1 },
+  btnText: { color: theme.bg, fontWeight: '800', letterSpacing: 1 },
 });

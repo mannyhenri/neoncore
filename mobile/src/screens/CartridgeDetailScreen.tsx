@@ -377,7 +377,7 @@ const styles = StyleSheet.create({
   },
   modeBtnActive: { borderColor: theme.accent, backgroundColor: theme.accent },
   modeText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
-  modeTextActive: { color: '#0d0f12' },
+  modeTextActive: { color: theme.bg },
   questionBanner: {
     marginHorizontal: 12, marginBottom: 4, padding: 12, borderRadius: 10,
     backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: theme.amber,
@@ -397,20 +397,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
     backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
   },
-  stdTitle: { color: '#fde68a', fontSize: 13, fontWeight: '700' },
+  stdTitle: { color: theme.warnSoft, fontSize: 13, fontWeight: '700' },
   stdObjective: { color: 'rgba(253,230,138,0.6)', fontSize: 11, marginTop: 1 },
   stdBtn: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
     backgroundColor: 'rgba(245,158,11,0.2)',
   },
-  stdBtnText: { color: '#fde68a', fontSize: 12, fontWeight: '700' },
-  recovTitle: { color: '#fecaca', fontSize: 13, fontWeight: '700' },
+  stdBtnText: { color: theme.warnSoft, fontSize: 12, fontWeight: '700' },
+  recovTitle: { color: theme.dangerSoft, fontSize: 13, fontWeight: '700' },
   recovObjective: { color: 'rgba(254,202,202,0.6)', fontSize: 11, marginTop: 1 },
   recovBtn: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
     backgroundColor: 'rgba(239,68,68,0.2)',
   },
-  recovBtnText: { color: '#fecaca', fontSize: 12, fontWeight: '700' },
+  recovBtnText: { color: theme.dangerSoft, fontSize: 12, fontWeight: '700' },
   recovDismiss: { paddingHorizontal: 6, paddingVertical: 4 },
   recovDismissText: { color: 'rgba(254,202,202,0.6)', fontSize: 18, fontWeight: '700', lineHeight: 18 },
   targetRow: {
@@ -434,5 +434,5 @@ const styles = StyleSheet.create({
     borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: theme.text, fontSize: 15,
   },
   sendBtn: { backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 12, justifyContent: 'center' },
-  sendText: { color: '#0d0f12', fontWeight: '800' },
+  sendText: { color: theme.bg, fontWeight: '800' },
 });

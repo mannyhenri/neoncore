@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 1,
   },
   checkboxOn: { backgroundColor: theme.accent, borderColor: theme.accent },
-  checkMark: { color: '#0d0f12', fontSize: 12, fontWeight: '900', lineHeight: 14 },
+  checkMark: { color: theme.bg, fontSize: 12, fontWeight: '900', lineHeight: 14 },
   wtText: { flex: 1, color: theme.textDim, fontSize: 11, lineHeight: 15 },
   input: {
     color: theme.text, fontSize: 14, backgroundColor: theme.bgCard, borderRadius: 12,
@@ -279,6 +279,6 @@ const styles = StyleSheet.create({
   },
   runBtnOff: { opacity: 0.4 },
   needHint: { color: theme.textFaint, fontSize: 12, marginTop: 14, textAlign: 'center' },
-  runBtnText: { color: '#0d0f12', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  runBtnText: { color: theme.bg, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingTop: 8 },
 });
