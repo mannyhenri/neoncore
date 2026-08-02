@@ -177,9 +177,16 @@ export function consumeActivityEvent(
   // step id to the engine at all (open-directory.ts passes session id, machine, url and
   // permission mode — no step id). Without this fallback the loop could not fire on
   // production data however many turns failed.
-  const functionId = payload.functionId
-    || resolveFunctionIdFromStep(payload.stepId)
-    || resolveFunctionIdFromAgent(agentId);
+  // `??`, NOT `||`. An explicit functionId of '' means the producer DELIBERATELY could not
+  // attribute this turn — two different tools failed, so naming one would be a guess. `||`
+  // treats that refusal as absence and falls through to the stepId guess, which is a false
+  // demotion arriving through the door built to prevent false demotions. The producer's
+  // silence has to outrank our inference, structurally rather than by convention.
+  const functionId = (payload.functionId ?? '') !== ''
+    ? payload.functionId
+    : payload.functionId === ''
+      ? null
+      : resolveFunctionIdFromStep(payload.stepId) ?? resolveFunctionIdFromAgent(agentId);
   if (!functionId) return;
   observeTroubleSignals(functionId, payload);
 }

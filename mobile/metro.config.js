@@ -33,6 +33,20 @@ const monorepoRoot = path.resolve(__dirname, '..');
  *   monorepos take. Deliberately NOT done here: nothing needs it yet, and shipping an
  *   unused build step is its own dead weight.
  */
+/**
+ * Packages that MUST be a single instance. Two Reacts is not a bigger bundle — it is two hook
+ * dispatchers, and the app dies at launch with "Cannot read property 'useState' of null".
+ * Build 32 shipped exactly that: adding mobile to the npm workspaces hoisted most deps to the
+ * root while a nested react 19.2.3 survived against the root's 19.2.4, and nodeModulesPaths
+ * below lists both directories.
+ *
+ * Deduping node_modules fixes today; pinning fixes every future install that re-nests a copy.
+ */
+const SINGLETONS = ['react', 'react-native'];
+const pinned = Object.fromEntries(
+  SINGLETONS.map((p) => [p, path.resolve(monorepoRoot, 'node_modules', p)]),
+);
+
 module.exports = mergeConfig(getDefaultConfig(__dirname), {
   watchFolders: [monorepoRoot],
   resolver: {
@@ -40,5 +54,8 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
       path.resolve(__dirname, 'node_modules'),
       path.resolve(monorepoRoot, 'node_modules'),
     ],
+    // extraNodeModules wins over nodeModulesPaths, so even if a nested copy reappears every
+    // import of these resolves to the one instance.
+    extraNodeModules: pinned,
   },
 });
