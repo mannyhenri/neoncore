@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 // MUST be first: sets NEONCORE_DB_PATH before any module opens the database. ESM imports
 // are hoisted, so a bare assignment in this file's body would run too late.
 import './helpers/isolated-db.js';
-import { FUNCTIONS, DEMOTION_CONSECUTIVE_FAILURES, type CapabilityProfile } from '../src/lib/engine-capability.js';
+import { FUNCTIONS, DEMOTION_FAILURE_THRESHOLD, type CapabilityProfile } from '../src/lib/engine-capability.js';
 import { eligibilityMap, routeFunction } from '../src/lib/engine-router.js';
 import {
   saveProfile, loadProfile, recordDemotion, loadDemotions,
@@ -107,10 +107,10 @@ test('trouble_signals are consumed: N consecutive failures demote', () => {
   assert.deepEqual(loadDemotions(MODEL), [], 'demoted on a single failure');
 
   // N consecutive failures must.
-  for (let i = 1; i < DEMOTION_CONSECUTIVE_FAILURES; i++) observeTroubleSignals('read_file', failing);
+  for (let i = 1; i < DEMOTION_FAILURE_THRESHOLD; i++) observeTroubleSignals('read_file', failing);
   const dem = loadDemotions(MODEL);
   assert.ok(dem.some((d) => d.functionId === 'read_file' && d.demoted),
-    `expected demotion after ${DEMOTION_CONSECUTIVE_FAILURES} consecutive failures, got ${JSON.stringify(dem)}`);
+    `expected demotion after ${DEMOTION_FAILURE_THRESHOLD} failing turns, got ${JSON.stringify(dem)}`);
   // The row must say WHY, or a human cannot audit the decision.
   assert.match(dem.find((d) => d.functionId === 'read_file')!.reason ?? '', /prose|signal|fail/i);
   clearDemotionsForModel(MODEL);
@@ -122,7 +122,7 @@ test('a success resets the consecutive-failure count', () => {
   const bad = { model: MODEL, stepId: 's', escalationHint: 'failing', signals: { success: false, proseInsteadOfToolCall: true } };
   const good = { model: MODEL, stepId: 's', escalationHint: 'none', signals: { success: true } };
 
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES - 1; i++) observeTroubleSignals('search_code', bad);
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD - 1; i++) observeTroubleSignals('search_code', bad);
   observeTroubleSignals('search_code', good);          // resets
   observeTroubleSignals('search_code', bad);           // back to 1, must not demote
   assert.deepEqual(loadDemotions(MODEL).filter((d) => d.functionId === 'search_code'), [],
@@ -156,13 +156,13 @@ test('THE REAL PATH: consumeActivityEvent, not the direct API', () => {
 
   // No functionId => NO demotion. Demoting the wrong function is worse than none: it
   // removes work the model can do and leaves the real failure in place.
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES + 2; i++) {
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD + 2; i++) {
     consumeActivityEvent('trouble_signals', payload(undefined));
   }
   assert.deepEqual(loadDemotions(MODEL), [], 'demoted despite having no attribution');
 
   // With a functionId, the streak accrues against THAT function and nothing else.
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES; i++) {
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD; i++) {
     consumeActivityEvent('trouble_signals', payload('search_code'));
   }
   const dem = loadDemotions(MODEL);
@@ -193,12 +193,12 @@ test('attribution is a lookup: stepId -> executor_type, and unresolvable events 
   });
 
   // Unresolvable stepId -> dropped, never guessed.
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES + 2; i++) consumeActivityEvent('trouble_signals', ev('no-such-step'));
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES + 2; i++) consumeActivityEvent('trouble_signals', ev(undefined));
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD + 2; i++) consumeActivityEvent('trouble_signals', ev('no-such-step'));
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD + 2; i++) consumeActivityEvent('trouble_signals', ev(undefined));
   assert.deepEqual(loadDemotions(MODEL), [], 'an unattributable event produced a demotion');
 
   // Resolvable stepId -> demotes the function that step performs, and only that one.
-  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES; i++) consumeActivityEvent('trouble_signals', ev('step-rg'));
+  for (let i = 0; i < DEMOTION_FAILURE_THRESHOLD; i++) consumeActivityEvent('trouble_signals', ev('step-rg'));
   assert.deepEqual(loadDemotions(MODEL).map((d) => d.functionId), ['review-gate'],
     'stepId did not resolve to the step\'s executor_type');
   clearDemotionsForModel(MODEL);
