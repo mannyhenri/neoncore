@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { SectionTitle } from './SectionTitle';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, ProjectLearning, Heartbeat, Task } from '../types';
@@ -1262,7 +1263,7 @@ export function GoalsPage() {
       {/* Header row */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-gray-300 text-sm font-semibold uppercase tracking-wide">Goals</h2>
+          <SectionTitle>Goals</SectionTitle>
           <p className="text-[12px] text-gray-600 mt-0.5">Business objectives and the projects advancing them</p>
         </div>
         <div className="flex gap-2">

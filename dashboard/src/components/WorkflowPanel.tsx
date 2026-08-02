@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { SectionTitle } from './SectionTitle';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
@@ -227,9 +228,7 @@ export function WorkflowPanel({ agents }: Props) {
         className="flex items-center gap-2 mb-3 md:mb-4 group"
       >
         <span className={`text-xs text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
-        <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide group-hover:text-gray-300 transition-colors">
-          Workflows
-        </h2>
+        <SectionTitle>Workflows</SectionTitle>
         {totalActive > 0 && (
           <span className="bg-gl-blue/20 text-gl-blue px-2 py-0.5 rounded-full text-xs font-medium">
             {totalActive} active
@@ -578,7 +577,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
           <div>
-            <h2 className="text-sm font-semibold text-white">Configure & Run</h2>
+            <SectionTitle>Configure & Run</SectionTitle>
             <p className="text-[13px] text-gray-500 mt-0.5">Fill in the required fields before running</p>
           </div>
           <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>

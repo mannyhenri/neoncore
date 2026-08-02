@@ -80,6 +80,9 @@ export function QueueScreen() {
 
   return (
     <View style={s.wrap}>
+      {/* The queue screen shipped with no title, so the phone showed a bare list with no
+          indication of what it was. Same primitive as every other screen. */}
+      <Text style={s.title}>Queue</Text>
       {error ? <Text style={s.err}>{error}</Text> : null}
 
       {/* No enqueue form. Work starts by prompting a cartridge or launching a confer or
@@ -166,6 +169,7 @@ const s = StyleSheet.create({
   status: { fontSize: 11, fontWeight: '700' },
   kind: { fontSize: 11, color: theme.textDim },
   halted: { fontSize: 10, color: '#fbbf24', fontWeight: '700' },
+  title: { color: theme.text, ...theme.screenTitle, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 },
   body: { color: theme.text, fontSize: 13, marginTop: 4 },
   lane: { color: theme.textDim, fontSize: 10, marginTop: 2, fontFamily: 'Menlo' },
   reason: { color: '#fbbf24', fontSize: 11, marginTop: 3 },

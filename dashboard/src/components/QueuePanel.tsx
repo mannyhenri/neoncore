@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { SectionTitle } from './SectionTitle';
 import type { QueueItem, QueueLane } from '../types';
 import { api } from '../lib/api';
 
@@ -75,9 +76,7 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-medium text-gray-200">
-          Queue <span className="text-gray-500">· {items.length} item{items.length === 1 ? '' : 's'}</span>
-        </h2>
+        <SectionTitle count={items.length}>Queue</SectionTitle>
         <button
           onClick={() => void run(() => api.tickQueue())}
           disabled={busy}
