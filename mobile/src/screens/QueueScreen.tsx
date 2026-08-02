@@ -6,7 +6,8 @@ import {
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { Card, CardTop, StatusPill, Chip, ActionButton, ScreenTitle } from '../components/ui';
+import { Card, CardTop, StatusPill, Chip, ActionButton, ScreenTitle, Adaptive, useAdaptiveContent } from '../components/ui';
+import { useResponsive, gridProps, gridKey } from '../responsive';
 import type { QueueItem, QueueLane } from '../api';
 
 /**
@@ -40,6 +41,8 @@ export function QueueScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const { columns } = useResponsive();
+  const adaptive = useAdaptiveContent();
 
   const load = useCallback(async () => {
     if (!baseUrl) return;
@@ -82,18 +85,22 @@ export function QueueScreen() {
 
   return (
     <View style={s.wrap}>
+      <Adaptive>
       <ScreenTitle
         title="Queue"
         right={active > 0 ? <Text style={s.count}>{active} active</Text> : undefined}
       />
       {error ? <Text style={s.err}>{error}</Text> : null}
+      </Adaptive>
 
       {/* No enqueue form. Work starts by prompting a cartridge or launching a confer or
           workflow; the server queues it when that cartridge is busy. This screen watches. */}
       <FlatList
         data={items}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        key={gridKey(columns)}
+        {...gridProps(columns)}
+        contentContainerStyle={[{ paddingBottom: 24 }, adaptive]}
         refreshControl={<RefreshControl refreshing={false} onRefresh={() => void load()} tintColor={theme.accent} />}
         ListEmptyComponent={<Text style={s.empty}>Nothing queued.{'\n'}Prompts sent to a busy cartridge land here.</Text>}
         renderItem={({ item }) => {
@@ -103,7 +110,7 @@ export function QueueScreen() {
           const live = item.status === 'queued' || item.status === 'running';
           const finished = item.status === 'done' || item.status === 'failed' || item.status === 'cancelled';
           return (
-            <Card accent={color}>
+            <Card accent={color} grid={columns > 1}>
               <CardTop>
                 <StatusPill label={item.status} color={color} />
                 <Chip label={item.kind} />

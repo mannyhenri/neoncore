@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { PermissionCard } from '../components/PermissionCard';
 import { CheckCircleIcon } from '../components/Icons';
+import { Adaptive, useAdaptiveContent } from '../components/ui';
 
 export function ApprovalsScreen() {
   const { permissions, agents, refresh, urlForPermission } = useNeonCore();
@@ -29,15 +30,19 @@ export function ApprovalsScreen() {
     }
   };
 
+  const adaptive = useAdaptiveContent();
+
   return (
     <View style={styles.root}>
-      <View style={styles.tabHeader}>
-        <Text style={styles.screenTitle}>Approvals</Text>
-      </View>
+      <Adaptive>
+        <View style={styles.tabHeader}>
+          <Text style={styles.screenTitle}>Approvals</Text>
+        </View>
+      </Adaptive>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, adaptive]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />
         }

@@ -24,7 +24,7 @@ import {
 import { theme } from '../theme';
 import { api, type ProjectNote } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { Card, Chip, ActionButton, PrimaryButton } from '../components/ui';
+import { Card, Chip, ActionButton, PrimaryButton, Adaptive } from '../components/ui';
 
 /** Mirrors KNOWLEDGE_FILES in dashboard/src/components/ProjectMemoryPanel.tsx. The parity
  *  test asserts this list matches the web's, so a file added there fails here until added. */
@@ -97,7 +97,10 @@ export function ProjectMemoryScreen({ project: projectProp }: { project?: string
   }
 
   return (
+    // A text editor is always ONE column — two columns of prose to edit would be worse,
+    // not better. It just stops stretching.
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <Adaptive style={s.flex}>
       {repos.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.repoBar} contentContainerStyle={s.repoChips}>
           {repos.map((r) => (
@@ -178,6 +181,7 @@ export function ProjectMemoryScreen({ project: projectProp }: { project?: string
           </View>
         </View>
       )}
+      </Adaptive>
     </KeyboardAvoidingView>
   );
 }

@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator,
 import { theme } from '../theme';
 import { api } from '../api';
 import { normalizeUrl, saveServerUrl } from '../config';
+import { Adaptive } from '../components/ui';
 
 export function ConnectScreen({ onConnected }: { onConnected: (url: string) => void }) {
   const [input, setInput] = useState('');
@@ -31,7 +32,7 @@ export function ConnectScreen({ onConnected }: { onConnected: (url: string) => v
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.inner}>
+      <Adaptive style={styles.inner}>
         <Text style={styles.logo}>NEON<Text style={{ color: theme.accent }}>CORE</Text></Text>
         <Text style={styles.sub}>Connect to your orchestrator</Text>
 
@@ -56,7 +57,7 @@ export function ConnectScreen({ onConnected }: { onConnected: (url: string) => v
         <TouchableOpacity style={styles.btn} onPress={connect} disabled={busy}>
           {busy ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>CONNECT</Text>}
         </TouchableOpacity>
-      </View>
+      </Adaptive>
     </KeyboardAvoidingView>
   );
 }

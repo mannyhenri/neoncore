@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import type { Workflow, WorkflowStep, StepStatus, DecisionOption } from '../types';
 import { PlayIcon, CheckCircleIcon } from '../components/Icons';
+import { useAdaptiveContent } from '../components/ui';
 
 /** Per-step status colours — matches the dashboard canvas node dots. */
 const stepColor: Record<StepStatus, string> = {
@@ -39,6 +40,7 @@ const execLabel: Record<string, string> = {
 };
 
 export function WorkflowRunDetailScreen({ run, onBack }: { run: Workflow; onBack: () => void }) {
+  const adaptive = useAdaptiveContent();
   const { baseUrl, agents, onWorkflowStep, onWorkflowUpdate } = useNeonCore();
 
   const [workflow, setWorkflow] = useState<Workflow>(run);
@@ -140,7 +142,7 @@ export function WorkflowRunDetailScreen({ run, onBack }: { run: Workflow; onBack
         <ActivityIndicator color={theme.accent} style={{ marginTop: 40 }} />
       ) : (
         <ScrollView
-          contentContainerStyle={styles.body}
+          contentContainerStyle={[styles.body, adaptive]}
           keyboardShouldPersistTaps="handled"
           // Keeps the focused steer field above the keyboard: on iOS this adds the keyboard
           // height as a bottom inset AND scrolls the first responder into view. No-op on

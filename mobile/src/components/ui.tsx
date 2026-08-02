@@ -13,6 +13,25 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, type ViewStyle, type StyleProp } from 'react-native';
 import { theme } from '../theme';
+import { useResponsive } from '../responsive';
+
+/**
+ * Centres content and stops it stretching on a wide window.
+ *
+ * Wrap anything that would otherwise run the full width of an iPad. On a phone this is a no-op,
+ * so screens do not need two code paths — which matters, because a second path is a second thing
+ * to forget to update.
+ */
+export function Adaptive({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  const { contentMaxWidth } = useResponsive();
+  return <View style={[s.adaptive, { maxWidth: contentMaxWidth }, style]}>{children}</View>;
+}
+
+/** The same cap, as a style — for FlatList contentContainerStyle, which cannot take a component. */
+export function useAdaptiveContent(): ViewStyle {
+  const { contentMaxWidth } = useResponsive();
+  return { width: '100%', maxWidth: contentMaxWidth, alignSelf: 'center' };
+}
 
 /**
  * The standard surface for one item in a list.
@@ -22,20 +41,36 @@ import { theme } from '../theme';
  * point at. `accent` tints the left edge for rows that need attention without shouting.
  */
 export function Card({
-  children, onPress, accent, style,
+  children, onPress, accent, style, grid,
 }: {
   children: React.ReactNode;
   onPress?: () => void;
   accent?: string;
   style?: StyleProp<ViewStyle>;
+  /** Set on cards rendered as FlatList items so they share a row evenly when columns > 1. */
+  grid?: boolean;
 }) {
+  const { columns: gridColumns } = useResponsive();
   const body = (
     <View style={[s.card, accent ? { borderLeftColor: accent, borderLeftWidth: 3 } : null, style]}>
       {children}
     </View>
   );
-  if (!onPress) return body;
-  return <Pressable onPress={onPress} style={({ pressed }) => (pressed ? s.pressed : null)}>{body}</Pressable>;
+  // In a multi-column list a cell claims a FIXED share of the row, not flex:1.
+  //
+  // flex:1 looks right until the item count is odd: the last row holds one card, which then
+  // expands to the full width and reads as a different, more important card. A fixed share
+  // leaves the odd one the same size as every other. Read from the hook rather than a prop so
+  // callers cannot pass a column count that disagrees with the list's own numColumns.
+  const outer: StyleProp<ViewStyle> = grid
+    ? [s.gridCell, { width: `${100 / Math.max(1, gridColumns)}%` as const }]
+    : null;
+  if (!onPress) return grid ? <View style={outer}>{body}</View> : body;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [outer, pressed ? s.pressed : null]}>
+      {body}
+    </Pressable>
+  );
 }
 
 /** Top row of a card: title on the left, chips and pills trailing. */
@@ -141,6 +176,9 @@ const s = StyleSheet.create({
     marginVertical: 6,
   },
   pressed: { opacity: 0.7 },
+  // minWidth:0 lets a long unbroken string shrink instead of forcing its column wider.
+  gridCell: { minWidth: 0 },
+  adaptive: { width: '100%', alignSelf: 'center' },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
   pill: {

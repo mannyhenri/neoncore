@@ -11,6 +11,7 @@ import type { ConferSession, Workflow, WorkflowStep } from '../types';
 import { PlayIcon } from '../components/Icons';
 import { ConferModal } from '../components/ConferModal';
 import { ConferCard } from '../components/ConferCard';
+import { useAdaptiveContent } from '../components/ui';
 
 /** One entry in the ACTIVE/RECENT feed — a workflow run or a confer session. Both carry a
  *  `createdAt`, which is what lets them be merged into one newest-first list. */
@@ -29,6 +30,7 @@ const runColor: Record<string, string> = {
 };
 
 export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => void }) {
+  const adaptive = useAdaptiveContent();
   // `confers` comes from the provider (seeded on connect, kept live by the confer_updated
   // socket) rather than this screen's own load(), so it stays fresh on every tab.
   const { baseUrl, agents, confers, refresh, onWorkflowUpdate } = useNeonCore();
@@ -181,7 +183,7 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
             first responder into view — padding alone (the old KeyboardAvoidingView) only freed
             the RUN button, never the input. It's a no-op on Android, which resizes natively. */}
         <ScrollView
-          contentContainerStyle={styles.sheet}
+          contentContainerStyle={[styles.sheet, adaptive]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets

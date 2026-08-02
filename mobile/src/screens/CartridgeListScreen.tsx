@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
 import { theme, statusColor, statusLabel, type AgentStatus } from '../theme';
+import { useResponsive, gridProps, gridKey } from '../responsive';
+import { Adaptive, useAdaptiveContent } from '../components/ui';
 import { useNeonCore } from '../NeonCoreProvider';
 import type { Agent } from '../types';
 import { QuestionIcon } from '../components/Icons';
@@ -10,6 +12,9 @@ import { NewRepoModal } from '../components/NewRepoModal';
 
 export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void }) {
   const { agents, connected, refresh, dismissAgent, restoreAgent, servers } = useNeonCore();
+  // One column on a phone, a centred column on an iPad in portrait, two in landscape.
+  const { columns } = useResponsive();
+  const adaptive = useAdaptiveContent();
   const [refreshing, setRefreshing] = useState(false);
   const [showOffline, setShowOffline] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -41,6 +46,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
 
   return (
     <View style={styles.root}>
+      <Adaptive>
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
@@ -60,6 +66,7 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
           </TouchableOpacity>
         </View>
       </View>
+      </Adaptive>
 
       {/* Confer lives on the Workflows screen — it starts a multi-agent *run*, and its
           progress belongs next to the other runs rather than on top of the cartridge list. */}
@@ -69,7 +76,9 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
       <FlatList
         data={sorted}
         keyExtractor={(a) => a.id}
-        contentContainerStyle={{ paddingVertical: 8 }}
+        key={gridKey(columns)}
+        {...gridProps(columns)}
+        contentContainerStyle={[{ paddingVertical: 8 }, adaptive]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={doRefresh} tintColor={theme.accent} />}
         ListEmptyComponent={
           <Text style={styles.empty}>
@@ -131,9 +140,17 @@ export function CartridgeListScreen({ onOpen }: { onOpen: (agent: Agent) => void
           </View>
         }
         renderItem={({ item }) => (
-          <SwipeToDismiss label="Hide" onAction={() => dismissAgent(item.id)}>
-            <CartridgeCard agent={item} onPress={() => onOpen(item)} showOrigin={servers.length > 1} />
-          </SwipeToDismiss>
+          // Swipe-to-dismiss is a one-per-row gesture; in a grid the row holds two cards, so
+          // it only wraps the single-column layout. flex:1 keeps both cells equal width.
+          columns > 1 ? (
+            <View style={{ width: `${100 / columns}%`, minWidth: 0 }}>
+              <CartridgeCard agent={item} onPress={() => onOpen(item)} showOrigin={servers.length > 1} />
+            </View>
+          ) : (
+            <SwipeToDismiss label="Hide" onAction={() => dismissAgent(item.id)}>
+              <CartridgeCard agent={item} onPress={() => onOpen(item)} showOrigin={servers.length > 1} />
+            </SwipeToDismiss>
+          )
         )}
       />
     </View>
