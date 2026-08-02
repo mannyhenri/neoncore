@@ -446,7 +446,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5, backgroundColor: theme.bgElevated, borderRadius: 6,
     paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
   },
-  branchBadge: { color: theme.teal, fontSize: 11, fontWeight: '600' },
   runBtnOff: { opacity: 0.4 },
   root: { flex: 1, backgroundColor: theme.bg },
   // Top-level tab screen: big title, matching the Cartridges list.
@@ -499,7 +498,6 @@ const styles = StyleSheet.create({
   },
   cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardName: { color: theme.text, fontSize: 16, fontWeight: '700', flex: 1, marginRight: 8 },
-  runIcon: { color: theme.accent, fontSize: 14, fontWeight: '700' },
   cardDesc: { color: theme.textDim, fontSize: 13, marginTop: 6, lineHeight: 18 },
 
   sheet: { padding: 16, paddingBottom: 40 },
@@ -522,7 +520,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16, alignItems: 'center', marginTop: 24,
   },
   runBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  runBtnText: { color: '#0d0f12', fontWeight: '800', letterSpacing: 1 },
+  runBtnText: { color: theme.bg, fontWeight: '800', letterSpacing: 1 },
 
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 60 },

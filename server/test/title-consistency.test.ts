@@ -80,6 +80,15 @@ test('EVERY mobile screen titles itself through the shared style', () => {
 
 test('the QUEUE screen has a title at all', () => {
   // It shipped without one, so the phone showed a list with no indication of what it was.
-  assert.match(read('mobile/src/screens/QueueScreen.tsx'), /screenTitle/,
-    'the mobile queue screen renders no title');
+  //
+  // Asserts the PROPERTY — the screen titles itself through a sanctioned mechanism — not one
+  // particular spelling of it. The original matched /screenTitle/, which broke the moment the
+  // screen switched from a local `title` style to the shared <ScreenTitle> primitive: a stricter
+  // adherence to the rule, failed by the test meant to enforce the rule. A test coupled to how
+  // a thing is done blocks the improvement it was written to encourage.
+  const src = read('mobile/src/screens/QueueScreen.tsx');
+  assert.ok(
+    /<ScreenTitle\b/.test(src) || /screenTitle/.test(src),
+    'the mobile queue screen renders no title — use <ScreenTitle> from components/ui',
+  );
 });

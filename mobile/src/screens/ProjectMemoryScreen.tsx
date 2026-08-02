@@ -11,15 +11,20 @@
  * decision is recorded in NOT_ON_MOBILE in server/test/mobile-memory-parity.test.ts so it
  * reads as a choice rather than an omission, and so the parity test fails if the web gains an
  * editing operation this screen does not.
+ *
+ * Styled with the shared primitives. This was the only screen in the app with no StyleSheet at
+ * all — every rule inline, every colour retyped — which is precisely why it drifted furthest
+ * from the rest: nothing in it was reusable, so nothing in it was reused.
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable,
+  ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet,
   ScrollView, Text, TextInput, View,
 } from 'react-native';
 import { theme } from '../theme';
 import { api, type ProjectNote } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
+import { Card, Chip, ActionButton, PrimaryButton } from '../components/ui';
 
 /** Mirrors KNOWLEDGE_FILES in dashboard/src/components/ProjectMemoryPanel.tsx. The parity
  *  test asserts this list matches the web's, so a file added there fails here until added. */
@@ -28,8 +33,6 @@ type Tab = 'notes' | (typeof KNOWLEDGE_FILES)[number];
 
 export function ProjectMemoryScreen({ project: projectProp }: { project?: string }) {
   const { baseUrl, agents } = useNeonCore();
-  // Default to the repo of the first live cartridge, so the screen is useful on open rather
-  // than demanding a selection the phone has no good way to make.
   // Project memory is keyed by REPO — which is exactly what a project owns now. So the choice
   // is "which cartridge", not "which project", and it is explicit rather than guessed: silently
   // defaulting to the first live agent meant editing one repo's memory while believing you were
@@ -90,122 +93,125 @@ export function ProjectMemoryScreen({ project: projectProp }: { project?: string
   });
 
   if (!project) {
-    return <View style={{ padding: 16 }}><Text style={{ color: theme.textDim }}>Pick a cartridge to see its project memory.</Text></View>;
+    return <View style={s.pad}><Text style={s.dim}>Pick a cartridge to see its project memory.</Text></View>;
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       {repos.length > 1 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 40, paddingHorizontal: 10 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.repoBar} contentContainerStyle={s.repoChips}>
           {repos.map((r) => (
-            <Pressable
-              key={r}
-              onPress={() => setPicked(r)}
-              style={{
-                paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, marginRight: 6,
-                backgroundColor: project === r ? theme.accent : theme.bgElevated,
-              }}
-            >
-              <Text style={{ color: project === r ? '#fff' : theme.textDim, fontSize: 12 }}>{r}</Text>
-            </Pressable>
+            <Chip key={r} label={r} on={project === r} onPress={() => setPicked(r)} />
           ))}
         </ScrollView>
       )}
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 10 }}>
+      <View style={[s.chipRow, s.tabRow]}>
         {(['notes', ...KNOWLEDGE_FILES] as Tab[]).map((t) => (
-          <Pressable
-            key={t}
-            onPress={() => setTab(t)}
-            style={{
-              paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6,
-              backgroundColor: tab === t ? theme.accent : theme.bgElevated,
-            }}
-          >
-            <Text style={{ color: tab === t ? '#fff' : theme.textDim, fontSize: 12 }}>{t}</Text>
-          </Pressable>
+          <Chip key={t} label={t.replace('.md', '')} on={tab === t} onPress={() => setTab(t)} />
         ))}
       </View>
 
-      {error !== '' && <Text style={{ color: theme.danger ?? '#f87171', fontSize: 12, paddingHorizontal: 12 }}>{error}</Text>}
-      {busy && <ActivityIndicator style={{ marginVertical: 6 }} />}
+      {error !== '' ? <Text style={s.err}>{error}</Text> : null}
+      {busy && <ActivityIndicator style={s.spinner} color={theme.accent} />}
 
       {tab === 'notes' ? (
-        <ScrollView style={{ flex: 1, paddingHorizontal: 12 }}>
+        <ScrollView style={s.flex} contentContainerStyle={s.scrollPad}>
           <TextInput
             value={draft}
             onChangeText={setDraft}
             placeholder={editingId ? 'edit note…' : 'new note…'}
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={theme.textFaint}
             multiline
-            style={{
-              color: theme.text, backgroundColor: theme.bgCard, borderRadius: 8,
-              padding: 10, minHeight: 70, textAlignVertical: 'top',
-            }}
+            style={[s.input, s.noteInput]}
           />
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-            <Pressable
+          <View style={s.actions}>
+            <PrimaryButton
+              label={editingId ? 'Save note' : 'Add note'}
               onPress={() => void saveNote()}
               disabled={busy || draft.trim() === ''}
-              style={{ backgroundColor: theme.accent, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6, opacity: draft.trim() ? 1 : 0.4 }}
-            >
-              <Text style={{ color: '#fff', fontSize: 13 }}>{editingId ? 'Save note' : 'Add note'}</Text>
-            </Pressable>
+            />
             {editingId && (
-              <Pressable
-                onPress={() => { setEditingId(null); setDraft(''); }}
-                style={{ backgroundColor: theme.bgElevated, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6 }}
-              >
-                <Text style={{ color: theme.text, fontSize: 13 }}>Cancel</Text>
-              </Pressable>
+              <ActionButton label="Cancel" onPress={() => { setEditingId(null); setDraft(''); }} />
             )}
           </View>
 
-          {notes.length === 0 && !busy && (
-            <Text style={{ color: theme.textFaint, fontStyle: 'italic', marginTop: 16 }}>No notes yet</Text>
-          )}
+          {notes.length === 0 && !busy && <Text style={s.emptyNotes}>No notes yet</Text>}
+
           {notes.map((n) => (
-            <View key={n.id} style={{ backgroundColor: theme.bgCard, borderRadius: 8, padding: 10, marginTop: 10 }}>
-              <Text style={{ color: theme.text, fontSize: 13 }}>{n.content}</Text>
-              <View style={{ flexDirection: 'row', gap: 14, marginTop: 8 }}>
-                <Pressable onPress={() => { setEditingId(n.id); setDraft(n.content); }}>
-                  <Text style={{ color: theme.accent, fontSize: 12 }}>Edit</Text>
-                </Pressable>
-                <Pressable onPress={() => void run(() => api.deleteProjectNote(baseUrl, project, n.id))}>
-                  <Text style={{ color: theme.danger ?? '#f87171', fontSize: 12 }}>Delete</Text>
-                </Pressable>
+            <Card key={n.id} style={s.noteCard}>
+              <Text style={s.noteText}>{n.content}</Text>
+              <View style={s.actions}>
+                <ActionButton
+                  label="Edit"
+                  tone="accent"
+                  onPress={() => { setEditingId(n.id); setDraft(n.content); }}
+                />
+                <ActionButton
+                  label="Delete"
+                  tone="danger"
+                  onPress={() => void run(() => api.deleteProjectNote(baseUrl, project, n.id))}
+                />
               </View>
-            </View>
+            </Card>
           ))}
         </ScrollView>
       ) : (
-        <View style={{ flex: 1, paddingHorizontal: 12 }}>
+        <View style={[s.flex, s.filePane]}>
           <TextInput
             value={fileText}
             onChangeText={(t) => { setFileText(t); setDirty(true); }}
             multiline
             placeholder={`${tab} is empty — write the first line`}
-            placeholderTextColor="#6b7280"
-            style={{
-              flex: 1, color: theme.text, backgroundColor: theme.bgCard, borderRadius: 8,
-              padding: 10, textAlignVertical: 'top', fontSize: 13,
-            }}
+            placeholderTextColor={theme.textFaint}
+            style={[s.input, s.fileInput]}
           />
-          <Pressable
-            onPress={() => void run(async () => {
-              await api.updateKnowledgeFile(baseUrl, project, tab, fileText);
-              setDirty(false);
-            })}
-            disabled={busy || !dirty}
-            style={{
-              backgroundColor: theme.accent, paddingVertical: 10, borderRadius: 6,
-              alignItems: 'center', marginVertical: 10, opacity: dirty ? 1 : 0.4,
-            }}
-          >
-            <Text style={{ color: '#fff', fontSize: 13 }}>{dirty ? `Save ${tab}` : 'Saved'}</Text>
-          </Pressable>
+          <View style={s.saveRow}>
+            <PrimaryButton
+              label={dirty ? `Save ${tab}` : 'Saved'}
+              disabled={busy || !dirty}
+              onPress={() => void run(async () => {
+                await api.updateKnowledgeFile(baseUrl, project, tab, fileText);
+                setDirty(false);
+              })}
+            />
+          </View>
         </View>
       )}
     </KeyboardAvoidingView>
   );
 }
+
+const s = StyleSheet.create({
+  flex: { flex: 1 },
+  pad: { padding: 16 },
+  dim: { color: theme.textDim, fontSize: 13 },
+  repoBar: { maxHeight: 40, flexGrow: 0 },
+  // A HORIZONTAL scroller must not wrap — flexWrap on its content container fights the scroll
+  // axis and collapses the row. The tab row below it does wrap, which is why they differ.
+  repoChips: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 12 },
+  tabRow: { paddingVertical: 10 },
+  err: { color: theme.danger, fontSize: 12, paddingHorizontal: 12, paddingBottom: 6 },
+  spinner: { marginVertical: 6 },
+  scrollPad: { paddingHorizontal: 12, paddingBottom: 24 },
+  input: {
+    color: theme.text,
+    backgroundColor: theme.bgCard,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 13,
+    textAlignVertical: 'top',
+  },
+  noteInput: { minHeight: 70 },
+  fileInput: { flex: 1, lineHeight: 19 },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
+  emptyNotes: { color: theme.textFaint, fontStyle: 'italic', marginTop: 20, textAlign: 'center' },
+  // Cards inside a padded ScrollView must not re-apply the primitive's own horizontal margin.
+  noteCard: { marginHorizontal: 0, marginTop: 10, marginVertical: 0 },
+  noteText: { color: theme.text, fontSize: 13, lineHeight: 19 },
+  filePane: { paddingHorizontal: 12, paddingBottom: 12 },
+  saveRow: { marginTop: 10 },
+});

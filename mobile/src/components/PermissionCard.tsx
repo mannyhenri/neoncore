@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
   act: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 10 },
   allow: { backgroundColor: theme.accent },
-  allowText: { color: '#0d0f12', fontWeight: '800' },
+  allowText: { color: theme.bg, fontWeight: '800' },
   deny: { borderWidth: 1, borderColor: theme.border },
   denyText: { color: theme.textDim, fontWeight: '700' },
 });

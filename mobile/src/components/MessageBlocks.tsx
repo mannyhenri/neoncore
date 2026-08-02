@@ -166,7 +166,6 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   role: { fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 6 },
-  text: { color: theme.text, fontSize: 14, lineHeight: 20 },
   textDim: { color: theme.textDim, fontSize: 13, fontStyle: 'italic' },
   thinking: { color: theme.textDim, fontSize: 13, lineHeight: 19, fontStyle: 'italic' },
   tool: {

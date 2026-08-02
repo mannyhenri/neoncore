@@ -489,7 +489,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: theme.accent,
   },
   steerBtnOff: { opacity: 0.4 },
-  steerBtnText: { color: '#0d0f12', fontWeight: '700', fontSize: 13 },
+  steerBtnText: { color: theme.bg, fontWeight: '700', fontSize: 13 },
 
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 40 },
