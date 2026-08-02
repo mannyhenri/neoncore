@@ -122,3 +122,32 @@ test('a payload whose stepId DOES resolve still wins over the agent fallback', (
     'an explicit, resolvable step id is exact and must never be overridden by inference',
   );
 });
+
+/**
+ * An EXPLICIT refusal must outrank our guess.
+ *
+ * The producer sends functionId: '' when it deliberately could not attribute a turn — two
+ * different tools failed, so naming one would be a guess. With `||` that empty string read as
+ * "absent" and fell through to the stepId/agent inference, turning the producer's refusal into
+ * a false demotion through the exact door built to prevent them.
+ */
+test('an explicitly EMPTY functionId attributes to nothing, never to a guess', () => {
+  clearDemotionsForModel(MODEL);
+  const agent = makeAgent();
+  makeStep(agent, 'review-gate', 'running'); // the agent fallback WOULD resolve to this
+
+  for (let i = 0; i < DEMOTION_CONSECUTIVE_FAILURES; i++) {
+    consumeActivityEvent('trouble_signals', JSON.stringify({
+      model: MODEL,
+      functionId: '',              // explicit refusal
+      stepId: 'converge-1',
+      signals: { proseInsteadOfToolCall: true, success: false },
+    }), agent);
+  }
+
+  assert.deepEqual(
+    loadDemotions(MODEL).map((d) => d.functionId), [],
+    'an explicit empty functionId fell through to inference — the producer said "I cannot ' +
+    'attribute this" and we demoted something anyway',
+  );
+});
