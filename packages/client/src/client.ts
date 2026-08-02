@@ -183,14 +183,14 @@ export function createClient(config: ClientConfig = {}) {
   /**
    * Send a prompt to a cartridge.
    *
-   * `queueIfBusy` defaults to FALSE for a direct prompt, and that default was learned the
-   * hard way: with it on, every message typed at a cartridge mid-turn was parked behind that
-   * turn. Since a turn can run for minutes, the dashboard simply looked dead — messages went
-   * in, nothing came back, and two of them sat unread in a queue nobody was watching.
+   * `queueIfBusy` defaults to TRUE — the same rule as confers and workflows. A cartridge works
+   * one thing at a time, so a prompt sent while it is busy lines up behind that work instead of
+   * interrupting it.
    *
-   * Queueing still applies where the user actually asked for it: starting a CONFER or a
-   * WORKFLOW against a busy cartridge (routes/confer.ts, routes/workflows.ts default it ON).
-   * Those are dispatched work with no one waiting on a reply. A conversation is not.
+   * I briefly defaulted this to false after messages looked "stuck". They were not: the stall
+   * was one slow turn, and turning queueing off meant new prompts INTERRUPTED work in progress —
+   * the exact thing the queue exists to prevent. Restored, and the intended behaviour is now
+   * asserted for all three entry points rather than two.
    *
    * Returns either the dispatched Command or { queued: true, item } — callers must handle
    * both, because "it ran" and "it is next" are different things to tell a user.
@@ -200,7 +200,7 @@ export function createClient(config: ClientConfig = {}) {
     text: string,
     includeMemory = true,
     attachments?: import('./types').CommandAttachmentInput[],
-    queueIfBusy = false,
+    queueIfBusy = true,
   ) =>
     request<import('./types').Command & { queued?: boolean; item?: import('./types').QueueItem; note?: string }>('/commands/send', {
       method: 'POST',
