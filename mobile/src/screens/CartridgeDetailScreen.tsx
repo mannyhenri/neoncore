@@ -12,10 +12,12 @@ import { MessageBlocks, messageToText } from '../components/MessageBlocks';
 import { PermissionCard } from '../components/PermissionCard';
 import { QuestionIcon } from '../components/Icons';
 import type { Agent, AgentMode, TranscriptEvent } from '../types';
+import { useAdaptiveContent } from '../components/ui';
 
 const MODES: AgentMode[] = ['manual', 'plan', 'trust'];
 
 export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack: () => void }) {
+  const adaptive = useAdaptiveContent();
   const { agents, permissions, onTranscript, urlForAgent, urlForPermission } = useNeonCore();
   // Prefer the live agent object so status/mode stay current.
   const live = agents.find((a) => a.id === agent.id) ?? agent;
@@ -310,7 +312,7 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
               <MessageBlocks ev={item} expanded={expanded.has(item.id)} />
             </TouchableOpacity>
           )}
-          contentContainerStyle={{ paddingVertical: 8 }}
+          contentContainerStyle={[{ paddingVertical: 8 }, adaptive]}
           onScroll={(e) => { atTop.current = e.nativeEvent.contentOffset.y < 120; }}
           scrollEventThrottle={100}
           onContentSizeChange={() => {
