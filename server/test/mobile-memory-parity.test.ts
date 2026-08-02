@@ -66,13 +66,17 @@ test('every mobile exemption names an operation the web actually has', () => {
 });
 
 test('the memory screen is REACHABLE on mobile, not merely present', () => {
-  // The lesson from the queue: a screen that exists but is never routed is a file, not a
-  // feature. Assert the whole chain — tab, route case, and render.
+  // A screen that exists but is never routed is a file, not a feature. Reachability moved:
+  // memory is no longer a global tab, it opens from the CARTRIDGE detail screen, matching the
+  // web where ProjectMemoryPanel is opened from a cartridge card. So the chain to assert is
+  // detail-screen import + render, not tab + route case.
   assert.ok(fs.existsSync(path.join(ROOT, 'mobile/src/screens/ProjectMemoryScreen.tsx')),
     'mobile/src/screens/ProjectMemoryScreen.tsx does not exist');
-  assert.match(MOBILE_TABS, /'memory'/, 'TabBar has no memory tab, so no user can open the screen');
-  assert.match(MOBILE_ENTRY, /ProjectMemoryScreen/, 'App.tsx never imports the screen');
-  assert.match(MOBILE_ENTRY, /name === 'memory'/, 'App.tsx has no route case for memory');
+  const detail = read('mobile/src/screens/CartridgeDetailScreen.tsx');
+  assert.match(detail, /import \{ ProjectMemoryScreen \}/, 'the cartridge detail screen never imports it');
+  assert.match(detail, /<ProjectMemoryScreen/, 'the cartridge detail screen never renders it');
+  assert.match(detail, /project=\{live\.repoName\}/,
+    'memory is rendered without scoping to THIS cartridge — the whole point of the move');
 });
 
 test('every knowledge file the web edits is editable on mobile', () => {
