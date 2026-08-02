@@ -154,20 +154,31 @@ This is the part most likely to differ from your mental model.
   cloud as UNMEASURED** — only `command` stays local, because a T0 function has no bar to fail.
   The system fails safe, but the 15/29 split describes the *configured* state, not necessarily
   this second's behaviour.
-- **The comparison is asymmetric.** We measured the local model against **absolute** bars. Claude
-  and Codex have never been measured on the same probes. So every "cloud" decision means *"local
-  did not clear the bar"* — **not** *"cloud is better at this."* For something like `read_file`
-  they may be identical, which would make some cloud routing pure cost. Measuring both is in
-  progress; until it finishes, that asymmetry is an open gap, not a settled result.
+- **The comparison is asymmetric, and this is the biggest open gap.** We measured the local model
+  against **absolute** bars. Claude and Codex have never been measured on the same probes. So
+  every "cloud" decision means *"local did not clear the bar"* — **not** *"cloud is better at
+  this."* For something like `read_file` they may be identical, which would make some cloud
+  routing pure cost.
+
+  We tried to close it and could not. The probe was generalised to run any engine on the same
+  seeds and the same pass predicate, but driving `claude -p` and `codex exec` headlessly from
+  this environment did not work: a single foreground trial that had earlier passed in 74s later
+  timed out at 200s with an execution error, and a background run produced no completed trial in
+  six minutes. Since a timeout scores identically to a wrong answer, continuing would have
+  produced a confident and false "cloud fails everything". **No frontier numbers are reported
+  here because none were honestly obtained.** The harness is in place
+  (`probe-local-model.mjs --engine`); it needs an environment where those CLIs run reliably
+  unattended.
 - **Demotion has never fired on real traffic.** The system can record that a function keeps
   failing and stop routing it locally. That machinery is wired and proven reachable, but no live
   demotion has ever been recorded — the threshold has not been crossed.
 - **One model has ever been measured.** Everything above describes `qwen2.5-coder-14b`. A
   different local model would need its own probe run.
-- **The probe never reports to NeonCore, by design.** `probe-local-model.mjs:184` disables
-  reporting. So capability scores and live demotions are two separate evidence streams that
-  never touch: the profile comes from probes, demotions from real traffic, and neither
-  validates the other.
+- **Capability scores and live demotions never touch.** The local engine is launched with
+  NeonCore reporting explicitly disabled (`probe-local-model.mjs:56`); the cloud engines never
+  had it, because they do not carry our reporter at all. Different mechanisms, same consequence:
+  the profile comes from probes, demotions come from real traffic, and neither validates the
+  other.
 - **The probe only sees the end result.** It scores the filesystem after the turn. It cannot
   see how many attempts it took, whether the model floundered and recovered, what it cost, or
   whether a correct answer was reasoned or lucky. A model that thrashes for eight turns and
@@ -189,6 +200,12 @@ This is the part most likely to differ from your mental model.
 - **Re-probe with more trials** — moves INCONCLUSIVE functions to a real yes or no.
 - **Re-probe after changing the model** — a profile is replaced wholesale, and saving one clears
   that model's accumulated demotions, so the map is never a ratchet.
+
+  **Know the cost before you do it.** Saving a profile runs
+  `DELETE FROM engine_demotions WHERE model_id = ?` (`engine-store.ts:35,69`) — *all* functions,
+  not only the ones you re-measured. So re-probing to resolve the ten undecided functions also
+  erases every demotion earned from real use on the other 34, including the only one this system
+  has ever recorded from live traffic. Record anything you care about first.
 - **Adjust a tier bar** (`engine-capability.ts:133-139`) — a policy decision about acceptable
   risk, not a measurement. **But on its own it will not move anything**, and this is the least
   obvious thing in this document.
