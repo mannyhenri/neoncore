@@ -62,11 +62,12 @@ test('an unknown agent is NOT busy — absence must not silently queue work fore
 
 // ─── The opt-in boundary: user surfaces queue, system delivery never does ───
 
-test('a DIRECT PROMPT does not queue — a conversation must not wait behind a long turn', async () => {
-  // Learned in production: with prompts queueing by default, messages typed at a busy cartridge
-  // were parked behind a turn that ran for minutes. The dashboard looked dead and two messages
-  // sat unread. Confers and workflows still queue (asserted below) because nobody is waiting on
-  // a reply to those; a conversation is different.
+test('a DIRECT PROMPT queues when the cartridge is busy — same rule as confers and workflows', async () => {
+  // I flipped this default to false after messages appeared to be "stuck", but the stall was a
+  // slow turn, not the queue. Turning it off meant a prompt sent to a busy cartridge INTERRUPTED
+  // the work in progress, which is the behaviour the queue exists to prevent. The user reported
+  // it as a regression and they were right: queue-when-busy is the intended behaviour for all
+  // three entry points, not just two of them.
   const USER_CALLERS: { file: string; label: string }[] = [
     { file: 'packages/client/src/client.ts', label: 'dashboard prompt (shared client)' },
     { file: 'mobile/src/api.ts', label: 'mobile prompt' },
@@ -80,11 +81,11 @@ test('a DIRECT PROMPT does not queue — a conversation must not wait behind a l
     const p = path.join(ROOT, c.file);
     if (!fs.existsSync(p)) { missing.push(`${c.label}: ${c.file} does not exist`); continue; }
     const src = fs.readFileSync(p, 'utf8');
-    if (!/queueIfBusy = false/.test(src)) {
-      missing.push(`${c.label} (${c.file}) does not default a direct prompt to NOT queueing`);
+    if (!/queueIfBusy = true/.test(src)) {
+      missing.push(`${c.label} (${c.file}) does not default a direct prompt to queueing when busy`);
     }
   }
-  assert.deepEqual(missing, [], `these prompt paths still park a conversation:\n  ${missing.join('\n  ')}`);
+  assert.deepEqual(missing, [], `these prompt paths interrupt a busy cartridge instead of queueing:\n  ${missing.join('\n  ')}`);
 });
 
 test('SYSTEM delivery never queues — peer-forward carries live confer milestones', async () => {

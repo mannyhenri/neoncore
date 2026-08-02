@@ -92,10 +92,8 @@ export const api = {
     return req<TranscriptEvent[]>(base, `/api/agents/${agentId}/messages${qs ? `?${qs}` : ''}`);
   },
 
-  // Defaults to FALSE: a prompt typed at a cartridge is a conversation, and queueing it behind
-  // a multi-minute turn made the app look dead. Confers and workflows still queue — see
-  // client.ts for why the two cases differ.
-  sendCommand: (base: string, agentId: string, text: string, queueIfBusy = false) =>
+  // Queues when the cartridge is busy, same as confers and workflows: one thing at a time.
+  sendCommand: (base: string, agentId: string, text: string, queueIfBusy = true) =>
     req<{ queued?: boolean; note?: string }>(base, '/api/commands/send', {
       method: 'POST',
       body: JSON.stringify({ agentId, text, queueIfBusy }),
