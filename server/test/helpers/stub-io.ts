@@ -9,7 +9,12 @@ import { setIOForTests } from '../../src/ws.js';
 
 export interface Emission { room: string; event: string; payload: unknown }
 
-export function installStubIO(): { emissions: Emission[]; connect(agentId: string): void } {
+export function installStubIO(): {
+  emissions: Emission[];
+  connect(agentId: string): void;
+  connectSocket(socketId: string): void;
+  killSocket(socketId: string): void;
+} {
   const emissions: Emission[] = [];
   const rooms = new Map<string, Set<string>>();
   const sockets = new Map<string, unknown>();
@@ -27,5 +32,9 @@ export function installStubIO(): { emissions: Emission[]; connect(agentId: strin
     emissions,
     /** Make an agent look like it has a live cartridge attached. */
     connect(agentId: string) { rooms.set(`agent:${agentId}`, new Set([`sock-${agentId}`])); },
+    /** Register a live socket, so code that probes `sockets.get(id).connected` sees it. */
+    connectSocket(socketId: string) { sockets.set(socketId, { id: socketId, connected: true }); },
+    /** Drop a socket the way a dead connection looks: still known, no longer connected. */
+    killSocket(socketId: string) { sockets.set(socketId, { id: socketId, connected: false }); },
   };
 }

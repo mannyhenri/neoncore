@@ -19,6 +19,7 @@ import path from 'path';
 import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { findGitRepos, rescanRoots } from './scan.js';
+import { acquireRunnerLock, refreshRunnerLock, releaseRunnerLock, lockPathFor } from './lock.js';
 import { fileURLToPath } from 'url';
 import { io } from 'socket.io-client';
 
@@ -81,6 +82,21 @@ const identity = {
   })),
   token: cfg.token || '',
 };
+
+// ── One runner per machineId ───────────────────────────────
+// Two daemons reading this config both answer every instruction the server sends — which is
+// how one "+ Launch" click used to open two terminals. Whoever holds the lock keeps running;
+// a second start exits instead of shadowing it. NEONCORE_RUNNER_ALLOW_MULTI=1 overrides.
+const LOCK_PATH = lockPathFor(CONFIG_PATH, identity.machineId);
+if (!process.env.NEONCORE_RUNNER_ALLOW_MULTI) {
+  const lock = acquireRunnerLock({ lockPath: LOCK_PATH, machineId: identity.machineId });
+  if (!lock.ok) {
+    log(`Another runner (pid ${lock.holder.pid}) is already serving machine ${identity.machineId}.`);
+    log(`Not starting a second one — it would double every launch. Stop that process first,`);
+    log(`or set NEONCORE_RUNNER_ALLOW_MULTI=1 if you really want both.`);
+    process.exit(0);
+  }
+}
 
 async function register() {
   const res = await fetch(`${cfg.serverUrl}/api/machines/register`, {
@@ -299,15 +315,21 @@ setInterval(() => {
   }
 }, RESCAN_MS);
 
-// Heartbeat so the server's last_seen stays fresh even if it never disconnects.
+// Heartbeat so the server's last_seen stays fresh even if it never disconnects. The same tick
+// refreshes the single-instance lock: a holder that stops checking in is treated as gone, so
+// a runner killed with -9 never blocks the next start.
 setInterval(() => {
   if (socket.connected) socket.emit('machine_heartbeat', { machineId: identity.machineId });
+  if (!process.env.NEONCORE_RUNNER_ALLOW_MULTI) {
+    refreshRunnerLock({ lockPath: LOCK_PATH, machineId: identity.machineId });
+  }
 }, 30_000);
 
 log(`Starting runner for machine ${identity.machineId} (${identity.hostname}, ${identity.platform}/${identity.arch})`);
 
 function shutdown() {
   log('Shutting down.');
+  if (!process.env.NEONCORE_RUNNER_ALLOW_MULTI) releaseRunnerLock({ lockPath: LOCK_PATH });
   socket.close();
   process.exit(0);
 }
