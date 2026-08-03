@@ -1,0 +1,7 @@
+[mcp_servers.neoncore]
+command = "node"
+args = ["/Users/mannyhenri/code/neoncore/server/dist/mcp-server.js"]
+
+[mcp_servers.neoncore.env]
+NEONCORE_URL = "http://localhost:4040"
+NEONCORE_AGENT_TYPE = "claude"
