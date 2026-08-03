@@ -4,6 +4,12 @@ import type { ServerToClientEvents, ClientToServerEvents } from './types.js';
 import db from './db.js';
 import { endSession } from './lib/session-manager.js';
 import { markAgentSessionInterrupted } from './lib/agent-session-state.js';
+import {
+  claimMachineSocket,
+  releaseMachineSocket,
+  machineSocketId as resolveMachineSocket,
+  machineClaimants,
+} from './lib/machine-sockets.js';
 
 let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 
@@ -13,8 +19,13 @@ const socketToAgent = new Map<string, string>();
 // Track the primary (most recently registered) socket per agent — commands go here
 const agentPrimarySocket = new Map<string, string>(); // agentId → socketId
 
-// Track which socket belongs to which machine runner (for online detection + launch dispatch)
-const socketToMachine = new Map<string, string>(); // socketId → machineId
+// Which socket speaks for which machine runner lives in lib/machine-sockets.ts — machine
+// instructions are point-to-point (one socket), never a room broadcast. See that module for
+// why: two runner daemons share one machineId, and a broadcast opened two terminals per click.
+
+/** Is this socket still connected? The liveness probe machine-sockets.ts is given. */
+const socketIsConnected = (socketId: string): boolean =>
+  io.sockets.sockets.get(socketId)?.connected === true;
 
 export function initWebSocket(server: HTTPServer) {
   io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(server, {
@@ -66,12 +77,26 @@ export function initWebSocket(server: HTTPServer) {
       console.log(`[ws] Socket ${socket.id} joined agent room ${agentRoom} (post-registration, primary)`);
     });
 
-    // Runner daemon claims its machine room after REST registration.
+    // Runner daemon claims its machine room after REST registration. The newest claim wins
+    // the machine: a runner that just reconnected is the live one, and any older socket
+    // still holding the id is either a stale reconnect or a duplicate daemon.
     socket.on('join_machine_room', ({ machineId }) => {
       socket.join(`machine:${machineId}`);
-      socketToMachine.set(socket.id, machineId);
+      claimMachineSocket(socket.id, machineId);
       markMachineStatus(machineId, 'online');
-      console.log(`[ws] Socket ${socket.id} joined machine room machine:${machineId}`);
+      console.log(`[ws] Socket ${socket.id} joined machine room machine:${machineId} (primary)`);
+
+      // Two live sockets for one machineId means two runner processes on that box. Only the
+      // primary gets instructions now, but say so — the other keeps duplicating heartbeats,
+      // registrations and config writes until someone stops it.
+      const claimants = machineClaimants(machineId, socketIsConnected);
+      if (claimants.length > 1) {
+        console.warn(
+          `[ws] machine:${machineId} is claimed by ${claimants.length} live sockets ` +
+          `(${claimants.join(', ')}) — a duplicate runner is running on that machine. ` +
+          `Instructions go to ${socket.id} only.`,
+        );
+      }
     });
 
     socket.on('machine_heartbeat', ({ machineId }) => {
@@ -87,13 +112,12 @@ export function initWebSocket(server: HTTPServer) {
         }
         markAgentOffline(agentId);
       }
-      const machineId = socketToMachine.get(socket.id);
+      const machineId = releaseMachineSocket(socket.id);
       if (machineId) {
-        socketToMachine.delete(socket.id);
-        // Only flip offline if no OTHER socket still holds this machine (rare, but a
-        // reconnect can briefly overlap).
-        const stillHeld = [...socketToMachine.values()].includes(machineId);
-        if (!stillHeld) markMachineStatus(machineId, 'offline');
+        // Only flip offline if no OTHER live socket still holds this machine (rare, but a
+        // reconnect can briefly overlap). The lookup also promotes that survivor to primary,
+        // so instructions keep flowing without waiting for a re-join.
+        if (!resolveMachineSocket(machineId, socketIsConnected)) markMachineStatus(machineId, 'offline');
       }
       console.log(`[ws] Client disconnected: ${socket.id}`);
     });
@@ -218,22 +242,22 @@ function markMachineStatus(machineId: string, status: 'online' | 'offline') {
 
 /** True if a runner socket is currently connected for this machine. */
 export function isMachineOnline(machineId: string): boolean {
-  for (const [socketId, mapped] of socketToMachine) {
-    if (mapped !== machineId) continue;
-    const s = io.sockets.sockets.get(socketId);
-    if (s && s.connected) return true;
-    socketToMachine.delete(socketId); // prune stale
-  }
-  return false;
+  return resolveMachineSocket(machineId, socketIsConnected) !== null;
 }
 
-/** Dispatch a launch instruction to a machine's runner. Returns false if it's offline. */
+/**
+ * Dispatch a launch instruction to a machine's runner. Returns false if it's offline.
+ *
+ * Addressed to ONE socket, never the machine room: duplicate runners share a machineId, and a
+ * broadcast turned one click into one terminal per daemon.
+ */
 export function dispatchLaunchToMachine(
   machineId: string,
   payload: { repoPath: string; agentType: string; sessionId: string; context: string },
 ): boolean {
-  if (!isMachineOnline(machineId)) return false;
-  io.to(`machine:${machineId}`).emit('launch_cartridge', {
+  const target = resolveMachineSocket(machineId, socketIsConnected);
+  if (!target) return false;
+  io.to(target).emit('launch_cartridge', {
     machineId,
     repoPath: payload.repoPath,
     agentType: payload.agentType as import('./types.js').AgentType,
@@ -250,16 +274,18 @@ export function dispatchSetReposToMachine(
   machineId: string,
   repos: import('./types.js').MachineRepo[],
 ): boolean {
-  if (!isMachineOnline(machineId)) return false;
-  io.to(`machine:${machineId}`).emit('machine_set_repos', { machineId, repos });
+  const target = resolveMachineSocket(machineId, socketIsConnected);
+  if (!target) return false;
+  io.to(target).emit('machine_set_repos', { machineId, repos });
   return true;
 }
 
 /** Ask a machine's runner to scan a directory on its own disk and add the git repos under
  *  it to its allowlist. Returns false if the machine is offline. */
 export function dispatchScanToMachine(machineId: string, root: string): boolean {
-  if (!isMachineOnline(machineId)) return false;
-  io.to(`machine:${machineId}`).emit('machine_scan', { machineId, root });
+  const target = resolveMachineSocket(machineId, socketIsConnected);
+  if (!target) return false;
+  io.to(target).emit('machine_scan', { machineId, root });
   return true;
 }
 

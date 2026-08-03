@@ -22,6 +22,19 @@ visible session you can watch and type in — locally or on a remote machine.
 The runner only ever launches in a directory from its `repos` **allowlist** — never an
 arbitrary path.
 
+## One runner per machine
+
+"Once per computer" is enforced, not just advised. A machine's identity is the `machineId` in
+`runner.config.json`, so a second process reading that file is a second daemon wearing the same
+identity — and it answers every instruction too, which is how one **+ Launch** click ended up
+opening two terminals. The usual way to get one is starting `node index.js` by hand next to the
+installed service and forgetting about it; it survives closing the terminal.
+
+A second start now exits instead, naming the pid already serving the machine (it holds
+`.runner-<machineId>.lock` beside the config). Set `NEONCORE_RUNNER_ALLOW_MULTI=1` to override.
+The server also addresses instructions to a single socket per machine and logs a warning when
+more than one claims it, so a duplicate can never double a launch.
+
 ## Install (one command)
 
 Requires Node.js 18+ (used by the relay) and Python 3 (used to install the status/approval
