@@ -246,11 +246,19 @@ export const api = {
     base: string,
     participantIds: string[],
     task: string,
-    opts?: { mode?: import('./types').ConferMode; isolation?: import('./types').ConferIsolation },
+    opts?: {
+      mode?: import('./types').ConferMode;
+      isolation?: import('./types').ConferIsolation;
+      /** Repeat the build/fix milestone this many times (1–20). */
+      buildRounds?: number;
+    },
   ) =>
     req<ConferSession>(base, '/api/confer/start', {
       method: 'POST',
-      body: JSON.stringify({ participantIds, task, mode: opts?.mode, isolation: opts?.isolation }),
+      body: JSON.stringify({
+        participantIds, task,
+        mode: opts?.mode, isolation: opts?.isolation, buildRounds: opts?.buildRounds,
+      }),
     }),
   listConfers: (base: string) => req<ConferSession[]>(base, '/api/confer'),
   cancelConfer: (base: string, id: string) =>

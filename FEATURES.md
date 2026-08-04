@@ -131,6 +131,14 @@ Cartridges tab on mobile. Agents must be live and have the NeonCore MCP loaded (
 launch for relay-backed engines). You can **attach files** at launch (see below); they are
 referenced in every milestone prompt, so the cross-reviewer sees the same evidence the builder had.
 
+**Build rounds** — the build/fix milestone (Build in *divide* mode, Draft in *collaborate*) can be
+repeated 1–20 times: pick the count in the Confer modal on web or mobile. Each round is a real
+milestone with its own dispatch, its own "every participant signalled done" gate, and a **commit +
+push to the same ongoing fix/feature branch** — a round that pushed nothing is not done. Each round
+takes the *next batch* of items rather than re-doing the same ones, which is what makes a task like
+"fix the 20 bugs in this eval document" tractable instead of one rushed pass. One round (the
+default) behaves exactly as the original 5-milestone cycle did.
+
 ## Attaching files to a prompt, a confer, or a workflow run
 
 Anywhere you hand an agent a job you can hand it files too — the cartridge send box (drag, click

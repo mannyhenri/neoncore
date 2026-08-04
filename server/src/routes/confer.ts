@@ -10,6 +10,7 @@ import {
   listConfers,
   getConfer,
   cancelConfer,
+  clampBuildRounds,
 } from '../lib/confer-conductor.js';
 
 const router = Router();
@@ -30,6 +31,8 @@ router.post('/start', async (req, res) => {
   // (worktree only survives for divide mode).
   const mode = req.body?.mode === 'collaborate' ? 'collaborate' : 'divide';
   const isolation = req.body?.isolation === 'worktree' ? 'worktree' : 'shared';
+  // How many times the build/fix milestone runs. Clamped, never rejected — see clampBuildRounds.
+  const buildRounds = clampBuildRounds(req.body?.buildRounds);
 
   let attachments;
   try {
@@ -113,7 +116,7 @@ router.post('/start', async (req, res) => {
     if (busy.length > 0) {
       const queued = enqueue({
         kind: 'confer',
-        payload: { repoName, repoPath, participantIds: ids, task: task.trim(), mode, isolation },
+        payload: { repoName, repoPath, participantIds: ids, task: task.trim(), mode, isolation, buildRounds },
         targets: ids,
       });
       if (!queued.ok) return res.status(400).json({ error: queued.error });
@@ -125,7 +128,7 @@ router.post('/start', async (req, res) => {
     }
   }
 
-  const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks, mode, isolation });
+  const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks, mode, isolation, buildRounds });
   res.json(session);
 });
 

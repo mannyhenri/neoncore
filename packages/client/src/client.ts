@@ -288,11 +288,19 @@ export function createClient(config: ClientConfig = {}) {
     participantIds: string[],
     task: string,
     attachments?: import('./types').CommandAttachmentInput[],
-    opts?: { mode?: import('./types').ConferMode; isolation?: import('./types').ConferIsolation },
+    opts?: {
+      mode?: import('./types').ConferMode;
+      isolation?: import('./types').ConferIsolation;
+      /** Repeat the build/fix milestone this many times (1–20). */
+      buildRounds?: number;
+    },
   ) =>
     request<import('./types').ConferSession>('/confer/start', {
       method: 'POST',
-      body: JSON.stringify({ participantIds, task, attachments, mode: opts?.mode, isolation: opts?.isolation }),
+      body: JSON.stringify({
+        participantIds, task, attachments,
+        mode: opts?.mode, isolation: opts?.isolation, buildRounds: opts?.buildRounds,
+      }),
     }),
   getConfers: () => request<import('./types').ConferSession[]>('/confer'),
   cancelConfer: (id: string) =>

@@ -436,6 +436,8 @@ export interface ConferMilestone {
   idx: number;
   key: string;
   name: string;
+  /** Which build round this is (1 for every non-repeated milestone). */
+  round: number;
   status: 'pending' | 'active' | 'done';
   doneIds: string[];
   dispatchedAt: string | null;
@@ -457,6 +459,8 @@ export interface ConferSession {
   createdAt: string;
   completedAt: string | null;
   mode: ConferMode;
+  /** How many times the build/fix milestone runs (1 = the classic single build). */
+  buildRounds: number;
   isolation: ConferIsolation;
   worktrees?: Record<string, { path: string; branch: string }>;
   milestones?: ConferMilestone[];

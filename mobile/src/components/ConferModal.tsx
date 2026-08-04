@@ -35,6 +35,9 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
   // its own git worktree+branch, and Converge becomes a real merge.
   const [mode, setMode] = useState<ConferMode>('divide');
   const [worktree, setWorktree] = useState(false);
+  // How many times the build/fix milestone repeats. One pass suits a single feature; a list of
+  // 20 bugs needs several, each ending in its own commit + push to the same branch.
+  const [buildRounds, setBuildRounds] = useState(1);
 
   // The sheet rides above the keyboard (see KeyboardAvoidingView below), but that only
   // guarantees the sheet is visible — not the field inside its ScrollView. On focus we scroll
@@ -49,7 +52,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
-  const reset = () => { setSelected([]); setTask(''); setMode('divide'); setWorktree(false); };
+  const reset = () => { setSelected([]); setTask(''); setMode('divide'); setWorktree(false); setBuildRounds(1); };
 
   // Dismiss the keyboard before the sheet animates out — otherwise it lingers over the screen
   // underneath on iOS.
@@ -63,6 +66,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
       await api.startConfer(baseUrl, selected, task.trim(), {
         mode,
         isolation: mode === 'divide' && worktree ? 'worktree' : 'shared',
+        buildRounds,
       });
       reset();
       close();
@@ -98,9 +102,9 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
             </TouchableOpacity>
           </View>
           <Text style={styles.sub}>
-            One task, run through a fixed 5-milestone cycle — {mode === 'collaborate'
-              ? 'Frame → Draft → Critique → Revise → Finalize'
-              : 'Align → Build → Cross-review → Converge → Finalize'}.
+            One task, run through a milestone cycle — {mode === 'collaborate'
+              ? `Frame → Draft${buildRounds > 1 ? ` ×${buildRounds}` : ''} → Critique → Revise → Finalize`
+              : `Align → Build${buildRounds > 1 ? ` ×${buildRounds}` : ''} → Cross-review → Converge → Finalize`}.
             Each milestone advances only when every participant signals done. It appears under ACTIVE below, and moves to RECENT when it finishes.
           </Text>
 
@@ -198,6 +202,29 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               <Text style={styles.needHint}>Collaborate works one shared checkout — no per-agent worktrees.</Text>
             )}
 
+            {/* Build rounds — one milestone per round, so a list of fixes gets several passes
+                instead of one. Each round ends with a commit + push to the same branch. */}
+            <Text style={styles.label}>{mode === 'collaborate' ? 'DRAFT' : 'BUILD'} ROUNDS</Text>
+            <View style={styles.chips}>
+              {[1, 2, 3, 5, 10].map((r) => {
+                const on = buildRounds === r;
+                return (
+                  <TouchableOpacity
+                    key={r}
+                    style={[styles.chip, on && styles.chipOn]}
+                    onPress={() => setBuildRounds(r)}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>×{r}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.roundsHint}>
+              {buildRounds > 1
+                ? `${buildRounds} build passes before review. Each round takes the NEXT batch of items and pushes it — for a task that is a list (e.g. 20 bugs), not one feature.`
+                : 'One build pass, then review. Raise this when the task is a list of fixes.'}
+            </Text>
+
             {(selected.length < 2 || !task.trim()) ? (
               <Text style={styles.needHint}>
                 {selected.length < 2 ? 'Select at least 2 cartridges' : 'Enter a task'} to enable Start.
@@ -279,6 +306,7 @@ const styles = StyleSheet.create({
   },
   runBtnOff: { opacity: 0.4 },
   needHint: { color: theme.textFaint, fontSize: 12, marginTop: 14, textAlign: 'center' },
+  roundsHint: { color: theme.textFaint, fontSize: 11, lineHeight: 15, marginTop: 8 },
   runBtnText: { color: theme.bg, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
   notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingTop: 8 },
 });

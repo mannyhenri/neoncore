@@ -34,6 +34,10 @@ export type ConferWorktrees = Record<string, { path: string; branch: string }>;
 const STALL_MS = 8 * 60 * 1000;   // re-nudge a participant that hasn't reported in this long
 const FAIL_MS = 20 * 60 * 1000;   // give up on a milestone stuck this long
 
+/** Ceiling on build rounds. High enough for a 20-bug list, low enough that a typo'd 500 can't
+ * dispatch 500 milestones to a live fleet. */
+export const MAX_BUILD_ROUNDS = 20;
+
 interface Participant {
   id: string;
   agentType: string;
@@ -42,11 +46,59 @@ interface Participant {
   repoPath: string;
 }
 
+/** What a milestone body needs to know: the task, and where it sits in a repeated step. */
+interface MilestoneContext {
+  task: string;
+  /** 1-based round within an iterating milestone (always 1 for the others). */
+  round: number;
+  /** Total rounds for THIS milestone (1 unless it is the iterating one). */
+  rounds: number;
+  /**
+   * The session's build-round count, visible to EVERY milestone — the planning step has to
+   * say "we get N passes" before the first build, or the batching it agrees on is a guess.
+   */
+  buildRounds: number;
+}
+
 interface MilestoneDef {
   key: string;
   name: string;
+  /**
+   * The build/fix step — the ONE milestone a confer may run N times. Exactly one per mode:
+   * round numbering (and the UI stepper) has no way to express two nested repeats.
+   */
+  iterates?: boolean;
   /** The body of the instruction for this milestone (coordination + done-signal are appended). */
-  body: (task: string) => string;
+  body: (ctx: MilestoneContext) => string;
+}
+
+/**
+ * The instruction that makes a build round a BATCH rather than a retry.
+ *
+ * Without it, "build again" reads as "have another go at the same thing" and three rounds
+ * produce the same three fixes three times. With it, each round claims the next unfinished
+ * items, names them, and finishes them — which is what makes a 20-item list tractable.
+ */
+function batchLine(round: number, rounds: number): string {
+  return round < rounds
+    ? `4. THIS ROUND IS A BATCH: take the next unfinished items IN ORDER, say which ones you took, and finish them completely (code + verification). Leave the rest for the ${rounds - round} round(s) that follow — do not stop after one item, and do not skip ahead.`
+    : '4. FINAL ROUND: everything still outstanding is due now — there is no round after this one. If an item genuinely cannot be done, say so explicitly in your done signal rather than leaving it silent.';
+}
+
+/**
+ * What the planning milestone must decide when the build repeats: the batching. Agreed BEFORE
+ * the first build, because "the next batch" only means something if both agents are reading the
+ * same ordered list.
+ */
+function batchPlanLine(buildRounds: number): string {
+  return `4. THIS CONFER HAS ${buildRounds} BUILD ROUNDS. Enumerate the work as an ordered list of items (if the task points at a document of bugs/findings, that list IS the enumeration — count it and say the number), then agree how it is batched across the ${buildRounds} rounds. Each round ends with a commit + push, so a batch must be a shippable chunk.`;
+}
+
+/** How much runway is left, said out loud so an agent can pace itself. */
+function roundsLeftLine(round: number, rounds: number): string {
+  return round < rounds
+    ? `${rounds - round} more build round(s) follow this one.`
+    : 'This is the LAST build round.';
 }
 
 // ── `divide` mode: split the task into per-agent slices, then merge ──────────────
@@ -55,23 +107,30 @@ const DIVIDE_MILESTONES: MilestoneDef[] = [
   {
     key: 'align',
     name: 'Align',
-    body: () => [
+    body: ({ buildRounds }) => [
       'GOAL: Agree on ONE shared plan and a concrete work split before any building.',
       '1. Read your peer\'s recent work with neoncore_read_agent, and read the task carefully.',
       '2. Message your peer (neoncore_message_agent) with your proposed approach + assumptions.',
       '3. Converge on ONE plan and split the work by area/files so you will not collide (state who owns what).',
+      ...(buildRounds > 1 ? [batchPlanLine(buildRounds)] : []),
       'DO NOT start implementing yet. Signal done only once you and your peer have agreed on the plan AND the split.',
     ].join('\n'),
   },
   {
     key: 'build',
     name: 'Build',
-    body: () => [
-      'GOAL: Implement YOUR agreed slice of the work.',
+    iterates: true,
+    body: ({ round, rounds }) => [
+      rounds > 1
+        ? `GOAL: Build round ${round} of ${rounds} — implement the NEXT batch of YOUR agreed slice, then commit and push it.`
+        : 'GOAL: Implement YOUR agreed slice of the work.',
       '1. Build only the area you own from the Align split. Stay out of your peer\'s files.',
       '2. If you must touch a shared file, message your peer FIRST to coordinate.',
       '3. Keep your peer posted on meaningful progress via neoncore_message_agent.',
-      'Signal done when your slice is implemented and it builds/works on its own.',
+      ...(rounds > 1 ? [batchLine(round, rounds)] : []),
+      rounds > 1
+        ? `Signal done once this round's items are implemented, verified, committed and PUSHED. ${roundsLeftLine(round, rounds)}`
+        : 'Signal done when your slice is implemented and it builds/works on its own.',
     ].join('\n'),
   },
   {
@@ -115,23 +174,32 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
   {
     key: 'frame',
     name: 'Frame',
-    body: () => [
+    body: ({ buildRounds }) => [
       'GOAL: Agree on ONE approach to the ONE shared problem — do NOT split it up.',
       '1. Read your peers\' recent work (neoncore_read_agent) and the task carefully.',
       '2. Message the group (neoncore_message_agent) with your proposed approach + assumptions.',
       '3. Converge on ONE approach you will all build together (same solution, same files), and decide who drives the first draft.',
+      ...(buildRounds > 1 ? [batchPlanLine(buildRounds)] : []),
       'DO NOT carve the task into separate slices — you are solving one problem together. Signal done once you agree on the single approach AND who drafts first.',
     ].join('\n'),
   },
   {
     key: 'draft',
     name: 'Draft',
-    body: () => [
-      'GOAL: Produce ONE shared solution — together, not in parallel copies.',
-      '1. The agreed driver writes the first complete draft of the solution.',
+    iterates: true,
+    body: ({ round, rounds }) => [
+      rounds > 1
+        ? `GOAL: Draft round ${round} of ${rounds} — take the NEXT batch of the shared work through to a committed, pushed state.`
+        : 'GOAL: Produce ONE shared solution — together, not in parallel copies.',
+      round === 1
+        ? '1. The agreed driver writes the first complete draft of the solution.'
+        : '1. Continue the SAME shared solution from where the last round left it — do not restart it.',
       '2. The other(s) contribute directly (suggest concrete edits, add missing pieces) via neoncore_message_agent — do NOT build a competing version.',
       '3. Stick to the ONE agreed approach; coordinate before changing direction.',
-      'Signal done once a first complete draft of the shared solution exists.',
+      ...(rounds > 1 ? [batchLine(round, rounds)] : []),
+      rounds > 1
+        ? `Signal done once this round's items are in the shared solution, verified, committed and PUSHED. ${roundsLeftLine(round, rounds)}`
+        : 'Signal done once a first complete draft of the shared solution exists.',
     ].join('\n'),
   },
   {
@@ -179,8 +247,67 @@ function milestonesFor(mode: string): MilestoneDef[] {
   return MILESTONE_SETS[mode as ConferMode] || DIVIDE_MILESTONES;
 }
 
-// Both sets have the same length; the cycle is always 5 milestones.
+/** Every collaboration shape a confer can run. Derived, so a new mode is covered by tests. */
+export const CONFER_MODES = Object.keys(MILESTONE_SETS) as ConferMode[];
+
+/** The key of the build/fix milestone this mode repeats, or '' if it has none. */
+export function iteratingKeyFor(mode: string): string {
+  return milestonesFor(mode).find((m) => m.iterates)?.key || '';
+}
+
+// The base cycle — 5 milestones. The ACTUAL count of a session is base − 1 + buildRounds, so
+// nothing may compute a total from this constant; use the session's own milestone rows.
 export const CONFER_MILESTONE_COUNT = DIVIDE_MILESTONES.length;
+
+/**
+ * A round count that can be dispatched. Anything unusable becomes 1 rather than an error:
+ * a confer that refuses to start because a text field held "3 " is worse than one that
+ * builds once, and the UI already offers a number picker.
+ */
+export function clampBuildRounds(value: unknown): number {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(MAX_BUILD_ROUNDS, Math.max(1, Math.floor(n)));
+}
+
+/** One milestone as it will actually be run — the build step appears `rounds` times. */
+export interface ConferPlanStep {
+  key: string;
+  /** Display name; a repeated build step is suffixed "2/5" so the stepper can tell them apart. */
+  name: string;
+  /** 1-based round within the repeated step (1 for every non-repeated milestone). */
+  round: number;
+  /** Total rounds of the repeated step (1 when not iterated). */
+  rounds: number;
+}
+
+/**
+ * Expand a mode's milestone set for `buildRounds` build passes.
+ *
+ * The expansion happens ONCE, at start, and is persisted as ordinary milestone rows — so the
+ * watchdog, the advance logic, the stepper and a mid-flight restart all keep working on plain
+ * indices with no notion of a loop. A run counter that lived only in the conductor would have
+ * been lost on the first server restart, which is exactly when a 6-round build is still going.
+ */
+export function conferPlan(mode: string, buildRounds: unknown = 1): ConferPlanStep[] {
+  const rounds = clampBuildRounds(buildRounds);
+  const steps: ConferPlanStep[] = [];
+  for (const def of milestonesFor(mode)) {
+    if (!def.iterates) {
+      steps.push({ key: def.key, name: def.name, round: 1, rounds: 1 });
+      continue;
+    }
+    for (let r = 1; r <= rounds; r++) {
+      steps.push({
+        key: def.key,
+        name: rounds > 1 ? `${def.name} ${r}/${rounds}` : def.name,
+        round: r,
+        rounds,
+      });
+    }
+  }
+  return steps;
+}
 
 // ── Row → type hydration ────────────────────────────────────────────────────
 
@@ -191,6 +318,7 @@ function hydrateMilestone(row: Record<string, unknown>): ConferMilestone {
     idx: row.idx as number,
     key: row.key as string,
     name: row.name as string,
+    round: (row.round as number) || 1,
     status: (row.status as ConferMilestone['status']) || 'pending',
     doneIds: JSON.parse((row.done_ids as string) || '[]'),
     dispatchedAt: (row.dispatched_at as string) || null,
@@ -214,6 +342,7 @@ function hydrateSession(row: Record<string, unknown>): ConferSession {
     createdAt: row.created_at as string,
     completedAt: (row.completed_at as string) || null,
     mode: (row.mode as ConferMode) || 'divide',
+    buildRounds: (row.build_rounds as number) || 1,
     isolation: (row.isolation as ConferIsolation) || 'shared',
     worktrees: parseWorktrees(row.worktrees as string | undefined),
     milestones: milestones.map(hydrateMilestone),
@@ -233,6 +362,12 @@ function parseWorktrees(stored: string | undefined): ConferWorktrees {
 
 function sessionRow(id: string): Record<string, unknown> | undefined {
   return db.prepare('SELECT * FROM confer_sessions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+}
+
+/** How many milestones THIS session actually has (base cycle expanded by its build rounds). */
+function milestoneCount(sessionId: string): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM confer_milestones WHERE session_id = ?').get(sessionId) as { n: number };
+  return row?.n || 0;
 }
 
 function emit(id: string): ConferSession | null {
@@ -346,28 +481,31 @@ export function startConfer(input: {
   attachmentBlocks?: AttachmentBlocks;
   mode?: ConferMode;
   isolation?: ConferIsolation;
+  /** How many times the build/fix milestone runs (1 = the classic single build). */
+  buildRounds?: number;
 }): ConferSession {
   const id = uuid();
   const now = new Date().toISOString();
   const mode: ConferMode = input.mode === 'collaborate' ? 'collaborate' : 'divide';
+  const buildRounds = clampBuildRounds(input.buildRounds);
   // Worktree isolation only makes sense when agents own separate slices; a collaborate
   // confer produces ONE shared solution, so it always stays on the shared checkout.
   const isolation: ConferIsolation = mode === 'divide' && input.isolation === 'worktree' ? 'worktree' : 'shared';
   const worktrees = isolation === 'worktree' ? provisionWorktrees(id, input.participantIds) : {};
 
   db.prepare(
-    `INSERT INTO confer_sessions (id, repo_name, repo_path, task, participant_ids, status, current_milestone, created_at, attachments, mode, isolation, worktrees)
-     VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?, ?, ?, ?)`,
+    `INSERT INTO confer_sessions (id, repo_name, repo_path, task, participant_ids, status, current_milestone, created_at, attachments, mode, isolation, worktrees, build_rounds)
+     VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id, input.repoName, input.repoPath, input.task, JSON.stringify(input.participantIds), now,
-    JSON.stringify(input.attachmentBlocks || {}), mode, isolation, JSON.stringify(worktrees),
+    JSON.stringify(input.attachmentBlocks || {}), mode, isolation, JSON.stringify(worktrees), buildRounds,
   );
 
-  milestonesFor(mode).forEach((m, idx) => {
+  conferPlan(mode, buildRounds).forEach((m, idx) => {
     db.prepare(
-      `INSERT INTO confer_milestones (id, session_id, idx, key, name, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
-    ).run(uuid(), id, idx, m.key, m.name);
+      `INSERT INTO confer_milestones (id, session_id, idx, key, name, round, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+    ).run(uuid(), id, idx, m.key, m.name, m.round);
   });
 
   void dispatchMilestone(id, 0).catch((err) => console.error(`[confer] start dispatch failed: ${err}`));
@@ -409,13 +547,17 @@ export function recordMilestoneDone(sessionId: string, agentId: string, result: 
   const now = new Date().toISOString();
   db.prepare(`UPDATE confer_milestones SET status = 'done', completed_at = ? WHERE id = ?`).run(now, msRow.id as string);
 
+  // The total comes from the session's OWN rows, never from the base cycle length: a confer
+  // with 6 build rounds has 10 milestones, and finishing at 5 would abandon four rounds of
+  // fixes while reporting success.
+  const total = milestoneCount(sessionId);
   const nextIdx = idx + 1;
-  if (nextIdx < CONFER_MILESTONE_COUNT) {
+  if (nextIdx < total) {
     db.prepare('UPDATE confer_sessions SET current_milestone = ? WHERE id = ?').run(nextIdx, sessionId);
     void dispatchMilestone(sessionId, nextIdx).catch((err) => console.error(`[confer] advance dispatch failed: ${err}`));
   } else {
     db.prepare(`UPDATE confer_sessions SET status = 'completed', completed_at = ? WHERE id = ?`).run(now, sessionId);
-    console.log(`[confer] ${sessionId} completed all ${CONFER_MILESTONE_COUNT} milestones`);
+    console.log(`[confer] ${sessionId} completed all ${total} milestones`);
   }
   emit(sessionId);
   return { ok: true };
@@ -497,15 +639,52 @@ function isolationLines(session: ConferSession, me: Participant, peers: Particip
   return lines.join('\n');
 }
 
+/**
+ * What a build round owes the remote before it may call itself done.
+ *
+ * A round is only a unit of progress if it LANDS something. Left to itself an agent happily
+ * signals "round 2 done" with everything sitting uncommitted in a working tree, and the next
+ * round — a fresh prompt with no memory of the last — builds on sand; a crash or a peer's
+ * checkout loses the lot. So every round ends with a commit and a push to the SAME ongoing
+ * branch (its own worktree branch under isolation, otherwise whatever branch the agent is
+ * already on — `HEAD`, which is correct on any machine without the server guessing a name).
+ */
+function commitPushLines(session: ConferSession, me: Participant, round: number, rounds: number): string {
+  const wt = session.worktrees?.[me.id];
+  const dir = wt?.path || me.repoPath;
+  const target = wt ? wt.branch : 'HEAD';
+  const label = rounds > 1 ? `round ${round}/${rounds}` : 'build';
+  return [
+    `COMMIT + PUSH — REQUIRED before you signal this ${rounds > 1 ? 'round' : 'milestone'} done:`,
+    ...(dir ? [`  cd "${dir}"`] : []),
+    `  git add -A`,
+    `  git commit -m "confer ${session.id.slice(0, 8)} ${label}: <what you changed>"`,
+    `  git push -u origin ${target}`,
+    `Stay on the SAME ongoing fix/feature branch for every round — do not cut a new branch per round.`,
+    `If the push is rejected because a peer pushed first: \`git pull --rebase\`, re-run your checks, push again. NEVER force-push over a peer's work.`,
+    `A ${rounds > 1 ? 'round' : 'build'} with nothing pushed is NOT done — do not signal until the push succeeds.`,
+  ].join('\n');
+}
+
 /** Build the per-agent milestone prompt, including coordination guidance + the done-signal. */
-function buildPrompt(
+export function buildMilestonePrompt(
   session: ConferSession,
   idx: number,
   me: Participant,
   peers: Participant[],
   attachmentBlocks: AttachmentBlocks,
 ): string {
-  const def = milestonesFor(session.mode)[idx];
+  const milestones = session.milestones || [];
+  const total = milestones.length || CONFER_MILESTONE_COUNT;
+  const ms = milestones[idx];
+  // Milestone rows are the source of truth for name/round (they survive a restart); the def
+  // supplies the body. Looked up by KEY, so a repeated build finds the same def every round.
+  const set = milestonesFor(session.mode);
+  const def = (ms && set.find((m) => m.key === ms.key)) || set[idx];
+  const round = ms?.round || 1;
+  const buildRounds = clampBuildRounds(session.buildRounds);
+  const rounds = def?.iterates ? buildRounds : 1;
+  const name = ms?.name || def.name;
   const peerLines = peers.map((p) => `- ${p.agentType} (${p.name || session.repoName}) — agentId: ${p.id}`).join('\n');
   // `${NEONCORE_URL:-...}` is shell, not a JS template — it is expanded by the
   // agent's shell when it runs the curl, so a participant whose relay already
@@ -517,8 +696,11 @@ function buildPrompt(
   // fresh prompt with no memory of the last one.
   const attachmentBlock = blockForRepo(attachmentBlocks, me.repoPath);
   const worktreeLines = isolationLines(session, me, peers, def);
+  // The build step is the only one that must land a commit; the review/converge steps have
+  // their own git story (and Finalize commits the combined result).
+  const commitLines = def?.iterates ? commitPushLines(session, me, round, rounds) : '';
   return [
-    `[NeonCore Confer · Milestone ${idx + 1}/${CONFER_MILESTONE_COUNT}: ${def.name}]`,
+    `[NeonCore Confer · Milestone ${idx + 1}/${total}: ${name}]`,
     `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`,
     ``,
     `OVERALL TASK:`,
@@ -527,9 +709,10 @@ function buildPrompt(
     `YOUR PEER(S):`,
     peerLines,
     ``,
-    `THIS MILESTONE — ${def.name}:`,
-    def.body(session.task),
+    `THIS MILESTONE — ${name}:`,
+    def.body({ task: session.task, round, rounds, buildRounds }),
     ...(worktreeLines ? ['', worktreeLines] : []),
+    ...(commitLines ? ['', commitLines] : []),
     ``,
     `COORDINATE: use neoncore_message_agent to talk to your peer(s) and neoncore_read_agent to see their work.`,
     ``,
@@ -545,7 +728,7 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
   if (!row) return;
   const session = hydrateSession(row);
   const participants = await loadParticipantsAcrossFleet(session.participantIds);
-  const msRow = db.prepare('SELECT id FROM confer_milestones WHERE session_id = ? AND idx = ?').get(sessionId, idx) as { id: string } | undefined;
+  const msRow = db.prepare('SELECT id, name FROM confer_milestones WHERE session_id = ? AND idx = ?').get(sessionId, idx) as { id: string; name: string } | undefined;
   if (!msRow) return;
 
   const now = new Date().toISOString();
@@ -553,12 +736,15 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
     .run(now, msRow.id);
 
   const attachmentBlocks = parseAttachmentBlocks(row.attachments as string | undefined);
-  const milestoneName = milestonesFor(session.mode)[idx].name;
+  // The stored name, not the def's — on a repeated build this is "Build 2/5", and the log is
+  // where you look to see which round a stalled confer is on.
+  const milestoneName = msRow.name;
+  const total = session.milestones?.length || CONFER_MILESTONE_COUNT;
 
   let undelivered = 0;
   for (const me of participants) {
     const peers = participants.filter((p) => p.id !== me.id);
-    const prompt = buildPrompt(session, idx, me, peers, attachmentBlocks);
+    const prompt = buildMilestonePrompt(session, idx, me, peers, attachmentBlocks);
     // Fleet-aware: participants on a peer server are reached through their owner. Local
     // delivery still runs first and synchronously, so a single-server confer is unchanged.
     const out = await deliverToAgent(me.id, prompt, (id, body) => sendCommandToAgent(id, body, false));
@@ -575,7 +761,7 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
   } else if (row.error) {
     db.prepare("UPDATE confer_sessions SET error = '' WHERE id = ?").run(sessionId);
   }
-  console.log(`[confer] ${sessionId} dispatched milestone ${idx + 1}/${CONFER_MILESTONE_COUNT} (${milestoneName}) to ${participants.length} agent(s)`);
+  console.log(`[confer] ${sessionId} dispatched milestone ${idx + 1}/${total} (${milestoneName}) to ${participants.length} agent(s)`);
 }
 
 // ── Watchdog / recovery ───────────────────────────────────────────────────────
@@ -615,11 +801,12 @@ export function reconcileConfers(now = Date.now()): void {
     if (age > STALL_MS && !(ms.nudged as number)) {
       db.prepare('UPDATE confer_milestones SET nudged = 1 WHERE id = ?').run(ms.id as string);
       const session = hydrateSession(row);
+      const total = session.milestones?.length || CONFER_MILESTONE_COUNT;
       for (const pid of pending) {
         const url = `${baseUrl()}/api/confer/${row.id}/milestone/${pid}/done`;
         sendCommandToAgent(
           pid,
-          `[NeonCore Confer · reminder] You are on milestone ${idx + 1}/${CONFER_MILESTONE_COUNT} (${ms.name}) of the confer on ${session.repoName}. When you've finished it, signal done:\ncurl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"done"}'`,
+          `[NeonCore Confer · reminder] You are on milestone ${idx + 1}/${total} (${ms.name}) of the confer on ${session.repoName}. When you've finished it, signal done:\ncurl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"done"}'`,
           false,
         );
       }
