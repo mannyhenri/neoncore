@@ -12,6 +12,7 @@ import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
+import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
 
 const router = Router();
@@ -913,11 +914,27 @@ router.post('/v2/:id/start', (req, res) => {
   // block map is appended to every prompt this run dispatches (see dispatchStepCommand).
   if (attachments.length > 0) {
     const executorRows = db.prepare(
-      `SELECT DISTINCT a.repo_path AS repo_path
+      `SELECT DISTINCT a.repo_path AS repo_path, a.machine AS machine, a.repo_name AS repo_name
          FROM workflow_steps s
          JOIN agents a ON a.id = s.executor_id
         WHERE s.workflow_id = ?`,
-    ).all(runId) as { repo_path: string }[];
+    ).all(runId) as { repo_path: string; machine: string; repo_name: string }[];
+
+    // An executor on another machine registered into this DB, but its repo_path lives on
+    // that box. Writing files there is impossible from here, so say which machine rather
+    // than letting fs.existsSync report a path the user has never seen.
+    const offBox = executorRows.filter((r) => !isLocalMachine(r.machine));
+    if (offBox.length > 0) {
+      const machines = [...new Set(offBox.map((r) => machineLabel(r.machine)))].join(', ');
+      const who = [...new Set(offBox.map((r) => r.repo_name || r.repo_path))].join(', ');
+      const message =
+        `Attachments cannot be sent to cartridges on another machine yet — ${who} runs on ${machines}. ` +
+        `Run this workflow without attachments, or assign steps to cartridges on this machine.`;
+      db.prepare("UPDATE workflows SET status = 'failed', error = ?, completed_at = ? WHERE id = ?")
+        .run(message, new Date().toISOString(), runId);
+      emitWorkflowUpdate(runId);
+      return res.status(400).json({ error: message });
+    }
 
     try {
       const blocks = materializeForRepos(executorRows.map((r) => r.repo_path), attachments);

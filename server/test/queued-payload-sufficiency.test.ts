@@ -83,7 +83,9 @@ test('the confer queue check runs AFTER participants are resolved', () => {
   // Position matters, not just content: repoName/repoPath come from the participant rows, so a
   // check placed above that resolution cannot store them however carefully it is written.
   const src = read('routes/confer.ts');
-  const resolved = src.indexOf('const localRows');
+  // Anchor on the participant lookup itself, not on whatever the local holding it is called
+  // this month — the invariant is about ORDER, and a rename must not fake a pass or a fail.
+  const resolved = src.indexOf('FROM agents WHERE id IN');
   const queued = src.indexOf("kind: 'confer'");
   assert.notEqual(resolved, -1);
   assert.notEqual(queued, -1);

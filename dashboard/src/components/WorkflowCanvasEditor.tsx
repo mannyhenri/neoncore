@@ -589,6 +589,22 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     setTimeout(() => setToast(null), 4000);
   }, []);
   const onlineAgents = useMemo(() => agents.filter((a) => a.status !== 'offline'), [agents]);
+  // Two machines can each run a cartridge on a repo of the SAME name — identical labels for
+  // different disks. Whenever the fleet spans more than one host, put the host in the label:
+  // picking the off-box twin silently sends every step's files to a path that isn't here.
+  const agentHost = useCallback((a: { machine?: string }) => (a.machine || '').trim().replace(/\.local$/i, ''), []);
+  const multiMachine = useMemo(
+    () => new Set(onlineAgents.map(agentHost).filter(Boolean)).size > 1,
+    [onlineAgents, agentHost],
+  );
+  const agentLabel = useCallback(
+    (a: { repoName?: string; name: string; agentType?: string; machine?: string }, withType = true) => {
+      const base = `${a.repoName || a.name}${withType && a.agentType ? ` \u00b7 ${a.agentType}` : ''}`;
+      const host = agentHost(a);
+      return multiMachine && host ? `${base} \u00b7 ${host}` : base;
+    },
+    [multiMachine, agentHost],
+  );
 
   const selectedStep = useMemo(
     () => (selectedStepId ? steps.find((s) => s.id === selectedStepId) ?? null : null),
@@ -1265,9 +1281,9 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     if (!selectedStep) return [];
     return [
       { id: '__deferred__', label: 'Choose when running' },
-      ...onlineAgents.map((a) => ({ id: a.id, label: a.repoName || a.name })),
+      ...onlineAgents.map((a) => ({ id: a.id, label: agentLabel(a, false) })),
     ];
-  }, [selectedStep, onlineAgents]);
+  }, [selectedStep, onlineAgents, agentLabel]);
 
   // ── Assigned projects (agents with real executor IDs) ──
   const assignedProjects = useMemo(() => {
@@ -1344,7 +1360,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 >
                   <option value="">-- Select cartridge --</option>
                   {onlineAgents.map((a) => (
-                    <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
+                    <option key={a.id} value={a.id}>{agentLabel(a)}</option>
                   ))}
                 </select>
               </div>
@@ -1610,7 +1626,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                   >
                     <option value="">Select cartridge...</option>
                     {onlineAgents.map((a) => (
-                      <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
+                      <option key={a.id} value={a.id}>{agentLabel(a)}</option>
                     ))}
                   </select>
                   <p className="text-[13px] text-gray-600">

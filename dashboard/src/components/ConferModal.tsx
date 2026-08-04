@@ -3,7 +3,10 @@ import { api } from '../lib/api';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import type { CommandAttachmentInput, ConferMode } from '../types';
 
-type ConferAgent = { id: string; name: string; repoName?: string; agentType: string; status: string };
+type ConferAgent = { id: string; name: string; repoName?: string; agentType: string; status: string; machine?: string };
+
+/** Bare hostname — cartridges report both "Mac-Pro" and "Mac-Pro.local" for the same box. */
+const hostOf = (a: ConferAgent) => (a.machine || '').trim().replace(/\.local$/i, '');
 
 /**
  * Start a milestone-driven "confer" — two or more live cartridges (typically different
@@ -14,14 +17,29 @@ type ConferAgent = { id: string; name: string; repoName?: string; agentType: str
  */
 export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClose: () => void }) {
   const live = agents.filter((a) => a.status !== 'offline');
+  // Two machines can each run a cartridge on a repo of the same NAME (your laptop's
+  // "backend-interlag" and your desktop's are different checkouts on different disks).
+  // Show the machine whenever the fleet spans more than one, so identically-named tiles
+  // are tellable apart before you click — and so a cross-machine pick is a choice.
+  const hosts = [...new Set(live.map(hostOf).filter(Boolean))];
+  const showMachine = hosts.length > 1;
+
   // Projects (repos) that have 2+ live engines — one click confers them together,
   // matching the "two agents, one project" case without hunting for two tiles.
-  const byRepo = new Map<string, ConferAgent[]>();
+  // Keyed by repo AND machine: two same-named repos on different boxes are not one
+  // project, and quick-picking them together produced a confer whose attachments could
+  // never be written for half the participants.
+  const byRepo = new Map<string, { repo: string; host: string; list: ConferAgent[] }>();
   for (const a of live) {
-    const k = a.repoName || a.name;
-    byRepo.set(k, [...(byRepo.get(k) || []), a]);
+    const repo = a.repoName || a.name;
+    const host = hostOf(a);
+    const key = repo + '\u0000' + host;
+    const group = byRepo.get(key) || { repo, host, list: [] as ConferAgent[] };
+    group.list.push(a);
+    byRepo.set(key, group);
   }
-  const readyProjects = [...byRepo.entries()].filter(([, list]) => list.length >= 2);
+  const readyProjects = [...byRepo.values()].filter((g) => g.list.length >= 2);
+
   const [selected, setSelected] = useState<string[]>([]);
   const [task, setTask] = useState('');
   const [sending, setSending] = useState(false);
@@ -39,6 +57,10 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
     removeAttachment,
     encode: encodeAttachments,
   } = useAttachments();
+
+  // Attachments are written by THIS server into each participant's checkout, so a
+  // cross-machine selection can never receive them. Say so here rather than after upload.
+  const selectedHosts = [...new Set(live.filter((a) => selected.includes(a.id)).map(hostOf).filter(Boolean))];
 
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -101,13 +123,14 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           <div className="mb-3">
             <label className="block text-xs text-gray-500 mb-1.5">Quick pick — a project with two engines (one click selects both)</label>
             <div className="flex flex-wrap gap-1.5">
-              {readyProjects.map(([repo, list]) => (
+              {readyProjects.map((g) => (
                 <button
-                  key={repo}
-                  onClick={() => setSelected(list.map((a) => a.id))}
+                  key={`${g.repo}-${g.host}`}
+                  onClick={() => setSelected(g.list.map((a) => a.id))}
                   className="rounded-lg px-2.5 py-1.5 border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 text-[12px]"
                 >
-                  {repo} — {list.map((a) => a.agentType).join(' + ')}
+                  {g.repo} — {g.list.map((a) => a.agentType).join(' + ')}
+                  {showMachine && g.host && <span className="ml-1.5 opacity-60">· {g.host}</span>}
                 </button>
               ))}
             </div>
@@ -130,6 +153,9 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
                 >
                   <div className="text-[13px] font-medium leading-tight capitalize">{a.agentType}</div>
                   <div className="text-[11px] leading-snug opacity-60">{a.repoName || a.name}</div>
+                  {showMachine && hostOf(a) && (
+                    <div className="text-[10px] leading-snug opacity-45 truncate">{hostOf(a)}</div>
+                  )}
                 </button>
               );
             })}
@@ -193,6 +219,12 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
             onRemove={removeAttachment}
             hint="Optional — copied into each participant's repo so both engines can open them. Referenced in every milestone prompt."
           />
+          {attachments.length > 0 && selectedHosts.length > 1 && (
+            <p className="text-[11px] text-amber-400 mt-1.5">
+              This selection spans {selectedHosts.join(' and ')}. Attachments can only be copied into
+              checkouts on this machine — drop the attachments, or pick cartridges on one machine.
+            </p>
+          )}
         </div>
 
         {error && <p className="text-xs text-red-400 mb-3">{error}</p>}

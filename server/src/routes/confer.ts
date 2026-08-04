@@ -3,6 +3,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { fetchPeerAgent } from '../lib/peer-forward.js';
+import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import {
   startConfer,
   recordMilestoneDone,
@@ -38,14 +39,18 @@ router.post('/start', async (req, res) => {
   }
 
   const ph = ids.map(() => '?').join(',');
-  type ConferRow = { id: string; repo_name: string; repo_path: string; status: string; remote?: boolean };
-  const localRows = db.prepare(`SELECT id, repo_name, repo_path, status FROM agents WHERE id IN (${ph})`).all(...ids) as ConferRow[];
+  type ConferRow = { id: string; repo_name: string; repo_path: string; status: string; machine?: string; remote?: boolean };
+  // `remote` is about the FILESYSTEM, not the database. A relay on another Mac registers
+  // into this very DB, so presence here says nothing about whether its repo_path exists on
+  // this box — only `machine` does.
+  const dbRows = (db.prepare(`SELECT id, repo_name, repo_path, status, machine FROM agents WHERE id IN (${ph})`).all(...ids) as ConferRow[])
+    .map((r) => ({ ...r, remote: !isLocalMachine(r.machine) }));
 
   // A cartridge registers with exactly ONE server, so in a two-machine fleet the other
   // machine's participants are legitimately absent here. Rejecting them as "no longer
   // exist" is what made every cross-machine confer impossible to even start.
-  const localIds = new Set(localRows.map((r) => r.id));
-  const remoteIds = ids.filter((id) => !localIds.has(id));
+  const knownIds = new Set(dbRows.map((r) => r.id));
+  const remoteIds = ids.filter((id) => !knownIds.has(id));
   const hydrated = await Promise.all(remoteIds.map((id) => fetchPeerAgent(id)));
   const remoteRows = hydrated
     .map((a, i) => (a ? {
@@ -57,7 +62,7 @@ router.post('/start', async (req, res) => {
     } : null))
     .filter(Boolean) as ConferRow[];
 
-  const rows = [...localRows, ...remoteRows];
+  const rows = [...dbRows, ...remoteRows];
   if (rows.length !== ids.length) {
     return res.status(400).json({
       error: 'One or more selected cartridges no longer exist on this server or any reachable peer.',
@@ -81,8 +86,12 @@ router.post('/start', async (req, res) => {
     // Materializing copies files into each participant's checkout, which this server cannot
     // do for a repo on another machine. Refusing is the honest outcome: a confer that starts
     // with half its participants missing the evidence is worse than one that never started.
+    // Name the MACHINE — a raw foreign path reads as a stale/deleted repo and sends you
+    // hunting through your own settings for a directory that was never yours.
+    const machines = [...new Set(remoteParticipants.map((r) => machineLabel(r.machine)))].join(', ');
+    const who = remoteParticipants.map((r) => r.repo_name || r.id).join(', ');
     return res.status(400).json({
-      error: 'Attachments cannot be sent to participants on another server yet — start this confer without attachments, or use participants on one machine.',
+      error: `Attachments cannot be sent to cartridges on another machine yet — ${who} runs on ${machines}. Start this confer without attachments, or pick participants on this machine.`,
     });
   }
 

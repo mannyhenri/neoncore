@@ -5,6 +5,7 @@ import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command, CommandAttachmentInput } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
+import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
 
 /**
@@ -91,8 +92,8 @@ export function sendCommandToAgent(
   attachments?: CommandAttachmentInput[],
   opts: { trackObjective?: boolean; standard?: boolean } = {},
 ): Command | null {
-  const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id FROM agents WHERE id = ?')
-    .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string } | undefined;
+  const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id, machine FROM agents WHERE id = ?')
+    .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string; machine: string } | undefined;
   if (!agentCheck) return null;
 
   // Driving an agent un-dismisses it. Sending it a prompt (from the dashboard, the phone, or
@@ -169,6 +170,15 @@ export function sendCommandToAgent(
 
   // Auto-inject relevant memories into command context (if enabled)
   let finalText = text;
+  // Same rule as confer/workflow launches: this server can only write into checkouts on its
+  // own disk. A cartridge relaying in from another Mac is reachable (its socket is right
+  // here) but its repo is not, and the raw fs error names a path from the OTHER user's home.
+  if (attachments && attachments.length > 0 && !isLocalMachine(agentCheck.machine)) {
+    throw new Error(
+      `Attachments cannot be sent to a cartridge on another machine yet — ` +
+      `${agentCheck.repo_name || agentCheck.id} runs on ${machineLabel(agentCheck.machine)}.`,
+    );
+  }
   const attachmentBlock = materializeAttachments(agentCheck.repo_path, attachments);
   if (attachmentBlock) finalText += attachmentBlock;
 
