@@ -10,6 +10,8 @@ export interface ConferMilestone {
   idx: number;
   key: string;
   name: string;
+  /** Which build round this is (1 for every non-repeated milestone). */
+  round: number;
   status: 'pending' | 'active' | 'done';
   /** Participant agentIds that have signalled this milestone complete. */
   doneIds: string[];
@@ -30,6 +32,12 @@ export interface ConferSession {
   completedAt: string | null;
   /** How the panel relates to the task: split into slices vs. one shared solution. */
   mode: 'collaborate' | 'divide';
+  /**
+   * How many times the build/fix milestone runs before the cycle moves on (1 = the classic
+   * single build). Each round is a real milestone with its own dispatch, all-hands gate and
+   * commit+push, so a 20-item bug list can be worked in batches instead of one rushed pass.
+   */
+  buildRounds: number;
   /** Whether each agent works in its own git worktree+branch (divide mode only). */
   isolation: 'shared' | 'worktree';
   /** agentId → the worktree provisioned for it (present only when isolation = worktree). */

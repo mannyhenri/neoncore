@@ -484,7 +484,8 @@ db.exec(`
     current_milestone INTEGER NOT NULL DEFAULT 0,
     error TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
-    completed_at TEXT
+    completed_at TEXT,
+    build_rounds INTEGER NOT NULL DEFAULT 1
   );
   CREATE TABLE IF NOT EXISTS confer_milestones (
     id TEXT PRIMARY KEY,
@@ -492,6 +493,7 @@ db.exec(`
     idx INTEGER NOT NULL,
     key TEXT NOT NULL,
     name TEXT NOT NULL,
+    round INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'pending',
     done_ids TEXT NOT NULL DEFAULT '[]',
     results TEXT NOT NULL DEFAULT '{}',
@@ -520,6 +522,21 @@ try {
   db.exec(`ALTER TABLE confer_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'divide'`);
   db.exec(`ALTER TABLE confer_sessions ADD COLUMN isolation TEXT NOT NULL DEFAULT 'shared'`);
   db.exec(`ALTER TABLE confer_sessions ADD COLUMN worktrees TEXT NOT NULL DEFAULT '{}'`);
+}
+
+// Migration: iterated build rounds. `build_rounds` = how many times the build/fix milestone
+// runs (default 1 = the original single-build cycle), `round` = which of those a milestone row
+// is. Probed and added SEPARATELY — a half-applied pair (one column added, then a crash) must
+// still converge, which a single combined try/catch cannot do.
+try {
+  db.prepare('SELECT build_rounds FROM confer_sessions LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE confer_sessions ADD COLUMN build_rounds INTEGER NOT NULL DEFAULT 1`);
+}
+try {
+  db.prepare('SELECT round FROM confer_milestones LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE confer_milestones ADD COLUMN round INTEGER NOT NULL DEFAULT 1`);
 }
 
 // Workflow Steps table (V2 canvas workflows)

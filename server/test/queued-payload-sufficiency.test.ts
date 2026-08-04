@@ -35,7 +35,9 @@ const KINDS = [
     route: 'routes/confer.ts',
     // startConfer({ repoName, repoPath, participantIds, task, ... }) — repoName and repoPath are
     // NOT NULL columns, and they are resolved from the participant rows, not sent by the client.
-    required: ['repoName', 'repoPath', 'participantIds', 'task'],
+    // buildRounds decides how many milestones the session HAS; dropping it on the queue path
+    // silently downgrades a queued 6-round bug sweep to a single build pass.
+    required: ['repoName', 'repoPath', 'participantIds', 'task', 'buildRounds'],
   },
   {
     kind: 'workflow',

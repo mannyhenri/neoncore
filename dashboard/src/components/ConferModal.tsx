@@ -49,6 +49,9 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
   // its own git worktree+branch — only meaningful for divide.
   const [mode, setMode] = useState<ConferMode>('divide');
   const [worktree, setWorktree] = useState(false);
+  // How many times the build/fix milestone repeats. One pass is fine for a single feature;
+  // a list of 20 bugs needs several, each ending in its own commit + push.
+  const [buildRounds, setBuildRounds] = useState(1);
   const {
     attachments,
     error: attachmentError,
@@ -83,6 +86,7 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
       await api.startConfer(selected, task.trim(), payloads.length > 0 ? payloads : undefined, {
         mode,
         isolation: mode === 'divide' && worktree ? 'worktree' : 'shared',
+        buildRounds,
       });
       onClose();
     } catch (e) {
@@ -103,9 +107,9 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
         </div>
         <p className="text-[11px] text-gray-500 mb-4">
-          They run one task through a fixed 5-milestone cycle — <span className="text-gray-400">{mode === 'collaborate'
-            ? 'Frame → Draft → Critique → Revise → Finalize'
-            : 'Align → Build → Cross-review → Converge → Finalize'}</span> —
+          They run one task through a milestone cycle — <span className="text-gray-400">{mode === 'collaborate'
+            ? `Frame → Draft${buildRounds > 1 ? ` ×${buildRounds}` : ''} → Critique → Revise → Finalize`
+            : `Align → Build${buildRounds > 1 ? ` ×${buildRounds}` : ''} → Cross-review → Converge → Finalize`}</span> —
           coordinating via the neoncore message/read tools. Each milestone advances only when every participant signals done; no manual steps.
         </p>
 
@@ -210,6 +214,44 @@ export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClos
         ) : (
           <p className="text-[11px] text-gray-600 mb-3">Collaborate works one shared checkout — no per-agent worktrees.</p>
         )}
+
+        {/* Build rounds — one milestone per round, so a long list of fixes gets several passes
+            instead of one rushed one. Each round ends with a commit + push to the same branch. */}
+        <label className="block text-xs text-gray-500 mb-1.5">
+          {mode === 'collaborate' ? 'Draft' : 'Build'} rounds
+        </label>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          {[1, 2, 3, 5, 10].map((n) => (
+            <button
+              key={n}
+              onClick={() => setBuildRounds(n)}
+              className={`rounded-lg px-2.5 py-1.5 border text-[12px] transition-colors ${
+                buildRounds === n
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                  : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+              }`}
+            >
+              ×{n}
+            </button>
+          ))}
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={buildRounds}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              setBuildRounds(Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1);
+            }}
+            className="w-16 text-sm glass-input text-gray-300 rounded-md px-2 py-1 focus:outline-none"
+            aria-label="Build rounds"
+          />
+        </div>
+        <p className="text-[11px] text-gray-600 mb-3">
+          {buildRounds > 1
+            ? `${buildRounds} build passes before review. Each round takes the NEXT batch of items and ends with a commit + push to the same ongoing branch — use this when the task is a list (e.g. 20 bugs from an eval), not one feature.`
+            : 'One build pass, then review. Raise this when the task is a list of fixes — each extra round works the next batch and pushes it.'}
+        </p>
 
         <div className="mb-3">
           <AttachmentField
