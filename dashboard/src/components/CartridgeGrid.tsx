@@ -28,6 +28,8 @@ function effectiveAgentStatus(
 // Props
 // ---------------------------------------------------------------------------
 
+export type StatusFilter = 'all' | 'working' | 'waiting' | 'idle';
+
 interface CartridgeGridProps {
   agents: Agent[];
   activitiesByAgent: Record<string, Activity[]>;
@@ -44,13 +46,18 @@ interface CartridgeGridProps {
   virtualCartridges?: VirtualCartridge[];
   onVirtualCartridgeUpdate?: (vc: VirtualCartridge) => void;
   onVirtualCartridgeDelete?: (id: string) => void;
+  /** The status selection now lives in the command rail. The grid no longer owns
+   *  the control, but it still owns the derivation — dedup, dismissal and virtual
+   *  cartridges all decide who is counted, and duplicating that in App is how the
+   *  chip counts would drift from the cards under them. So: filter in, counts out. */
+  statusFilter?: StatusFilter;
+  onStatusCounts?: (counts: Record<StatusFilter, number>) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Filter / sort types
 // ---------------------------------------------------------------------------
 
-type StatusFilter = 'all' | 'working' | 'waiting' | 'idle';
 const STATUS_PRIORITY: Record<string, number> = { working: 0, waiting: 1, idle: 2, offline: 3 };
 
 // ---------------------------------------------------------------------------
@@ -71,10 +78,12 @@ export function CartridgeGrid({
   virtualCartridges = [],
   onVirtualCartridgeUpdate,
   onVirtualCartridgeDelete,
+  statusFilter: statusFilterProp,
+  onStatusCounts,
   onDismissStuck,
   onActivityClick,
 }: CartridgeGridProps) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const statusFilter = statusFilterProp ?? 'all';
   const [showHidden, setShowHidden] = useState(false);
   const [tick, setTick] = useState(Date.now());
 
@@ -156,6 +165,14 @@ export function CartridgeGrid({
     (a) => agentStatuses.get(a.id) !== 'offline' && !a.dismissedAt,
   );
 
+  // Report the counts up to whoever renders the chips. Declared BEFORE the empty-grid
+  // early return below, so the hook order never changes between renders. Depends on the
+  // four numbers rather than the object, which is re-created every render.
+  useEffect(() => {
+    onStatusCounts?.({ all: counts.all, working: counts.working, waiting: counts.waiting, idle: counts.idle });
+  }, [counts.all, counts.working, counts.waiting, counts.idle, onStatusCounts]);
+
+
   // Build a lookup for stuck alerts by agentId
   const stuckByAgent = new Map<string, StuckAlert>();
   for (const alert of stuckAlerts) {
@@ -226,39 +243,8 @@ export function CartridgeGrid({
     );
   }
 
-  const filters: { key: StatusFilter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'working', label: 'Working' },
-    { key: 'waiting', label: 'Waiting' },
-    { key: 'idle', label: 'Idle' },
-  ];
-
   return (
     <div className="space-y-4">
-      {/* Status filter bar */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {filters.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setStatusFilter(key)}
-            className={`text-xs px-3 py-1.5 rounded-md transition-colors font-medium ${
-              statusFilter === key
-                ? 'bg-gl-purple/20 text-gl-purple border border-gl-purple/40'
-                : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.08] hover:text-gray-300'
-            }`}
-          >
-            {label}
-            {counts[key] > 0 && (
-              <span className={`ml-1.5 text-[13px] px-1.5 py-0.5 rounded-full ${
-                statusFilter === key ? 'bg-gl-purple/30 text-gl-purple' : 'bg-white/[0.06] text-gray-500'
-              }`}>
-                {counts[key]}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
       {/* Grid. It now lives in a 2/3 column, so lg:3 would squeeze a card to ~210px —
           three across is only earned back at 2xl, where the column is wide enough. */}
       {dedupedSorted.length === 0 ? (

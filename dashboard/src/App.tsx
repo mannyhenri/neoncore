@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAgents } from './hooks/useAgents';
 import { CartridgeGrid } from './components/CartridgeGrid';
+import type { StatusFilter } from './components/CartridgeGrid';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MachineLauncher } from './components/MachineLauncher';
@@ -64,6 +65,15 @@ export default function App() {
   } = useAgents(handleVirtualCartridgeUpdated);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
+  // Status selection lives here so it can render in the rail; the counts come back up
+  // from the grid, which is the only place that knows who survives dedup and dismissal.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusCounts, setStatusCounts] = useState<Record<StatusFilter, number>>({ all: 0, working: 0, waiting: 0, idle: 0 });
+  const handleStatusCounts = useCallback((c: Record<StatusFilter, number>) => {
+    setStatusCounts((prev) =>
+      prev.all === c.all && prev.working === c.working && prev.waiting === c.waiting && prev.idle === c.idle ? prev : c
+    );
+  }, []);
   const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>('agents');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -108,6 +118,60 @@ export default function App() {
               Orchestrator
             </span>
           </div>
+          {/* Navigation and chrome live in the top menu.
+              The rail owns what you INVOKE while watching a cartridge — Launch, New
+              Repo, Confer, Workflows. These are different: switching view, opening the
+              Guide or Settings is navigation, and navigation belongs where a user
+              already looks for it. Moved back verbatim, so the only delta is where they
+              render. */}
+            {/* View switcher */}
+            <div className="flex rounded-md overflow-hidden border border-white/10">
+              <button
+                onClick={() => setActiveView('agents')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'agents' ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Agents
+              </button>
+              <button
+                onClick={() => setActiveView('goals')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'goals' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Goals
+              </button>
+              <button
+                onClick={() => setActiveView('tasks')}
+                className={`px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5 ${activeView === 'tasks' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Tasks
+                {activeTaskCount > 0 && (
+                  <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
+                )}
+              </button>
+            </div>
+            {/* Guide button */}
+            <button
+              onClick={() => setGuideOpen(true)}
+              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+              title="How NeonCore works"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+              </svg>
+              Guide
+            </button>
+            {/* Settings gear */}
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/25 px-2.5 py-1 rounded-md transition-colors flex items-center justify-center gap-1.5"
+              title="Settings"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a7.723 7.723 0 0 1 0 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              </svg>
+              Settings
+            </button>
+
           <div className="flex items-center gap-2 md:gap-4 text-base">
             {/* Notification center — bell with dropdown */}
             <NotificationCenter
@@ -143,30 +207,6 @@ export default function App() {
         <aside className="lg:col-span-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-1 space-y-4 md:space-y-6">
           {/* Navigation */}
           <div className="flex flex-col gap-3">
-              {/* View switcher */}
-              <div className="flex rounded-md overflow-hidden border border-white/10">
-                <button
-                  onClick={() => setActiveView('agents')}
-                  className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'agents' ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-                >
-                  Agents
-                </button>
-                <button
-                  onClick={() => setActiveView('goals')}
-                  className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'goals' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-                >
-                  Goals
-                </button>
-                <button
-                  onClick={() => setActiveView('tasks')}
-                  className={`px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5 ${activeView === 'tasks' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-                >
-                  Tasks
-                  {activeTaskCount > 0 && (
-                    <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
-                  )}
-                </button>
-              </div>
               {/* Launch a cartridge on any registered machine (local or remote) */}
               <MachineLauncher servers={servers} />
               {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
@@ -185,60 +225,40 @@ export default function App() {
               >
                 Confer
               </button>
-              {/* Guide button */}
-              <button
-                onClick={() => setGuideOpen(true)}
-                className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
-                title="How NeonCore works"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-                </svg>
-                Guide
-              </button>
-              {/* Settings gear */}
-              <button
-                onClick={() => setSettingsOpen(true)}
-                className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/25 px-2.5 py-1 rounded-md transition-colors flex items-center justify-center gap-1.5"
-                title="Settings"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a7.723 7.723 0 0 1 0 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                </svg>
-                Settings
-              </button>
           </div>
 
-          {/* Cartridge type filter — a SELECTION, so it belongs with the commands. */}
+          {/* Status is a SELECTION you make while watching work, so it stays with the
+              commands. The TYPE filter moved beside the Cartridges heading: it answers
+              "which of these am I looking at", a question about the grid itself. */}
           {activeView === 'agents' && (
             <div>
               <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Show</div>
-              <div className="flex rounded-lg overflow-hidden border border-white/10">
-                {visibleTypeFilters.map((t) => {
-                  const ACTIVE_COLORS: Partial<Record<AgentType | 'all', string>> = {
-                    all:      'bg-white/10 text-gray-200',
-                    gridlight:'bg-pink-900/60 text-pink-300',
-                    claude:   'bg-blue-900/60 text-blue-300',
-                    codex:    'bg-green-900/60 text-green-300',
-                  };
-                  const LABELS: Partial<Record<AgentType | 'all', string>> = {
-                    all: 'All', gridlight: 'Gridlight', claude: 'Claude', codex: 'Codex',
-                  };
-                  return (
-                    <button
-                      key={t}
-                      onClick={() => setTypeFilter(t)}
-                      className={`px-3 py-1 text-xs font-medium transition-colors ${
-                        typeFilter === t
-                          ? (ACTIVE_COLORS[t] ?? 'bg-white/10 text-gray-200')
-                          : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
-                      }`}
-                    >
-                      {LABELS[t] ?? t}
-                    </button>
-                  );
-                })}
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                {([
+                  { key: 'all', label: 'All' },
+                  { key: 'working', label: 'Working' },
+                  { key: 'waiting', label: 'Waiting' },
+                  { key: 'idle', label: 'Idle' },
+                ] as { key: StatusFilter; label: string }[]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setStatusFilter(key)}
+                    className={`text-xs px-3 py-1.5 rounded-md transition-colors font-medium ${
+                      statusFilter === key
+                        ? 'bg-gl-purple/20 text-gl-purple border border-gl-purple/40'
+                        : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.08] hover:text-gray-300'
+                    }`}
+                  >
+                    {label}
+                    {statusCounts[key] > 0 && (
+                      <span className={`ml-1.5 text-[13px] px-1.5 py-0.5 rounded-full ${
+                        statusFilter === key ? 'bg-gl-purple/30 text-gl-purple' : 'bg-white/[0.06] text-gray-500'
+                      }`}>
+                        {statusCounts[key]}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -262,11 +282,48 @@ export default function App() {
               <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
           ) : (
             <section>
-              <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide mb-3 md:mb-4">
-                Cartridges
-              </h2>
+              {/* The type filter belongs WITH the cartridges it filters: it answers
+                  "which of these am I looking at", which is a question you ask of the
+                  grid, not a command you issue from the rail. */}
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-3 md:mb-4">
+                <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide">
+                  Cartridges
+                </h2>
+                <div className="flex rounded-lg overflow-hidden border border-white/10">
+                  {visibleTypeFilters.map((t) => {
+                    const ACTIVE_COLORS: Partial<Record<AgentType | 'all', string>> = {
+                      all:      'bg-white/10 text-gray-200',
+                      gridlight:'bg-pink-900/60 text-pink-300',
+                      claude:   'bg-blue-900/60 text-blue-300',
+                      codex:    'bg-green-900/60 text-green-300',
+                    };
+                    const LABELS: Partial<Record<AgentType | 'all', string>> = {
+                      all: 'All', gridlight: 'Gridlight', claude: 'Claude', codex: 'Codex',
+                    };
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => setTypeFilter(t)}
+                        className={`px-3 py-1 text-xs font-medium transition-colors ${
+                          typeFilter === t
+                            ? (ACTIVE_COLORS[t] ?? 'bg-white/10 text-gray-200')
+                            : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                        }`}
+                      >
+                        {LABELS[t] ?? t}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            {/* The rail owns the status SELECTION; the grid owns the derivation and
+                reports the counts back. Without these two props the rail's control
+                renders but changes nothing and its chips stay at zero — a switch wired
+                to nothing. */}
             <CartridgeGrid
               agents={filteredAgents}
+              statusFilter={statusFilter}
+              onStatusCounts={handleStatusCounts}
               activitiesByAgent={activitiesByAgent}
               pendingPermissions={pendingPermissions}
               stuckAlerts={stuckAlertsArray}
