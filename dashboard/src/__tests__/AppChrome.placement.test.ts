@@ -65,15 +65,17 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // Asked for: chrome returns to the top menu.
   { name: 'Guide', marker: /setGuideOpen\(true\)/, region: 'header' },
   { name: 'Settings', marker: /setSettingsOpen\(true\)/, region: 'header' },
-  // Asked for: the cartridge type filter sits with the cartridges.
+  // Asked for: the whole "Show" section sits with the cartridges. Both filters ask
+  // "which of these am I looking at", which is a question about the grid — my first
+  // pass split them, keeping status in the rail, and that was wrong.
   { name: 'Type filter (All/Gridlight/Claude)', marker: /setTypeFilter\(/, region: 'main' },
+  { name: 'Status filter (Working/Waiting/Idle)', marker: /setStatusFilter\(/, region: 'main' },
 
   // NOT asked for — these are commands you invoke while watching a cartridge, which
   // is exactly what the rail is for. Listed so an over-broad revert fails here.
   { name: 'Machine launcher', marker: /<MachineLauncher/, region: 'aside' },
   { name: 'New repo', marker: /setNewRepoOpen\(true\)/, region: 'aside' },
   { name: 'Confer', marker: /setConferOpen\(true\)/, region: 'aside' },
-  { name: 'Status filter', marker: /setStatusFilter\(/, region: 'aside' },
   { name: 'Workflows', marker: /<WorkflowPanel/, region: 'aside' },
 ];
 
@@ -94,6 +96,20 @@ describe('dashboard chrome placement', () => {
     }
   });
 
+  it('Launch, New Repo and Confer share one row', () => {
+    // Three stacked buttons ate the top of the rail and pushed the workflows below the
+    // fold. They are peers — one row, not a column.
+    const block = R.aside.slice(
+      R.aside.indexOf('<MachineLauncher'),
+      R.aside.indexOf('setConferOpen'),
+    );
+    expect(block.length).toBeGreaterThan(0);
+    // The container that wraps them must lay out horizontally.
+    const container = R.aside.slice(0, R.aside.indexOf('<MachineLauncher'));
+    const lastDiv = container.lastIndexOf('<div');
+    expect(container.slice(lastDiv)).not.toMatch(/flex-col/);
+  });
+
   it('the type filter sits beside the Cartridges heading, not below the grid', () => {
     // "Beside the title" is the ask. If it renders after <CartridgeGrid it has been
     // appended to the section rather than placed in its header row.
@@ -103,6 +119,13 @@ describe('dashboard chrome placement', () => {
     expect(heading).toBeGreaterThan(-1);
     expect(filter).toBeGreaterThan(heading);
     expect(filter).toBeLessThan(grid);
+  });
+
+  it('workflow templates are open on arrival', () => {
+    // Templates you cannot see are templates you do not use. The panel opens with them
+    // already listed rather than behind a disclosure.
+    const wf = readFileSync(resolve(HERE, '../components/WorkflowPanel.tsx'), 'utf8');
+    expect(wf).toMatch(/useState\(true\);?\s*\/\/.*template|const \[showTemplates, setShowTemplates\] = useState\(true\)/);
   });
 
   it('the type filter is only shown on the cartridges view', () => {

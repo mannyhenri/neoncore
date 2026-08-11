@@ -91,7 +91,10 @@ export function WorkflowPanel({ agents }: Props) {
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
   const [showAllRecent, setShowAllRecent] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);
+  // Open on arrival: templates you cannot see are templates you do not use, and the
+  // panel's whole purpose is to start one. Behind a disclosure it read as an empty
+  // section. (setShowTemplates still collapses it for anyone who wants the room.)
+  const [showTemplates, setShowTemplates] = useState(true);
   const [showRecentRuns, setShowRecentRuns] = useState(false);
   const [templateTab, setTemplateTab] = useState<TemplateTab>('all');
 

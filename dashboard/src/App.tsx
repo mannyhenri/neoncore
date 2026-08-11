@@ -205,8 +205,11 @@ export default function App() {
           back to one column, where a sidebar would just be a header you scroll past. */}
       <div className="p-3 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 items-start">
         <aside className="lg:col-span-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-1 space-y-4 md:space-y-6">
-          {/* Navigation */}
-          <div className="flex flex-col gap-3">
+          {/* Commands. Navigation moved to the top menu; what is left here is what you
+              INVOKE while watching a cartridge, which is what the rail is for.
+              One row: these are peers, and stacked they ate the top of the rail and
+              pushed the workflows below the fold. */}
+          <div className="flex flex-row flex-wrap items-center gap-2">
               {/* Launch a cartridge on any registered machine (local or remote) */}
               <MachineLauncher servers={servers} />
               {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
@@ -226,42 +229,6 @@ export default function App() {
                 Confer
               </button>
           </div>
-
-          {/* Status is a SELECTION you make while watching work, so it stays with the
-              commands. The TYPE filter moved beside the Cartridges heading: it answers
-              "which of these am I looking at", a question about the grid itself. */}
-          {activeView === 'agents' && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Show</div>
-              <div className="flex items-center gap-2 flex-wrap mb-2">
-                {([
-                  { key: 'all', label: 'All' },
-                  { key: 'working', label: 'Working' },
-                  { key: 'waiting', label: 'Waiting' },
-                  { key: 'idle', label: 'Idle' },
-                ] as { key: StatusFilter; label: string }[]).map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => setStatusFilter(key)}
-                    className={`text-xs px-3 py-1.5 rounded-md transition-colors font-medium ${
-                      statusFilter === key
-                        ? 'bg-gl-purple/20 text-gl-purple border border-gl-purple/40'
-                        : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.08] hover:text-gray-300'
-                    }`}
-                  >
-                    {label}
-                    {statusCounts[key] > 0 && (
-                      <span className={`ml-1.5 text-[13px] px-1.5 py-0.5 rounded-full ${
-                        statusFilter === key ? 'bg-gl-purple/30 text-gl-purple' : 'bg-white/[0.06] text-gray-500'
-                      }`}>
-                        {statusCounts[key]}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Workflows live in the rail: they are something you START, not something
               you read alongside the cartridges. */}
@@ -289,6 +256,36 @@ export default function App() {
                 <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide">
                   Cartridges
                 </h2>
+                {/* Both filters together, so the row reads: title | how you are
+                    slicing it. */}
+                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {([
+                    { key: 'all', label: 'All' },
+                    { key: 'working', label: 'Working' },
+                    { key: 'waiting', label: 'Waiting' },
+                    { key: 'idle', label: 'Idle' },
+                  ] as { key: StatusFilter; label: string }[]).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setStatusFilter(key)}
+                      className={`text-xs px-3 py-1.5 rounded-md transition-colors font-medium ${
+                        statusFilter === key
+                          ? 'bg-gl-purple/20 text-gl-purple border border-gl-purple/40'
+                          : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.08] hover:text-gray-300'
+                      }`}
+                    >
+                      {label}
+                      {statusCounts[key] > 0 && (
+                        <span className={`ml-1.5 text-[13px] px-1.5 py-0.5 rounded-full ${
+                          statusFilter === key ? 'bg-gl-purple/30 text-gl-purple' : 'bg-white/[0.06] text-gray-500'
+                        }`}>
+                          {statusCounts[key]}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex rounded-lg overflow-hidden border border-white/10">
                   {visibleTypeFilters.map((t) => {
                     const ACTIVE_COLORS: Partial<Record<AgentType | 'all', string>> = {
@@ -315,11 +312,13 @@ export default function App() {
                     );
                   })}
                 </div>
+                </div>
               </div>
-            {/* The rail owns the status SELECTION; the grid owns the derivation and
-                reports the counts back. Without these two props the rail's control
-                renders but changes nothing and its chips stay at zero — a switch wired
-                to nothing. */}
+            {/* The heading row owns the status SELECTION; the grid owns the derivation
+                — dedup, dismissal and virtual cartridges all decide who is counted, and
+                duplicating that here is how the chip counts would drift from the cards
+                under them. Without these two props the control renders but changes
+                nothing and its chips stay at zero: a switch wired to nothing. */}
             <CartridgeGrid
               agents={filteredAgents}
               statusFilter={statusFilter}
