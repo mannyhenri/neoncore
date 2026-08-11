@@ -259,13 +259,14 @@ export function CartridgeGrid({
         ))}
       </div>
 
-      {/* Grid */}
+      {/* Grid. It now lives in a 2/3 column, so lg:3 would squeeze a card to ~210px —
+          three across is only earned back at 2xl, where the column is wide enough. */}
       {dedupedSorted.length === 0 ? (
         <div className="text-center py-12 text-gray-500 text-sm">
           No {statusFilter} cartridges
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-5">
           {dedupedSorted.map((agent) => {
             const siblingIds = siblingMap.get(agent.id) || [];
             const allIds = [agent.id, ...siblingIds];
