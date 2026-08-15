@@ -1,4 +1,5 @@
 import express from 'express';
+import { redispatchOrphanedSteps } from './lib/step-session-guard.js';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -230,6 +231,21 @@ function clearOrphanedQuestions(): number {
         AND id NOT IN (SELECT agent_id FROM permissions WHERE status = 'pending')`
   ).run().changes;
 }
+
+/**
+ * The session race: a step whose prompt went into a cartridge session that has since been
+ * replaced. Neither `delivered` nor `last_seen` can see it — the first means only that a socket
+ * accepted the emit, the second is a relay heartbeat that stays fresh with no engine attached.
+ * Every 60s, re-send those steps to the live session. See lib/step-session-guard.ts.
+ */
+setInterval(() => {
+  try {
+    const resent = redispatchOrphanedSteps();
+    if (resent.length) console.log(`[session-guard] re-sent ${resent.length} orphaned step(s)`);
+  } catch (err) {
+    console.error('[session-guard] sweep failed:', err);
+  }
+}, 60_000);
 
 setInterval(() => {
   const cutoff = new Date(Date.now() - PERMISSION_TTL_MS).toISOString();
