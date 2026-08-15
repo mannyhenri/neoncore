@@ -1,14 +1,30 @@
 # NeonCore: Goal-Aligned AI Labor Control Plane
 ## Design Document v0.1 — May 2026
 
-> **Status: design doc, partially implemented.** This describes the target
-> vision; not all of it is built. For what works today, see the user guides
+> **Status: design doc, fully implemented as specified — status verified 2026-08-12.**
+> Everything v0.1 described is now built. For what works today, see the user guides
 > ([docs/GOALS.md](GOALS.md), [docs/TASKS.md](TASKS.md)).
 >
-> - **Built today:** goals, projects (cartridges), task queue with dispatch +
->   completion, and real USD cost rollup to goals.
-> - **Designed, not yet built:** decision checkpoints, typed step outputs
->   (`outputSchema`), the learnings connector, and scheduled heartbeats.
+> - **Built, as designed in v0.1:** goals, projects (cartridges), task queue with dispatch +
+>   completion, real USD cost rollup — plus all four items previously listed as outstanding:
+>   decision checkpoints (`executeDecisionStep`, `POST /v2/:id/steps/:stepId/decide`), typed step
+>   outputs (`outputSchema`, with the three V1-priority schemas `test_results`, `code_review`,
+>   `design_doc`), the learnings connector (`capture-learnings`), and scheduled heartbeats
+>   (`startHeartbeatScheduler`).
+> - **Built since, beyond v0.1's scope:** the goal brief injected at every dispatch
+>   (`lib/goal-brief.ts`), derived needs-a-human health (`lib/workflow-attention.ts`), and the
+>   serial work queue with busy-guard, per-item holds and reordering (`lib/queue-runner.ts`,
+>   `lib/queue-if-busy.ts`).
+> - **⚠️ Built but never exercised.** The mechanisms exist; data has not flowed through them.
+>   `project_learnings` has 0 rows. `goal_id` is NULL on all 3 projects — so `goalCostUsd()`
+>   returns 0 and the goal brief injects 0 characters into every prompt. No task has ever been
+>   dispatched. Read any "built" above as *the code path exists*, not *this is in use*.
+> - **Superseded in scope by**
+>   [docs/plans/goals-autonomous-delivery.md](plans/goals-autonomous-delivery.md), which plans
+>   goal authoring, decomposition and Jira sync on top of this foundation. Note that plan's
+>   GOAL-001 proposes requiring a goal on every project, which would reverse this document's
+>   stated principle that *"project assignment is always optional"* — an open decision, not an
+>   oversight.
 
 ---
 

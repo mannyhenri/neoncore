@@ -7,6 +7,7 @@
  */
 import db from '../db.js';
 import { agentIdsForRepo } from './resolve-agent.js';
+import { goalAgentIds } from './goal-scope.js';
 import { totalCostUsd, type UsageRow } from './pricing.js';
 
 function costForAgentIds(agentIds: string[]): number {
@@ -26,11 +27,22 @@ export function projectCostUsd(primaryRepo: string): number {
   return costForAgentIds(agentIdsForRepo(primaryRepo));
 }
 
-/** Real USD spent across every cartridge belonging to this goal's projects. */
+/**
+ * Real USD spent across every cartridge belonging to this goal's projects.
+ *
+ * BOTH ownership routes, deliberately. This used to read only `projects.primary_repo`, so a
+ * project that owned its cartridges through `project_cartridges` — the newer, multi-repo link —
+ * billed nothing, permanently. The failure surfaced the moment linkage was switched on: a goal
+ * displaying "reaches 2 cartridges" alongside "$0.00 spent", with cost structurally unable to
+ * move. Two numbers on one card contradicting each other is worse than the silence it replaced.
+ *
+ * Reach, the goal brief and this function all answer "which cartridges belong to this goal".
+ * They must answer identically or one of them is lying; the tests assert that equality rather
+ * than each function's output in isolation.
+ */
 export function goalCostUsd(goalId: string): number {
-  const repos = db
-    .prepare("SELECT primary_repo FROM projects WHERE goal_id = ? AND primary_repo != ''")
-    .all(goalId) as { primary_repo: string }[];
-  const agentIds = [...new Set(repos.flatMap((r) => agentIdsForRepo(r.primary_repo)))];
-  return costForAgentIds(agentIds);
+  // The ownership UNION and the repo→cartridge resolution both live in goal-scope.ts now, so
+  // reach, cost, progress and health cannot drift apart. This function held one of the two
+  // copies; the other was in goal-reach.ts and resolved paths by different rules.
+  return costForAgentIds(goalAgentIds(goalId));
 }
