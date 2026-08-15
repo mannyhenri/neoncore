@@ -1,8 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
 import { SectionTitle } from './SectionTitle';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
-import type { Goal, Project, ProjectLearning, Heartbeat, Task } from '../types';
+import type { Goal, Project, ProjectLearning, Heartbeat, Task, Agent, PortfolioSummary } from '../types';
+import { GoalDraftPanel } from './GoalDraftPanel';
+import { GoalDecomposePanel } from './GoalDecomposePanel';
+import { unassignedNotice, unassignedProjects } from '../lib/goalStats';
+import { UNASSIGNED, parseGoalHash, goalHash, resolveSelection } from '../lib/goalSelection';
+import { progressView, healthView } from '../lib/goalRollup';
 
 // ── FolderPicker ──────────────────────────────────────────────────────────────
 
@@ -219,16 +224,43 @@ const PROJECT_COLORS = [
 
 interface GoalFormProps {
   initial?: Partial<Goal>;
-  onSave: (data: { name: string; description: string; successMetric: string; budgetUsd: number | null; status: Goal['status'] }) => void;
+  onSave: (data: { name: string; description: string; successMetric: string; budgetUsd: number | null; status: Goal['status']; acceptanceCriteria: string; noGos: string; rabbitHoles: string; invariants: string; targetDate: string; owner: string; investmentCategory: string; autonomy: string }) => void;
   onCancel: () => void;
 }
 
 function GoalForm({ initial, onSave, onCancel }: GoalFormProps) {
   const [name, setName] = useState(initial?.name || '');
   const [description, setDescription] = useState(initial?.description || '');
-  const [successMetric, setSuccessMetric] = useState(initial?.successMetric || '');
+  // Kept, not edited: existing goals carry a free-text success metric, and the migration
+  // copied it into acceptanceCriteria. Round-tripping it on save preserves the original rather
+  // than blanking a field the user never saw a form for.
+  const [successMetric] = useState(initial?.successMetric || '');
   const [budgetUsdStr, setBudgetUsdStr] = useState(initial?.budgetUsd != null ? String(initial.budgetUsd) : '');
   const [status, setStatus] = useState<Goal['status']>(initial?.status || 'active');
+  // The fields that actually reach the agents. Everything above this line was already here
+  // and, apart from the budget cap, was never read by anything.
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState(initial?.acceptanceCriteria || '');
+  const [noGos, setNoGos] = useState(initial?.noGos || '');
+  const [rabbitHoles, setRabbitHoles] = useState(initial?.rabbitHoles || '');
+  const [invariants, setInvariants] = useState(initial?.invariants || '');
+  // PM surface. Every one defaults to '' meaning UNSET — an autonomy posture nobody chose must
+  // not grant latitude, and a goal with no target date has no schedule rather than being late.
+  const [targetDate, setTargetDate] = useState(initial?.targetDate || '');
+  const [owner, setOwner] = useState(initial?.owner || '');
+  const [investmentCategory, setInvestmentCategory] = useState(initial?.investmentCategory || '');
+  const [autonomy, setAutonomy] = useState(initial?.autonomy || '');
+  const [registries, setRegistries] = useState<{
+    categories: { key: string; label: string; hint: string }[];
+    autonomyLevels: { key: string; label: string; hint: string }[];
+  }>({ categories: [], autonomyLevels: [] });
+
+  // Fetched rather than hard-coded: the server owns both registries, and a second copy here is
+  // how an option gets added in one place and silently rejected in the other.
+  useEffect(() => {
+    api.getPortfolio()
+      .then((p) => setRegistries({ categories: p.categories, autonomyLevels: p.autonomyLevels }))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -252,12 +284,57 @@ function GoalForm({ initial, onSave, onCancel }: GoalFormProps) {
           className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 resize-none"
         />
       </div>
+      <div className="pt-1 border-t border-white/[0.06]">
+        <p className="text-[11px] text-violet-300/80 uppercase tracking-wider mb-2 mt-2">
+          Sent to every agent working on this goal
+        </p>
+      </div>
       <div>
-        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Success metric — what does done look like?</label>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+          Acceptance criteria — what &ldquo;done&rdquo; is judged against
+        </label>
+        <textarea
+          value={acceptanceCriteria}
+          onChange={(e) => setAcceptanceCriteria(e.target.value)}
+          rows={3}
+          placeholder={"One per line, testable:\nWhen an admin uploads an invalid certificate, the system shall name the field at fault.\nWhile SSO is unconfigured, the system shall keep password login available."}
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 resize-none"
+        />
+      </div>
+      <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+          No-gos — explicitly out of scope
+        </label>
+        <textarea
+          value={noGos}
+          onChange={(e) => setNoGos(e.target.value)}
+          rows={2}
+          placeholder="e.g. SCIM provisioning. Redesigning the admin nav. Anything Okta-specific."
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 resize-none"
+        />
+        <p className="text-[11px] text-gray-600 mt-1">
+          The highest-value field here: agents over-reach far more often than they under-deliver.
+        </p>
+      </div>
+      <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+          Invariants — what must not break
+        </label>
         <input
-          value={successMetric}
-          onChange={(e) => setSuccessMetric(e.target.value)}
-          placeholder="e.g. All auth flows pass E2E, deployed to prod"
+          value={invariants}
+          onChange={(e) => setInvariants(e.target.value)}
+          placeholder="e.g. Existing password sessions must stay valid"
+          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25"
+        />
+      </div>
+      <div>
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+          Rabbit holes — traps already paid for once
+        </label>
+        <input
+          value={rabbitHoles}
+          onChange={(e) => setRabbitHoles(e.target.value)}
+          placeholder="e.g. The provider-selector refactor burned a week last quarter"
           className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25"
         />
       </div>
@@ -289,9 +366,67 @@ function GoalForm({ initial, onSave, onCancel }: GoalFormProps) {
           </div>
         )}
       </div>
+
+      {/* PM surface. Grouped and labelled as optional because every one is genuinely optional:
+          unset is a real state the rest of the system handles, not a gap to be filled. */}
+      <div className="pt-2 border-t border-white/[0.06]">
+        <h4 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Planning (optional)</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Target date</label>
+            <input
+              type="date"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+            />
+            <p className="text-[10px] text-gray-600 mt-1">Reaches the agent — it scopes work to fit.</p>
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Owner</label>
+            <input
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              placeholder="Who is accountable"
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-white/25"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Investment</label>
+            <select
+              value={investmentCategory}
+              onChange={(e) => setInvestmentCategory(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+            >
+              <option value="">Uncategorised</option>
+              {registries.categories.map((c) => (
+                <option key={c.key} value={c.key}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Autonomy</label>
+            <select
+              value={autonomy}
+              onChange={(e) => setAutonomy(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+            >
+              <option value="">Not set — agents behave as they do today</option>
+              {registries.autonomyLevels.map((a) => (
+                <option key={a.key} value={a.key}>{a.label}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-600 mt-1">
+              {registries.autonomyLevels.find((a) => a.key === autonomy)?.hint
+                ?? 'Sent to every agent working under this goal, as an instruction.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave({ name: name.trim(), description: description.trim(), successMetric: successMetric.trim(), budgetUsd: budgetUsdStr ? parseFloat(budgetUsdStr) : null, status })}
+          onClick={() => onSave({ name: name.trim(), description: description.trim(), successMetric: successMetric.trim(), budgetUsd: budgetUsdStr ? parseFloat(budgetUsdStr) : null, status, acceptanceCriteria: acceptanceCriteria.trim(), noGos: noGos.trim(), rabbitHoles: rabbitHoles.trim(), invariants: invariants.trim(), targetDate, owner: owner.trim(), investmentCategory, autonomy })}
           disabled={!name.trim()}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
         >
@@ -589,7 +724,11 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
   useEffect(() => {
     Promise.all([
       api.getWorkflows().then((ws) => ws.filter((w) => !w.templateId).map((w) => ({ id: w.id, name: w.name }))),
-      api.getAgents().then((as) => as.filter((a) => a.status !== 'offline').map((a) => ({ id: a.id, name: a.name, repoName: a.repoName, status: a.status }))),
+      // Offline cartridges are listed too — a run aimed at one queues until it reconnects.
+      // Hiding them made a disconnected cartridge unselectable with no explanation.
+      api.getAgents().then((as) => as
+        .map((a) => ({ id: a.id, name: a.name, repoName: a.repoName, status: a.status }))
+        .sort((a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'))),
       api.getProjectLearnings(project.id, 3).then((ls) => ls.length).catch(() => 0),
     ]).then(([tmps, ags, count]) => { setTemplates(tmps); setAgents(ags); setLearningsCount(count); });
   }, [project.id]);
@@ -599,12 +738,17 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
     setLaunching(true);
     setError('');
     try {
+      // agentId is the RUN-LEVEL cartridge (arg 6) — it fills every step that has none.
+      // This used to pass `{ [templateId]: agentId }` as `agentOverrides` (arg 2), which is a
+      // stepId→agentId map: keyed by a template id it matched no step, so the cartridge you
+      // picked assigned nothing and all 47 steps launched deferred.
       const result = await api.startWorkflowV2(
         templateId,
-        agentId ? { [templateId]: agentId } : undefined,
+        undefined,
         undefined,
         note.trim() || undefined,
         project.id,
+        agentId || undefined,
       );
       onClose(result?.workflow?.id);
     } catch (e: unknown) {
@@ -630,13 +774,16 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
       </div>
 
       <div>
-        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Agent (optional)</label>
+        {/* NOT optional in practice. Every step of a template is `__deferred__` until launch,
+            so without a cartridge the run is created and then dies on step 1. "Any available"
+            was a promise nothing kept — nothing picks one for you. */}
+        <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Cartridge</label>
         <select
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
           className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
         >
-          <option value="">— Any available —</option>
+          <option value="">— Pick a cartridge —</option>
           {agents.map((a) => (
             <option key={a.id} value={a.id}>{a.repoName || a.name} ({a.status})</option>
           ))}
@@ -666,7 +813,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
       <div className="flex gap-2 pt-1">
         <button
           onClick={handleLaunch}
-          disabled={!templateId || launching}
+          disabled={!templateId || !agentId || launching}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm rounded-md transition-colors"
         >
           {launching ? 'Launching…' : 'Launch'}
@@ -987,22 +1134,6 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
   );
 }
 
-interface GoalCardProps {
-  goal: Goal;
-  projects: Project[];
-  tasks: Task[];
-  expanded: boolean;
-  onToggle: () => void;
-  onEditGoal: (g: Goal) => void;
-  onDeleteGoal: (id: string) => void;
-  onEditProject: (p: Project) => void;
-  onDeleteProject: (id: string) => void;
-  onAddProject: (goalId: string) => void;
-  onLearnings: (p: Project) => void;
-  onHeartbeats: (p: Project) => void;
-  onRun: (p: Project) => void;
-}
-
 const TASK_STATUS_DOT: Record<string, string> = {
   queued: 'bg-gray-500',
   claimed: 'bg-blue-400',
@@ -1011,133 +1142,6 @@ const TASK_STATUS_DOT: Record<string, string> = {
   failed: 'bg-red-500',
   cancelled: 'bg-yellow-600',
 };
-
-function GoalCard({ goal, projects, tasks, expanded, onToggle, onEditGoal, onDeleteGoal, onEditProject, onDeleteProject, onAddProject, onLearnings, onHeartbeats, onRun }: GoalCardProps) {
-  const totalTokens = projects.reduce((s, p) => s + (p.tokensUsed ?? 0), 0);
-  // Budget bar is driven by REAL spend ($ from session_usage, counting both
-  // workflows and tasks) against the goal's dollar cap.
-  const spentUsd = goal.costUsd ?? 0;
-  const budgetPct = goal.budgetUsd && spentUsd > 0 ? Math.min(100, (spentUsd / goal.budgetUsd) * 100) : null;
-  // Tasks roll up to the goal through their project (Task → Project → Goal).
-  const projectIds = new Set(projects.map((p) => p.id));
-  const goalTasks = tasks.filter((t) => t.projectId && projectIds.has(t.projectId));
-  const activeTasks = goalTasks.filter((t) => ['queued', 'claimed', 'in_progress'].includes(t.status));
-
-  return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
-      {/* Goal header */}
-      <div
-        className="flex items-start gap-3 p-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
-        onClick={onToggle}
-      >
-        <svg className={`w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="text-sm font-semibold text-gray-100">{goal.name}</span>
-            {statusBadge(goal.status)}
-          </div>
-          {goal.successMetric && (
-            <p className="text-[12px] text-gray-500">
-              <span className="text-gray-600">Done when: </span>{goal.successMetric}
-            </p>
-          )}
-          <div className="flex items-center gap-4 mt-2 text-[11px] text-gray-600">
-            <span>{goal.projectCount ?? projects.length} projects</span>
-            <span>{goal.runCount ?? 0} runs</span>
-            {goalTasks.length > 0 && (
-              <span>{activeTasks.length} active {activeTasks.length === 1 ? 'task' : 'tasks'}</span>
-            )}
-            {spentUsd > 0 && (
-              <span className="text-emerald-400 font-medium" title="Real spend across this goal's cartridges — workflows + tasks, cache-inclusive (from session usage)">{formatUsd(spentUsd)} spent</span>
-            )}
-            {goal.budgetUsd && <span>/ {formatUsd(goal.budgetUsd)} budget</span>}
-            {totalTokens > 0 && <span className="text-violet-400/60" title="Workflow token estimate (does not include tasks)">{formatTokens(totalTokens)} · workflows</span>}
-          </div>
-          {budgetPct !== null && (
-            <div className="mt-2 h-1 bg-white/10 rounded-full overflow-hidden w-48">
-              <div
-                className={`h-full rounded-full transition-all ${budgetPct >= 90 ? 'bg-red-500' : budgetPct >= 70 ? 'bg-yellow-500' : 'bg-violet-500'}`}
-                style={{ width: `${budgetPct}%` }}
-              />
-            </div>
-          )}
-        </div>
-        <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => onEditGoal(goal)} className="text-gray-600 hover:text-gray-300 transition-colors p-1">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-            </svg>
-          </button>
-          <button onClick={() => onDeleteGoal(goal.id)} className="text-gray-600 hover:text-red-400 transition-colors p-1">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Projects grid */}
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-white/[0.05]">
-          {budgetPct !== null && budgetPct >= 90 && (
-            <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium ${budgetPct >= 100 ? 'bg-red-900/30 border border-red-700/40 text-red-400' : 'bg-yellow-900/30 border border-yellow-700/40 text-yellow-400'}`}>
-              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-              </svg>
-              {budgetPct >= 100 ? `Budget cap reached — heartbeats paused` : `${Math.round(budgetPct)}% of budget used — approaching cap`}
-            </div>
-          )}
-          {projects.length === 0 ? (
-            <p className="text-[12px] text-gray-600 mt-3">No projects yet — add one to start tracking work against this goal.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
-              {projects.map((p) => (
-                <ProjectCard key={p.id} project={p} onEdit={onEditProject} onDelete={onDeleteProject} onLearnings={onLearnings} onHeartbeats={onHeartbeats} onRun={onRun} />
-              ))}
-            </div>
-          )}
-          <button
-            onClick={() => onAddProject(goal.id)}
-            className="mt-3 flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-violet-400 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Add project
-          </button>
-
-          {/* Tasks queued against this goal's projects */}
-          {goalTasks.length > 0 && (
-            <div className="mt-4">
-              <h4 className="text-[11px] text-gray-600 uppercase tracking-wider mb-2">Tasks</h4>
-              <div className="space-y-1.5">
-                {goalTasks.slice(0, 8).map((t) => {
-                  const project = projects.find((p) => p.id === t.projectId);
-                  return (
-                    <div key={t.id} className="flex items-center gap-2 text-[12px] bg-black/20 border border-white/[0.05] rounded-md px-2.5 py-1.5">
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${TASK_STATUS_DOT[t.status] || 'bg-gray-600'}`} title={t.status} />
-                      <span className="text-gray-300 truncate flex-1">{t.title}</span>
-                      {project && (
-                        <span className="text-[10px] flex-shrink-0" style={{ color: project.color }} title={project.name}>
-                          {project.name}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-                {goalTasks.length > 8 && (
-                  <p className="text-[11px] text-gray-600 pl-1">+{goalTasks.length - 8} more</p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── modal wrapper ─────────────────────────────────────────────────────────────
 
@@ -1148,7 +1152,12 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-lg shadow-2xl">
+      {/* Scrolls INSIDE itself. Without the height cap a long form simply grows past the
+          viewport: the title clips off the top, the Save button sits on the bottom edge, and
+          neither can be reached because the page behind a `fixed inset-0` overlay does not
+          scroll. The goal form crossed that line when the planning fields were added, but the
+          bug was latent before — the fix belongs on the Modal, not on one form. */}
+      <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-lg shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-200">{title}</h3>
           <button onClick={onClose} aria-label="Close" className="text-gray-600 hover:text-gray-300 transition-colors">
@@ -1163,26 +1172,79 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   );
 }
 
-// ── main page ─────────────────────────────────────────────────────────────────
+// ── shared state ──────────────────────────────────────────────────────────────
 
-export function GoalsPage() {
+/**
+ * MASTER–DETAIL, AND WHY THE STATE HAD TO LEAVE THIS FILE'S TOP-LEVEL COMPONENT.
+ *
+ * The ask was "the list of goals on the 1/3 section with the 2/3 the place where we
+ * work". Those are not two halves of one component — they are App's `<aside>` and
+ * App's `<main>`, two sibling regions with the grid between them. A single `GoalsPage`
+ * rendered inside `<main>` can only ever produce a nested 1/3 of the 2/3, which is a
+ * different layout wearing the same proportions.
+ *
+ * So the page splits into two exported surfaces that App places independently, and the
+ * state they share — goals, projects, selection, the modal stack — lifts into a context
+ * that wraps the grid. `GoalsRail` and `GoalsWorkspace` are views onto one store; there
+ * is no prop bridge between them and no second fetch.
+ *
+ * The provider stays MOUNTED across view switches and fetches only when `active`, so
+ * moving to Agents and back does not re-request the whole hierarchy, and switching views
+ * does not remount App's grid (which would tear down the cartridge tree beside it).
+ */
+
+type ModalState =
+  | { type: 'new-goal' }
+  | { type: 'edit-goal'; goal: Goal }
+  | { type: 'new-project'; goalId: string | null }
+  | { type: 'edit-project'; project: Project }
+  | { type: 'learnings'; project: Project }
+  | { type: 'heartbeats'; project: Project }
+  | { type: 'run'; project: Project }
+  | { type: 'draft'; goal: Goal }
+  | { type: 'decompose'; goal: Goal }
+  | null;
+
+interface GoalsContextValue {
+  goals: Goal[];
+  /** Only for the authoring assistant's cartridge picker — drafting runs on a cartridge. */
+  agents: Agent[];
+  projects: Project[];
+  tasks: Task[];
+  loading: boolean;
+  /** What the workspace can actually show — already resolved, never the raw request. */
+  selected: string | null;
+  select: (id: string) => void;
+  modal: ModalState;
+  setModal: (m: ModalState) => void;
+  refresh: () => Promise<void>;
+  createGoal: (data: Parameters<typeof api.createGoal>[0]) => Promise<void>;
+  updateGoal: (id: string, data: Parameters<typeof api.updateGoal>[1]) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
+  createProject: (data: Parameters<typeof api.createProject>[0]) => Promise<void>;
+  updateProject: (id: string, data: Parameters<typeof api.updateProject>[1]) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
+}
+
+const GoalsContext = createContext<GoalsContextValue | null>(null);
+
+function useGoalsContext(): GoalsContextValue {
+  const ctx = useContext(GoalsContext);
+  if (!ctx) throw new Error('GoalsRail/GoalsWorkspace must render inside <GoalsProvider>');
+  return ctx;
+}
+
+export function GoalsProvider({ active, agents, children }: { active: boolean; agents: Agent[]; children: React.ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [expandedGoals, setExpandedGoals] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState<ModalState>(null);
 
-  // Modal state
-  const [modal, setModal] = useState<
-    | { type: 'new-goal' }
-    | { type: 'edit-goal'; goal: Goal }
-    | { type: 'new-project'; goalId: string | null }
-    | { type: 'edit-project'; project: Project }
-    | { type: 'learnings'; project: Project }
-    | { type: 'heartbeats'; project: Project }
-    | { type: 'run'; project: Project }
-    | null
-  >(null);
+  // What the URL asked for. Kept separate from what is shown — see lib/goalSelection.
+  const [requested, setRequested] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : parseGoalHash(window.location.hash),
+  );
 
   const refresh = useCallback(async () => {
     const [g, p, t] = await Promise.all([api.getGoals(), api.getGoalProjects(), api.getTasks()]);
@@ -1192,109 +1254,679 @@ export function GoalsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Only the Goals view needs this data. Fetching on mount regardless would put three
+  // requests behind every page load of the Agents view, which is the default view.
+  useEffect(() => { if (active) refresh(); }, [active, refresh]);
 
-  // Refresh project stats when runs start/complete or heartbeats fire
+  // Back/forward and pasted links both arrive as hashchange.
+  useEffect(() => {
+    const onHash = () => setRequested(parseGoalHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
   useSocket({
-    onWorkflowUpdated: useCallback(() => { refresh(); }, [refresh]),
-    onReconnect: useCallback(() => { refresh(); }, [refresh]),
+    onWorkflowUpdated: useCallback(() => { if (active) refresh(); }, [active, refresh]),
+    onReconnect: useCallback(() => { if (active) refresh(); }, [active, refresh]),
   });
 
-  const toggleGoal = (id: string) => {
-    setExpandedGoals((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
+  const hasUnassigned = projects.some((p) => !p.goalId);
+  const selected = useMemo(
+    () => resolveSelection({ goalIds: goals.map((g) => g.id), hasUnassigned, requested }),
+    [goals, hasUnassigned, requested],
+  );
 
-  // Goals CRUD
-  const handleCreateGoal = async (data: Parameters<typeof api.createGoal>[0]) => {
+  const select = useCallback((id: string) => {
+    // Writing the hash is what makes a goal addressable and survive a refresh; the local
+    // set keeps the click instant rather than waiting on the hashchange round trip.
+    window.location.hash = goalHash(id);
+    setRequested(id);
+  }, []);
+
+  const createGoal = useCallback(async (data: Parameters<typeof api.createGoal>[0]) => {
     const goal = await api.createGoal(data);
     setGoals((prev) => [goal, ...prev]);
-    setExpandedGoals((prev) => new Set([...prev, goal.id]));
     setModal(null);
-  };
+    select(goal.id);           // land in the new goal, not back on the old selection
+  }, [select]);
 
-  const handleUpdateGoal = async (id: string, data: Parameters<typeof api.updateGoal>[1]) => {
+  const updateGoal = useCallback(async (id: string, data: Parameters<typeof api.updateGoal>[1]) => {
     const updated = await api.updateGoal(id, data);
     setGoals((prev) => prev.map((g) => (g.id === id ? updated : g)));
     setModal(null);
-  };
+  }, []);
 
-  const handleDeleteGoal = async (id: string) => {
+  const deleteGoal = useCallback(async (id: string) => {
     if (!confirm('Delete this goal? Projects under it will lose their goal association.')) return;
     await api.deleteGoal(id);
     setGoals((prev) => prev.filter((g) => g.id !== id));
-  };
+    // Projects survive the goal and become unassigned — reflect that without a refetch,
+    // or the rail keeps showing them under a goal that no longer exists.
+    setProjects((prev) => prev.map((p) => (p.goalId === id ? { ...p, goalId: null } : p)));
+    // No explicit re-select: `resolveSelection` sees the id vanish and falls back.
+  }, []);
 
-  // Projects CRUD
-  const handleCreateProject = async (data: Parameters<typeof api.createProject>[0]) => {
+  const createProject = useCallback(async (data: Parameters<typeof api.createProject>[0]) => {
     const project = await api.createProject(data);
     setProjects((prev) => [project, ...prev]);
     setModal(null);
-  };
+  }, []);
 
-  const handleUpdateProject = async (id: string, data: Parameters<typeof api.updateProject>[1]) => {
+  const updateProject = useCallback(async (id: string, data: Parameters<typeof api.updateProject>[1]) => {
     const updated = await api.updateProject(id, data);
     setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
     setModal(null);
-  };
+  }, []);
 
-  const handleDeleteProject = async (id: string) => {
+  const deleteProject = useCallback(async (id: string) => {
     if (!confirm('Delete this project?')) return;
     await api.deleteProject(id);
     setProjects((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const value: GoalsContextValue = {
+    goals, projects, tasks, agents, loading, selected, select, modal, setModal, refresh,
+    createGoal, updateGoal, deleteGoal, createProject, updateProject, deleteProject,
   };
 
-  // Ungrouped projects (no goal)
-  const ungroupedProjects = projects.filter((p) => !p.goalId);
+  return <GoalsContext.Provider value={value}>{children}</GoalsContext.Provider>;
+}
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-32">
-        <span className="text-sm text-gray-500">Loading...</span>
-      </div>
-    );
-  }
+// ── the rail (left 1/3) ───────────────────────────────────────────────────────
+
+/**
+ * Schedule tone. `met` is deliberately NOT red: a goal that finished after its date is done,
+ * and colouring it as a failure forever trains people to ignore the badge.
+ */
+const SCHEDULE_TONE: Record<string, string> = {
+  overdue: 'text-red-400',
+  'due-soon': 'text-amber-300',
+  'on-time': 'text-gray-600',
+  met: 'text-emerald-400',
+};
+const SCHEDULE_LABEL: Record<string, string> = {
+  overdue: 'overdue',
+  'due-soon': 'due soon',
+  'on-time': 'on time',
+  met: 'met',
+};
+
+const STATUS_DOT: Record<Goal['status'], string> = {
+  active: 'bg-violet-400',
+  achieved: 'bg-emerald-400',
+  paused: 'bg-gray-500',
+};
+
+function RailItem({ active, onSelect, children }: { active: boolean; onSelect: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onSelect}
+      aria-current={active ? 'true' : undefined}
+      className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+        active
+          ? 'bg-violet-900/25 border-violet-700/50'
+          : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The cross-goal strip.
+ *
+ * Renders ONLY when the server says so, and the server says so only above one goal. The
+ * research objected to a portfolio view at this scale — above a single goal the strip is a
+ * second, worse copy of the card beneath it — and `show` is computed server-side precisely so
+ * that rule lives in one place instead of being duplicated here and drifting.
+ */
+function PortfolioStrip() {
+  const [data, setData] = useState<{ show: boolean; summary: PortfolioSummary } | null>(null);
+
+  useEffect(() => {
+    api.getPortfolio().then((p) => setData({ show: p.show, summary: p.summary })).catch(() => {});
+  }, []);
+
+  if (!data?.show) return null;
+  const s = data.summary;
+  const pct = s.fraction === null ? null : Math.round(s.fraction * 100);
 
   return (
-    <div className="space-y-4">
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div>
-          <SectionTitle>Goals</SectionTitle>
-          <p className="text-[12px] text-gray-600 mt-0.5">Business objectives and the projects advancing them</p>
+    <div className="mb-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-[11px] text-gray-500 uppercase tracking-wider">Across {s.goalCount} goals</span>
+        {s.totalCostUsd > 0 && <span className="text-[11px] text-emerald-400">{formatUsd(s.totalCostUsd)}</span>}
+      </div>
+      <div className="flex items-center gap-3 text-[10px] text-gray-600 flex-wrap">
+        <span>{s.activeCount} active</span>
+        {/* Both counts are shown only when non-zero: a row of confident zeroes reads as
+            "everything is fine", which is a claim, whereas absence is not. */}
+        {s.needsAttentionCount > 0 && (
+          <span className="text-amber-300">{s.needsAttentionCount} need you</span>
+        )}
+        {s.overdueCount > 0 && <span className="text-red-400">{s.overdueCount} overdue</span>}
+        <span>{pct === null ? 'nothing measurable yet' : `${pct}% of steps done`}</span>
+      </div>
+      {pct !== null && (
+        <div className="mt-1.5 h-0.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pct}%` }} />
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setModal({ type: 'new-project', goalId: null })}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-md transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            New Project
-          </button>
+      )}
+      {/* Uncategorised is shown as its own slice rather than dropped — hiding it would make the
+          split look complete while the largest share of spend is missing. */}
+      {s.byCategory.filter((c) => c.costUsd > 0).length > 1 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
+          {s.byCategory.filter((c) => c.costUsd > 0).map((c) => (
+            <span key={c.category || 'none'}>
+              {c.label} {formatUsd(c.costUsd)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The goals list. Lives in App's `<aside>`, which is sticky and scrolls on its own — so a
+ * long list of goals never pushes the working surface beside it down the page.
+ */
+export function GoalsRail() {
+  const { goals, projects, loading, selected, select, setModal } = useGoalsContext();
+  const ungrouped = unassignedProjects(projects);
+
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <SectionTitle>Goals</SectionTitle>
+        {/* HIERARCHY ORDER: Goal, then Project.
+            They read Project-then-Goal, which inverts the containment the whole page is built
+            on — a project lives under a goal, and this is the one place a user meets both at
+            once. Goal also keeps the primary treatment: creating a project without a goal is
+            legal but produces work that rolls up to nothing (the amber notice below). */}
+        <div className="flex gap-1.5 flex-shrink-0">
           <button
             onClick={() => setModal({ type: 'new-goal' })}
-            className="flex items-center gap-1.5 text-xs text-white bg-violet-600 hover:bg-violet-500 px-3 py-1.5 rounded-md transition-colors font-medium"
+            title="New goal"
+            className="text-[11px] text-white bg-violet-600 hover:bg-violet-500 px-2 py-1 rounded-md transition-colors font-medium"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            New Goal
+            + Goal
+          </button>
+          <button
+            onClick={() => setModal({ type: 'new-project', goalId: null })}
+            title="New project — lives under a goal"
+            className="text-[11px] text-gray-400 hover:text-gray-200 border border-white/10 hover:border-white/20 px-2 py-1 rounded-md transition-colors"
+          >
+            + Project
           </button>
         </div>
       </div>
 
-      {/* Goals list */}
-      {goals.length === 0 && ungroupedProjects.length === 0 ? (
+      {/* A project without a goal is allowed on purpose — quick work should not need
+          ceremony. That makes this line the entire safety mechanism: unattached work
+          contributes nothing to reach or cost and receives no goal brief, and until now
+          nothing said so. Silent at zero. */}
+      {unassignedNotice(projects) && (
+        <p className="text-[11px] text-amber-300/80 mb-2 leading-snug">{unassignedNotice(projects)}</p>
+      )}
+
+      <PortfolioStrip />
+
+      {loading ? (
+        <p className="text-[12px] text-gray-600 py-4">Loading…</p>
+      ) : goals.length === 0 && ungrouped.length === 0 ? (
+        <div className="border border-white/[0.06] rounded-lg bg-white/[0.02] p-4 text-center">
+          <div className="text-2xl mb-2">🎯</div>
+          <p className="text-[12px] text-gray-500 leading-snug">
+            Goals connect workflow runs to something. Create one and every run counts toward it.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {goals.map((goal) => {
+            const count = projects.filter((p) => p.goalId === goal.id).length;
+            const reach = goal.reach ?? 0;
+            const spent = goal.costUsd ?? 0;
+            return (
+              <RailItem key={goal.id} active={selected === goal.id} onSelect={() => select(goal.id)}>
+                <div className="flex items-start gap-2">
+                  <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[goal.status]}`} title={goal.status} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-gray-100 truncate">{goal.name}</div>
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-600 flex-wrap">
+                      <span>{count} {count === 1 ? 'project' : 'projects'}</span>
+                      {/* Reach is the number that makes the others legible: at 0 the brief
+                          reaches no prompt and the spend beside it cannot move. */}
+                      {reach === 0 ? (
+                        <span className="text-amber-300/90" title="No cartridge resolves to this goal — its brief reaches no prompts and its cost stays $0">
+                          reaches nothing
+                        </span>
+                      ) : (
+                        <span>{reach} {reach === 1 ? 'cartridge' : 'cartridges'}</span>
+                      )}
+                      {spent > 0 && <span className="text-emerald-400">{formatUsd(spent)}</span>}
+                      {goal.schedule && (
+                        <span className={SCHEDULE_TONE[goal.schedule.state]} title={goal.schedule.detail}>
+                          {SCHEDULE_LABEL[goal.schedule.state]}
+                        </span>
+                      )}
+                    </div>
+                    {/* Progress. The bar is drawn ONLY when there is something to measure —
+                        an empty bar for a goal nobody has started reads as failing. */}
+                    {(() => {
+                      const pv = progressView(goal);
+                      return (
+                        <div className="mt-1.5">
+                          {pv.pct !== null && (
+                            <div className="h-0.5 bg-white/10 rounded-full overflow-hidden mb-1">
+                              <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pv.pct}%` }} />
+                            </div>
+                          )}
+                          <div className="text-[10px] text-gray-600">
+                            {pv.pct !== null ? `${pv.pct}% · ${pv.text}` : pv.text}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {/* Health — the "does anything need me" answer, at a glance across goals. */}
+                    {(() => {
+                      const hv = healthView(goal.health);
+                      if (!hv) return null;
+                      return (
+                        <div
+                          className={`mt-1.5 text-[10px] font-medium ${hv.tone === 'bad' ? 'text-red-400' : 'text-amber-300'}`}
+                          title={hv.detail}
+                        >
+                          ● {hv.label}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </RailItem>
+            );
+          })}
+
+          {ungrouped.length > 0 && (
+            <RailItem active={selected === UNASSIGNED} onSelect={() => select(UNASSIGNED)}>
+              <div className="flex items-start gap-2">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-400/70" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-medium text-amber-200/90 truncate">No goal</div>
+                  <div className="mt-1 text-[10px] text-gray-600">
+                    {ungrouped.length} {ungrouped.length === 1 ? 'project' : 'projects'} · rolls up to nothing
+                  </div>
+                </div>
+              </div>
+            </RailItem>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── the working surface (right 2/3) ───────────────────────────────────────────
+
+/**
+ * The intent a goal carries. Driven by a registry rather than written out inline, so the
+ * detail pane, the "how complete is this goal" count and any field added later cannot
+ * drift apart — adding a field here adds it to all three.
+ *
+ * These are the fields that reach the agent at dispatch through the goal brief, which is
+ * why an empty one is worth showing as empty rather than hiding.
+ */
+const INTENT_FIELDS: { key: string; label: string; hint: string; read: (g: Goal) => string }[] = [
+  { key: 'description', label: 'Why this matters', hint: 'The reason the work is worth doing', read: (g) => g.description },
+  { key: 'acceptanceCriteria', label: 'Acceptance criteria', hint: 'EARS-form statements — what "done" is judged against', read: (g) => g.acceptanceCriteria },
+  { key: 'invariants', label: 'Invariants', hint: 'What must stay true while the work happens', read: (g) => g.invariants },
+  { key: 'noGos', label: 'No-gos', hint: 'Explicitly out of scope — the field that fights agent over-reach', read: (g) => g.noGos },
+  { key: 'rabbitHoles', label: 'Rabbit holes', hint: 'Known time sinks to steer around', read: (g) => g.rabbitHoles },
+];
+
+function IntentBlock({ label, hint, value }: { label: string; hint: string; value: string }) {
+  return (
+    <div>
+      <h4 className="text-[11px] text-gray-500 uppercase tracking-wider" title={hint}>{label}</h4>
+      {value ? (
+        <p className="text-[13px] text-gray-300 mt-1 whitespace-pre-wrap leading-relaxed">{value}</p>
+      ) : (
+        <p className="text-[12px] text-gray-600 mt-1 italic">Not set — this reaches no agent</p>
+      )}
+    </div>
+  );
+}
+
+function GoalDetail({ goal }: { goal: Goal }) {
+  const { projects, tasks, setModal, deleteGoal, deleteProject } = useGoalsContext();
+  const mine = projects.filter((p) => p.goalId === goal.id);
+  const reach = goal.reach ?? 0;
+  const spentUsd = goal.costUsd ?? 0;
+  const budgetPct = goal.budgetUsd && spentUsd > 0 ? Math.min(100, (spentUsd / goal.budgetUsd) * 100) : null;
+  const totalTokens = mine.reduce((s, p) => s + (p.tokensUsed ?? 0), 0);
+
+  const projectIds = new Set(mine.map((p) => p.id));
+  const goalTasks = tasks.filter((t) => t.projectId && projectIds.has(t.projectId));
+  const activeTasks = goalTasks.filter((t) => ['queued', 'claimed', 'in_progress'].includes(t.status));
+
+  const filled = INTENT_FIELDS.filter((f) => f.read(goal).trim()).length;
+
+  const projectHandlers = {
+    onEdit: (p: Project) => setModal({ type: 'edit-project', project: p }),
+    onDelete: deleteProject,
+    onLearnings: (p: Project) => setModal({ type: 'learnings', project: p }),
+    onHeartbeats: (p: Project) => setModal({ type: 'heartbeats', project: p }),
+    onRun: (p: Project) => setModal({ type: 'run', project: p }),
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Identity. Titled through the shared primitive rather than hand-set type — the
+          working surface is a new screen, and a new screen with its own heading style is
+          exactly how the five variants SectionTitle replaced came about. */}
+      <div>
+        <SectionTitle
+          actions={
+            <>
+              <button
+                onClick={() => setModal({ type: 'edit-goal', goal })}
+                className="text-xs text-gray-400 hover:text-gray-200 border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-md transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => deleteGoal(goal.id)}
+                className="text-xs text-gray-500 hover:text-red-400 border border-white/10 hover:border-red-700/40 px-3 py-1.5 rounded-md transition-colors"
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          {goal.name}
+          {statusBadge(goal.status)}
+        </SectionTitle>
+        {goal.successMetric && (
+          <p className="text-[13px] text-gray-500 -mt-1">
+            <span className="text-gray-600">Done when: </span>{goal.successMetric}
+          </p>
+        )}
+      </div>
+
+      {/* Does anything need me? First, because it is the only thing here that is time-sensitive
+          — cost and progress can wait, a blocked run cannot. Absent entirely when nothing is
+          waiting: an "all good" badge on a goal with no runs would claim evidence there is none. */}
+      {(() => {
+        const hv = healthView(goal.health);
+        if (!hv) return null;
+        return (
+          <div
+            className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border ${
+              hv.tone === 'bad'
+                ? 'bg-red-900/25 border-red-700/40 text-red-300'
+                : 'bg-amber-900/20 border-amber-700/40 text-amber-200'
+            }`}
+          >
+            <span className="mt-0.5 text-[13px] leading-none" aria-hidden="true">●</span>
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium">{hv.label}</div>
+              <p className="text-[12px] opacity-80 mt-0.5">{hv.detail}</p>
+              {hv.runName && <p className="text-[11px] opacity-60 mt-0.5">in {hv.runName}</p>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* How far along. Words and counts, not a bare percentage — "30%" of what is
+          unanswerable, "12 of 40 steps" can be checked against the runs themselves. */}
+      {(() => {
+        const pv = progressView(goal);
+        return (
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <h3 className="text-[11px] text-gray-500 uppercase tracking-wider">Progress</h3>
+              <span className="text-[11px] text-gray-500">
+                {pv.pct !== null ? `${pv.pct}% · ${pv.text}` : pv.text}
+              </span>
+            </div>
+            {pv.pct !== null ? (
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pv.pct}%` }} />
+              </div>
+            ) : (
+              // No bar at all. An empty track would read as 0% — work started, got nowhere —
+              // which is a different and more damning claim than "nothing has run yet".
+              <p className="text-[12px] text-gray-600">
+                Progress appears once a workflow runs against one of this goal's projects.
+              </p>
+            )}
+            {pv.pct !== null && (
+              <p className="text-[11px] text-gray-600 mt-1">
+                Counted across {goal.progress?.runsCounted ?? 0}{' '}
+                {(goal.progress?.runsCounted ?? 0) === 1 ? 'run' : 'runs'}; cancelled runs excluded.
+                Measures steps completed, not acceptance criteria met.
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Where it stands */}
+      <div className="flex items-center gap-4 text-[11px] text-gray-600 flex-wrap border-y border-white/[0.06] py-2.5">
+        <span>{mine.length} {mine.length === 1 ? 'project' : 'projects'}</span>
+        {reach === 0 ? (
+          <span className="text-amber-300/90 font-medium" title="No cartridge resolves to this goal, so its brief reaches no prompts and its cost stays $0. Attach a repo to one of its projects.">
+            reaches no cartridges
+          </span>
+        ) : (
+          <span title="Cartridges that receive this goal's brief at dispatch">
+            reaches {reach} {reach === 1 ? 'cartridge' : 'cartridges'}
+          </span>
+        )}
+        <span>{goal.runCount ?? 0} runs</span>
+        {goalTasks.length > 0 && (
+          <span>{activeTasks.length} active {activeTasks.length === 1 ? 'task' : 'tasks'}</span>
+        )}
+        {spentUsd > 0 && (
+          <span className="text-emerald-400 font-medium" title="Real spend across this goal's cartridges — workflows + tasks, cache-inclusive">
+            {formatUsd(spentUsd)} spent
+          </span>
+        )}
+        {goal.budgetUsd && <span>/ {formatUsd(goal.budgetUsd)} budget</span>}
+        {totalTokens > 0 && (
+          <span className="text-violet-400/60" title="Workflow token estimate (does not include tasks)">
+            {formatTokens(totalTokens)} · workflows
+          </span>
+        )}
+        {/* Only rendered when a date was actually set. A goal with no target is not "on time" —
+            it has no schedule, and a badge on every goal would mean nothing. */}
+        {goal.schedule && (
+          <span className={`font-medium ${SCHEDULE_TONE[goal.schedule.state]}`} title={goal.schedule.detail}>
+            {goal.schedule.state === 'met' ? 'target met' : `${SCHEDULE_LABEL[goal.schedule.state]} · ${goal.schedule.targetDate}`}
+          </span>
+        )}
+        {goal.owner && <span title="Accountable for this goal">owner: {goal.owner}</span>}
+      </div>
+      {goal.schedule && goal.schedule.state !== 'on-time' && (
+        <p className={`text-[12px] -mt-2 ${SCHEDULE_TONE[goal.schedule.state]}`}>{goal.schedule.detail}</p>
+      )}
+
+      {budgetPct !== null && (
+        <div>
+          <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${budgetPct >= 90 ? 'bg-red-500' : budgetPct >= 70 ? 'bg-yellow-500' : 'bg-violet-500'}`}
+              style={{ width: `${budgetPct}%` }}
+            />
+          </div>
+          {budgetPct >= 90 && (
+            <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium ${budgetPct >= 100 ? 'bg-red-900/30 border border-red-700/40 text-red-400' : 'bg-yellow-900/30 border border-yellow-700/40 text-yellow-400'}`}>
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              {budgetPct >= 100 ? 'Budget cap reached — heartbeats paused' : `${Math.round(budgetPct)}% of budget used — approaching cap`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Intent. This is what the goal brief carries into every dispatched prompt, so an
+          unfilled goal is a goal that says nothing to the agents working under it —
+          shown as a countable gap rather than an empty area. */}
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider">Intent</h3>
+          <div className="flex items-center gap-3">
+            {/* Offered right where the gap is already visible. The count says how much of the
+                goal says nothing to the agents working under it; this is how you fill it. */}
+            <button
+              onClick={() => setModal({ type: 'draft', goal })}
+              className="text-[11px] text-violet-400 hover:text-violet-300 transition-colors"
+              title="A cartridge drafts the intent from a sentence or two. You accept it field by field — nothing is applied automatically."
+            >
+              ✎ Help me write this
+            </button>
+            <span className={`text-[10px] ${filled === INTENT_FIELDS.length ? 'text-gray-600' : 'text-amber-300/80'}`}>
+              {filled}/{INTENT_FIELDS.length} filled
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+          {INTENT_FIELDS.map((f) => (
+            <IntentBlock key={f.key} label={f.label} hint={f.hint} value={f.read(goal)} />
+          ))}
+        </div>
+        {goal.keyResults?.length > 0 && (
+          <div className="mt-3 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+            <h4 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Key results</h4>
+            <div className="space-y-1.5">
+              {goal.keyResults.map((kr, i) => (
+                <div key={i} className="flex items-center gap-2 text-[12px] text-gray-400">
+                  <span className="text-gray-300">{kr.metric}</span>
+                  {kr.baseline && <span className="text-gray-600">from {kr.baseline}</span>}
+                  {kr.target && <span className="text-emerald-400/80">to {kr.target}</span>}
+                  {kr.measure && <span className="text-gray-600">· {kr.measure}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Projects */}
+      <div>
+        <h3 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Projects</h3>
+        {mine.length === 0 ? (
+          <p className="text-[12px] text-gray-600">No projects yet — add one to start tracking work against this goal.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {mine.map((p) => <ProjectCard key={p.id} project={p} {...projectHandlers} />)}
+          </div>
+        )}
+        <button
+          onClick={() => setModal({ type: 'new-project', goalId: goal.id })}
+          className="mt-3 flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-violet-400 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Add project
+        </button>
+        {/* Decompose. Offered next to the manual path rather than instead of it: the point is
+            to stop the user typing every task, not to remove the option. */}
+        <button
+          onClick={() => setModal({ type: 'decompose', goal })}
+          className="mt-3 ml-4 text-[12px] text-violet-400 hover:text-violet-300 transition-colors"
+          title="A cartridge reads the repo and proposes projects and tasks. You pick what becomes real — nothing is created automatically."
+        >
+          ✦ Plan the work for me
+        </button>
+      </div>
+
+      {/* Tasks under this goal's projects */}
+      {goalTasks.length > 0 && (
+        <div>
+          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Tasks</h3>
+          <div className="space-y-1.5">
+            {goalTasks.slice(0, 12).map((t) => {
+              const project = mine.find((p) => p.id === t.projectId);
+              return (
+                <div key={t.id} className="flex items-center gap-2 text-[12px] bg-black/20 border border-white/[0.05] rounded-md px-2.5 py-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${TASK_STATUS_DOT[t.status] || 'bg-gray-600'}`} title={t.status} />
+                  <span className="text-gray-300 truncate flex-1">{t.title}</span>
+                  {project && (
+                    <span className="text-[10px] flex-shrink-0" style={{ color: project.color }} title={project.name}>
+                      {project.name}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {goalTasks.length > 12 && (
+              <p className="text-[11px] text-gray-600 pl-1">+{goalTasks.length - 12} more</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UnassignedDetail() {
+  const { projects, setModal, deleteProject } = useGoalsContext();
+  const mine = unassignedProjects(projects);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionTitle>Projects without a goal</SectionTitle>
+        <p className="text-[13px] text-gray-500 -mt-1 max-w-xl leading-relaxed">
+          These are legal — quick work should not need ceremony. But they contribute nothing to any
+          goal's reach or cost, and the cartridges working on them receive no goal brief at dispatch.
+          Attach one to a goal from its Edit form to change that.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {mine.map((p) => (
+          <ProjectCard
+            key={p.id}
+            project={p}
+            onEdit={(proj) => setModal({ type: 'edit-project', project: proj })}
+            onDelete={deleteProject}
+            onLearnings={(proj) => setModal({ type: 'learnings', project: proj })}
+            onHeartbeats={(proj) => setModal({ type: 'heartbeats', project: proj })}
+            onRun={(proj) => setModal({ type: 'run', project: proj })}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The working surface. Lives in App's `<main>`.
+ *
+ * Modals render here rather than in the rail so there is exactly one of each in the tree,
+ * and so they are reachable from the empty state — where "New Goal" is the only thing to do.
+ */
+export function GoalsWorkspace() {
+  const { goals, agents, loading, selected, modal, setModal, refresh, createGoal, updateGoal, createProject, updateProject } = useGoalsContext();
+  const goal = selected && selected !== UNASSIGNED ? goals.find((g) => g.id === selected) : undefined;
+
+  return (
+    <section>
+      {loading ? (
+        <div className="flex items-center justify-center h-32">
+          <span className="text-sm text-gray-500">Loading...</span>
+        </div>
+      ) : selected === null ? (
         <div className="text-center py-16 border border-white/[0.06] rounded-xl bg-white/[0.02]">
           <div className="text-3xl mb-3">🎯</div>
           <h3 className="text-sm font-medium text-gray-400 mb-1">No goals yet</h3>
           <p className="text-[12px] text-gray-600 max-w-xs mx-auto">
-            Goals connect your AI workflows to business objectives. Set a goal, create projects under it, and every workflow run counts toward something.
+            Goals connect your AI workflows to business objectives. Set a goal, create projects under
+            it, and every workflow run counts toward something.
           </p>
           <button
             onClick={() => setModal({ type: 'new-goal' })}
@@ -1303,53 +1935,16 @@ export function GoalsPage() {
             Create your first goal
           </button>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {goals.map((goal) => (
-            <GoalCard
-              key={goal.id}
-              goal={goal}
-              projects={projects.filter((p) => p.goalId === goal.id)}
-              tasks={tasks}
-              expanded={expandedGoals.has(goal.id)}
-              onToggle={() => toggleGoal(goal.id)}
-              onEditGoal={(g) => setModal({ type: 'edit-goal', goal: g })}
-              onDeleteGoal={handleDeleteGoal}
-              onEditProject={(p) => setModal({ type: 'edit-project', project: p })}
-              onDeleteProject={handleDeleteProject}
-              onAddProject={(goalId) => setModal({ type: 'new-project', goalId })}
-              onLearnings={(p) => setModal({ type: 'learnings', project: p })}
-              onHeartbeats={(p) => setModal({ type: 'heartbeats', project: p })}
-              onRun={(p) => setModal({ type: 'run', project: p })}
-            />
-          ))}
-
-          {/* Ungrouped projects */}
-          {ungroupedProjects.length > 0 && (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-              <h3 className="text-[11px] text-gray-600 uppercase tracking-wider mb-3">Projects without a goal</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {ungroupedProjects.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    onEdit={(proj) => setModal({ type: 'edit-project', project: proj })}
-                    onDelete={handleDeleteProject}
-                    onLearnings={(proj) => setModal({ type: 'learnings', project: proj })}
-                    onHeartbeats={(proj) => setModal({ type: 'heartbeats', project: proj })}
-                    onRun={(proj) => setModal({ type: 'run', project: proj })}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      ) : selected === UNASSIGNED ? (
+        <UnassignedDetail />
+      ) : goal ? (
+        <GoalDetail goal={goal} />
+      ) : null}
 
       {/* Modals */}
       {modal?.type === 'new-goal' && (
         <Modal title="New Goal" onClose={() => setModal(null)}>
-          <GoalForm onSave={handleCreateGoal} onCancel={() => setModal(null)} />
+          <GoalForm onSave={createGoal} onCancel={() => setModal(null)} />
         </Modal>
       )}
 
@@ -1357,7 +1952,7 @@ export function GoalsPage() {
         <Modal title="Edit Goal" onClose={() => setModal(null)}>
           <GoalForm
             initial={modal.goal}
-            onSave={(data) => handleUpdateGoal(modal.goal.id, data)}
+            onSave={(data) => updateGoal(modal.goal.id, data)}
             onCancel={() => setModal(null)}
           />
         </Modal>
@@ -1368,7 +1963,7 @@ export function GoalsPage() {
           <ProjectForm
             goals={goals}
             initial={modal.goalId ? { goalId: modal.goalId } : undefined}
-            onSave={handleCreateProject}
+            onSave={createProject}
             onCancel={() => setModal(null)}
           />
         </Modal>
@@ -1379,7 +1974,7 @@ export function GoalsPage() {
           <ProjectForm
             goals={goals}
             initial={modal.project}
-            onSave={(data) => handleUpdateProject(modal.project.id, data)}
+            onSave={(data) => updateProject(modal.project.id, data)}
             onCancel={() => setModal(null)}
           />
         </Modal>
@@ -1397,6 +1992,30 @@ export function GoalsPage() {
         </Modal>
       )}
 
+      {/* Assisted authoring. The panel produces a PROPOSAL; only its accept writes anything,
+          and only the fields ticked there. See components/GoalDraftPanel.tsx. */}
+      {modal?.type === 'draft' && (
+        <Modal title={`Draft intent — ${modal.goal.name}`} onClose={() => setModal(null)}>
+          <GoalDraftPanel
+            goal={modal.goal}
+            agents={agents}
+            onApplied={() => refresh()}
+            onClose={() => setModal(null)}
+          />
+        </Modal>
+      )}
+
+      {modal?.type === 'decompose' && (
+        <Modal title={`Plan the work — ${modal.goal.name}`} onClose={() => setModal(null)}>
+          <GoalDecomposePanel
+            goal={modal.goal}
+            agents={agents}
+            onAccepted={() => refresh()}
+            onClose={() => setModal(null)}
+          />
+        </Modal>
+      )}
+
       {modal?.type === 'run' && (
         <Modal title={`Run Workflow — ${modal.project.name}`} onClose={() => setModal(null)}>
           <LaunchFromProjectModal
@@ -1408,6 +2027,6 @@ export function GoalsPage() {
           />
         </Modal>
       )}
-    </div>
+    </section>
   );
 }

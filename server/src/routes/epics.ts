@@ -5,6 +5,7 @@ import path from 'path';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
+import { isCartridgeBusy } from '../lib/queue-runner.js';
 import type { AgentMode, EpicRun, EpicRunConfig, EpicTaskState } from '../types.js';
 
 const router = Router();
@@ -167,9 +168,24 @@ router.post('/start', (req, res) => {
     error: '',
   }));
 
-  const initialStatus = startPaused ? 'paused' : 'running';
+  // QUEUE INSTEAD OF INTERRUPT — expressed in the epic's own vocabulary.
+  //
+  // Every other entry point queues (lib/queue-if-busy.ts). An epic deliberately does not get
+  // a queue kind: epic_runs has no rows and no UI, workflows already run the same multi-task
+  // sequence with explicit-signal advancement, and epics advance by idle inference — the
+  // mechanism queue-kinds.ts exists to reject. Making dead code a first-class citizen of the
+  // machinery that replaced it is how it becomes permanent.
+  //
+  // But the hole still has to close, and the run already HAS a parked state. A busy cartridge
+  // starts the run paused instead of dispatching its first task, so nothing lands on top of
+  // work in progress and nothing the caller assembled is thrown away. POST /runs/:id/resume
+  // is then the only step left — the same control a deliberately-paused run uses.
+  const cartridgeBusy = isCartridgeBusy(agentId) && req.body?.queueIfBusy !== false;
+  const parked = Boolean(startPaused) || cartridgeBusy;
 
-  if (!startPaused) {
+  const initialStatus = parked ? 'paused' : 'running';
+
+  if (!parked) {
     // Mark first task as running immediately
     taskStates[0].status = 'running';
     taskStates[0].startedAt = now;
@@ -186,16 +202,20 @@ router.post('/start', (req, res) => {
     enableTrustMode(agentId);
   }
 
-  if (!startPaused) {
+  if (!parked) {
     // Dispatch first task
     const prompt = buildTaskPrompt(taskStates[0], config);
     sendCommandToAgent(agentId, prompt, false);
   }
-  console.log(`[epic] Started run ${id}: ${name} (${taskStates.length} tasks) on agent ${agentId}${startPaused ? ' (paused — waiting for user)' : ''}`);
+  const why = cartridgeBusy ? ' (paused — cartridge busy, resume when it frees)'
+    : startPaused ? ' (paused — waiting for user)' : '';
+  console.log(`[epic] Started run ${id}: ${name} (${taskStates.length} tasks) on agent ${agentId}${why}`);
 
   const run = normalizeEpicRun(db.prepare('SELECT * FROM epic_runs WHERE id = ?').get(id) as Record<string, unknown>);
   getIO().emit('epic_updated', run);
-  res.status(201).json(run);
+  res.status(201).json(cartridgeBusy
+    ? { ...run, queued: true, note: 'the cartridge is busy — this run was created paused and starts when you resume it' }
+    : run);
 });
 
 // List epic runs
