@@ -258,6 +258,13 @@ export interface Workflow {
   maxIterations: number;
   sharedContext: string;
   initialContext: string;
+  /** Set when the run cannot advance without a person. Derived from step state on every read. */
+  needsAttention?: {
+    reason: AttentionReason;
+    stepId: string;
+    stepName: string;
+    detail: string;
+  } | null;
   createdAt: string;
   startedAt: string;
   completedAt: string | null;
@@ -288,20 +295,174 @@ export interface CommandTemplate {
 }
 
 // Goal Cascade types
+/**
+ * Why a run (or a goal) is waiting on a person, ordered most urgent first on the server.
+ * Named once here so the run badge and the goal rollup cannot describe the same state
+ * with two different vocabularies.
+ */
+export type AttentionReason = 'failed' | 'interrupted' | 'decision' | 'agent-waiting' | 'manual-advance';
+
+/** Derived completion for a goal. See server/src/lib/goal-progress.ts. */
+export interface GoalProgress {
+  completedSteps: number;
+  totalSteps: number;
+  /**
+   * null means there is NOTHING TO MEASURE — no projects, no runs, or only cancelled ones.
+   * It is not 0. Rendering it as 0% claims work started and got nowhere, which is the exact
+   * "empty looks identical to populated" failure the Goals epic exists to fix.
+   */
+  fraction: number | null;
+  runsCounted: number;
+}
+
+/** The worst blockage across a goal's runs. See server/src/lib/goal-health.ts. */
+export interface GoalHealth {
+  reason: AttentionReason;
+  runId: string;
+  runName: string;
+  stepName: string;
+  detail: string;
+  /** How many of the goal's runs need attention — one is a task, several is a stalled goal. */
+  blockedRuns: number;
+}
+
+/** One field the authoring assistant can propose. Mirrors DRAFTABLE_FIELDS on the server. */
+export interface DraftableField {
+  key: string;
+  label: string;
+  guidance: string;
+  kind: 'text' | 'keyResults';
+}
+
+/**
+ * A PROPOSAL for a goal's intent, produced by a cartridge. Never goal state.
+ *
+ * `appliedAt` is null until a person accepts specific fields — which is the whole safety
+ * property, since intent reaches working agents at dispatch through the goal brief.
+ */
+export interface GoalDraft {
+  id: string;
+  goalId: string | null;
+  seed: string;
+  status: 'pending' | 'ready' | 'failed';
+  agentId: string;
+  source: string;
+  fields: Record<string, string | { metric: string; baseline?: string; target?: string; measure?: string }[]>;
+  error: string;
+  createdAt: string;
+  completedAt: string | null;
+  appliedAt: string | null;
+  appliedFields: string[];
+}
+
+/** One task in a proposed decomposition. Not a real task until accepted. */
+export interface ProposedTask {
+  key: string;
+  title: string;
+  prompt: string;
+  size: 'S' | 'M' | 'L';
+  /** Keys of tasks in the same proposal that must finish first. */
+  dependsOn: string[];
+  /**
+   * A workflow template to RUN for this item, by name, or '' for a plain task. Accepting a
+   * template-backed item launches the whole workflow against the project.
+   */
+  template: string;
+}
+
+export interface ProposedProject {
+  key: string;
+  name: string;
+  description: string;
+  primaryRepo: string;
+  tasks: ProposedTask[];
+}
+
+/**
+ * A PROPOSED breakdown of a goal into projects and tasks.
+ *
+ * `acceptedAt` is null until a person picks items; nothing exists in `projects` or `tasks`
+ * before that. `notes` records what validation dropped — a silently truncated plan presented
+ * as the model's actual output would be the worst possible lie in a review surface.
+ */
+export interface GoalDecomposition {
+  id: string;
+  goalId: string;
+  seed: string;
+  status: 'pending' | 'ready' | 'failed';
+  agentId: string;
+  proposal: { projects: ProposedProject[] };
+  notes: string[];
+  error: string;
+  createdAt: string;
+  completedAt: string | null;
+  acceptedAt: string | null;
+  createdProjects: string[];
+  createdTasks: string[];
+}
+
 export interface Goal {
   id: string;
   name: string;
   description: string;
   successMetric: string;
+  /** EARS-form statements — what "done" is judged against. Reaches the agent at dispatch. */
+  acceptanceCriteria: string;
+  /** Explicitly out of scope. The field that fights agent over-reach. */
+  noGos: string;
+  rabbitHoles: string;
+  invariants: string;
+  keyResults: { metric: string; baseline?: string; target?: string; measure?: string }[];
   tokenBudget: number | null;
   budgetUsd: number | null;
   status: 'active' | 'achieved' | 'paused';
   createdAt: string;
   updatedAt: string;
   projectCount?: number;
+  /** Cartridges this goal actually reaches. 0 means the brief injects nothing and cost is 0. */
+  reach?: number;
   runCount?: number;
   tokensUsed?: number;
   costUsd?: number;
+  /** Derived from step statuses across this goal's runs. Absent on writes, present on reads. */
+  progress?: GoalProgress;
+  /** null when nothing under this goal is waiting on a human. */
+  health?: GoalHealth | null;
+  /**
+   * PM surface (Phase 7). '' means UNSET in every case — an autonomy posture nobody chose must
+   * not grant latitude, and a goal with no target date has no schedule rather than being "on time".
+   */
+  targetDate?: string;
+  owner?: string;
+  investmentCategory?: string;
+  autonomy?: string;
+  schedule?: GoalSchedule | null;
+}
+
+/** Where a goal stands against its target date. See server/src/lib/goal-pm.ts. */
+export interface GoalSchedule {
+  targetDate: string;
+  daysRemaining: number;
+  state: 'overdue' | 'due-soon' | 'on-time' | 'met';
+  detail: string;
+}
+
+export interface CategorySpend {
+  category: string;
+  label: string;
+  costUsd: number;
+  goalCount: number;
+}
+
+/** Cross-goal summary. Only rendered above more than one goal — see shouldShowPortfolio. */
+export interface PortfolioSummary {
+  goalCount: number;
+  activeCount: number;
+  totalCostUsd: number;
+  needsAttentionCount: number;
+  overdueCount: number;
+  fraction: number | null;
+  byCategory: CategorySpend[];
 }
 
 export interface Project {
@@ -566,6 +727,8 @@ export type QueueKind = 'prompt' | 'workflow' | 'confer';
 export type QueueStatus = 'queued' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled';
 
 export interface QueueItem {
+  /** Parked by a human. Still queued, but skipped so the rest of the lane keeps draining. */
+  paused?: boolean;
   id: string;
   kind: QueueKind;
   payload: Record<string, unknown>;

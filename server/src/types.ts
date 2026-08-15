@@ -1,3 +1,13 @@
+/**
+ * The attention vocabulary is OWNED by lib/workflow-attention.ts, where `ATTENTION_REASONS`
+ * is an ordered const array — the order encodes which blockage to send someone to first, and
+ * the goal-level health rollup ranks by index into it. Importing the type (type-only, so no
+ * runtime cycle) keeps one source of truth: it used to be spelled inline here AND in the
+ * shared client package, so adding a reason meant remembering three places.
+ */
+import type { AttentionReason } from './lib/workflow-attention.js';
+export type { AttentionReason };
+
 export type AgentMode = 'manual' | 'trust' | 'plan';
 export type AgentType = 'claude' | 'gridlight' | 'codex';
 
@@ -316,6 +326,13 @@ export interface Workflow {
   maxIterations: number;
   sharedContext: string;
   initialContext: string;
+  /** Set when the run cannot advance without a person. Derived from step state on every read. */
+  needsAttention?: {
+    reason: AttentionReason;
+    stepId: string;
+    stepName: string;
+    detail: string;
+  } | null;
   createdAt: string;
   startedAt: string;
   completedAt: string | null;
@@ -359,15 +376,56 @@ export interface Goal {
   name: string;
   description: string;
   successMetric: string;
+  /** EARS-form statements. What "done" is judged against — the executive's `verify:` line. */
+  acceptanceCriteria: string;
+  /** Explicitly out of scope. The field that fights over-reach. */
+  noGos: string;
+  rabbitHoles: string;
+  invariants: string;
+  keyResults: { metric: string; baseline?: string; target?: string; measure?: string }[];
   tokenBudget: number | null;
   budgetUsd: number | null;
   status: 'active' | 'achieved' | 'paused';
   createdAt: string;
   updatedAt: string;
   projectCount?: number;
+  /** Cartridges this goal actually reaches. 0 means the brief injects nothing and cost is 0. */
+  reach?: number;
   runCount?: number;
   tokensUsed?: number;
   costUsd?: number;
+  /**
+   * Derived completion across this goal's runs. `fraction` is null when there is NOTHING TO
+   * MEASURE — no projects, no runs, or only cancelled ones — which is not the same as 0.
+   * See lib/goal-progress.ts.
+   */
+  progress?: {
+    completedSteps: number;
+    totalSteps: number;
+    fraction: number | null;
+    runsCounted: number;
+  };
+  /** PM surface (Phase 7). '' means UNSET in every case, never a default. */
+  targetDate?: string;
+  owner?: string;
+  investmentCategory?: string;
+  autonomy?: string;
+  /** Where the goal stands against its target date. null when no date was set. */
+  schedule?: {
+    targetDate: string;
+    daysRemaining: number;
+    state: 'overdue' | 'due-soon' | 'on-time' | 'met';
+    detail: string;
+  } | null;
+  /** The worst blockage across this goal's runs, or null when nothing needs a human. */
+  health?: {
+    reason: AttentionReason;
+    runId: string;
+    runName: string;
+    stepName: string;
+    detail: string;
+    blockedRuns: number;
+  } | null;
 }
 
 export interface Project {

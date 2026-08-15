@@ -671,6 +671,26 @@ db.exec(`
   );
 `);
 
+// Migration: remember WHY a lane halted.
+// Halting for "the cartridge is busy" is transient and must clear itself once the cartridge
+// frees — otherwise a spurious halt leaves work parked until a human resumes it, which is the
+// exact overnight failure the halt was meant to prevent. A halt from a real dispatch failure
+// must NOT self-clear: that needs a person.
+try {
+  db.prepare('SELECT halt_kind FROM queue_lanes LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE queue_lanes ADD COLUMN halt_kind TEXT NOT NULL DEFAULT ''`);
+}
+
+// Migration: hold ONE queue item without holding its lane.
+// A column, not a status: `blocked` already means "the system stopped this and a human must
+// look", which needs different UI and different recovery from "I parked this deliberately".
+try {
+  db.prepare('SELECT paused FROM queue_items LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE queue_items ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`);
+}
+
 try { db.prepare('SELECT halted_by FROM queue_lanes LIMIT 1').get(); }
 catch { db.exec(`ALTER TABLE queue_lanes ADD COLUMN halted_by TEXT NOT NULL DEFAULT ''`); }
 
@@ -846,6 +866,57 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_project_learnings_project ON project_learnings(project_id);
   CREATE INDEX IF NOT EXISTS idx_project_learnings_workflow ON project_learnings(workflow_id);
 
+  -- Assisted goal authoring. A draft is a PROPOSAL, never a goal.
+  --
+  -- NeonCore has no LLM client, so drafts are produced the way everything else is: by
+  -- dispatching to a cartridge, which submits its answer back through MCP. That keeps the
+  -- spend inside session_usage, where goalCostUsd can see it -- a direct API call from the
+  -- server would be real money spent against a goal that its own cost rollup could not report.
+  --
+  -- applied_at is the load-bearing column. It is set ONLY by an explicit user accept, so
+  -- "did generated text ever reach a goal without a person choosing it" is answerable from the
+  -- row rather than by trusting the code path.
+  CREATE TABLE IF NOT EXISTS goal_drafts (
+    id TEXT PRIMARY KEY,
+    -- NULL while drafting a brand-new goal that does not exist yet.
+    goal_id TEXT REFERENCES goals(id) ON DELETE CASCADE,
+    seed TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | ready | failed
+    agent_id TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',          -- which template/prompt produced it
+    fields TEXT NOT NULL DEFAULT '{}',        -- JSON: the proposed values, nothing applied
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    applied_at TEXT,
+    applied_fields TEXT NOT NULL DEFAULT '[]' -- exactly which keys the user accepted
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_drafts_goal ON goal_drafts(goal_id);
+  CREATE INDEX IF NOT EXISTS idx_goal_drafts_status ON goal_drafts(status);
+
+  -- Decomposition. Same contract as goal_drafts: a PROPOSAL a person accepts item by item.
+  --
+  -- Where a draft proposes text for an existing goal, a decomposition proposes new projects and
+  -- tasks. Accepting one CREATES rows, so the never-auto-apply rule matters more here, not less:
+  -- accepted_at is set only by an explicit per-item accept, and created_projects/created_tasks
+  -- record exactly what was made so a bad decomposition is traceable and reversible.
+  CREATE TABLE IF NOT EXISTS goal_decompositions (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    seed TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | ready | failed
+    agent_id TEXT NOT NULL DEFAULT '',
+    proposal TEXT NOT NULL DEFAULT '{}',      -- JSON: normalized projects + tasks, nothing created
+    notes TEXT NOT NULL DEFAULT '[]',         -- what validation dropped, so silence is never the report
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    accepted_at TEXT,
+    created_projects TEXT NOT NULL DEFAULT '[]',
+    created_tasks TEXT NOT NULL DEFAULT '[]'
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_decompositions_goal ON goal_decompositions(goal_id);
+
   -- Goals: top-level business objectives
   CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
@@ -912,6 +983,29 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 `);
+
+// Migration: goals carry INTENT, not just a budget.
+//
+// The original goal had four authored fields, of which the machinery read exactly one — the
+// dollar cap, used to stop work. These are the fields an agent can actually act on, and they
+// are plain TEXT because they are written by a person and read by a model: newline-separated
+// statements, not a schema to be validated into uselessness. `key_results` is JSON because it
+// alone has structure worth querying (metric / baseline / target / how it is measured).
+try {
+  db.prepare('SELECT acceptance_criteria FROM goals LIMIT 1').get();
+} catch {
+  db.exec(`
+    ALTER TABLE goals ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT '';
+    ALTER TABLE goals ADD COLUMN no_gos TEXT NOT NULL DEFAULT '';
+    ALTER TABLE goals ADD COLUMN rabbit_holes TEXT NOT NULL DEFAULT '';
+    ALTER TABLE goals ADD COLUMN invariants TEXT NOT NULL DEFAULT '';
+    ALTER TABLE goals ADD COLUMN key_results TEXT NOT NULL DEFAULT '[]';
+  `);
+  // The old free-text success metric becomes the first acceptance criterion rather than being
+  // dropped — it is the only statement of "done" these goals have.
+  db.exec(`UPDATE goals SET acceptance_criteria = success_metric WHERE success_metric != ''`);
+}
+
 
 // ── Projects own CARTRIDGES ────────────────────────────────────────────────────────────
 // A project used to be linked to work by hanging project_id on each TASK, which meant only
@@ -981,17 +1075,45 @@ if (orphanNotes.length > 0) {
 // Creates 5 starter templates if none exist yet. Safe to run on every boot —
 // skips seeding if any pending templates are already present.
 
-function seedDefaultTemplates() {
-  // Always replace the 5 standard templates by name so schema changes take effect.
-  // User-created templates with other names are left untouched.
-  const standardNames = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'];
+/**
+ * The standard templates, by name. Exported so the id-stability test iterates the real
+ * registry rather than a copy that can drift from it.
+ */
+export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
+
+/**
+ * Re-seed the standard templates, PRESERVING each one's id.
+ *
+ * The replace-by-name behaviour is deliberate — it is how template edits in code reach an
+ * existing database. What was not deliberate is that every replacement minted a fresh
+ * `randomUUID()`, so a template's identity changed on every boot. Under `tsx watch` that is
+ * every source save. Consequences were all silent: historical runs' `template_id` became
+ * dangling, a dashboard holding an id in its launch modal got 404 "Workflow not found", and
+ * anything persisting a template id (heartbeats, scripts) broke.
+ *
+ * So the id is captured before the delete and reused on the insert. Content is still fully
+ * refreshed; only identity survives.
+ */
+export function seedDefaultTemplates() {
+  const standardNames = STANDARD_TEMPLATE_NAMES;
+
+  // Capture the established id for each name BEFORE deleting anything. Oldest wins, so
+  // duplicates left by earlier seeding runs collapse onto the id things already reference
+  // rather than the id of whichever duplicate happened to be found first.
+  const preservedIds = new Map<string, string>();
   for (const name of standardNames) {
-    const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
+    const rows = db.prepare(
+      "SELECT id FROM workflows WHERE name = ? AND template_id IS NULL ORDER BY created_at ASC",
+    ).all(name) as { id: string }[];
+    if (rows.length > 0) preservedIds.set(name, rows[0].id);
     for (const row of rows) {
       db.prepare("DELETE FROM workflow_steps WHERE workflow_id = ?").run(row.id);
       db.prepare("DELETE FROM workflows WHERE id = ?").run(row.id);
     }
   }
+
+  /** The template's established id, or a new one the first time it is ever seeded. */
+  const stableId = (name: string): string => preservedIds.get(name) ?? randomUUID();
 
   // Remove deprecated templates on every boot so they don't linger in existing DBs
   const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor'];
@@ -1052,7 +1174,7 @@ function seedDefaultTemplates() {
 
   // ── 1. Bug Hunter ────────────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Bug Hunter');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Bug Hunter',
       'Proactive bug hunt: static analysis → dead code → bug pattern scan → prioritize & plan → implement fixes → verify → notify.', now);
@@ -1110,7 +1232,7 @@ function seedDefaultTemplates() {
 
   // ── 3. New Feature ────────────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('New Feature');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
     insertWorkflow.run(wfId, 'New Feature',
       'Research → architect → define tests → develop → run tests → security → summary → notify.', now);
@@ -1128,7 +1250,7 @@ function seedDefaultTemplates() {
 
   // ── 5. CI/CD Pipeline ─────────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CI/CD Pipeline');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CI/CD Pipeline',
       'Code review → unit tests → integration tests → security → notify.', now);
@@ -1144,7 +1266,7 @@ function seedDefaultTemplates() {
 
   // ── 6. Feature Validation ─────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Feature Validation');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Feature Validation',
       'TDD-based feature validation: specify → define/review tests (human gate) → evaluate code → implement gaps → run tests → final report. Enter the feature description (and optional Jira epic key) in the launch prompt.', now);
@@ -1214,7 +1336,7 @@ function seedDefaultTemplates() {
 
   // ── 7. Deep Research ──────────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Deep Research');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Deep Research',
       'Set the workflow description to the research subject — it is automatically injected into the first step. Web + local research → synthesis → your review → epic planning → save epic → optional Jira creation → notify.', now);
@@ -1276,7 +1398,7 @@ function seedDefaultTemplates() {
 
   // ── 8. Jira Tasks Validation ──────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Jira Tasks Validation');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID();
     insertWorkflow.run(wfId, 'Jira Tasks Validation',
       'Enter the Jira epic name or key in the launch prompt — each task in the epic is checked against the codebase and transitioned to In QA if requirements are met.', now);
@@ -1318,7 +1440,7 @@ function seedDefaultTemplates() {
 
   // ── 9. Jira Tasks Completion ──────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Jira Tasks Completion');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID();
     insertWorkflow.run(wfId, 'Jira Tasks Completion',
       'TDD-driven loop: completes To Do tasks one by one (understand → failing tests → implement → verify → update Jira + doc → commit → ask to continue). All looping happens inside step 2 — answering YES automatically starts the next task without re-running the workflow.', now);
@@ -1351,7 +1473,7 @@ function seedDefaultTemplates() {
 
   // ── 10. Product Strategy Session ─────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Product Strategy Session');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s9 = randomUUID();
     insertWorkflow.run(wfId, 'Product Strategy Session',
       'Set the workflow description to the product/feature being reviewed. Premise challenge → alternatives → dream state → dual-voice analysis (CEO vs PM) → 10-dimension strategy review → action plan → capture learnings.', now);
@@ -1422,7 +1544,7 @@ function seedDefaultTemplates() {
 
   // ── 11. Engineering Architecture Review ──────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Engineering Architecture Review');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
     insertWorkflow.run(wfId, 'Engineering Architecture Review',
       'Set the workflow description to the system or feature under review. Architecture mapping → bottleneck analysis → alternative approaches → recommendation → implementation roadmap → human review → capture learnings.', now);
@@ -1485,7 +1607,7 @@ function seedDefaultTemplates() {
 
   // ── 12. Full QA Review ────────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Full QA Review');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
     insertWorkflow.run(wfId, 'Full QA Review',
       'Set the workflow description to the feature or URL being tested. Golden path → edge cases → error handling → performance → security → accessibility → QA report → notify.', now);
@@ -1551,7 +1673,7 @@ function seedDefaultTemplates() {
 
   // ── 13. Bug Investigation ─────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Bug Investigation');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Bug Investigation',
       'Set the workflow description to the bug being investigated. Reproduce → root cause → impact assessment → fix plan (human gate) → implement → verify → capture learnings.', now);
@@ -1609,7 +1731,7 @@ function seedDefaultTemplates() {
 
   // ── 14. Code Review & Audit ───────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('Code Review & Audit');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'Code Review & Audit',
       'Set the workflow description to the branch, PR, or files to review. Deep code reading → logic review → security audit → test coverage → review report (human gate) → capture learnings.', now);
@@ -1665,7 +1787,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 1 — Interrogate ─────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 1 — Interrogate');
     const s1 = randomUUID(), s2 = randomUUID(), s2b = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 1 — Interrogate',
       'Challenge the idea before any planning begins. Enter the feature slug + description in launch context. Outputs docs/[slug]/brainstorm.md.', now);
@@ -1713,7 +1835,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 2 — Plan ─────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 2 — Plan');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 2 — Plan',
       'Pressure-test the plan from 3 angles before any code is written. Load brainstorm → CEO + Eng + CE Plan run in parallel → merge to docs/[slug]/plan.md.', now);
@@ -1751,7 +1873,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 3 — Implement ────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 3 — Implement');
     const s1 = randomUUID(), s1b = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 3 — Implement',
       'Isolated implementation in a git worktree. Load plan → write failing tests (TDD) → implement → run tests → build summary. Auto-continues to Phase 4.', now);
@@ -1789,7 +1911,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 4 — Review ───────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 4 — Review');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s8b = randomUUID(), s9 = randomUUID(), s10 = randomUUID(), s11 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 4 — Review',
       '6 specialist agents run in parallel (security, perf, architecture, quality, codex) → triage P1/P2/P3 → decision checkpoint → resolve P2s → open PR.', now);
@@ -1867,7 +1989,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 5 — QA ───────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 5 — QA');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 5 — QA',
       'Real-browser QA on staging. Walk every user flow, fix bugs with atomic commits, write regression tests. Enter [slug] and [staging URL] in launch context.', now);
@@ -1900,7 +2022,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 6 — Ship ─────────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 6 — Ship');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s4b = randomUUID(), s4c = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 6 — Ship',
       'Document release → human merge approval → land & deploy → 10-min canary → decision checkpoint (all clear / rollback / hotfix).', now);
@@ -1953,7 +2075,7 @@ function seedDefaultTemplates() {
 
   // ── CE Phase 7 — Compound ─────────────────────────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Phase 7 — Compound');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 7 — Compound',
       'Make the next feature cheaper. CE compound → update CLAUDE.md → retro → learn. The most important phase — do not skip.', now);
@@ -1986,7 +2108,7 @@ function seedDefaultTemplates() {
 
   // ── CE: Full Delivery — all 7 phases chained ──────────────────────────
   {
-    const wfId = randomUUID();
+    const wfId = stableId('CE: Full Delivery');
 
     // Phase 1 IDs
     const p1s1 = randomUUID(), p1s2 = randomUUID(), p1s2b = randomUUID(), p1s3 = randomUUID(), p1s4 = randomUUID(), p1s5 = randomUUID();
@@ -2069,6 +2191,46 @@ function seedDefaultTemplates() {
   }
 
   console.log('[db] Seeded 20 default workflow templates');
+}
+
+/**
+ * Migration: decomposition provenance and task dependencies (GOAL-041/044).
+ *
+ * `origin_decomposition_id` answers "which run proposed this, and did a person accept it" for
+ * every generated row — the difference between a traceable decomposition and a pile of tasks
+ * nobody can attribute.
+ *
+ * `depends_on` exists because the proposal format carries dependencies and discarding them at
+ * accept time would throw away something the user reviewed. Nothing ENFORCES ordering yet
+ * (that is Phase 6), so it would be an inert column — except that acceptance derives each
+ * task's `priority` from its dependency depth, which makes the queue respect the order today.
+ */
+for (const [table, column, decl] of [
+  ['tasks', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
+  // Which cartridge SESSION a step's prompt was dispatched into. `delivered` only means the
+  // relay socket accepted the emit; if the engine had not attached yet, the prompt is lost and
+  // every last_seen-based check still reads the cartridge as healthy. Comparing this against
+  // the cartridge's current session is the one fact that exposes it. See step-session-guard.ts.
+  ['workflow_steps', 'dispatch_session_id', "TEXT NOT NULL DEFAULT ''"],
+  // Which budget alert has already fired for this goal. Persisted rather than held in memory
+  // because tsx watch restarts the server on every source save, and an in-memory guard would
+  // re-fire the same warning several times an hour while someone edits the code.
+  ['goals', 'budget_alert_state', "TEXT NOT NULL DEFAULT 'ok'"],
+  // PM surface (Phase 7). All four default to empty, and empty means UNSET rather than a
+  // default value: an autonomy posture nobody chose must not silently grant latitude, and a
+  // goal with no target date is not "on time", it has no schedule.
+  ['goals', 'target_date', "TEXT NOT NULL DEFAULT ''"],
+  ['goals', 'owner', "TEXT NOT NULL DEFAULT ''"],
+  ['goals', 'investment_category', "TEXT NOT NULL DEFAULT ''"],
+  ['goals', 'autonomy', "TEXT NOT NULL DEFAULT ''"],
+  ['tasks', 'origin_decomposition_id', 'TEXT'],
+  ['projects', 'origin_decomposition_id', 'TEXT'],
+] as const) {
+  try {
+    db.prepare(`SELECT ${column} FROM ${table} LIMIT 1`).get();
+  } catch {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
 }
 
 seedDefaultTemplates();

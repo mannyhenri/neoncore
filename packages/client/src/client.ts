@@ -100,6 +100,15 @@ export function createClient(config: ClientConfig = {}) {
   /** Put a failed or cancelled item back. The server clears the attempt/stall counters and the
    *  lane halt it caused — a status reset alone would leave it queued and unable to run. */
   retryQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/retry`, { method: 'POST' }),
+  /** Dispatch a waiting item immediately, even if its cartridge is busy — the human override.
+   *  409 when there is nothing to start (already running, or already finished). */
+  startQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/start`, { method: 'POST' }),
+  /** Move a queued item one place up or down within its lane. 409 once it is running. */
+  moveQueueItem: (id: string, direction: 'up' | 'down') =>
+    request<{ ok: boolean }>(`/queue/${id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
+  /** Park one item. The rest of its lane keeps running — unlike pausing the lane. */
+  pauseQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/pause`, { method: 'POST' }),
+  resumeQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/resume`, { method: 'POST' }),
   /** Remove ONE finished queue row. 409 if it is still live. */
   removeQueueItem: (id: string) => request<{ ok: boolean }>(`/queue/${id}/remove`, { method: 'DELETE' }),
   /** Remove ONE finished task. Same rule. */
@@ -488,7 +497,16 @@ export function createClient(config: ClientConfig = {}) {
   // pick once instead of naming a cartridge for each step. `agentOverrides` still wins
   // per-step, for the genuine cross-cartridge case.
   startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null, agentId?: string, attachments?: import('./types').CommandAttachmentInput[]) =>
-    request<{ workflow: import('./types').Workflow; steps: import('./types').WorkflowStep[] }>(`/workflows/v2/${workflowId}/start`, {
+    // A 202 means the run was QUEUED behind a busy cartridge rather than started, and the body
+    // is {queued, item, note} with no workflow. Callers must check `queued` before reaching for
+    // `workflow` — typing it as always-present is what turns a queued run into a silent no-op.
+    request<{
+      workflow?: import('./types').Workflow;
+      steps?: import('./types').WorkflowStep[];
+      queued?: boolean;
+      item?: import('./types').QueueItem;
+      note?: string;
+    }>(`/workflows/v2/${workflowId}/start`, {
       method: 'POST',
       body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId, agentId, attachments }),
     }),
@@ -587,11 +605,59 @@ export function createClient(config: ClientConfig = {}) {
 
   // Goals
   getGoals: () => request<import('./types').Goal[]>('/goals'),
-  createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null }) =>
+  // The intent fields are what actually reach the agents at dispatch (lib/goal-brief.ts).
+  createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string }) =>
     request<import('./types').Goal>('/goals', { method: 'POST', body: JSON.stringify(data) }),
-  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string }) =>
+  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string }) =>
     request<import('./types').Goal>(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteGoal: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
+
+  /** Cross-goal strip + the registries the goal form needs. `show` is decided server-side. */
+  getPortfolio: () => request<{
+    show: boolean;
+    summary: import('./types').PortfolioSummary;
+    categories: { key: string; label: string; hint: string }[];
+    autonomyLevels: { key: string; label: string; hint: string }[];
+  }>('/goals/portfolio'),
+
+  // Assisted goal authoring. A draft is a PROPOSAL — only applyGoalDraft moves anything into
+  // the goal, and only the fields it is explicitly given.
+  getDraftableFields: () =>
+    request<import('./types').DraftableField[]>('/goals/drafts/meta/fields'),
+  getGoalDrafts: (goalId?: string) =>
+    request<import('./types').GoalDraft[]>(`/goals/drafts/list${goalId ? `?goalId=${goalId}` : ''}`),
+  getGoalDraft: (draftId: string) =>
+    request<import('./types').GoalDraft>(`/goals/drafts/${draftId}`),
+  /** Dispatches to a cartridge; the draft arrives later via MCP. 202, not a result. */
+  requestGoalDraft: (data: { goalId?: string | null; seed: string; agentId: string }) =>
+    request<{ draft: import('./types').GoalDraft; queued: boolean }>('/goals/drafts', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+  // Decomposition: goal → projects → tasks. Same contract, higher stakes — accepting creates
+  // rows that get dispatched to cartridges.
+  getDecompositions: (goalId: string) =>
+    request<import('./types').GoalDecomposition[]>(`/goals/${goalId}/decompositions`),
+  getDecomposition: (id: string) =>
+    request<import('./types').GoalDecomposition>(`/goals/decompositions/${id}`),
+  requestDecomposition: (goalId: string, data: { seed: string; agentId: string }) =>
+    request<{ decomposition: import('./types').GoalDecomposition; queued: boolean }>(
+      `/goals/${goalId}/decompositions`, { method: 'POST', body: JSON.stringify(data) },
+    ),
+  /** The ONLY path from a proposal to real projects and tasks. */
+  acceptDecomposition: (id: string, projectKeys: string[], taskKeys: string[]) =>
+    request<{ createdProjects: number; createdTasks: number; createdRuns: number; skipped: string[]; decomposition: import('./types').GoalDecomposition }>(
+      `/goals/decompositions/${id}/accept`, { method: 'POST', body: JSON.stringify({ projectKeys, taskKeys }) },
+    ),
+  revertDecomposition: (id: string) =>
+    request<{ deletedTasks: number; deletedProjects: number; kept: string[] }>(
+      `/goals/decompositions/${id}/revert`, { method: 'POST' },
+    ),
+
+  /** The ONLY path from generated text to a goal. `fields` must name each accepted key. */
+  applyGoalDraft: (draftId: string, fields: string[]) =>
+    request<{ draft: import('./types').GoalDraft; goal: import('./types').Goal }>(
+      `/goals/drafts/${draftId}/apply`, { method: 'POST', body: JSON.stringify({ fields }) },
+    ),
 
   // Goal Projects (separate from journal projects)
   getGoalProjects: (goalId?: string) =>
@@ -655,7 +721,9 @@ export function createClient(config: ClientConfig = {}) {
   updateTask: (id: string, data: { title?: string; prompt?: string; projectId?: string | null; priority?: number }) =>
     request<import('./types').Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   dispatchTask: (id: string, agentId?: string) =>
-    request<import('./types').Task>(`/tasks/${id}/dispatch`, { method: 'POST', body: JSON.stringify(agentId ? { agentId } : {}) }),
+    // Also 202-able: a task aimed at a busy cartridge is queued behind its work.
+    request<import('./types').Task & { queued?: boolean; item?: import('./types').QueueItem; note?: string }>(
+      `/tasks/${id}/dispatch`, { method: 'POST', body: JSON.stringify(agentId ? { agentId } : {}) }),
   completeTask: (id: string, status: 'done' | 'failed' = 'done', result?: string) =>
     request<import('./types').Task>(`/tasks/${id}/done`, { method: 'POST', body: JSON.stringify({ status, result }) }),
 };
