@@ -46,13 +46,26 @@ function buildCompletionSuffix(stepId: string, structured = true): string {
   const url = `"\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete"`;
 
   if (!structured) {
-    return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running:\ncurl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "<Summarize what you did and what the next step should focus on>"}'\nDo NOT signal completion until all work is finished. This step will remain in a "running" state until you signal.`;
+    return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by calling the\n`
+      + `MCP tool \`neoncore_report_step_done\` with:\n`
+      + `    stepId: "${stepId}"\n`
+      + `    result: "<Summarize what you did and what the next step should focus on>"\n`
+      + `This step stays "running" until you call it — silence is never a completion signal.\n`
+      + `Fallback, ONLY if the neoncore MCP server is unavailable to you:\n`
+      + `curl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "<summary>"}'`;
   }
 
-  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by running:\n`
-    + `curl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "<what you did + what the next step should focus on>", "scope": "<done>/<total> — <what the complete set was>", "verify": "<exact command run> → <actual output>", "deferred": "none"}'\n`
+  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by calling the\n`
+    + `MCP tool \`neoncore_report_step_done\` with:\n`
+    + `    stepId:   "${stepId}"\n`
+    + `    result:   "<what you did + what the next step should focus on>"\n`
+    + `    scope:    "<done>/<total> — <what the complete set was>"\n`
+    + `    verify:   "<exact command run> → <actual output>"\n`
+    + `    deferred: "<anything in scope you did not do, and why; \"none\" if nothing>"\n`
     + `\`scope\` and \`verify\` are REQUIRED and are checked: a completion with no real verification output is rejected and this step stays running. Do not report verification you did not actually run.\n`
-    + `Do NOT signal completion until all work is finished.`;
+    + `Do NOT signal completion until all work is finished.\n`
+    + `Fallback, ONLY if the neoncore MCP server is unavailable to you:\n`
+    + `curl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "...", "scope": "...", "verify": "...", "deferred": "none"}'`;
 }
 
 /**
@@ -62,8 +75,22 @@ function buildCompletionSuffix(stepId: string, structured = true): string {
  */
 function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
   const baseUrl = getServerBaseUrl();
-  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by running:\ncurl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/panel/${agentId}/complete" -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'\nYou are one member of a panel; the deliberation cannot advance until you submit. Do NOT submit until your work is finished.`;
+  // panelAgentId is what keeps members apart: they all report against the SAME step, so
+  // without it the first responder would complete the step for everyone.
+  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by calling the\n`
+    + `MCP tool \`neoncore_report_step_done\` with:\n`
+    + `    stepId:       "${stepId}"\n`
+    + `    panelAgentId: "${agentId}"\n`
+    + `    result:       "<your full response>"\n`
+    + `You are one member of a panel; the deliberation cannot advance until you submit.\n`
+    + `Do NOT submit until your work is finished.\n`
+    + `Fallback, ONLY if the neoncore MCP server is unavailable to you:\n`
+    + `curl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/panel/${agentId}/complete" -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'`;
 }
+
+/** Test seams — the instruction text is the product here, so it is asserted directly. */
+export const __buildCompletionSuffixForTests = buildCompletionSuffix;
+export const __buildPanelCompletionSuffixForTests = buildPanelCompletionSuffix;
 
 /**
  * Dispatch a step's command and FAIL THE STEP if it went nowhere.
@@ -282,6 +309,36 @@ function getWorkflowNotificationContext(workflowId: string): {
   };
 }
 
+/**
+ * One notifier for every "this run needs a person" event.
+ *
+ * The dashboard bell listens for `workflow_notification`, which previously fired only for
+ * manual-advance and the `system-notify` connector. A decision gate sent a phone push and
+ * nothing to the bell; failed and interrupted steps sent neither. So a run could stall on a
+ * human with no in-app trace at all — which is exactly how a decision gate spent half an hour
+ * looking like work in progress.
+ */
+export function notifyNeedsAttention(
+  step: { id: string; name: string; workflowId: string },
+  headline: string,
+  body: string,
+  pushType: string,
+): void {
+  const { workflowName, workflowLabel, projects } = getWorkflowNotificationContext(step.workflowId);
+  const title = `${workflowLabel} — ${headline}`;
+  getIO().emit('workflow_notification' as any, {
+    id: crypto.randomUUID(),
+    workflowId: step.workflowId,
+    workflowName,
+    title,
+    body,
+    projects,
+    timestamp: new Date().toISOString(),
+  });
+  sendPushToAll(title, body, { type: pushType, workflowId: step.workflowId, stepId: step.id })
+    .catch(() => {});
+}
+
 function notifyManualAdvanceNeeded(step: WorkflowStep): void {
   const { workflowName, workflowLabel, projects } = getWorkflowNotificationContext(step.workflowId);
   const title = `${workflowLabel} — Ready to advance`;
@@ -420,7 +477,14 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   emitStepLog(step.workflowId, step.id, step.name, `Prompt composed: ${parts.join(' + ')} (${finalPrompt.length} chars)`, 'info');
   console.log(`[workflow-v2] Step "${step.name}" prompt (${finalPrompt.length} chars): role=${role}, webhook=true, memory=${includeMemory}, deps=${step.dependsOn.length}`);
 
-  db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(finalPrompt, step.id);
+  db.prepare(
+    // The session is recorded WITH the prompt: a dispatch the guard cannot attribute to a
+    // session is a dispatch it can never judge (see lib/step-session-guard.ts).
+    `UPDATE workflow_steps
+        SET dispatched_prompt = ?,
+            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = workflow_steps.executor_id), '')
+      WHERE id = ?`,
+  ).run(finalPrompt, step.id);
   if (!dispatchStepCommand(step, step.executorId, finalPrompt, includeMemory)) return;
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
@@ -477,7 +541,14 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const agentName = getAgentName(reviewAgentId);
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching critic review to "${agentName}" (retry ${currentRetry}/${maxRetries})`, 'info');
 
-  db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(reviewPrompt, step.id);
+  db.prepare(
+    // The session is recorded WITH the prompt: a dispatch the guard cannot attribute to a
+    // session is a dispatch it can never judge (see lib/step-session-guard.ts).
+    `UPDATE workflow_steps
+        SET dispatched_prompt = ?,
+            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = workflow_steps.executor_id), '')
+      WHERE id = ?`,
+  ).run(reviewPrompt, step.id);
   const includeMemory = isMemoryEnabled(reviewAgentId);
   dispatchStepCommand(step, reviewAgentId, reviewPrompt, includeMemory);
 }
@@ -805,7 +876,14 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
   const gateLabel = preset?.label ?? gateType;
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching quality gate [${gateLabel}] to "${agentName}" (attempt ${currentRetry + 1}/${maxRetries + 1})`, 'info');
 
-  db.prepare("UPDATE workflow_steps SET dispatched_prompt = ? WHERE id = ?").run(finalPrompt, step.id);
+  db.prepare(
+    // The session is recorded WITH the prompt: a dispatch the guard cannot attribute to a
+    // session is a dispatch it can never judge (see lib/step-session-guard.ts).
+    `UPDATE workflow_steps
+        SET dispatched_prompt = ?,
+            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = workflow_steps.executor_id), '')
+      WHERE id = ?`,
+  ).run(finalPrompt, step.id);
   const includeMemory = isMemoryEnabled(agentId);
   dispatchStepCommand(step, agentId, finalPrompt, includeMemory);
 }
@@ -958,14 +1036,14 @@ async function executeDecisionStep(step: WorkflowStep): Promise<void> {
 
   // Native app push — a decision gate blocks the run on a human, same as an approval.
   // Deep-links into the run so the choice can be made from the phone. Fire-and-forget.
-  const wfRow = db.prepare('SELECT name, run_number FROM workflows WHERE id = ?')
-    .get(step.workflowId) as { name: string; run_number: number } | undefined;
-  const wfLabel = wfRow ? `${wfRow.name}${wfRow.run_number ? ` #${wfRow.run_number}` : ''}` : 'Workflow';
-  sendPushToAll(
-    `${wfLabel} — Decision needed`,
+  // Bell AND push. The push alone meant the run looked like ordinary work on the desktop,
+  // which is where people actually watch it.
+  notifyNeedsAttention(
+    step,
+    'Decision needed',
     String(config.question).slice(0, 300),
-    { type: 'decision_gate', workflowId: step.workflowId, stepId: step.id },
-  ).catch(() => {});
+    'decision_gate',
+  );
 
   // Step stays in `running` state; the /decide endpoint completes it.
 }
@@ -1316,6 +1394,9 @@ async function executeStep(step: WorkflowStep): Promise<void> {
       .run('failed', errMsg, failedAt, step.id);
     emitStepUpdate(step.id);
     emitStepLog(step.workflowId, step.id, step.name, `Failed: ${errMsg}`, 'error');
+    // A failed step halts the run and needs a person. It previously emitted a log line and a
+    // console error — neither of which is a notification anyone sees.
+    notifyNeedsAttention(step, 'Step failed', `"${step.name}" failed: ${errMsg.slice(0, 200)}`, 'workflow_step_failed');
     console.error(`[workflow-v2] Step "${step.name}" failed: ${errMsg}`);
   }
 }

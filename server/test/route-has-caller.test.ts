@@ -57,12 +57,14 @@ const ARTEFACTS = [
         // The panel mounts inside TasksPage now, not App.tsx: the queue and the task list are
         // ONE surface. enqueueItem is absent on purpose — see API_ONLY below.
         dir: 'dashboard/src', entry: 'dashboard/src/components/TasksPage.tsx', mounts: '<QueuePanel',
-        calls: ['getQueue', 'cancelQueueItem', 'retryQueueItem', 'removeQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
+        calls: ['getQueue', 'startQueueItem', 'moveQueueItem', 'pauseQueueItem', 'resumeQueueItem', 'cancelQueueItem', 'retryQueueItem', 'removeQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
       },
       {
-        // Pause/resume/tick are desk work and deliberately absent from a phone.
+        // Pause/resume/tick are desk work and deliberately absent from a phone. `startQueueItem`
+        // is NOT desk work: seeing a queue stalled behind a busy cartridge and saying "go anyway"
+        // is the most phone-shaped action the queue has, so it ships on both surfaces.
         dir: 'mobile/src', entry: 'mobile/App.tsx', mounts: '<QueueScreen',
-        calls: ['getQueue', 'cancelQueueItem', 'retryQueueItem'],
+        calls: ['getQueue', 'startQueueItem', 'moveQueueItem', 'pauseQueueItem', 'resumeQueueItem', 'cancelQueueItem', 'retryQueueItem'],
       },
     ],
     /**
@@ -75,8 +77,9 @@ const ARTEFACTS = [
      * orphan check would be correct to fail.
      */
     apiOnly: ['enqueueItem'],
-    // 8: 6 after /validate went, plus POST /:id/retry and DELETE /:id/remove.
-    expectedRouteCount: 8,
+    // 12: 6 after /validate went, plus POST /:id/retry, DELETE /:id/remove, POST /:id/start,
+    // and the three arrangement routes — POST /:id/move, /:id/pause, /:id/resume.
+    expectedRouteCount: 12,
   },
 ];
 

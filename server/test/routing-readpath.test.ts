@@ -84,6 +84,11 @@ const INTERNAL_STEP_COLUMNS: Record<string, string> = {
   tokens_in: 'accounting, aggregated by the pricing routes rather than per step',
   tokens_out: 'accounting, aggregated by the pricing routes rather than per step',
   native_session_id: "the engine's own session handle; meaningless to a client",
+  dispatch_session_id:
+    'which cartridge session this step\'s prompt was dispatched into. Compared against the ' +
+    'agent\'s CURRENT session to detect a prompt delivered into a session that has since been ' +
+    'replaced (see lib/step-session-guard.ts). Purely a recovery signal — a client shows the ' +
+    'step status, not the plumbing that keeps it alive.',
 };
 
 const INTERNAL_AGENT_COLUMNS: Record<string, string> = {

@@ -34,7 +34,10 @@ test('the kinds listed here really are the session-producing kinds', () => {
   const registry = read('server/src/lib/queue-kinds.ts');
   const ids = [...registry.matchAll(/KIND_IDS = \[([^\]]+)\]/g)]
     .flatMap((m) => [...m[1].matchAll(/'(\w+)'/g)].map((x) => x[1]));
-  const unaccounted = ids.filter((i) => i !== 'prompt' && !SESSION_KINDS.some((s) => s.kind === i));
+  // 'prompt' and 'task' are dispatched work aimed at ONE cartridge, not a session: they show
+  // up in that cartridge's live log and (for a task) on the Tasks page, not as a session card.
+  const NOT_SESSIONS = ['prompt', 'task'];
+  const unaccounted = ids.filter((i) => !NOT_SESSIONS.includes(i) && !SESSION_KINDS.some((s) => s.kind === i));
   assert.deepEqual(unaccounted, [],
     `these kinds produce sessions but are not shown on the main screen: ${unaccounted.join(', ')}`);
 });

@@ -15,6 +15,7 @@ import { evaluateStop } from '../lib/work-standard.js';
 import { detectTrailingQuestion } from '../lib/trailing-question.js';
 import { recordQueueCompletion } from '../lib/queue-kinds.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
+import { clearInterruptOnLife } from '../lib/recovery.js';
 
 const router = Router();
 
@@ -338,6 +339,7 @@ router.post('/message', (req, res) => {
   // Receiving a message from Claude is real activity — set working + last_seen.
   // The periodic timer in index.ts handles the working→idle transition after
   // the 2-minute grace period once all activity stops.
+  clearInterruptOnLife(agent.id as string); // the agent spoke — it is not dead
   db.prepare('UPDATE agents SET last_message = ?, last_seen = ?, status = ? WHERE id = ?')
     .run(shortMessage, now, 'working', agent.id);
 
@@ -478,6 +480,7 @@ router.post('/transcript', (req, res) => {
 
   // Update the agent's summary line + activity heartbeat when we got new assistant text.
   if (lastAssistantText) {
+    clearInterruptOnLife(agentId); // the agent spoke — it is not dead
     db.prepare('UPDATE agents SET last_message = ?, last_seen = ?, status = ? WHERE id = ?')
       .run(lastAssistantText.slice(0, 500), now, 'working', agentId);
     const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;

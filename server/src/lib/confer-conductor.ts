@@ -32,7 +32,37 @@ export type ConferWorktrees = Record<string, { path: string; branch: string }>;
  */
 
 const STALL_MS = 8 * 60 * 1000;   // re-nudge a participant that hasn't reported in this long
-const FAIL_MS = 20 * 60 * 1000;   // give up on a milestone stuck this long
+const FAIL_MS = 20 * 60 * 1000;   // past this, a milestone only survives if its participants are ALIVE
+/**
+ * How long a participant may go unseen before it counts as gone.
+ *
+ * A heartbeat lands on every tool call, so ten minutes of total silence from something claiming
+ * to be `working` means the process is not there any more, whatever its status column says.
+ */
+const PARTICIPANT_DEAD_MS = 10 * 60 * 1000;
+/**
+ * The ceiling. A milestone whose participants are alive but silent is kept going — that is the
+ * whole fix — but "kept going" cannot mean forever, or a confer hangs overnight looking like
+ * progress. Past this it stops with an error that says the participant was ALIVE, which is a
+ * different diagnosis from "it died" and points at the real bug: work finished, never signalled.
+ */
+const HARD_FAIL_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Is this participant still there?
+ *
+ * The conductor used to ask only "how long has this milestone been open", so an agent that had
+ * done the work and gone idle was treated exactly like one that had crashed — and the first is
+ * far more common. Eight sessions were failed this way before anyone looked.
+ */
+function participantIsAlive(agentId: string, now: number): boolean {
+  const a = db.prepare('SELECT status, last_seen FROM agents WHERE id = ?').get(agentId) as
+    { status?: string; last_seen?: string } | undefined;
+  if (!a || a.status === 'offline') return false;
+  const seen = Date.parse(a.last_seen || '');
+  if (Number.isNaN(seen)) return false;
+  return now - seen < PARTICIPANT_DEAD_MS;
+}
 
 /** Ceiling on build rounds. High enough for a 20-bug list, low enough that a typo'd 500 can't
  * dispatch 500 milestones to a live fleet. */
@@ -791,15 +821,53 @@ export function reconcileConfers(now = Date.now()): void {
     const pending = participantIds.filter((pid) => !doneIds.includes(pid));
     if (pending.length === 0) continue;
 
-    if (age > FAIL_MS) {
+    /**
+     * FAIL ONLY WHEN SOMEONE IS ACTUALLY GONE.
+     *
+     * Elapsed time alone was the old test, and it killed the case it should have protected: a
+     * participant that finished the work, went idle, and never POSTed its done signal. Now the
+     * question is whether each silent participant is still there — a dead one is unrecoverable
+     * and failing is honest, a live one just needs reminding.
+     */
+    const dead = pending.filter((pid) => !participantIsAlive(pid, now));
+
+    if (age > FAIL_MS && dead.length > 0) {
+      const names = dead.map((pid) => {
+        const a = db.prepare('SELECT repo_name, status FROM agents WHERE id = ?').get(pid) as
+          { repo_name?: string; status?: string } | undefined;
+        return `${a?.repo_name || pid} (${a?.status || 'unknown'})`;
+      });
       db.prepare(`UPDATE confer_sessions SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
-        .run(`Milestone "${ms.name}" stalled — ${pending.length} participant(s) never reported.`, new Date().toISOString(), row.id as string);
+        .run(
+          `Milestone "${ms.name}" — ${dead.length} participant(s) unreachable and gone: ${names.join(', ')}.`,
+          new Date().toISOString(), row.id as string,
+        );
       emit(row.id as string);
       continue;
     }
 
-    if (age > STALL_MS && !(ms.nudged as number)) {
-      db.prepare('UPDATE confer_milestones SET nudged = 1 WHERE id = ?').run(ms.id as string);
+    if (age > HARD_FAIL_MS) {
+      // Everyone is alive and nothing has been signalled for hours. Stop, but say so precisely:
+      // this is "the work was probably done and never reported", not "a cartridge crashed".
+      db.prepare(`UPDATE confer_sessions SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
+        .run(
+          `Milestone "${ms.name}" ran ${Math.round(age / 60000)} min with ${pending.length} participant(s) ALIVE but never signalling done — they were nudged ${ms.nudged as number} time(s). The work may well be finished; check the cartridges before re-running.`,
+          new Date().toISOString(), row.id as string,
+        );
+      emit(row.id as string);
+      continue;
+    }
+
+    /**
+     * Nudge REPEATEDLY, once per stall window.
+     *
+     * `nudged` was a boolean gate, so a participant got exactly one reminder in the session's
+     * life and a single missed signal was terminal. It is now a COUNT, and the reminder repeats
+     * every STALL_MS for as long as the participant is alive.
+     */
+    const dueNudges = Math.floor(age / STALL_MS);
+    if (dueNudges > (ms.nudged as number)) {
+      db.prepare('UPDATE confer_milestones SET nudged = ? WHERE id = ?').run(dueNudges, ms.id as string);
       const session = hydrateSession(row);
       const total = session.milestones?.length || CONFER_MILESTONE_COUNT;
       for (const pid of pending) {

@@ -56,4 +56,11 @@ export function autoCompleteDispatchedTask(reportingAgentId: string): void {
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(match.id) as Record<string, unknown>;
   getIO().emit('task_updated', normalizeTask(updated));
+
+  // Release anything this task was blocking. Dynamic import because the dispatcher lives with
+  // the route that owns the tasks table — the same cycle-avoidance queue-kinds uses.
+  // This is the path that matters most: it is how a task finishes when nobody is watching.
+  import('../routes/tasks.js')
+    .then(({ releaseReadyTasks }) => releaseReadyTasks())
+    .catch((err) => console.error('[task-autocomplete] releasing dependents failed:', err));
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { forwardMessageToOwner } from '../lib/peer-forward.js';
-import { isCartridgeBusy, enqueue } from '../lib/queue-runner.js';
+import { guardBusy } from '../lib/queue-if-busy.js';
 import type { Command, CommandAttachmentInput } from '../types.js';
 
 const router = Router();
@@ -38,12 +38,12 @@ router.post('/send', async (req, res) => {
   // were the default, a milestone dispatch to a remote participant would be parked behind the
   // very confer it belongs to and the session would never advance. User surfaces ask for it;
   // system delivery does not.
-  if (queueIfBusy === true && isCartridgeBusy(agentId)) {
-    const queued = enqueue({ kind: 'prompt', payload: { text }, targets: [agentId] });
-    if (!queued.ok) return res.status(400).json({ error: queued.error });
-    return res.status(202).json({
+  if (queueIfBusy === true) {
+    const guard = guardBusy({ kind: 'prompt', targets: [agentId], payload: { text } });
+    if ('error' in guard) return res.status(400).json({ error: guard.error });
+    if (guard.queued) return res.status(202).json({
       queued: true,
-      item: queued.item,
+      item: guard.item,
       // The caller must be able to tell "it ran" from "it is next", or the UI reports a
       // dispatch that has not happened yet.
       note: 'the cartridge is busy — this was added to its queue',

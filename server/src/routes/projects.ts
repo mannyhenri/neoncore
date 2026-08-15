@@ -4,6 +4,7 @@ import db from '../db.js';
 import { setProjectCartridges, getProjectCartridges } from '../lib/resolve-agent.js';
 import type { Project } from '../types.js';
 import { projectCostUsd } from '../lib/goal-cost.js';
+import { deleteProjectCascade } from '../lib/project-delete.js';
 
 const router = Router();
 
@@ -146,7 +147,9 @@ router.put('/:id', (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+  // Cascade through lib so the cartridge mappings go too — deleting the project row alone left
+  // them orphaned, invisibly, because every read joins through `projects`.
+  deleteProjectCascade(req.params.id);
   res.status(204).send();
 });
 

@@ -118,7 +118,8 @@ test('the call table covers every queue route the server mounts', () => {
   // passing while a new route goes unchecked — a green number pointed at a shrinking scope.
   const routeSrc = fs.readFileSync(path.join(ROOT, 'server/src/routes/queue.ts'), 'utf8');
   const mounted = [...routeSrc.matchAll(/^router\.(get|post|delete|put)\(/gm)].length;
-  const covered = CALLS.length + 3; // + DELETE /:id, POST /:id/retry and DELETE / (clear)
+  const covered = CALLS.length + 7; // + DELETE /:id, /:id/retry, /:id/start, /:id/move,
+                                    //   /:id/pause, /:id/resume, DELETE / (clear)
   assert.equal(covered, mounted,
     `the server mounts ${mounted} queue routes but this table drives ${covered} — add the missing one`);
 });
@@ -187,6 +188,61 @@ test('POST /api/queue/:id/retry: the client\'s declared response matches the REA
   const body = (await res.json()) as Record<string, unknown>;
   const invented = declaredFields('retryQueueItem').filter((f) => !Object.keys(body).includes(f));
   assert.deepEqual(invented, [], `retryQueueItem declares field(s) the server never sends: ${invented.join(', ')}`);
+});
+
+test('POST /api/queue/:id/start: the client\'s declared response matches the REAL body', async () => {
+  // Start-now is the human override — the ONE sanctioned way to dispatch onto a busy
+  // cartridge. Driven for real here because a 409 body and an {ok} body are different shapes,
+  // and the UI branches on which one it got.
+  const created = await fetch(BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'prompt', payload: { text: 'to start by hand' }, targets: [AGENT] }),
+  });
+  const made = (await created.json()) as { id?: string };
+  assert.ok(made.id, 'enqueue must return an item with an id for start to be testable');
+
+  const res = await fetch(`${BASE}/${made.id}/start`, { method: 'POST' });
+  assert.ok(res.ok, `start returned HTTP ${res.status}`);
+  const body = (await res.json()) as Record<string, unknown>;
+  const invented = declaredFields('startQueueItem').filter((f) => !Object.keys(body).includes(f));
+  assert.deepEqual(invented, [], `startQueueItem declares field(s) the server never sends: ${invented.join(', ')}`);
+
+  // And starting it twice must REFUSE rather than double-dispatch onto the cartridge.
+  const again = await fetch(`${BASE}/${made.id}/start`, { method: 'POST' });
+  assert.equal(again.status, 409, 'starting an already-running item must 409, not dispatch again');
+});
+
+test('POST /api/queue/:id/move | /pause | /resume: declared responses match the REAL bodies', async () => {
+  // Arrangement controls, driven end to end. Two items so a move has somewhere to go.
+  const mk = async (text: string) => (await (await fetch(BASE, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'prompt', payload: { text }, targets: [AGENT] }),
+  })).json()) as { id: string };
+
+  const first = await mk('arrange one');
+  const second = await mk('arrange two');
+
+  const checks: { name: string; res: Response; client: string }[] = [
+    { name: 'move', res: await fetch(`${BASE}/${second.id}/move`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction: 'up' }) }), client: 'moveQueueItem' },
+    { name: 'pause', res: await fetch(`${BASE}/${first.id}/pause`, { method: 'POST' }), client: 'pauseQueueItem' },
+    { name: 'resume', res: await fetch(`${BASE}/${first.id}/resume`, { method: 'POST' }), client: 'resumeQueueItem' },
+  ];
+
+  for (const c of checks) {
+    assert.ok(c.res.ok, `${c.name} returned HTTP ${c.res.status}`);
+    const body = (await c.res.json()) as Record<string, unknown>;
+    const invented = declaredFields(c.client).filter((f) => !Object.keys(body).includes(f));
+    assert.deepEqual(invented, [], `${c.client} declares field(s) the server never sends: ${invented.join(', ')}`);
+  }
+
+  // A bad direction is rejected rather than silently treated as one of the two.
+  const bad = await fetch(`${BASE}/${first.id}/move`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ direction: 'sideways' }) });
+  assert.equal(bad.status, 400, 'an unknown move direction must be refused, not guessed');
 });
 
 /**

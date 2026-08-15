@@ -5,6 +5,9 @@ import { getIO } from '../ws.js';
 import { resolveAgentId, projectIdsForAgent, agentIdsForProject } from '../lib/resolve-agent.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
+import { guardBusy } from '../lib/queue-if-busy.js';
+import { blockedReason, readyTaskIds } from '../lib/task-dependencies.js';
+import { decompositionContextFor } from '../lib/goal-decomposition.js';
 import type { Task, TaskStatus } from '../types.js';
 
 const router = Router();
@@ -26,7 +29,7 @@ function normalizeTask(row: Record<string, unknown>): Task {
   };
 }
 
-function getTask(id: string): Task | undefined {
+export function getTask(id: string): Task | undefined {
   const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   return row ? normalizeTask(row) : undefined;
 }
@@ -62,13 +65,23 @@ function autoDispatchTarget(projectId: string | null): string | undefined {
  * dispatch path → relay/extension/terminal) and mark the task in-progress for it.
  * Returns the updated task, or null if the agent could not be reached.
  */
-function dispatchTaskToAgent(task: Task, agentId: string): Task | null {
+export function dispatchTaskToAgent(task: Task, agentId: string): Task | null {
   // Report-back instruction: task completion is inferred from the normal stop hook,
   // and dashboard buttons remain available for manual completion.
   const reportBack =
     `When you finish, summarize the result clearly. If you could not complete it, say why.`;
   const instructions = task.prompt && task.prompt.trim() ? task.prompt.trim() : task.title;
-  const body = `[NeonCore task ${task.id}: ${task.title}]\n\n${instructions}\n\n${reportBack}`;
+  // The answers the person typed while planning this work. Resolved through the task's
+  // decomposition rather than copied onto it, and empty for any task that came from elsewhere —
+  // an ordinary task must not gain a stray header. Before this, the setup answers shaped the
+  // PLAN and were then discarded, so the agent doing the work never saw why it was asked for.
+  const planContext = decompositionContextFor(task.id);
+  const body = [
+    `[NeonCore task ${task.id}: ${task.title}]`,
+    planContext,
+    instructions,
+    reportBack,
+  ].filter(Boolean).join('\n\n');
   const cmd = sendCommandToAgent(agentId, body, true);
   if (!cmd) return null;
   const now = new Date().toISOString();
@@ -79,6 +92,39 @@ function dispatchTaskToAgent(task: Task, agentId: string): Task | null {
   const updated = getTask(task.id)!;
   getIO().emit('task_updated', updated);
   return updated;
+}
+
+/**
+ * Push every ready task into the EXISTING queue. Returns what was released.
+ *
+ * No new dispatch path — deliberately. The queue is where the busy guard, per-item holds, the
+ * blocked-wait budget and the completion gate live, and decomposition is precisely the feature
+ * that produces tasks in bulk, so bypassing those four would do the most damage here.
+ *
+ * Idempotent: a task already queued or running is skipped. Without that, calling this on every
+ * task completion would pile duplicate queue items onto the same work.
+ */
+export function releaseReadyTasks(projectIds?: string[]): { taskId: string; agentId: string }[] {
+  const released: { taskId: string; agentId: string }[] = [];
+  for (const taskId of readyTaskIds(projectIds)) {
+    const task = getTask(taskId);
+    if (!task) continue;
+    const agentId = autoDispatchTarget(task.projectId);
+    if (!agentId) continue;                       // nothing online serving it — stays queued
+    const already = db.prepare(
+      `SELECT COUNT(*) AS n FROM queue_items
+        WHERE status IN ('queued','running') AND payload_json LIKE ?`,
+    ).get(`%"taskId":"${taskId}"%`) as { n: number };
+    if (already.n > 0) continue;
+
+    const guard = guardBusy({ kind: 'task', targets: [agentId], payload: { taskId, agentId } });
+    if ('error' in guard) continue;
+    // Not busy: the queue said it may start now, so dispatch it through the same path the
+    // runner would have used.
+    if (!guard.queued) dispatchTaskToAgent(task, agentId);
+    released.push({ taskId, agentId });
+  }
+  return released;
 }
 
 // Create a task
@@ -132,12 +178,47 @@ router.post('/:id/dispatch', (req, res) => {
   if (task.status === 'done' || task.status === 'cancelled') {
     return res.status(409).json({ error: 'Task is already finished' });
   }
+  // THE DEPENDENCY GATE. Priority makes prerequisites sort first; only this stops a person
+  // (or a second idle cartridge) starting a dependent whose prerequisite has not finished.
+  // Overridable, because the user may know the dependency no longer applies — but it has to
+  // be a deliberate act rather than the default.
+  const blocked = blockedReason(task.id);
+  if (blocked && req.body?.force !== true) {
+    return res.status(409).json({
+      error: `This task is ${blocked}.`,
+      blocked: true,
+      hint: 'Finish the prerequisite, or re-send with force:true if it no longer applies.',
+    });
+  }
+
   const agentId = (req.body?.agentId as string) || autoDispatchTarget(task.projectId);
   if (!agentId) return res.status(404).json({ error: 'No connected agent to dispatch to' });
   // Respect the hard-pin: a project-scoped task may only go to an agent serving it.
   if (task.projectId && !projectIdsForAgent(agentId).includes(task.projectId)) {
     return res.status(403).json({ error: "Agent does not serve this task's project/cartridge" });
   }
+  // Same rule as prompts, confers and workflow runs: a task aimed at a working cartridge
+  // lines up behind what it is doing rather than landing on top of it. This route had no
+  // check at all — dispatching a task was the one way left to interrupt a busy cartridge.
+  if (req.body?.queueIfBusy !== false) {
+    const guard = guardBusy({
+      kind: 'task',
+      targets: [agentId],
+      payload: { taskId: task.id, agentId },
+    });
+    if ('error' in guard) return res.status(400).json({ error: guard.error });
+    if (guard.queued) {
+      return res.status(202).json({
+        queued: true,
+        item: guard.item,
+        // The task stays `queued` rather than flipping to in_progress: it has not started,
+        // and showing it as running for however long it waits is a lie the dashboard would
+        // then have to explain.
+        note: 'the cartridge is busy — this task was queued and starts when it is free',
+      });
+    }
+  }
+
   const updated = dispatchTaskToAgent(task, agentId);
   if (!updated) return res.status(404).json({ error: 'Agent not found' });
   res.json(updated);
@@ -262,6 +343,9 @@ router.post('/:id/complete', (req, res) => {
     .run(finalStatus, (result || '') + completionNote, error || '', now, req.params.id);
   const updated = getTask(req.params.id)!;
   getIO().emit('task_updated', updated);
+  // A finished prerequisite is the ONLY thing that unblocks its dependents, so every path that
+  // finishes a task must release them or the chain stalls silently.
+  releaseReadyTasks();
   res.json(updated);
 });
 
@@ -277,6 +361,7 @@ router.post('/:id/done', (req, res) => {
     .run(finalStatus, result || task.result || '', error || task.error || '', now, req.params.id);
   const updated = getTask(req.params.id)!;
   getIO().emit('task_updated', updated);
+  releaseReadyTasks();
   res.json(updated);
 });
 

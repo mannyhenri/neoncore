@@ -7,6 +7,7 @@ import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
 import { sendPushToAll } from '../lib/apns-push.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
+import { clearInterruptOnLife } from '../lib/recovery.js';
 
 const router = Router();
 
@@ -123,6 +124,9 @@ router.post('/request', (req, res) => {
 
   // Update agent status to waiting
   db.prepare(`UPDATE agents SET status = 'waiting', last_seen = ? WHERE id = ?`).run(now, resolvedAgentId);
+  // An agent that stops to ask permission is plainly running. Waiting on a human is exactly
+  // the silence the staleness sweep cannot distinguish from death.
+  clearInterruptOnLife(resolvedAgentId);
 
   const request: PermissionRequest = {
     id,

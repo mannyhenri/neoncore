@@ -45,6 +45,14 @@ const KINDS = [
     required: ['workflowId'],
   },
   {
+    kind: 'task',
+    route: 'routes/tasks.ts',
+    // dispatchTaskToAgent(task, agentId) — the row is looked up again at dispatch, so the id is
+    // enough, but the CARTRIDGE must be stored: it was chosen (or auto-selected) by the route,
+    // and re-deriving it later could pick a different agent than the user aimed at.
+    required: ['taskId', 'agentId'],
+  },
+  {
     kind: 'prompt',
     route: 'routes/commands.ts',
     required: ['text'],

@@ -14,6 +14,8 @@
  *   neoncore_my_queue           — list tasks this agent can claim or has been assigned
  *   neoncore_claim_task         — atomically claim a queued task
  *   neoncore_report_task_done   — complete a claimed task with a result
+ *   neoncore_submit_goal_draft  — submit a proposed goal intent (a draft; changes nothing)
+ *   neoncore_submit_goal_decomposition — submit a proposed goal → projects → tasks plan (creates nothing)
  *   neoncore_list_agents        — see sibling agents for coordination
  *   neoncore_message_agent      — send a message into another agent's session (confer/hand off)
  *   neoncore_read_agent         — read another agent's recent transcript
@@ -134,6 +136,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           sessionId: { type: 'string', description: 'Session identifier from neoncore_register' },
           stepId:    { type: 'string', description: 'The workflow step id (given in the task instructions)' },
+          panelAgentId: { type: 'string', description: 'Only for a PANEL step: your agent id, given in the task instructions. Omit for a normal step.' },
           result:    { type: 'string', description: 'Summary of what was done + guidance for the next step' },
           scope:     { type: 'string', description: 'Completed vs total items this step covered, e.g. "15/15 — 12 sections + 3 attachment types". Enumerate from the code, not the description.' },
           verify:    { type: 'string', description: 'The exact command you ran and its REAL output, e.g. "npm test -- report-copy → 15 passed". Never report verification you did not perform.' },
@@ -184,6 +187,91 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           error:     { type: 'string', description: 'Error detail if status is "failed"' },
         },
         required: ['sessionId', 'taskId', 'result', 'scope', 'verify'],
+      },
+    },
+    {
+      name: 'neoncore_submit_goal_draft',
+      description:
+        'Submit a DRAFT of a goal\'s intent that you were asked to write. This stores a proposal only — it does NOT change the goal. The user reviews your draft field by field and chooses what to keep, so do not also edit the goal yourself through any other route. Omit any field you cannot ground in what the user actually said: these fields are injected into every prompt dispatched under this goal, so an invented acceptance criterion or a fabricated baseline becomes an instruction that other agents act on. A partial draft is a good draft.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          draftId: { type: 'string', description: 'The draft id given to you in the request' },
+          fields: {
+            type: 'object',
+            description: 'Proposed values, keyed exactly as the request listed them.',
+            properties: {
+              description:        { type: 'string', description: 'Why this matters — the outcome and why now. No implementation detail.' },
+              successMetric:      { type: 'string', description: 'One sentence: the observable condition that means this goal is done.' },
+              acceptanceCriteria: { type: 'string', description: 'EARS-form statements, one per line: "When <trigger>, the system shall <response>."' },
+              invariants:         { type: 'string', description: 'What must stay true throughout — behaviour that may not regress.' },
+              noGos:              { type: 'string', description: 'Explicitly out of scope. Concrete about what NOT to touch.' },
+              rabbitHoles:        { type: 'string', description: 'Known time sinks to steer around, and why each is a trap.' },
+              keyResults: {
+                type: 'array',
+                description: 'Up to 4 measurable results. Omit entirely if nothing is genuinely measurable.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    metric:   { type: 'string' },
+                    baseline: { type: 'string' },
+                    target:   { type: 'string' },
+                    measure:  { type: 'string' },
+                  },
+                  required: ['metric'],
+                },
+              },
+            },
+          },
+        },
+        required: ['draftId', 'fields'],
+      },
+    },
+    {
+      name: 'neoncore_submit_goal_decomposition',
+      description:
+        'Submit a PROPOSED breakdown of a goal into projects and tasks. This stores a proposal only — it creates nothing. The user reviews every project and task and chooses what becomes real, so do not create projects or tasks yourself by any other route. Ground the plan in the actual repository: a decomposition invented from the goal text alone names files and components that do not exist, and every task built on it wastes a cartridge run. Each task prompt is dispatched to a cartridge verbatim, so write it for someone who has not read your conversation. A short, honest decomposition is a better answer than a padded one.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          decompositionId: { type: 'string', description: 'The decomposition id given to you in the request' },
+          proposal: {
+            type: 'object',
+            properties: {
+              projects: {
+                type: 'array',
+                description: 'Candidate projects, each with its tasks. At most 8.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    key:         { type: 'string', description: 'Short slug, unique across the proposal' },
+                    name:        { type: 'string' },
+                    description: { type: 'string' },
+                    primaryRepo: { type: 'string', description: 'Absolute repo path, if known' },
+                    tasks: {
+                      type: 'array',
+                      description: 'At most 20 per project.',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          key:       { type: 'string', description: 'Short slug, unique across the WHOLE proposal — dependsOn refers to these' },
+                          title:     { type: 'string' },
+                          prompt:    { type: 'string', description: 'Dispatched to a cartridge verbatim: what to change, where, how it is verified' },
+                          size:      { type: 'string', enum: ['S', 'M', 'L'] },
+                          dependsOn: { type: 'array', items: { type: 'string' }, description: 'Task keys that must finish first. Across projects is fine. Unresolvable and circular links are dropped on arrival.' },
+                        },
+                        required: ['title'],
+                      },
+                    },
+                  },
+                  required: ['name'],
+                },
+              },
+            },
+            required: ['projects'],
+          },
+        },
+        required: ['decompositionId', 'proposal'],
       },
     },
     {
@@ -343,9 +431,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { stepId, result, scope, verify, deferred } = args as Record<string, string>;
     if (!stepId) return text('ERROR: stepId is required to report step completion.');
     try {
-      await post(`/api/workflows/webhook/${stepId}/complete`, {
-        result: result || 'Completed.', scope, verify, deferred,
-      });
+      // A panel member reports against a DIFFERENT route: every member shares one step, so
+      // their verdicts must land per-agent (executor_config.panelResults[agentId]) rather than
+      // the first one completing the step for everyone.
+      const panelAgentId = (args as Record<string, string>).panelAgentId;
+      const route = panelAgentId
+        ? `/api/workflows/webhook/${stepId}/panel/${panelAgentId}/complete`
+        : `/api/workflows/webhook/${stepId}/complete`;
+      await post(route, { result: result || 'Completed.', scope, verify, deferred });
       log(`Step ${stepId} reported complete`);
       return text(`Step ${stepId} marked complete in NeonCore. The workflow will now advance.`);
     } catch (err) {
@@ -406,6 +499,42 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       // it rather than treating the task as closed.
       log(`report_task_done rejected: ${err}`);
       return text(`Task ${taskId} was NOT completed. ${err}`);
+    }
+  }
+
+  if (name === 'neoncore_submit_goal_draft') {
+    const { draftId, fields } = args as { draftId?: string; fields?: unknown };
+    if (!draftId) return text('ERROR: draftId is required.');
+    try {
+      await post(`/api/goals/drafts/${draftId}/submit`, { fields });
+      return text(
+        `Draft ${draftId} submitted. It is stored as a PROPOSAL and has changed nothing — the ` +
+        `user will review it field by field and choose what to keep. Do not edit the goal yourself.`,
+      );
+    } catch (err) {
+      // A 422 here means nothing usable came through — usually every field was empty or the
+      // keys did not match. Pass it back so the agent can retry rather than assume it landed.
+      log(`submit_goal_draft rejected: ${err}`);
+      return text(`Draft ${draftId} was NOT accepted. ${err}`);
+    }
+  }
+
+  if (name === 'neoncore_submit_goal_decomposition') {
+    const { decompositionId, proposal } = args as { decompositionId?: string; proposal?: unknown };
+    if (!decompositionId) return text('ERROR: decompositionId is required.');
+    try {
+      const out = await post(`/api/goals/decompositions/${decompositionId}/submit`, { proposal }) as
+        { proposal?: { projects?: unknown[] }; notes?: string[] };
+      const kept = out?.proposal?.projects?.length ?? 0;
+      const notes = out?.notes ?? [];
+      return text(
+        `Decomposition ${decompositionId} submitted: ${kept} project(s) stored as a PROPOSAL. ` +
+        `Nothing was created — the user reviews each project and task and chooses what becomes real.` +
+        (notes.length ? `\n\nValidation adjusted your submission:\n- ${notes.join('\n- ')}` : ''),
+      );
+    } catch (err) {
+      log(`submit_goal_decomposition rejected: ${err}`);
+      return text(`Decomposition ${decompositionId} was NOT accepted. ${err}`);
     }
   }
 
