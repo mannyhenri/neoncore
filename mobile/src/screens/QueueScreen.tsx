@@ -69,6 +69,24 @@ export function QueueScreen() {
     try { await api.cancelQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
   }
 
+  /** Run a waiting item now. The server resumes its lane and jumps it to the front. */
+  async function startNow(id: string) {
+    try { await api.startQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
+  }
+
+  /** Reorder one place. Position is untouched by hold/resume, so the two compose. */
+  async function move(id: string, direction: 'up' | 'down') {
+    try { await api.moveQueueItem(baseUrl, id, direction); await load(); } catch { /* refresh shows truth */ }
+  }
+
+  /** Hold or release ONE item. The lane keeps draining around a held item. */
+  async function toggleHold(id: string, held: boolean) {
+    try {
+      await (held ? api.resumeQueueItem(baseUrl, id) : api.pauseQueueItem(baseUrl, id));
+      await load();
+    } catch { /* refresh shows truth */ }
+  }
+
   /** Put a failed item back. The server clears the counters and the lane halt it caused. */
   async function retry(id: string) {
     try { await api.retryQueueItem(baseUrl, id); await load(); } catch { /* refresh shows truth */ }
@@ -135,10 +153,25 @@ export function QueueScreen() {
               {lane?.haltedReason ? <Text style={s.reason}>{lane.haltedReason}</Text> : null}
               {item.error ? <Text style={s.reason}>{item.error}</Text> : null}
 
-              {/* Exclusive, same rule as the web: cancel while live, clear once finished.
-                  `blocked` gets neither — it is stopped and waiting on a human. */}
-              {(live || finished) && (
+              {/* Same rule as the web: cancel while live, clear once finished. `blocked` and
+                  `queued` additionally get Start now — they are stopped and waiting on a human,
+                  and that button is the only thing that reaches an item behind a wedged
+                  cartridge. */}
+              {(live || finished || item.status === 'blocked') && (
                 <View style={s.actions}>
+                  {(item.status === 'queued' || item.status === 'blocked') && (
+                    <ActionButton label="Start now" tone="accent" onPress={() => void startNow(item.id)} />
+                  )}
+                  {item.status === 'queued' && (
+                    <>
+                      <ActionButton label="↑" onPress={() => void move(item.id, 'up')} />
+                      <ActionButton label="↓" onPress={() => void move(item.id, 'down')} />
+                      <ActionButton
+                        label={item.paused ? 'Held' : 'Hold'}
+                        onPress={() => void toggleHold(item.id, Boolean(item.paused))}
+                      />
+                    </>
+                  )}
                   {live && <ActionButton label="Cancel" tone="danger" onPress={() => void cancel(item.id)} />}
                   {(item.status === 'failed' || item.status === 'cancelled') && (
                     <ActionButton label="Retry" tone="accent" onPress={() => void retry(item.id)} />

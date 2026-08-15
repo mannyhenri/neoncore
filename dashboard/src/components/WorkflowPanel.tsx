@@ -91,10 +91,8 @@ export function WorkflowPanel({ agents }: Props) {
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
   const [showAllRecent, setShowAllRecent] = useState(false);
-  // Open on arrival: templates you cannot see are templates you do not use, and the
-  // panel's whole purpose is to start one. Behind a disclosure it read as an empty
-  // section. (setShowTemplates still collapses it for anyone who wants the room.)
-  const [showTemplates, setShowTemplates] = useState(true);
+  // Templates have no collapsed state at all: they are what the panel is FOR, and a
+  // default-open disclosure still lets one stray click hide them for the session.
   const [showRecentRuns, setShowRecentRuns] = useState(false);
   const [templateTab, setTemplateTab] = useState<TemplateTab>('all');
 
@@ -242,13 +240,16 @@ export function WorkflowPanel({ agents }: Props) {
       {expanded && (
         <div className="space-y-4">
           {/* Action buttons */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
             <button
               onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
               className="text-sm px-4 py-2 rounded-lg gl-gradient text-white hover:opacity-90 transition-opacity font-medium"
             >
               + New Workflow
             </button>
+            {/* Confer used to sit here. It moved to the header alongside Launch and New Repo:
+                this panel renders only on the Agents view, which silently made starting a
+                confer impossible from Goals and Tasks. */}
           </div>
 
           {/* Active runs */}
@@ -303,20 +304,14 @@ export function WorkflowPanel({ agents }: Props) {
           {/* Templates */}
           {templates.filter((t) => t.stepSummary).length > 0 && (
             <div className="space-y-2">
-              <button
-                onClick={() => setShowTemplates((v) => !v)}
-                className="flex items-center gap-1.5 group w-full text-left"
-              >
-                <span className={`text-[10px] text-gray-600 transition-transform ${showTemplates ? 'rotate-90' : ''}`}>&#9654;</span>
-                <span className="text-xs text-gray-500 uppercase tracking-wider group-hover:text-gray-400 transition-colors">
+              <div className="flex items-center gap-1.5 w-full">
+                <span className="text-xs text-gray-500 uppercase tracking-wider">
                   Templates
                 </span>
                 <span className="text-[11px] text-gray-600 ml-1">
                   {templates.filter((t) => t.stepSummary).length}
                 </span>
-              </button>
-              {showTemplates && (
-                <>
+              </div>
                   {/* Category tabs */}
                   <div className="flex rounded-md overflow-hidden border border-white/10 w-fit">
                     {(Object.keys(TAB_LABELS) as TemplateTab[]).map((tab) => {
@@ -349,8 +344,6 @@ export function WorkflowPanel({ agents }: Props) {
                         runCount={runs.filter((r) => r.templateId === wf.id).length} />
                     ))
                   }
-                </>
-              )}
             </div>
           )}
 
@@ -451,7 +444,17 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
 
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
-  const onlineAgents = (agents || []).filter((a) => a.status !== 'offline');
+  /**
+   * Offline cartridges are OFFERED, not hidden.
+   *
+   * Filtering them out meant a disconnected cartridge silently vanished from the dropdown, so
+   * launching a workflow onto it was impossible with no explanation — reported as the workflow
+   * "not sending". Offline is now a queueable state: the run waits for the cartridge to come
+   * back, and the queue halts the lane with a reason if it never does. Sorted so live ones lead.
+   */
+  const onlineAgents = (agents || [])
+    .slice()
+    .sort((a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'));
 
   async function handleRunFromList() {
     if (!canRun || starting) return;
@@ -540,6 +543,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         payloads.length > 0 ? payloads : undefined,
       );
       setDeferredPopup(null);
+      // Queued, not started: the cartridge was mid-task. Say so — without this the modal just
+      // closes and nothing appears to happen, which reads exactly like the bug this fixes.
+      if (result?.queued) {
+        onAction();
+        return;
+      }
       const runId = result?.workflow?.id;
       if (runId && runId !== wf.id && onRunCreated) {
         onRunCreated(runId);
@@ -839,6 +848,17 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           {wf.templateId && (
             <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
           )}
+          {/* A run blocked on a person reads as RUNNING otherwise — which is how a decision
+              gate sat for half an hour looking exactly like work in progress. Amber, because
+              this is a call to action rather than a failure. */}
+          {wf.needsAttention && (
+            <span
+              title={wf.needsAttention.detail}
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-900/40 text-amber-300 border-amber-700/50 shrink-0"
+            >
+              NEEDS YOU
+            </span>
+          )}
           <button
             onClick={() => onOpen?.(wf.id)}
             className="text-sm text-gray-300 truncate hover:text-white transition-colors"
@@ -900,6 +920,14 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       ) : wf.phases.length > 0 ? (
         <>
           <PhaseProgress phases={wf.phases} currentPhase={wf.currentPhase} />
+          {wf.needsAttention && (
+            <div className="text-[12px] text-amber-300/90 bg-amber-950/30 border border-amber-800/40 rounded-md px-2 py-1 mb-2">
+              <span className="uppercase tracking-wider text-[10px] text-amber-400/80 mr-1.5">
+                {wf.needsAttention.reason.replace('-', ' ')}
+              </span>
+              {wf.needsAttention.detail}
+            </div>
+          )}
           {wf.status === 'running' && wf.phases[wf.currentPhase] && (
             <PhaseDetails phase={wf.phases[wf.currentPhase]} players={wf.players} agents={agents} />
           )}

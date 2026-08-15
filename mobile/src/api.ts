@@ -289,10 +289,23 @@ export const api = {
       body: JSON.stringify({ id, decision, response }),
     }),
 
-  // Queue — view, enqueue and cancel. Pausing a lane is desk work and stays on the portal.
+  // Queue — view, enqueue, start, cancel. Pausing a LANE is desk work and stays on the portal;
+  // starting one waiting ITEM is not, so it lives here too.
   getQueue: (base: string) => req<QueueView>(base, '/api/queue'),
   cancelQueueItem: (base: string, id: string) =>
     req<{ ok: boolean }>(base, `/api/queue/${id}`, { method: 'DELETE' }),
+  /** Run a waiting item now, even if its cartridge is busy — the human override. This is the
+   *  action you most want from a phone: you can see what is holding the lane, and say go. */
+  startQueueItem: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}/start`, { method: 'POST' }),
+  /** Reorder one place within the lane. Phone-shaped: you see the list and shuffle it. */
+  moveQueueItem: (base: string, id: string, direction: 'up' | 'down') =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
+  /** Park one item; the rest of its lane keeps draining. */
+  pauseQueueItem: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}/pause`, { method: 'POST' }),
+  resumeQueueItem: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/queue/${id}/resume`, { method: 'POST' }),
   retryQueueItem: (base: string, id: string) =>
     req<{ ok: boolean }>(base, `/api/queue/${id}/retry`, { method: 'POST' }),
   /** Remove ONE finished row. The server refuses anything still live. */

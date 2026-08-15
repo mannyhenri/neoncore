@@ -6,6 +6,7 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ReactFlow,
   Background,
@@ -27,6 +28,7 @@ import {
   Handle,
   Position,
   useReactFlow,
+  useNodesInitialized,
   ReactFlowProvider,
   type OnNodesChange,
   type OnEdgesChange,
@@ -45,6 +47,7 @@ import type {
   StepExecutorType,
   StepStatus,
 } from '../types';
+import { pickFocusStep } from '../lib/currentStep';
 
 // ─── Types ──────────────────────────────────────────
 
@@ -539,6 +542,7 @@ const edgeTypes: EdgeTypes = {
 
 function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   const reactFlowInstance = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
 
   // Workflow metadata
   const [workflowName, setWorkflowName] = useState('Untitled Workflow');
@@ -588,7 +592,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   }, []);
-  const onlineAgents = useMemo(() => agents.filter((a) => a.status !== 'offline'), [agents]);
+  const onlineAgents = useMemo(() => agents.slice().sort(
+    // Offline last, but still assignable: a step pinned to a cartridge that is merely asleep
+    // should queue when the run starts, not be impossible to configure.
+    (a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'),
+  ), [agents]);
   // Two machines can each run a cartridge on a repo of the SAME name — identical labels for
   // different disks. Whenever the fleet spans more than one host, put the host in the label:
   // picking the off-box twin silently sends every step's files to a path that isn't here.
@@ -636,15 +644,45 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   // ── Auto-zoom to running step ───────────────────
   const prevRunningIdRef = useRef<string | null>(null);
 
+  // Centre on the step that matters, whenever it changes.
+  //
+  // This used to require `isExecuting` AND a change of running step, so it did nothing for a
+  // paused, failed, finished or not-yet-started run — you got `fitView` over all 47 steps
+  // (~6800px) and scrolled to find the work. pickFocusStep answers the broader question:
+  // what is wrong, else what is live, else what is next, else where it ended.
   useEffect(() => {
-    if (!isExecuting) { prevRunningIdRef.current = null; return; }
-    const runningStep = steps.find((s) => s.status === 'running');
-    if (!runningStep || prevRunningIdRef.current === runningStep.id) return;
-    prevRunningIdRef.current = runningStep.id;
-    const node = nodes.find((n) => n.id === runningStep.id);
+    // MEASUREMENT FIRST. React Flow cannot centre on a node that has no dimensions yet, and it
+    // discards the attempt silently. This effect used to run on the `nodes` state change —
+    // before measurement — so the centre was thrown away and the `fitView` prop then zoomed
+    // out over all 47 steps. `useNodesInitialized` is the signal that it is safe to move.
+    if (!nodesInitialized || nodes.length === 0) return;
+
+    const focus = pickFocusStep(steps as unknown as Parameters<typeof pickFocusStep>[0]);
+
+    // No focus target — a template being authored. Fit the whole graph, which is what the
+    // removed `fitView` prop used to do. Owning both branches here is the point: two things
+    // claiming the opening viewport is what caused the bug.
+    if (!focus) {
+      if (prevRunningIdRef.current === null) {
+        prevRunningIdRef.current = '';
+        reactFlowInstance.fitView({ padding: 0.3 });
+      }
+      return;
+    }
+
+    if (prevRunningIdRef.current === focus.id) return;   // already there; do not fight panning
+    const node = nodes.find((n) => n.id === focus.id);
     if (!node) return;
-    reactFlowInstance.setCenter(node.position.x + 150, node.position.y + 110, { zoom: 0.85, duration: 600 });
-  }, [steps, isExecuting, nodes, reactFlowInstance]);
+
+    // Opening jumps straight to the step; a later change glides, because that motion is what
+    // tells you the run advanced.
+    const first = prevRunningIdRef.current === null || prevRunningIdRef.current === '';
+    prevRunningIdRef.current = focus.id;
+    reactFlowInstance.setCenter(node.position.x + 150, node.position.y + 110, {
+      zoom: 0.85,
+      duration: first ? 0 : 600,
+    });
+  }, [steps, nodes, nodesInitialized, reactFlowInstance]);
 
   // ── Auto-layout: spread nodes vertically ───────
   const autoLayout = useCallback(() => {
@@ -1194,6 +1232,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       }
 
       const result = await api.startWorkflowV2(id);
+      // Queued behind a busy cartridge: there is no run to open yet.
+      if (result?.queued || !result?.workflow || !result?.steps) { onSaved?.(); return; }
       // If a new run was created (clone), switch to viewing it
       if (result.workflow.id !== id) {
         setSavedWorkflowId(result.workflow.id);
@@ -1236,6 +1276,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
       );
+      // Queued behind a busy cartridge: nothing to switch to yet.
+      if (result?.queued || !result?.workflow || !result?.steps) { setDeferredPopup(null); onSaved?.(); return; }
       if (result.workflow.id !== deferredPopup.workflowId) {
         setSavedWorkflowId(result.workflow.id);
         setTemplateId(result.workflow.templateId);
@@ -1297,7 +1339,13 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
   // ── Render ──────────────────────────────────────
 
-  return (
+  // Portaled to document.body to escape the command rail's stacking context. The rail
+  // is `lg:sticky`, and a sticky element ALWAYS creates a stacking context, so an
+  // overlay rendered inside it is sealed in: `fixed inset-0 z-50` stops meaning "over
+  // the page" and starts meaning "over the rail", which paints before <main>. The whole
+  // editor rendered underneath the cartridge grid — present, interactive, invisible.
+  // No z-index fixes this; only leaving the subtree does.
+  return createPortal(
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
@@ -1511,7 +1559,6 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               onPaneClick={onPaneClick}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
-              fitView
               fitViewOptions={{ padding: 0.3 }}
               deleteKeyCode="Delete"
               snapToGrid
@@ -1678,7 +1725,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -9,7 +9,8 @@ import { NewRepoModal } from './components/NewRepoModal';
 import { ConferModal } from './components/ConferModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
-import { GoalsPage } from './components/GoalsPage';
+import { GoalsProvider, GoalsRail, GoalsWorkspace } from './components/GoalsPage';
+import { parseGoalHash } from './lib/goalSelection';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
 import { ServerPicker } from './components/ServerPicker';
@@ -74,7 +75,22 @@ export default function App() {
       prev.all === c.all && prev.working === c.working && prev.waiting === c.waiting && prev.idle === c.idle ? prev : c
     );
   }, []);
-  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>('agents');
+  /* Agents is the default. A goal deep link overrides it, because addressing a goal without
+     addressing the view that renders it is only half a link: `#goal/<id>` in a fresh tab
+     otherwise opens Agents with the goal selected in a pane nobody is showing. */
+  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>(
+    () => (typeof window !== 'undefined' && parseGoalHash(window.location.hash) ? 'goals' : 'agents'),
+  );
+
+  // The same link, followed while the app is already open, arrives as hashchange instead of
+  // a load — so the view has to move here too, or a notification click silently does nothing.
+  useEffect(() => {
+    const onHash = () => {
+      if (parseGoalHash(window.location.hash)) setActiveView('goals');
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [conferOpen, setConferOpen] = useState(false);
@@ -107,7 +123,21 @@ export default function App() {
     <div className="min-h-full text-white">
       {/* Header */}
       <header className="glass-light px-3 py-3 md:px-6 md:py-4 border-b border-white/[0.06] relative z-20">
-        <div className="flex items-center justify-between flex-wrap gap-2 md:gap-0">
+        {/* THREE TRACKS, so the regions cannot collide.
+            History, because this bar has now been fixed twice for the same symptom. The switcher
+            was originally `md:absolute left-1/2 -translate-x-1/2` — out of flow, so nothing
+            reserved space for it, and the in-flow right cluster grew leftward over it every time
+            its width changed: "+ Launch bleeds into the 3 sections on and off". A grid fixed the
+            overlap by giving each region its own column.
+            `1fr auto 1fr` then CENTRED the switcher on the bar. That was fine until Confer joined
+            the right cluster and widened it enough to close the gap again — the columns still did
+            not overlap, but they touched, which reads as the same bug. Centring is what made the
+            gap depend on the cluster's width at all.
+            `1fr auto auto` ends it: the identity track absorbs all free space, so the switcher and
+            the cluster sit together at the right edge, separated by the cluster's own `md:pl-8`.
+            The spacing is now a constant instead of a residue, so no control added to the right
+            can ever squeeze it. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-0 md:justify-normal">
           <div className="flex items-center gap-2 md:gap-3">
             <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8" />
             <h1 className="font-pixel text-xs md:text-sm tracking-wide" style={{ imageRendering: 'pixelated' }}>
@@ -118,25 +148,21 @@ export default function App() {
               Orchestrator
             </span>
           </div>
-          {/* Navigation and chrome live in the top menu.
-              The rail owns what you INVOKE while watching a cartridge — Launch, New
-              Repo, Confer, Workflows. These are different: switching view, opening the
-              Guide or Settings is navigation, and navigation belongs where a user
-              already looks for it. Moved back verbatim, so the only delta is where they
-              render. */}
-            {/* View switcher */}
-            <div className="flex rounded-md overflow-hidden border border-white/10">
-              <button
-                onClick={() => setActiveView('agents')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'agents' ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-              >
-                Agents
-              </button>
+          {/* The middle track, right-aligned against the chrome cluster rather than centred on
+              the bar — asked for after Confer widened the cluster enough to touch it.
+              Reading order is Goals → Agents → Tasks; Agents is where the dashboard opens. */}
+            <div className="flex md:justify-self-end rounded-md overflow-hidden border border-white/10 w-fit">
               <button
                 onClick={() => setActiveView('goals')}
                 className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'goals' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
               >
                 Goals
+              </button>
+              <button
+                onClick={() => setActiveView('agents')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'agents' ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Agents
               </button>
               <button
                 onClick={() => setActiveView('tasks')}
@@ -148,16 +174,32 @@ export default function App() {
                 )}
               </button>
             </div>
-            {/* Guide button */}
+
+          {/* The right edge of the bar, left to right: the two things you START a session
+              with sit closest to the view switcher, then chrome, then status pinned to the
+              far right where a glance goes for "is anything wrong" — bell last. */}
+          <div className="flex items-center gap-2 md:gap-4 text-base ml-auto md:ml-0 md:pl-8 md:justify-self-end justify-end whitespace-nowrap">
+            {/* Confer — starting a conversation between cartridges is a global action, not a
+                property of whichever view you happen to be on. It lived in the rail beside
+                "+ New Workflow", and because that panel renders only on the Agents view it was
+                unreachable from Goals and Tasks. It sits with Launch and New Repo because all
+                three answer "start something", which is the same question. */}
             <button
-              onClick={() => setGuideOpen(true)}
-              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
-              title="How NeonCore works"
+              onClick={() => setConferOpen(true)}
+              className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+              title="Start a conversation between cartridges"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-              </svg>
-              Guide
+              <span aria-hidden="true">⇄</span> Confer
+            </button>
+            {/* Launch a cartridge on any registered machine (local or remote) */}
+            <MachineLauncher servers={servers} />
+            {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
+            <button
+              onClick={() => setNewRepoOpen(true)}
+              className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors"
+              title="Create a new folder, git init, push to GitHub, and start working"
+            >
+              + New Repo
             </button>
             {/* Settings gear */}
             <button
@@ -171,19 +213,18 @@ export default function App() {
               </svg>
               Settings
             </button>
-
-          <div className="flex items-center gap-2 md:gap-4 text-base">
-            {/* Notification center — bell with dropdown */}
-            <NotificationCenter
-              pendingPermissions={pendingPermissions}
-              stuckAlerts={stuckAlertsArray}
-              workflowNotifications={workflowNotifications}
-              agents={agents}
-              onDecide={decidePermission}
-              onDismissStuck={dismissStuckAlert}
-              onDismissWorkflow={dismissWorkflowNotification}
-            />
-            <span className="text-sm text-gray-500">
+            {/* Guide button */}
+            <button
+              onClick={() => setGuideOpen(true)}
+              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+              title="How NeonCore works"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+              </svg>
+              Guide
+            </button>
+            <span className="hidden lg:inline text-sm text-gray-500">
               {onlineAgents.length} online
             </span>
             <ServerPicker
@@ -194,6 +235,16 @@ export default function App() {
               onHide={hideServer}
               onSetToken={applyFleetToken}
             />
+            {/* Notification center — bell with dropdown */}
+            <NotificationCenter
+              pendingPermissions={pendingPermissions}
+              stuckAlerts={stuckAlertsArray}
+              workflowNotifications={workflowNotifications}
+              agents={agents}
+              onDecide={decidePermission}
+              onDismissStuck={dismissStuckAlert}
+              onDismissWorkflow={dismissWorkflowNotification}
+            />
           </div>
         </div>
       </header>
@@ -203,33 +254,18 @@ export default function App() {
           scroll, so starting a confer no longer means scrolling back up to find the
           button. The rail is sticky and scrolls independently; below lg it stacks
           back to one column, where a sidebar would just be a header you scroll past. */}
+      {/* The rail's contents are per-view, and the two never stack: Workflows on Agents,
+          the goals list on Goals. GoalsProvider wraps the whole grid because its two
+          surfaces land in different regions of it — see GoalsPage.tsx. It stays mounted
+          across view switches and fetches only when Goals is active, so changing views
+          neither refetches the hierarchy nor remounts the cartridge tree beside it. */}
+      <GoalsProvider active={activeView === 'goals'} agents={agents}>
       <div className="p-3 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 items-start">
-        <aside className="lg:col-span-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-1 space-y-4 md:space-y-6">
-          {/* Commands. Navigation moved to the top menu; what is left here is what you
-              INVOKE while watching a cartridge, which is what the rail is for.
-              One row: these are peers, and stacked they ate the top of the rail and
-              pushed the workflows below the fold. */}
-          <div className="flex flex-row flex-wrap items-center gap-2">
-              {/* Launch a cartridge on any registered machine (local or remote) */}
-              <MachineLauncher servers={servers} />
-              {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
-              <button
-                onClick={() => setNewRepoOpen(true)}
-                className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors"
-                title="Create a new folder, git init, push to GitHub, and start working"
-              >
-                + New Repo
-              </button>
-              {/* Confer — put two live cartridges on one job to collaborate */}
-              <button
-                onClick={() => setConferOpen(true)}
-                className="text-sm text-gray-400 hover:text-emerald-300 border border-white/10 hover:border-emerald-500/40 px-2.5 py-1 rounded-md transition-colors"
-                title="Two agents, one job — confer to a shared solution"
-              >
-                Confer
-              </button>
-          </div>
-
+        {/* `lg:pr-4`, not `pr-1`. The rail scrolls itself, so its scrollbar is drawn INSIDE this
+            box — at 4px the template cards ran flush against it. The gutter is declared here and
+            nowhere else: padding the workflow panel instead would fix the Agents view and leave
+            the Goals rail a different width, so the rail edge would jump between views. */}
+        <aside className="lg:col-span-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-4 space-y-4 md:space-y-6">
           {/* Workflows live in the rail: they are something you START, not something
               you read alongside the cartridges. */}
           {activeView === 'agents' && (
@@ -237,11 +273,15 @@ export default function App() {
               <WorkflowPanel agents={agents} />
             </section>
           )}
+          {/* Asked for: "the list of goals on the 1/3 section with the 2/3 the place where
+              we work". The aside scrolls independently, so a long list of goals never
+              pushes the working surface beside it down the page. */}
+          {activeView === 'goals' && <GoalsRail />}
         </aside>
 
         <main className="lg:col-span-2 space-y-4 md:space-y-6 min-w-0">
           {activeView === 'goals' ? (
-            <GoalsPage />
+            <GoalsWorkspace />
           ) : activeView === 'tasks' ? (
             /* ONE place for everything a cartridge will work through. "What is queued" and
                "what is running" are the same question, and splitting them across two tabs
@@ -346,6 +386,7 @@ export default function App() {
           )}
         </main>
       </div>
+      </GoalsProvider>
 
       {/* Guide Modal */}
       {conferOpen && (

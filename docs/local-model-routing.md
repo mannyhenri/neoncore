@@ -56,14 +56,14 @@ this the safest possible rollout.
 
 ## 2. What agents actually do — the function registry
 
-**44 functions.** Four registries are derived from source; the fifth category is
+**46 functions.** Four registries are derived from source; the fifth category is
 hand-listed because it has no enum to derive from — and its absence from the first draft is
 the most instructive thing in this document (see "what the checker actually guarantees").
 
 - `packages/core/src/agent/agentTools.ts` — 12 agent tools
 - `server/src/types.ts` `StepExecutorType` — 7 workflow node types
 - `server/src/lib/confer-conductor.ts` — 9 confer milestone roles
-- `server/src/mcp-server.ts` — 10 coordination tools
+- `server/src/mcp-server.ts` — 12 coordination tools
 - *engine lifecycle and developer-facing* — 6 functions, **not derivable from any enum**
 
 `server/test/function-registry-coverage.test.ts` re-derives the first four from source and
@@ -164,6 +164,8 @@ good". Content quality is the surrounding step's tier, tracked separately below.
 | `neoncore_read_agent` | T2 | Reading and comprehending a peer's transcript. |
 | `neoncore_report_step_done` | T2 | Summarise what a step produced. |
 | `neoncore_report_task_done` | T5 | **Reserve for the generalist regardless of probe.** The work standard requires enumerating the COMPLETE set from a codebase and judging whether a fix covers it. That is the highest-judgement step in the pipeline and it decides whether everything downstream is correct. |
+| `neoncore_submit_goal_draft` | T5 | **Reserve for the generalist.** Drafting goal intent is judgement, not transcription: deciding what is genuinely measurable, what belongs out of scope, and — hardest — what to leave BLANK rather than invent. The output is injected into every prompt dispatched under that goal by `goal-brief.ts`, so a confabulated acceptance criterion does not stay a bad sentence; it becomes a standing instruction other agents act on. The failure mode is also the one weaker models are worst at: a plausible, well-formatted, fully-populated draft is indistinguishable from a grounded one until the work goes wrong. A partial draft is the correct output and the harder one to produce. |
+| `neoncore_submit_goal_decomposition` | T5 | **Reserve for the generalist.** Planning under constraint: reading a codebase well enough to name work that actually exists, scoping each task to something independently verifiable, and ordering dependencies. Every accepted task is dispatched to a cartridge, so an ungrounded plan does not fail at review — it fails after N runs have been spent executing it. This is also where padding is most tempting and most expensive: a decomposition that invents eight plausible projects costs eight times a decomposition that honestly proposes one. |
 
 ### Engine lifecycle and developer-facing functions
 

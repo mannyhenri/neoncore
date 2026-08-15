@@ -199,8 +199,17 @@ export function MachineLauncher({ servers = [] }: Props) {
         )}
       </button>
 
+      {/* `break-words` below is load-bearing, not cosmetic. `max-w-xs` caps the BOX and the
+          background is painted on the box, so any token too wide to wrap overflows the content
+          area and the text paints OUTSIDE its own bubble — reported as "the green background is
+          smaller than the message".
+          Measured in-browser across all six messages flash() produces, because the trigger is
+          narrower than it looks: the hostname is fine (hyphens break) and so is a short path
+          (Chrome breaks after "/"). What overflows is a LONG path — `Scanning
+          /Users/…/Git/neoncore/server/node_modules on <host>…` ran 91px past its background —
+          and a raw API error carrying an unbroken path, which ran 243px past. */}
       {notice && (
-        <div className={`absolute right-0 top-full mt-1.5 z-50 text-xs rounded-lg px-3 py-2 max-w-xs border ${
+        <div className={`absolute right-0 top-full mt-1.5 z-50 text-xs rounded-lg px-3 py-2 max-w-xs break-words border ${
           notice.kind === 'ok'
             ? 'bg-emerald-900/90 border-emerald-700 text-emerald-200'
             : 'bg-red-900/90 border-red-700 text-red-300'

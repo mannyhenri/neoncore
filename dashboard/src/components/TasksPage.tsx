@@ -3,6 +3,7 @@ import { SectionTitle } from './SectionTitle';
 import { QueuePanel } from './QueuePanel';
 import { api } from '../lib/api';
 import type { Task, TaskStatus, Agent, Goal, Project, QueueItem } from '../types';
+import { orderQueueRows, lanePosition } from '../lib/queueOrder';
 
 interface TasksPageProps {
   tasks: Task[];
@@ -10,7 +11,7 @@ interface TasksPageProps {
   createTask: (data: { title: string; prompt?: string; projectId?: string | null; priority?: number }) => Promise<Task>;
   cancelTask: (id: string) => Promise<void>;
   updateTask: (id: string, data: { title?: string; prompt?: string; projectId?: string | null; priority?: number }) => Promise<Task>;
-  dispatchTask: (id: string, agentId?: string) => Promise<Task>;
+  dispatchTask: (id: string, agentId?: string) => Promise<Task & { queued?: boolean; note?: string }>;
   completeTask: (id: string, status?: 'done' | 'failed', result?: string) => Promise<Task>;
 }
 
@@ -275,8 +276,10 @@ function TaskDetailModal({
     setDispatching(true);
     setError('');
     try {
-      await dispatchTask(task.id, targetAgentId);
-      setNotice('Sent to terminal.');
+      const out = await dispatchTask(task.id, targetAgentId);
+      setNotice(out?.queued
+        ? 'That cartridge is busy — queued, and it starts when the current work finishes.'
+        : 'Sent to terminal.');
       setTimeout(onClose, 900);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to dispatch');
@@ -555,7 +558,8 @@ function TaskCard({ task, agents, projects, onCancel, onClear, onOpen }: { task:
  * visual language for the same list — the whole point of merging the two views was that a
  * queued prompt and a task are the same thing to the person reading them.
  */
-function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void }) {
+function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[]; onChanged: () => void }) {
+  const { isFirst, isLast } = lanePosition(all, item.id);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -579,6 +583,13 @@ function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void 
     try { await fn(); onChanged(); } finally { setBusy(false); }
   };
   const retryable = item.status === 'failed' || item.status === 'cancelled';
+  // A waiting item has no way to run until its cartridge frees, and if that cartridge is
+  // wedged it never does. `blocked` is included because a halted lane is one of the ways an
+  // item ends up sitting there — the same button has to reach all of them.
+  const startable = item.status === 'queued' || item.status === 'blocked';
+  // Reorder and park apply only while it is still waiting — once it is running its position
+  // decides nothing and pausing it would be a lie.
+  const arrangeable = item.status === 'queued';
   const stoppable = item.status === 'queued' || item.status === 'running';
   // Exclusive by construction: a row is either live (cancel) or finished (clear). `blocked` is
   // neither — it is stopped and waiting on a human, so tidying it away would lose the reason.
@@ -597,6 +608,50 @@ function QueueRow({ item, onChanged }: { item: QueueItem; onChanged: () => void 
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {arrangeable && (
+            <>
+              <button
+                onClick={() => void act(() => api.moveQueueItem(item.id, 'up'))}
+                disabled={busy || isFirst}
+                title={isFirst ? 'Already first in its lane' : 'Run this sooner'}
+                className="px-1.5 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
+              >
+                ↑
+              </button>
+              <button
+                onClick={() => void act(() => api.moveQueueItem(item.id, 'down'))}
+                disabled={busy || isLast}
+                title={isLast ? 'Already last in its lane' : 'Run this later'}
+                className="px-1.5 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
+              >
+                ↓
+              </button>
+              <button
+                onClick={() => void act(() => item.paused ? api.resumeQueueItem(item.id) : api.pauseQueueItem(item.id))}
+                disabled={busy}
+                title={item.paused
+                  ? 'Put this back in line'
+                  : 'Hold this one. Everything else in its lane keeps running.'}
+                className={`px-2 py-1 text-xs rounded transition-colors border disabled:opacity-40 ${
+                  item.paused
+                    ? 'bg-amber-900/40 hover:bg-amber-900/70 text-amber-300 border-amber-800/50'
+                    : 'bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50'
+                }`}
+              >
+                {item.paused ? 'Held' : 'Hold'}
+              </button>
+            </>
+          )}
+          {startable && (
+            <button
+              onClick={() => void act(() => api.startQueueItem(item.id))}
+              disabled={busy}
+              title="Run this now, even if the cartridge is busy"
+              className="px-2 py-1 text-xs rounded transition-colors border bg-emerald-900/40 hover:bg-emerald-900/70 text-emerald-300 border-emerald-800/50 disabled:opacity-40"
+            >
+              Start now
+            </button>
+          )}
           {retryable && (
             <button
               onClick={() => void act(() => api.retryQueueItem(item.id))}
@@ -682,9 +737,9 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
       : q.status === 'queued' ? 'queued'
       : q.status === 'cancelled' ? 'cancelled'
       : 'failed'; // failed | blocked
-    const rows = [...queueItems].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
+    // Run order, NOT creation time. Sorting by createdAt while the arrows move `position`
+    // meant a successful reorder never appeared on screen — the button looked dead.
+    const rows = orderQueueRows(queueItems);
     if (filter === 'all') return rows;
     if (filter === 'active') return rows.filter((q) => ['queued', 'running'].includes(q.status));
     return rows.filter((q) => asTaskStatus(q) === filter);
@@ -766,7 +821,7 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {visibleQueue.map((q) => (
-            <QueueRow key={q.id} item={q} onChanged={refreshQueue} />
+            <QueueRow key={q.id} item={q} all={queueItems} onChanged={refreshQueue} />
           ))}
           {filtered.map((t) => (
             <TaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={cancelTask} onClear={clearTask} onOpen={setSelectedId} />
