@@ -488,7 +488,10 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
   const dispatchTask = useCallback(async (id: string, agentId?: string) => {
     const s = taskServer(id);
     const updated = await clientFor(s).dispatchTask(id, agentId);
-    patchTask(s.url, updated);
+    // A 202 body is {queued, item, note} — NOT a task. Patching local state with it would
+    // overwrite the row with an object that has no id or status, so the task would vanish
+    // from the list at the exact moment the user was told it was queued.
+    if (!updated?.queued) patchTask(s.url, updated);
     return updated;
   }, [taskServer, patchTask]);
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { SectionTitle } from './SectionTitle';
 import type { QueueItem, QueueLane } from '../types';
 import { api } from '../lib/api';
+import { lanePosition } from '../lib/queueOrder';
 
 /**
  * The queue surface.
@@ -144,6 +145,36 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
                     {String(i.payload?.text ?? i.payload?.repoPath ?? i.id.slice(0, 8))}
                   </span>
                   {i.error && <span className="text-red-400/90 truncate max-w-[16rem]">{i.error}</span>}
+                  {i.status === 'queued' && (
+                    <>
+                      <button onClick={() => void run(() => api.moveQueueItem(i.id, 'up'))}
+                        disabled={busy || lanePosition(items, i.id).isFirst}
+                        title={lanePosition(items, i.id).isFirst ? 'Already first in its lane' : 'Run this sooner'}
+                        className="text-gray-600 hover:text-gray-300 shrink-0 disabled:opacity-30">↑</button>
+                      <button onClick={() => void run(() => api.moveQueueItem(i.id, 'down'))}
+                        disabled={busy || lanePosition(items, i.id).isLast}
+                        title={lanePosition(items, i.id).isLast ? 'Already last in its lane' : 'Run this later'}
+                        className="text-gray-600 hover:text-gray-300 shrink-0 disabled:opacity-30">↓</button>
+                      <button
+                        onClick={() => void run(() => i.paused ? api.resumeQueueItem(i.id) : api.pauseQueueItem(i.id))}
+                        disabled={busy}
+                        title={i.paused ? 'Put this back in line' : 'Hold this one; the lane keeps draining'}
+                        className={`shrink-0 disabled:opacity-40 ${i.paused ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-300'}`}
+                      >
+                        {i.paused ? 'held' : 'hold'}
+                      </button>
+                    </>
+                  )}
+                  {(i.status === 'queued' || i.status === 'blocked') && (
+                    <button
+                      onClick={() => void run(() => api.startQueueItem(i.id))}
+                      disabled={busy}
+                      title="Run this now, even if the cartridge is busy"
+                      className="text-gray-500 hover:text-emerald-300 shrink-0 disabled:opacity-40"
+                    >
+                      start now
+                    </button>
+                  )}
                   {(i.status === 'queued' || i.status === 'running') && (
                     <button
                       onClick={() => void run(() => api.cancelQueueItem(i.id))}
