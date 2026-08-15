@@ -6,7 +6,9 @@ import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, Work
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
-import { isCartridgeBusy, enqueue } from '../lib/queue-runner.js';
+import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
+import { unassignedStepNames } from '../lib/workflow-launch.js';
+import { workflowNeedsAttention } from '../lib/workflow-attention.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
@@ -46,6 +48,9 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     maxIterations: (row.max_iterations ?? 3) as number,
     sharedContext: (row.shared_context ?? '') as string,
     initialContext: (row.initial_context ?? '') as string,
+    // Derived, not stored: "is this waiting on me right now" must be answerable at any moment,
+    // not only at the instant something happened and a notification fired.
+    needsAttention: workflowNeedsAttention(row.id as string),
     createdAt: (row.created_at ?? '') as string,
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
@@ -602,22 +607,42 @@ router.post('/v2/:id/start', (req, res) => {
   // Same rule as prompts and confers: if the cartridges this run would drive are mid-task,
   // queue the run rather than starting it on top of work in progress. Targets are the agents
   // already pinned to this workflow's steps — the ones it will actually dispatch to.
+  // REFUSE AT THE DOOR. A template's steps are `__deferred__` until launch; if nothing in this
+  // request assigns them, the run would be created, all its rows cloned, marked `running`, and
+  // then die on step 1 with "has no cartridge assigned". Reject before anything exists — the
+  // same rule the queue applies to enqueue: validate while a human is watching.
+  const unassigned = unassignedStepNames(req.params.id, req.body);
+  if (unassigned.length > 0) {
+    const shown = unassigned.slice(0, 3).join(', ');
+    const more = unassigned.length > 3 ? ` (+${unassigned.length - 3} more)` : '';
+    return res.status(400).json({
+      error: `Pick a cartridge for this run — ${unassigned.length} step(s) have none: ${shown}${more}`,
+      unassignedSteps: unassigned,
+    });
+  }
+
   if (req.body?.queueIfBusy !== false) {
-    const pinned = (db.prepare(
-      "SELECT DISTINCT executor_id AS id FROM workflow_steps WHERE workflow_id = ? AND executor_id != '' AND executor_id != '__deferred__'"
-    ).all(req.params.id) as { id: string }[]).map((r) => r.id);
-    const busy = pinned.filter((id) => isCartridgeBusy(id));
-    if (busy.length > 0) {
-      const queued = enqueue({
-        kind: 'workflow',
-        payload: { workflowId: req.params.id, startOptions: req.body ?? {} },
-        targets: [],
-      });
-      if (!queued.ok) return res.status(400).json({ error: queued.error });
+    // Targets come from resolveWorkflowTargets, NOT from the step rows alone. A template's
+    // steps are '__deferred__' until launch, so reading only pinned executors made this check
+    // fire on almost nothing: pick a template, pick a cartridge, hit Run, and the run started
+    // on top of whatever that cartridge was doing. The cartridge is in the request body.
+    const targets = resolveWorkflowTargets(req.params.id, req.body);
+    // repoPath is stored so the item lands in that repo's lane instead of the shared
+    // `repo:default` bucket, where every workflow in the fleet queued behind every other.
+    const repoPath = targets.length
+      ? (db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(targets[0]) as { repo_path?: string } | undefined)?.repo_path || ''
+      : '';
+    const guard = guardBusy({
+      kind: 'workflow',
+      targets,
+      payload: { workflowId: req.params.id, repoPath, startOptions: req.body ?? {} },
+    });
+    if ('error' in guard) return res.status(400).json({ error: guard.error });
+    if (guard.queued) {
       return res.status(202).json({
         queued: true,
-        item: queued.item,
-        note: `${busy.length} cartridge(s) busy — the run was queued and starts when they are free`,
+        item: guard.item,
+        note: `${guard.busy.length} cartridge(s) busy — the run was queued and starts when they are free`,
       });
     }
   }

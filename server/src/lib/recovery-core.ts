@@ -260,6 +260,14 @@ export function detectInterruptedSteps(
       agent.status === 'offline' ||
       (Number.isFinite(lastSeenAge) && lastSeenAge > EXECUTOR_STALE_MS);
 
+    // BLOCKED IS NOT DEAD. An agent that stopped to ask a question emits no tool events by
+    // definition, so it crosses the staleness threshold every time while behaving perfectly.
+    // `offline` is a real death signal and outranks this, so an agent that died mid-question
+    // is still caught. The self-heal (clearInterruptOnLife) cannot cover this case: it fires
+    // on the agent's NEXT activity, and a waiting agent emits nothing until a human acts —
+    // the false interrupt would stand for exactly as long as you took to answer.
+    if (agent?.status === 'waiting') continue;
+
     if (!dead) continue;                       // agent still alive/working
     if (opts.isAlive(r.executor_id)) continue; // live socket → not actually dead
     if (r.started_at) {

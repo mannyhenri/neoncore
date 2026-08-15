@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { KIND_IDS, type QueueKind } from '../lib/queue-kinds.js';
-import { enqueue, listQueue, cancelItem, retryItem, removeItem, haltLane, resumeLane, tickQueue } from '../lib/queue-runner.js';
+import { enqueue, listQueue, cancelItem, retryItem, removeItem, haltLane, resumeLane, tickQueue, startNow, moveItem, pauseItem, resumeItem } from '../lib/queue-runner.js';
 
 const router = Router();
 
@@ -55,6 +55,38 @@ router.delete('/:id/remove', (req, res) => {
   if (!removeItem(req.params.id)) {
     return res.status(409).json({ error: 'only a finished item can be cleared — cancel it first' });
   }
+  res.json({ ok: true });
+});
+
+// Run a waiting item NOW. The one sanctioned way to dispatch onto a busy cartridge — a
+// person looked at what is holding the lane and chose to go anyway.
+router.post('/:id/start', (req, res) => {
+  const out = startNow(req.params.id);
+  if (!out.ok) return res.status(409).json({ error: out.error });
+  res.json({ ok: true });
+});
+
+// Reorder one place within the lane. Up/down rather than an absolute index: the client never
+// has to know the lane's numbering, so two people reordering at once cannot write conflicting
+// absolute positions.
+router.post('/:id/move', (req, res) => {
+  const dir = req.body?.direction;
+  if (dir !== 'up' && dir !== 'down') return res.status(400).json({ error: "direction must be 'up' or 'down'" });
+  const out = moveItem(req.params.id, dir);
+  if (!out.ok) return res.status(409).json({ error: out.error });
+  res.json({ ok: true });
+});
+
+// Park ONE item. The lane keeps draining around it — that is the difference from pausing a lane.
+router.post('/:id/pause', (req, res) => {
+  const out = pauseItem(req.params.id);
+  if (!out.ok) return res.status(409).json({ error: out.error });
+  res.json({ ok: true });
+});
+
+router.post('/:id/resume', (req, res) => {
+  const out = resumeItem(req.params.id);
+  if (!out.ok) return res.status(409).json({ error: out.error });
   res.json({ ok: true });
 });
 

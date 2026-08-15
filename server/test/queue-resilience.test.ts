@@ -31,7 +31,9 @@ installStubIO();
 const ISO = new Date().toISOString();
 let n = 0;
 
-function agent(status = 'working'): string {
+// 'idle' is the dispatch precondition — the runner will not start an item on a cartridge that
+// is already working. See the same note in queue-adversarial.test.ts.
+function agent(status = 'idle'): string {
   const id = `ag-${++n}`;
   db.prepare(`INSERT INTO agents (id, name, machine, repo_path, agent_type, status, last_seen)
               VALUES (?,?,?,?,?,?,?)`).run(id, `t/${id}`, 'm', '/r', 'claude', status, ISO);
@@ -180,7 +182,10 @@ test('a queued prompt ARMS the work standard at dispatch, so a read-only turn ca
   // as a queue signal — "research X" never arms, so `cleared` is never true, so the item hangs
   // to the ceiling. A queued item is dispatched work with a known objective, not conversation.
   reset();
-  const a = agent('working');
+  // Idle, because this test is about what happens AT DISPATCH — and the runner now refuses to
+  // dispatch onto a working cartridge. Left 'working', the item never starts and the arming
+  // this test exists to check never runs.
+  const a = agent('idle');
   db.prepare("UPDATE agents SET standard_offered = 1, standard_armed = 0 WHERE id = ?").run(a);
   const out = enqueue({ kind: 'prompt', payload: { text: 'research X and report' }, targets: [a] });
   assert.ok(out.ok);

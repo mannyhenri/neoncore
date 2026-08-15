@@ -1,6 +1,8 @@
 import db from '../db.js';
-import { randomUUID } from 'crypto';
 import { goalCostUsd } from './goal-cost.js';
+// One copy of template→run, shared with decomposition. Two would be two chances to diverge
+// on the step dependency remap, which is the part that silently produces a run that never advances.
+import { cloneTemplateAsRun } from './workflow-from-template.js';
 
 export interface HeartbeatSchedule {
   type: 'hourly' | 'daily' | 'weekly';
@@ -44,82 +46,6 @@ export function formatScheduleLabel(schedule: HeartbeatSchedule): string {
   return 'Unknown schedule';
 }
 
-function cloneTemplateAsRun(templateId: string, projectId: string | null): string | null {
-  const template = db.prepare('SELECT * FROM workflows WHERE id = ? AND template_id IS NULL')
-    .get(templateId) as Record<string, unknown> | undefined;
-  if (!template) return null;
-
-  const runNum = (db.prepare(
-    'SELECT COALESCE(MAX(run_number), 0) + 1 AS next FROM workflows WHERE template_id = ?'
-  ).get(templateId) as { next: number }).next;
-
-  const runId = randomUUID();
-  const now = new Date().toISOString();
-
-  db.prepare(`
-    INSERT INTO workflows (id, name, jira_task_id, description, players, phases, status,
-      current_phase, iteration, max_iterations, shared_context, initial_context,
-      created_at, started_at, completed_at, error, target_repos, template_id, run_number)
-    VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, '', ?, ?, NULL, '', ?, ?, ?)
-  `).run(
-    runId,
-    template.name, template.jira_task_id, template.description,
-    template.players, template.phases,
-    template.current_phase, template.iteration, template.max_iterations, template.shared_context,
-    now, now,
-    template.target_repos, templateId, runNum,
-  );
-
-  // Set project_id and inject recent learnings as initial context
-  if (projectId) {
-    db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId, runId);
-
-    const learnings = db.prepare(
-      `SELECT content, workflow_name FROM project_learnings WHERE project_id = ? ORDER BY created_at DESC LIMIT 3`
-    ).all(projectId) as { content: string; workflow_name: string }[];
-
-    if (learnings.length > 0) {
-      const ctx = [
-        '## Recent Project Learnings',
-        ...learnings.map((l, i) => `### ${i + 1}. From "${l.workflow_name}"\n${l.content.slice(0, 600)}${l.content.length > 600 ? '...' : ''}`),
-        '---',
-      ].join('\n\n');
-      db.prepare('UPDATE workflows SET initial_context = ? WHERE id = ?').run(ctx, runId);
-    }
-  }
-
-  // Clone steps, remap depends_on IDs
-  const templateSteps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
-    .all(templateId) as Record<string, unknown>[];
-  const oldToNew = new Map<string, string>();
-  for (const s of templateSteps) oldToNew.set(s.id as string, randomUUID());
-
-  const insertStep = db.prepare(`
-    INSERT INTO workflow_steps (id, workflow_id, name, description, position_x, position_y,
-      executor_type, executor_id, executor_config, auto_advance, depends_on, created_at,
-      status, result, error, started_at, completed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', NULL, NULL)
-  `);
-
-  const STEP_SPACING = 230;
-  const START_Y = 80;
-  const FIXED_X = 300;
-
-  for (let i = 0; i < templateSteps.length; i++) {
-    const s = templateSteps[i];
-    const newId = oldToNew.get(s.id as string)!;
-    const oldDeps: string[] = JSON.parse((s.depends_on as string) || '[]');
-    const newDeps = oldDeps.map((d) => oldToNew.get(d)).filter(Boolean);
-    insertStep.run(
-      newId, runId, s.name, s.description,
-      FIXED_X, START_Y + i * STEP_SPACING,
-      s.executor_type, s.executor_id, s.executor_config, s.auto_advance,
-      JSON.stringify(newDeps), now,
-    );
-  }
-
-  return runId;
-}
 
 export function fireHeartbeat(heartbeatId: string): { runId: string } | { error: string } {
   const hb = db.prepare('SELECT * FROM heartbeats WHERE id = ?').get(heartbeatId) as Record<string, unknown> | undefined;

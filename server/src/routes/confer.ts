@@ -1,4 +1,4 @@
-import { isCartridgeBusy, enqueue } from '../lib/queue-runner.js';
+import { guardBusy } from '../lib/queue-if-busy.js';
 import { Router } from 'express';
 import db from '../db.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
@@ -112,18 +112,17 @@ router.post('/start', async (req, res) => {
   // "NOT NULL constraint failed: confer_sessions.repo_name". What we enqueue must equal what we
   // would have dispatched.
   if (req.body?.queueIfBusy !== false) {
-    const busy = ids.filter((id) => isCartridgeBusy(id));
-    if (busy.length > 0) {
-      const queued = enqueue({
-        kind: 'confer',
-        payload: { repoName, repoPath, participantIds: ids, task: task.trim(), mode, isolation, buildRounds },
-        targets: ids,
-      });
-      if (!queued.ok) return res.status(400).json({ error: queued.error });
+    const guard = guardBusy({
+      kind: 'confer',
+      targets: ids,
+      payload: { repoName, repoPath, participantIds: ids, task: task.trim(), mode, isolation, buildRounds },
+    });
+    if ('error' in guard) return res.status(400).json({ error: guard.error });
+    if (guard.queued) {
       return res.status(202).json({
         queued: true,
-        item: queued.item,
-        note: `${busy.length} of ${ids.length} cartridge(s) busy — the confer was queued and starts when they are free`,
+        item: guard.item,
+        note: `${guard.busy.length} of ${ids.length} cartridge(s) busy — the confer was queued and starts when they are free`,
       });
     }
   }

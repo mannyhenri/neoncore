@@ -8,6 +8,8 @@ import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
 import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
+import { clearInterruptOnLife } from '../lib/recovery.js';
+import { statusFromActivity } from '../lib/activity-status.js';
 
 const router = Router();
 
@@ -45,8 +47,21 @@ router.post('/', (req, res) => {
     console.warn(`[activity] trouble-signal consumer failed: ${err instanceof Error ? err.message : err}`);
   }
 
-  // Update agent's last_seen and status
-  db.prepare(`UPDATE agents SET last_seen = ?, status = 'working' WHERE id = ?`).run(now, resolvedAgentId);
+  // Update last_seen always — any event is proof of life. The STATUS depends on what the
+  // event says: forcing 'working' for everything discarded the one signal that means the
+  // cartridge is blocked on a human ("Claude is waiting for your input"), so a waiting agent
+  // was indistinguishable from an idle one. null means "this event says nothing about
+  // availability" — leave whatever is there rather than guessing.
+  const implied = statusFromActivity(String(eventType || ''), toolInputStr);
+  if (implied) {
+    db.prepare('UPDATE agents SET last_seen = ?, status = ? WHERE id = ?')
+      .run(now, implied, resolvedAgentId);
+  } else {
+    db.prepare('UPDATE agents SET last_seen = ? WHERE id = ?').run(now, resolvedAgentId);
+  }
+  // A tool hook firing is the strongest proof this cartridge is alive. If the staleness sweep
+  // declared it dead during a long tool call, this is the moment that verdict is wrong.
+  clearInterruptOnLife(resolvedAgentId);
 
   // Work-standard gate: an offered contract becomes binding the first time the agent edits
   // something. This is the ingest point every engine's reporter posts to, so it covers all

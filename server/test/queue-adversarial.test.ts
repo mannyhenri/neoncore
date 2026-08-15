@@ -46,7 +46,13 @@ async function waitFor(cond: () => boolean, budgetMs = 2000): Promise<void> {
 }
 const item = (id: string) => listQueue().find((i) => i.id === id)!;
 
-function makeAgent(id: string, status = 'working'): string {
+// 'idle' is the DISPATCH PRECONDITION, not a detail: the runner refuses to start an item on a
+// cartridge that is already working, so a fixture agent left 'working' never receives anything
+// and every assertion downstream of the dispatch reads 'queued'. The default used to be
+// 'working' and passed only because the pre-dispatch guard ignored status — it checked the
+// queue's own stamp alone, so a cartridge busy with hand-typed work looked free and the item
+// landed on top of it. Tests that specifically need a busy cartridge pass one explicitly.
+function makeAgent(id: string, status = 'idle'): string {
   db.prepare(`
     INSERT OR REPLACE INTO agents (id, name, machine, repo_path, repo_name, branch, current_task,
       status, pending_question, trust_mode, agent_mode, last_seen, session_id, agent_type)

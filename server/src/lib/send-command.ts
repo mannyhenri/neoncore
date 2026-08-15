@@ -7,6 +7,8 @@ import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from 
 import { materializeAttachments } from './attachments.js';
 import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
+import { goalBriefForAgent } from './goal-brief.js';
+import { noteBudgetOnDispatch } from './goal-budget.js';
 
 /**
  * Shared command dispatch — used by the commands route.
@@ -207,6 +209,21 @@ export function sendCommandToAgent(
     }
   }
 
+  // ── Goal brief injection (lib/goal-brief.ts) ───────────────────────────────
+  //
+  // Sits beside the work standard and for the same reason: this is the one funnel every
+  // prompt passes through, so nine call sites inherit the goal without being touched.
+  // Gated on the same condition as the standard — a dispatch, not a reply. Re-stating the
+  // goal on every "yes"/"continue" would burn context to say what the agent was told when
+  // the task began.
+  if (opts.standard !== false && !answeringQuestion && shouldInjectForDispatch(text, {
+    status: agentCheck.status,
+    pendingQuestion: agentCheck.pending_question,
+  })) {
+    const brief = goalBriefForAgent(agentId);
+    if (brief) finalText = `${brief}\n\n${finalText}`;
+  }
+
   // ── Work-standard injection (docs/WORK-STANDARD.md) ────────────────────────
   //
   // Every prompt in the fleet funnels through here — dashboard, mobile, workflow steps,
@@ -299,6 +316,38 @@ export function sendCommandToAgent(
       console.error(`[cmd] NO COMMAND CHANNEL for agent ${agentId} (${agentCheck.repo_name}) — command queued as pending, nothing is listening. Start a relay for this cartridge.`);
       command.delivered = false;
     }
+  }
+
+  /**
+   * BUDGET, at the one point every dispatch passes through.
+   *
+   * The cap used to be consulted only by the heartbeat scheduler, so it covered scheduled runs
+   * and nothing else — manual launches, queued tasks, confer turns, workflow steps and
+   * dashboard prompts all ignored it. Nine call sites inherit from this function, so one check
+   * here covers all of them.
+   *
+   * WARNS, never blocks: the user's decision, and blocking mid-session would strand work
+   * someone is actively doing. Deliberately after the send, so a fault in accounting can never
+   * prevent a dispatch — and wrapped, because a warning is not worth an exception.
+   */
+  try {
+    const alert = noteBudgetOnDispatch(agentId);
+    if (alert) {
+      console.warn(`[budget] ${alert.message}`);
+      // Reuses the channel the dashboard's notification centre already listens on, rather
+      // than inventing a second one nobody has wired a UI to.
+      getIO().emit('workflow_notification' as any, {
+        id: uuid(),
+        workflowId: '',
+        workflowName: alert.goalName,
+        title: alert.state === 'over' ? 'Goal over budget' : 'Goal approaching budget',
+        body: alert.message,
+        projects: [] as string[],
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error('[budget] check failed (dispatch unaffected):', err);
   }
 
   return command;

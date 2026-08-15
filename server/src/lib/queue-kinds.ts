@@ -30,7 +30,7 @@
  */
 import db from '../db.js';
 
-export const KIND_IDS = ['prompt', 'workflow', 'confer'] as const;
+export const KIND_IDS = ['prompt', 'workflow', 'confer', 'task'] as const;
 export type QueueKind = (typeof KIND_IDS)[number];
 
 /**
@@ -65,6 +65,8 @@ export interface QueueItem {
   attempts: number;
   /** Consecutive ticks a running item's target has been unreachable. */
   stallTicks: number;
+  /** Parked by a human. Still queued, but skipped — the rest of the lane keeps draining. */
+  paused: boolean;
   /** The persisted row could not be deserialized — quarantined, never silently skipped. */
   corrupt: boolean;
 }
@@ -220,7 +222,10 @@ export const QUEUE_KINDS: QueueKindDef[] = [
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(item.payload.startOptions || {}),
+        // queueIfBusy:false is REQUIRED, not tidy. This posts to the very route that enqueued
+        // the item; with the default opt-out the route would run its busy check again and
+        // enqueue a second copy of the work being dispatched, and the lane would feed itself.
+        body: JSON.stringify({ ...(item.payload.startOptions as object || {}), queueIfBusy: false }),
       });
       if (!res.ok) throw new Error(`workflow start failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
       const body = (await res.json()) as { workflow?: { id?: string } };
@@ -245,6 +250,46 @@ export const QUEUE_KINDS: QueueKindDef[] = [
       return { handle: session.id, targets: [] };
     },
     isComplete: (item) => detectByStatus('confer_sessions', item, 'confer'),
+  },
+  {
+    // A dispatched task is a prompt with bookkeeping: the tasks row moves to in_progress and
+    // the dashboard follows it. That bookkeeping is why this is its own kind rather than a
+    // prompt — enqueueing it as a prompt would mark the task in_progress at ENQUEUE time,
+    // so a task waiting behind three others would read as running for as long as it waited.
+    kind: 'task',
+    validate: (p) => {
+      if (!str(p, 'taskId')) return 'a task needs `taskId`';
+      if (!str(p, 'agentId')) return 'a task needs `agentId` — the cartridge it was aimed at';
+      return null;
+    },
+    describe: (i) => `task ${str(i.payload, 'taskId').slice(0, 8)}`,
+    dispatch: async (item) => {
+      // Dynamic import: the dispatcher lives with the route that owns the tasks table, and a
+      // static import from lib/ into routes/ would be a cycle. Same shape as the workflow
+      // kind reaching for server-url.
+      const { dispatchTaskToAgent, getTask } = await import('../routes/tasks.js');
+      const taskId = str(item.payload, 'taskId');
+      const agentId = str(item.payload, 'agentId');
+      const task = getTask(taskId);
+      // Cancelled or finished while it waited. Not an error — the queue did its job by not
+      // running it, and failing the lane over it would halt everything behind it.
+      if (!task) throw new Error(`task ${taskId} no longer exists`);
+      if (task.status === 'done' || task.status === 'cancelled') {
+        throw new Error(`task ${taskId} was already ${task.status} before its turn came`);
+      }
+      const updated = dispatchTaskToAgent(task, agentId);
+      if (!updated) throw new Error(`task ${taskId} could not reach cartridge ${agentId}`);
+      return { handle: taskId, targets: [agentId] };
+    },
+    isComplete: (item) => {
+      if (!item.handle) return { state: 'running', reason: 'task not dispatched yet' };
+      const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(item.handle) as
+        { status?: string } | undefined;
+      if (!row) return { state: 'needs_attention', reason: `task ${item.handle} no longer exists` };
+      if (row.status === 'done') return { state: 'complete', reason: 'task done' };
+      if (row.status === 'cancelled') return { state: 'needs_attention', reason: 'task cancelled' };
+      return { state: 'running', reason: `task is ${row.status || 'queued'}` };
+    },
   },
 ];
 

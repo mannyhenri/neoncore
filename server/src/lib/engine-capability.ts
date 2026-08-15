@@ -252,6 +252,16 @@ export const FUNCTIONS: AgentFunction[] = [
   f('neoncore_read_agent', 'T2', 'batch', 'mcpTool'),
   f('neoncore_report_step_done', 'T2', 'batch', 'mcpTool'),
   f('neoncore_report_task_done', 'T5', 'batch', 'mcpTool'),
+  // Drafting goal intent is judgement, not transcription: deciding what is genuinely
+  // measurable, what belongs out of scope, and — hardest — what to leave blank rather than
+  // invent. The text lands in every prompt dispatched under the goal, so a weaker engine
+  // confabulating an acceptance criterion here becomes an instruction other agents act on.
+  f('neoncore_submit_goal_draft', 'T5', 'batch', 'mcpTool'),
+  // Decomposition is planning under constraint: reading a codebase well enough to name work
+  // that actually exists, scoping each task to something independently verifiable, and getting
+  // the dependency order right. Every accepted task is dispatched to a cartridge, so a plausible
+  // but ungrounded plan does not fail at review — it fails after N runs have been spent on it.
+  f('neoncore_submit_goal_decomposition', 'T5', 'batch', 'mcpTool'),
 
   // --- Engine lifecycle and developer-facing (no enum — see the doc) ---
   f('task_planning', 'T4', 'interactive', 'lifecycle'),

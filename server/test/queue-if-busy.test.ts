@@ -26,28 +26,39 @@ installStubIO();
 const ISO = new Date().toISOString();
 let n = 0;
 
-function agent(status: string, queueItem = ''): string {
+function agent(status: string, queueItem = '', question = ''): string {
   const id = `busy-${++n}`;
-  db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, agent_type, status, last_seen, active_queue_item_id)
-              VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(id, `t/${id}`, 'm', '/r', 'r', 'claude', status, ISO, queueItem);
+  db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, agent_type, status, last_seen, active_queue_item_id, pending_question)
+              VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, `t/${id}`, 'm', '/r', 'r', 'claude', status, ISO, queueItem, question);
   return id;
 }
 
 // ─── What "busy" means, as a set rather than one example ────────────────────
 
 test('EVERY state that means "cannot take new work now" counts as busy', () => {
-  const CASES: { label: string; status: string; item: string; busy: boolean }[] = [
-    { label: 'working on something', status: 'working', item: '', busy: true },
-    { label: 'already running a queue item', status: 'idle', item: 'item-1', busy: true },
-    { label: 'working AND holding an item', status: 'working', item: 'item-1', busy: true },
-    { label: 'idle and unstamped', status: 'idle', item: '', busy: false },
-    { label: 'waiting on a question', status: 'waiting', item: '', busy: true },
-    { label: 'offline', status: 'offline', item: '', busy: false },
+  const CASES: { label: string; status: string; item: string; question: string; busy: boolean }[] = [
+    { label: 'working on something', status: 'working', item: '', question: '', busy: true },
+    { label: 'already running a queue item', status: 'idle', item: 'item-1', question: '', busy: true },
+    { label: 'working AND holding an item', status: 'working', item: 'item-1', question: '', busy: true },
+    { label: 'idle and unstamped', status: 'idle', item: '', question: '', busy: false },
+    // This case was labelled "waiting on a question" while its fixture set no question, so it
+    // actually pinned `waiting` alone as busy — and that is the bug that held whole lanes shut:
+    // a cartridge ending a session in `waiting` with nothing outstanding blocked its own queue
+    // indefinitely. The question is now set, so the case tests what its name always claimed.
+    { label: 'waiting on a real question', status: 'waiting', item: '', question: 'Delete the old table?', busy: true },
+    // Its counterpart, which was missing entirely.
+    { label: 'waiting on NOTHING — stale flag, cartridge is idle', status: 'waiting', item: '', question: '', busy: false },
+    // Offline now counts as busy: it cannot take work NOW, so work aimed at it QUEUES and waits
+    // for it to come back. It previously returned false, which meant a launch aimed at a
+    // disconnected cartridge dispatched straight into a dead channel and the step died
+    // "Command not delivered". The wait is bounded — queue-runner budgets an unreachable target
+    // by MAX_STALL_TICKS, then halts the lane with a stated reason.
+    { label: 'offline — queue and wait for it', status: 'offline', item: '', question: '', busy: true },
   ];
   const wrong: string[] = [];
   for (const c of CASES) {
-    const id = agent(c.status, c.item);
+    const id = agent(c.status, c.item, c.question);
     if (isCartridgeBusy(id) !== c.busy) {
       wrong.push(`${c.label}: got ${isCartridgeBusy(id)}, expected ${c.busy}`);
     }
@@ -113,11 +124,16 @@ test('confer and workflow starts STILL queue against a busy cartridge', async ()
     { file: 'routes/commands.ts', label: 'POST /api/commands/send (prompt)' },
     { file: 'routes/confer.ts', label: 'POST /api/confer/start (confer)' },
     { file: 'routes/workflows.ts', label: 'POST /api/workflows/v2/:id/start (workflow)' },
+    { file: 'routes/tasks.ts', label: 'POST /api/tasks/:id/dispatch (task)' },
   ];
   const missing: string[] = [];
   for (const e of ENTRY_POINTS) {
     const src = fs.readFileSync(path.join(SRC, e.file), 'utf8');
-    if (!src.includes('isCartridgeBusy')) missing.push(`${e.label} never checks busy state`);
+    // guardBusy is the ONE implementation of this rule (lib/queue-if-busy.ts). The routes used
+    // to call isCartridgeBusy + enqueue inline, three times, and the workflow copy resolved its
+    // targets wrongly while still mentioning both names — which is exactly why this assertion
+    // is now "uses the shared guard" rather than "mentions the right identifiers".
+    if (!src.includes('guardBusy')) missing.push(`${e.label} does not use the shared busy guard`);
     if (!src.includes('queueIfBusy')) missing.push(`${e.label} has no queueIfBusy opt-out`);
   }
   assert.deepEqual(missing, [], `these entry points still interrupt a busy cartridge:\n  ${missing.join('\n  ')}`);
@@ -131,5 +147,6 @@ test('the send route honours queueIfBusy and defaults to NOT queueing', async ()
   const path = await import('node:path');
   const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/routes/commands.ts'), 'utf8');
   assert.match(src, /queueIfBusy/, 'the send route does not implement queueIfBusy at all');
-  assert.match(src, /isCartridgeBusy/, 'the send route never consults busy state');
+  assert.match(src, /guardBusy/, 'the send route never consults busy state');
+  assert.match(src, /queueIfBusy === true/, 'the send route must stay OPT-IN — see the peer-forward deadlock above');
 });
