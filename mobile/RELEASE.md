@@ -42,6 +42,15 @@ MARKETING_VERSION = 0.6.0;
 CURRENT_PROJECT_VERSION = 23;      # bump this every upload
 ```
 
+There are **two** configurations (Debug and Release) carrying `CURRENT_PROJECT_VERSION`, and
+both must move — bumping one and leaving the other is a partial change that builds fine and
+produces a confusing upload.
+
+`src/__tests__/standard-banner.test.ts` checks exactly that, against its own
+`EXPECTED_BUILD` constant, so **bump the constant in the same commit as the pbxproj**. It went
+stale for builds 34 and 35 because that step is easy to skip, which left the suite red and the
+guard useless — a red test nobody expects to pass stops being a signal.
+
 ### 2. Install pods if native deps changed
 
 ```bash

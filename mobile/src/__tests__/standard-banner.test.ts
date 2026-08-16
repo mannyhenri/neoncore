@@ -12,7 +12,7 @@ import path from 'path';
  * partial change that looks done, builds fine, and produces a confusing TestFlight upload.
  */
 
-const EXPECTED_BUILD = 28;
+const EXPECTED_BUILD = 36;
 
 describe('iOS build number', () => {
   const pbxproj = readFileSync(
