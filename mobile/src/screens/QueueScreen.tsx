@@ -45,8 +45,11 @@ export function QueueScreen() {
   const adaptive = useAdaptiveContent();
 
   const load = useCallback(async () => {
-    if (!baseUrl) return;
     try {
+      // Inside the try so the finally still runs. Returning above it left `loading` true
+      // forever and the screen showed a spinner that no refresh could clear — the same
+      // symptom as a hung server, from the one case where there is nothing to wait for.
+      if (!baseUrl) { setItems([]); setLanes([]); return; }
       const view = await api.getQueue(baseUrl);
       setItems(view.items ?? []);
       setLanes(view.lanes ?? []);

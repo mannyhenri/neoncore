@@ -1,6 +1,22 @@
 // Ported from server/src/types.ts — the subset the mobile app consumes.
 // Keep in sync with the server's ServerToClientEvents contract.
 
+/**
+ * Goals and tasks come from the SHARED package, never a local copy.
+ *
+ * The rule the workflow types had to learn the hard way (see WorkflowStepSummary below):
+ * a hand-copied type drifts toward being STRICTER than the server, which does not fail the
+ * typecheck — it removes it. These two carry the exact fields that punish that. `progress`,
+ * `health` and `schedule` are all nullable-by-meaning, and `progress.fraction` has three
+ * states where a copy would record two.
+ */
+export type Goal = import('@neoncore/client').Goal;
+export type GoalProgress = import('@neoncore/client').GoalProgress;
+export type GoalHealth = import('@neoncore/client').GoalHealth;
+export type GoalSchedule = import('@neoncore/client').GoalSchedule;
+export type Task = import('@neoncore/client').Task;
+export type TaskStatus = import('@neoncore/client').TaskStatus;
+
 export type AgentMode = 'manual' | 'trust' | 'plan';
 export type AgentType = 'claude' | 'gridlight' | 'codex';
 
@@ -111,18 +127,17 @@ export interface PermissionRequest {
 export type WorkflowStatus =
   | 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
-// A quick roll-up the list endpoint attaches to each workflow so a run row can show
-// "3/5 · repo-name" without a second fetch. Server: buildStepSummary in routes/workflows.ts.
-export interface WorkflowStepSummary {
-  total: number;
-  completed: number;
-  running: number;
-  failed: number;
-  pending: number;
-  stepNames: string[];
-  /** Repo/cartridge names the steps run on (deferred steps contribute none). */
-  projects: string[];
-}
+/**
+ * A quick roll-up the list endpoint attaches to each workflow so a run row can show
+ * "3/5 · repo-name" without a second fetch. Server: buildStepSummary in routes/workflows.ts.
+ *
+ * Re-exported from the SHARED package rather than declared here, for the same reason the
+ * queue types are (see api.ts). The local copy had drifted in the direction that breaks
+ * the app rather than the typecheck: it promised `stepNames` and `projects` were always
+ * present where the contract marks both optional, so `s.projects.length` compiled clean
+ * and took the Workflows screen down whenever a server omitted them.
+ */
+export type WorkflowStepSummary = import('@neoncore/client').StepSummary;
 
 // A workflow with templateId === null is a *template*; one with a templateId is a
 // *run* cloned from it. POST /workflows/v2/:id/start on a template makes a new run.
