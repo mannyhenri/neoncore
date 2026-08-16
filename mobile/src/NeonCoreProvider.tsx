@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { api, ApiError, setServerToken } from './api';
 import {
-  type ServerEntry, activeServers, fallbackName, saveServers, upsertServer,
+  type ServerEntry, activeServers, fallbackName, reachablePeers, saveServers, upsertServer,
 } from './config';
 import type { Agent, ConferSession, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
@@ -165,7 +165,10 @@ export function NeonCoreProvider({
               ? { ...s, serverId: roster.self.serverId || s.serverId, name: s.manual && s.name ? s.name : roster.self.name || s.name }
               : s,
           );
-          for (const peer of roster.peers) {
+          // Only peers the serving machine can currently reach. A peer it has given up on
+          // is a machine this phone will hang on too, and discovery is how it would get
+          // into the roster in the first place.
+          for (const peer of reachablePeers(roster.peers)) {
             next = upsertServer(next, { url: peer.url, name: peer.name, serverId: peer.serverId, manual: false });
           }
         }

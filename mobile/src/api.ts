@@ -1,4 +1,4 @@
-import type { Agent, AgentMode, ConferSession, Machine, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
+import type { Agent, AgentMode, ConferSession, Goal, Machine, PermissionRequest, Task, TaskStatus, TranscriptEvent, Workflow, WorkflowStep } from './types';
 /**
  * Queue types come from the SHARED package, not a local copy.
  *
@@ -43,13 +43,43 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * How long to wait for a server before calling it unreachable.
+ *
+ * `fetch` has no timeout, and on a phone that is the difference between an error and a
+ * hang. A machine that is OFF refuses the connection immediately; a machine that is
+ * asleep, moved, or wedged accepts it and then says nothing, and iOS will sit on that for
+ * more than a minute. Every screen bound to one server shows a spinner for the whole
+ * wait, which is indistinguishable from the app being broken.
+ *
+ * The phone auto-adopts peers, so it WILL be pointed at such a machine eventually — this
+ * fleet already advertises one with thousands of consecutive timeouts. Twelve seconds is
+ * long enough for a loaded server on slow Wi-Fi and short enough to still feel like an
+ * answer. Mutable so tests can shorten it.
+ */
+export const requestConfig = { timeoutMs: 12_000 };
+
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
 async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
   const token = tokens.get(base);
   let res: Response;
+
+  // Built from AbortController rather than AbortSignal.timeout/any: those are Node and
+  // browser statics, and this runs on Hermes, whose AbortController comes from a polyfill
+  // that has the constructor but not the statics. Reaching for them here would throw a
+  // TypeError on device while every test on Node passed.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, requestConfig.timeoutMs);
+  // A caller's own signal still cancels — the timeout is added to it, not substituted.
+  const callerSignal = init?.signal;
+  const forwardAbort = () => controller.abort();
+  callerSignal?.addEventListener('abort', forwardAbort);
+
   try {
     res = await fetch(`${base}${path}`, {
       ...init,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -57,7 +87,18 @@ async function req<T>(base: string, path: string, init?: RequestInit): Promise<T
       },
     });
   } catch (err) {
+    // A timeout arrives as an abort. Said plainly, because "Aborted" reads like the user
+    // did something and "timed out" reads like the machine did.
+    if (timedOut) {
+      throw new ApiError(
+        'unreachable',
+        `timed out after ${requestConfig.timeoutMs / 1000}s — ${base} accepted the connection but never answered`,
+      );
+    }
     throw new ApiError('unreachable', err instanceof Error ? err.message : String(err));
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', forwardAbort);
   }
 
   if (!res.ok) {
@@ -263,6 +304,53 @@ export const api = {
   listConfers: (base: string) => req<ConferSession[]>(base, '/api/confer'),
   cancelConfer: (base: string, id: string) =>
     req<ConferSession>(base, `/api/confer/${id}/cancel`, { method: 'POST' }),
+
+  // ─── Goals ───────────────────────────────────────────────────────────────
+  // Read plus the one write a phone should own. Drafting and decomposition stay on the
+  // desk: both are multi-field authoring against a proposal, and a goal's intent reaches
+  // working cartridges at dispatch, so accepting one on a small screen by mistake is
+  // expensive in a way that pausing a goal is not.
+
+  /** Every goal, already carrying progress, health, reach, cost and schedule. */
+  listGoals: (base: string) => req<Goal[]>(base, '/api/goals'),
+
+  getGoal: (base: string, id: string) => req<Goal>(base, `/api/goals/${id}`),
+
+  /** Pause, resume, or mark achieved — a one-tap decision, which is phone work. */
+  setGoalStatus: (base: string, id: string, status: 'active' | 'paused' | 'achieved') =>
+    req<Goal>(base, `/api/goals/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }),
+
+  // ─── Tasks ───────────────────────────────────────────────────────────────
+
+  /** `goalId` is what links the two screens: a goal's own tasks, without a second concept. */
+  listTasks: (base: string, filters?: { status?: TaskStatus; goalId?: string; agentId?: string }) => {
+    const q = new URLSearchParams();
+    if (filters?.status) q.set('status', filters.status);
+    if (filters?.goalId) q.set('goalId', filters.goalId);
+    if (filters?.agentId) q.set('agentId', filters.agentId);
+    const qs = q.toString();
+    return req<Task[]>(base, `/api/tasks${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Send a task to a cartridge. Omit agentId and the server picks one for the project.
+   *
+   * 409 is not a failure here, it is the DEPENDENCY GATE answering: the task has an
+   * unfinished prerequisite. The server sends `blocked` and a `hint` saying so, and the
+   * caller is expected to show them and offer `force` rather than retry blindly — the gate
+   * exists precisely to make overriding it a deliberate act.
+   */
+  dispatchTask: (base: string, id: string, opts?: { agentId?: string; force?: boolean }) =>
+    req<Task & { queued?: boolean; note?: string }>(base, `/api/tasks/${id}/dispatch`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(opts?.agentId ? { agentId: opts.agentId } : {}),
+        ...(opts?.force ? { force: true } : {}),
+      }),
+    }),
+
+  cancelTask: (base: string, id: string) =>
+    req<Task>(base, `/api/tasks/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
 
   // New repo — scaffold a folder on the server host, git init, gh repo create + push, and
   // (optionally) launch an agent. parentDir/owner default server-side (projects_dir / active
