@@ -1,130 +1,122 @@
 # NeonCore Mobile
 
-A React Native (Expo) companion app for the NeonCore orchestrator. Mirror what your
-terminals are showing (Claude's live messages and questions) and control agents from your
-phone — send prompts, switch autonomy mode, and answer approvals/questions.
+A **native React Native** companion app for the NeonCore orchestrator. Read what your agents are
+doing, answer their approvals, launch workflows and unblock work — from your phone, over your LAN.
 
-**Scope:** LAN-only · mirror + full control · iOS (shipped to TestFlight) + Android via Expo.
-Install instructions for users: [INSTALL.md → Phone (iOS)](../INSTALL.md#phone-ios).
+> **This app is not an Expo app.** It was ejected, and `expo-updates`, EAS and Expo Go are all
+> gone. If you find instructions here or elsewhere that say `npx expo start`, `expo prebuild` or
+> "OTA update", they are wrong — see [RELEASE.md](RELEASE.md) for why the eject was necessary and
+> what replaced each piece.
 
-## Run it
+**Scope:** LAN-only · iOS · no cloud relay, by design.
 
-```bash
-cd mobile
-npx expo install        # aligns native deps to the Expo SDK
-npx expo start          # then scan the QR with Expo Go, or press i / a
-```
+---
 
-On first launch, enter your server URL — the `Network:` line from the NeonCore server's
-startup banner, e.g. `http://192.168.1.50:4040`. Phone and server must be on the same Wi-Fi.
+## Run it locally
 
-## Run it on a physical iPhone (TestFlight)
-
-**You cannot use App Store Expo Go.** Expo Go only ever supports the *latest* SDK (57);
-this app is on SDK 52. (The iOS simulator works because `expo start --ios` silently
-downloads a legacy SDK-52 Expo Go build — that path doesn't exist for real hardware.)
-
-Ship it to TestFlight instead:
+Requires Xcode and CocoaPods. From `mobile/`:
 
 ```bash
-npm i -g eas-cli
-eas login                            # manny@gridlight.ai
-eas build -p ios --profile production   # ~15-20 min in the cloud
-eas submit -p ios --latest              # uploads to App Store Connect
+npm install
+cd ios && pod install && cd ..
+npm run ios              # builds and boots the simulator
 ```
 
-`eas build` prompts for your Apple credentials and provisions signing itself — you do
-not need to touch Xcode or certificates. `eas submit` creates the App Store Connect app
-record for `ai.gridlight.neoncore` on first run if it does not exist.
+On a **device**, open `ios/NeonCore.xcworkspace` in Xcode, pick your team, and run. Two things you
+will have to change because they are hardcoded to Gridlight's account:
 
-Then in App Store Connect → TestFlight, add yourself under **Internal Testing**.
-Internal testing (your own team, ≤100 testers) needs **no App Review** — only the few
-minutes of build processing. External testers *do* require review.
+| Setting | Current value | What to do |
+|---|---|---|
+| `DEVELOPMENT_TEAM` | `3AXRJ22S9P` | Your own Apple Developer Team ID |
+| Bundle identifier | `ai.gridlight.neoncore` | Your own reverse-DNS identifier |
 
-### What TestFlight changes
+The Metro bundler starts with `npm start` if you want it separately.
 
-A TestFlight build is a **release** build: the JS is bundled in, so it does **not**
-hot-reload from Metro. Rebuild + resubmit to ship changes. `version`/`buildNumber` live
-in `app.json`; the `production` profile auto-increments the build number per build.
+---
 
-The app still talks to your NeonCore server over **plain HTTP on the LAN**, so the phone
-must be on the same Wi-Fi as the Mac. This works in a release build only because
-`NSAllowsLocalNetworking` + `NSLocalNetworkUsageDescription` are set in `app.json` — iOS
-will show a one-time "allow local network access" prompt on first launch. Say yes, or
-nothing will connect.
+## Connect it
 
-### Shipping a change without a rebuild (EAS Update / OTA)
+1. Start a NeonCore server on your machine (`npm start` in the repo root)
+2. Open the app and enter `http://<SERVER>:4040` — hostname or IP, whichever your network resolves
+3. The rest of the fleet appears on its own; the phone adopts every peer the server advertises
 
-JS and asset changes go straight to installed apps — no rebuild, no resubmit, no Apple
-review:
+If nothing appears, check the server answers **from the phone's network**:
 
 ```bash
-eas update --branch production -m "what changed"   # ~30s; picked up on next app launch
+curl http://<SERVER>:4040/api/health     # → {"status":"ok"}
 ```
 
-**A rebuild is still required for native changes** — a new native module, anything under
-`ios`/`android`/`plugins` in `app.json`, or an Expo SDK bump.
+---
 
-> ⚠️ **When you make a native change, bump `version` in `app.json`.**
->
-> `runtimeVersion.policy` is `appVersion`, so the runtime version *is* `version` (0.1.0).
-> OTA updates are only delivered to builds with a matching runtime version. If you ship a
-> native change without bumping `version`, `eas update` will happily push JS that needs
-> native code the installed binary does not have — and the app crashes on launch.
-> Bumping `version` gives the new build a new runtime version, so old builds correctly
-> stop receiving the incompatible JS.
->
-> (The `fingerprint` policy automates this, but it is incompatible with
-> `autoIncrement` — EAS bumps `ios.buildNumber` server-side mid-build, `buildNumber` is
-> an input to the fingerprint, so local and EAS fingerprints never match and the build
-> fails in the `Configure expo-updates` phase.)
+## What's on the phone, and what isn't
 
-### Iterating without any of this
+Six tabs: **Cartridges · Goals · Workflows · Queue · Tasks · Approvals**.
 
-For day-to-day work, use the simulator — it reloads instantly:
+The app is deliberately not a second dashboard. It covers checking and unblocking; authoring stays
+on the desk.
 
-```bash
-npx expo start --go --ios    # --go is required: expo-dev-client otherwise targets a dev build
-```
-
-## What it does
-
-| Screen | Backed by |
+| On the phone | Left on the desktop |
 |---|---|
-| **Cartridge grid** — live cartridges (offline behind a toggle) with their **tool** badge, status, last message / pending question, approvals badge; **Launch** a cartridge on a machine, or **Confer** (put 2+ cartridges on one job) | `GET /api/agents` + `agent_updated` socket |
-| **Cartridge detail** — message stream (tap any message for the full content; **long-press to copy** it), command box, manual/plan/trust toggle | `GET /api/agents/:id/messages`, `transcript_event`, `POST /api/commands/send`, `PUT /api/trust/:id/mode` |
-| **Approvals inbox** — allow/deny tool calls, approve plans, answer AskUserQuestion | `GET /api/permissions/pending`, `permission_requested`, `POST /api/permissions/decide` |
-| **Workflows** (⚡) — run any workflow template with an optional brief; pick the project, and optionally choose which **tool** runs each step; shows active runs | `GET /api/workflows?templates=true`, `?runs=true`, `POST /api/workflows/v2/:id/start` |
+| Read transcripts (long-press a message to copy) | — |
+| Answer approvals and agent questions | — |
+| Watch goals; pause, resume, mark achieved | Drafting and decomposing goals |
+| Dispatch or cancel a task | Creating and editing tasks |
+| Watch the queue; hold, start, retry an item | Pausing a whole lane |
+| Launch a workflow or a Confer | Authoring workflows on the canvas |
 
-Messages render **newest-first, at the top** — the latest message is the one you opened the
-screen to read, so it costs no scrolling. History is reversed on load and live events prepend.
-The list auto-snaps to the top for a new message only if you're already near the top; if
-you've scrolled back into history you are left where you are. Expanding a message does not
-steal your scroll position either.
+The rule behind the split: a goal's intent reaches every working cartridge at dispatch, so
+accepting an AI-drafted field is consequential writing rather than a glance. Long prose and
+multi-field forms want a keyboard.
 
-Message text is rendered as **markdown** (`src/components/Markdown.tsx` — hand-written, no
-dependency: `react-native-markdown-display` still uses `defaultProps` on function components,
-which React 19 removed, and any native dep would cost a rebuild instead of an OTA update).
+---
 
-Live updates arrive over one Socket.io connection (`src/NeonCoreProvider.tsx`); REST calls
-live in `src/api.ts`. Types are ported from `server/src/types.ts` into `src/types.ts`.
+## Push notifications
 
-## Architecture notes
+Approvals arrive as push, which is most of the point of carrying the app. This needs **APNs
+configured on the server**, not in the app:
 
-- **No auth** — matches the server's LAN-only posture. Add a bearer token here + on the
-  server before any off-network (Tailscale/public) reach.
-- **Message history** relies on `GET /api/agents/:id/messages` (added in Phase 2). Live
-  events (`transcript_event`) are merged on top, deduped by id.
-- **Navigation** is a lightweight state machine in `App.tsx` (no router dependency) — five
-  screens (Connect, Cartridges, Detail, Approvals, Workflows) plus a tab bar. Swap for Expo
-  Router if the surface grows further.
-- **Safe area** is handled with two stacked `SafeAreaView`s so the bottom inset can be painted
-  the *bar* colour rather than the page colour — otherwise the tab bar and input bar float
-  above a band of background. `react-native-safe-area-context` is the tidier tool but ships
-  native code, which would break the OTA path.
+```bash
+APNS_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8
+APNS_KEY_ID=XXXXXXXXXX
+APNS_TEAM_ID=XXXXXXXXXX
+```
 
-## Not yet (Phase 3+)
+Use an **APNs Auth Key** from Apple Developer ▸ Keys ▸ Apple Push Notifications service. That is
+*not* the App Store Connect upload key — different page, not interchangeable.
 
-Push notifications (Expo push / FCM-APNs), task queue + workflow control screens, off-LAN
-connectivity, biometric lock. The server already fires ntfy pushes — subscribe the phone to
-the ntfy topic today for background alerts.
+**Environment must match.** TestFlight and App Store builds use the **production** gateway; Xcode
+debug builds use **sandbox**. The server defaults to production, with `APNS_SANDBOX=1` available.
+Mismatching these is the classic "push works in Xcode, silent in TestFlight".
+
+---
+
+## Tests
+
+No renderer is available in this test setup, so display logic lives in plain modules
+(`src/goalDisplay.ts`) where it can actually be asserted on, and types carry more weight than usual.
+
+```bash
+npm test              # vitest
+npx tsc --noEmit      # not optional — see below
+```
+
+Three guards exist because of bugs that shipped, and they are worth understanding before you
+change anything:
+
+- **`contract-drift.test.ts`** — fails if a local type is *stricter* than the shared contract in
+  `@neoncore/client`. A field the server marks optional and mobile marks required does not fail the
+  typecheck, it **removes** it: the unguarded read then compiles clean and crashes the screen at
+  runtime. Import shared types; never hand-copy them.
+- **`screen-loading.test.ts`** — every screen must reach a decided state. It proves a request to a
+  silent server returns an error rather than hanging, against a **real socket**, because a mocked
+  `fetch` that ignores `signal` would keep a mocked test green while the phone hung.
+- **`navigation.test.ts`** — every tab renders a route. A missing screen is silence, not an error.
+
+---
+
+## Releasing
+
+Build numbers, archiving and TestFlight upload: **[RELEASE.md](RELEASE.md)**.
+App Store submission: **[../docs/APP-STORE-RELEASE.md](../docs/APP-STORE-RELEASE.md)**.
+
+Because there is no OTA path, **every JS change needs a full build and upload**. Batch your fixes.
