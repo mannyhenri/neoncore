@@ -2,8 +2,9 @@
   "name": "@neoncore/client",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
-  "description": "Shared NeonCore API client — one server-agnostic surface for the web app and the iOS app.",
+  "description": "Shared NeonCore API client \u2014 one server-agnostic surface for the web app and the iOS app.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

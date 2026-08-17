@@ -80,8 +80,10 @@ export default function App() {
     // different colors. The bottom strip (home indicator) takes the SAME color as
     // the tab bar / input bar, so those bars read as running to the screen edge
     // instead of floating above a band of page background.
-    // (react-native-safe-area-context would be the tidier tool, but it ships
-    // native code — this stays pure JS so it can go out over EAS Update.)
+    // (react-native-safe-area-context would be the tidier tool. The original reason
+    // for avoiding it — keeping this pure JS so it could ship over EAS Update — died
+    // with the Expo eject; there are no OTA updates now, so adding the dependency is
+    // a normal call to make rather than something the release path forbids.)
     <>
       <SafeAreaView style={styles.safeTop} />
       <SafeAreaView style={styles.safe}>
