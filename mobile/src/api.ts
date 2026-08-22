@@ -352,6 +352,26 @@ export const api = {
   cancelTask: (base: string, id: string) =>
     req<Task>(base, `/api/tasks/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
 
+  /**
+   * Settle a task by hand — the desk's "Mark done" / "Mark failed".
+   *
+   * A cartridge normally reports its own result, so this is the escape hatch for work that
+   * finished somewhere the fleet cannot see, or that will never finish. Without it a task
+   * that drifted out of `queued` was inert on the phone: no way to start it, no way to end it.
+   */
+  completeTask: (base: string, id: string, status: 'done' | 'failed' = 'done', result?: string) =>
+    req<Task>(base, `/api/tasks/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ status, ...(result ? { result } : {}) }),
+    }),
+
+  /**
+   * Clear a finished task. The server refuses anything still live ("only a finished task can
+   * be cleared — cancel it first"), so a stale list on a phone cannot delete work in flight.
+   */
+  removeTask: (base: string, id: string) =>
+    req<{ ok: boolean }>(base, `/api/tasks/${id}`, { method: 'DELETE' }),
+
   // New repo — scaffold a folder on the server host, git init, gh repo create + push, and
   // (optionally) launch an agent. parentDir/owner default server-side (projects_dir / active
   // gh account), so the phone only needs a name + a couple of choices.
