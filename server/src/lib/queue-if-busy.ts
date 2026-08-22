@@ -28,6 +28,7 @@
 import db from '../db.js';
 import { enqueue, isCartridgeBusy } from './queue-runner.js';
 import type { QueueKind, QueueItem } from './queue-kinds.js';
+import { cartridgeExists } from './cartridge-exists.js';
 
 export interface BusyGuardSpec {
   kind: QueueKind;
@@ -91,23 +92,26 @@ export function resolveWorkflowTargets(
     'SELECT executor_id FROM workflow_steps WHERE workflow_id = ?',
   ).all(workflowId) as { executor_id: string }[];
 
+  // A cartridge that does not exist drives nothing and can never be busy. Counting a stale id
+  // as a target queues the run behind a ghost and, worse, disagrees with the launch guard about
+  // whether the run can start at all — both now ask cartridgeExists, from one place.
   const targets = new Set<string>();
   let anyDeferred = false;
   for (const s of steps) {
     const id = s.executor_id || '';
     if (!id || id === '__deferred__') { anyDeferred = true; continue; }
-    targets.add(id);
+    if (cartridgeExists(id)) targets.add(id);
   }
 
   // Only count the launch agent when there is a step for it to fill. Adding it
   // unconditionally would queue a fully-pinned run behind a cartridge it never touches.
   const runAgentId = typeof body?.agentId === 'string' ? body.agentId.trim() : '';
-  if (runAgentId && anyDeferred) targets.add(runAgentId);
+  if (runAgentId && anyDeferred && cartridgeExists(runAgentId)) targets.add(runAgentId);
 
   const overrides = body?.agentOverrides;
   if (overrides && typeof overrides === 'object') {
     for (const v of Object.values(overrides as Record<string, unknown>)) {
-      if (typeof v === 'string' && v.trim() && v !== '__deferred__') targets.add(v.trim());
+      if (typeof v === 'string' && cartridgeExists(v)) targets.add(v.trim());
     }
   }
 
