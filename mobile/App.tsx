@@ -12,9 +12,12 @@ import { ApprovalsScreen } from './src/screens/ApprovalsScreen';
 import { QueueScreen } from './src/screens/QueueScreen';
 import { WorkflowsScreen } from './src/screens/WorkflowsScreen';
 import { WorkflowRunDetailScreen } from './src/screens/WorkflowRunDetailScreen';
+import { GoalsScreen } from './src/screens/GoalsScreen';
+import { GoalDetailScreen } from './src/screens/GoalDetailScreen';
+import { TasksScreen } from './src/screens/TasksScreen';
 import { TabBar, type TabName } from './src/components/TabBar';
 import { BrandHeader } from './src/components/BrandHeader';
-import type { Agent, Workflow } from './src/types';
+import type { Agent, Goal, Workflow } from './src/types';
 
 type Route =
   | { name: 'list' }
@@ -22,7 +25,19 @@ type Route =
   | { name: 'approvals' }
   | { name: 'workflows' }
   | { name: 'queue' }
+  | { name: 'goals' }
+  | { name: 'goalDetail'; goal: Goal }
+  | { name: 'tasks' }
   | { name: 'workflowRun'; run: Workflow };
+
+/**
+ * Screens that own the whole surface: no brand bar, no tab bar, their own back control.
+ *
+ * A list rather than two inline comparisons repeated in two places — those had to agree,
+ * and a third pushed screen is exactly the moment one of them gets forgotten and a detail
+ * screen renders with a tab bar under it.
+ */
+const PUSHED: Route['name'][] = ['detail', 'workflowRun', 'goalDetail'];
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -65,8 +80,10 @@ export default function App() {
     // different colors. The bottom strip (home indicator) takes the SAME color as
     // the tab bar / input bar, so those bars read as running to the screen edge
     // instead of floating above a band of page background.
-    // (react-native-safe-area-context would be the tidier tool, but it ships
-    // native code — this stays pure JS so it can go out over EAS Update.)
+    // (react-native-safe-area-context would be the tidier tool. The original reason
+    // for avoiding it — keeping this pure JS so it could ship over EAS Update — died
+    // with the Expo eject; there are no OTA updates now, so adding the dependency is
+    // a normal call to make rather than something the release path forbids.)
     <>
       <SafeAreaView style={styles.safeTop} />
       <SafeAreaView style={styles.safe}>
@@ -87,9 +104,7 @@ export default function App() {
       ) : (
         <NeonCoreProvider servers={servers} onServersChange={setServers}>
           {/* Persistent brand bar on the tab screens (pushed detail screens own their surface). */}
-          {route.name !== 'detail' && route.name !== 'workflowRun' && (
-            <BrandHeader />
-          )}
+          {!PUSHED.includes(route.name) && <BrandHeader />}
           <View style={styles.body}>
             {route.name === 'list' && (
               <CartridgeListScreen onOpen={(agent) => setRoute({ name: 'detail', agent })} />
@@ -102,13 +117,19 @@ export default function App() {
               <WorkflowsScreen onOpenRun={(run) => setRoute({ name: 'workflowRun', run })} />
             )}
             {route.name === 'queue' && <QueueScreen />}
+            {route.name === 'goals' && (
+              <GoalsScreen onOpen={(goal) => setRoute({ name: 'goalDetail', goal })} />
+            )}
+            {route.name === 'goalDetail' && (
+              <GoalDetailScreen goal={route.goal} onBack={() => setRoute({ name: 'goals' })} />
+            )}
+            {route.name === 'tasks' && <TasksScreen />}
             {route.name === 'workflowRun' && (
               <WorkflowRunDetailScreen run={route.run} onBack={() => setRoute({ name: 'workflows' })} />
             )}
           </View>
 
-          {/* Detail + run detail are pushed screens — they own the full surface and have their own back. */}
-          {route.name !== 'detail' && route.name !== 'workflowRun' && (
+          {!PUSHED.includes(route.name) && (
             <TabBar
               active={route.name as TabName}
               onSelect={(t) => setRoute({ name: t } as Route)}

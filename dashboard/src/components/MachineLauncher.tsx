@@ -3,6 +3,7 @@ import { api, apiFor } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import type { Machine, ServerEntry } from '../types';
 import { activeServers } from '../lib/servers';
+import { filterMachinesByRepo, countRepos } from '@neoncore/client';
 
 /**
  * A machine plus the server that owns it.
@@ -41,6 +42,7 @@ export function MachineLauncher({ servers = [] }: Props) {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newPath, setNewPath] = useState('');
+  const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
   // Every server we should ask. '' is the server that served this page, and is the only
@@ -77,6 +79,12 @@ export function MachineLauncher({ servers = [] }: Props) {
   };
 
   const onlineCount = machines.filter((m) => m.status === 'online').length;
+
+  // The rows to render. Narrowed by repo/path/hostname; never flattened, so every hit still
+  // arrives under the machine it lives on — which is the choice the user is actually making.
+  const visible = useMemo(() => filterMachinesByRepo(machines, query), [machines, query]);
+  const shownRepos = countRepos(visible);
+  const totalRepos = countRepos(machines);
 
   // Live status updates so a machine coming online/offline reflects without reopening.
   useSocket({
@@ -189,7 +197,7 @@ export function MachineLauncher({ servers = [] }: Props) {
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => { setOpen(!open); setExpandedRepo(null); }}
+        onClick={() => { setOpen(!open); setExpandedRepo(null); setQuery(''); }}
         className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
         title="Launch a cartridge on a registered machine"
       >
@@ -228,8 +236,57 @@ export function MachineLauncher({ servers = [] }: Props) {
               on a computer (see <span className="text-gray-300">agent/runner</span>) to launch there.
             </div>
           ) : (
-            machines.map((m) => {
+            <>
+              {/* Search stays above the list and out of the scroll, so it is still reachable
+                  after scrolling a long fleet. It narrows folders, never machines-as-headings:
+                  a hit is only useful with the box it is on attached. */}
+              <div className="px-2.5 pb-1.5 pt-0.5 sticky top-0 z-10 bg-black/40 backdrop-blur-sm">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    data-testid="repo-search"
+                    value={query}
+                    autoFocus
+                    onChange={(e) => { setQuery(e.target.value); setExpandedRepo(null); }}
+                    onKeyDown={(e) => {
+                      // The dropdown listens for keys outside; a search box that closes the
+                      // panel on Escape mid-word would be unusable.
+                      e.stopPropagation();
+                      if (e.key === 'Escape') setQuery('');
+                    }}
+                    placeholder="Search repos or machines…"
+                    className="flex-1 text-[11px] glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none"
+                  />
+                  {query && (
+                    <button
+                      onClick={() => { setQuery(''); setExpandedRepo(null); }}
+                      className="text-[11px] text-gray-500 hover:text-gray-300 px-1 transition-colors"
+                      title="Clear search"
+                    >×</button>
+                  )}
+                </div>
+                {query && (
+                  <div className="text-[10px] text-gray-600 pt-1">
+                    {shownRepos} of {totalRepos} folder{totalRepos === 1 ? '' : 's'}
+                  </div>
+                )}
+              </div>
+
+              {visible.length === 0 ? (
+                /* A blank panel reads as "the launcher broke". Name the query back. */
+                <div className="text-xs text-gray-500 px-3 py-2 leading-relaxed">
+                  No repos match “<span className="text-gray-300">{query}</span>”.
+                  <div className="text-gray-600 text-[11px] pt-0.5">
+                    Search covers folder names, their paths, and machine names.
+                  </div>
+                </div>
+              ) : (
+              visible.map((m) => {
               const editing = editingId === m.id;
+              // Administration must never see a filtered list. "Edit folders" on a searched
+              // machine has to show everything it holds, or removing one folder while the
+              // others are hidden reads as "the rest are gone" — and the offline row's folder
+              // count has to be what is REGISTERED, not what happens to match.
+              const full = machines.find((x) => x.origin === m.origin && x.id === m.id) || m;
               return (
               <div key={`${m.origin}:${m.id}`} className="border-b border-white/5 last:border-0 pb-1 mb-1 last:mb-0 last:pb-0">
                 <div className="flex items-center gap-2 px-3 py-1.5">
@@ -260,18 +317,31 @@ export function MachineLauncher({ servers = [] }: Props) {
                   <div className="text-[11px] px-3 pb-1.5 pl-7 space-y-0.5">
                     <div className="text-gray-500">
                       Runner not connected
-                      {m.repos.length > 0 && (
-                        <> — {m.repos.length} folder{m.repos.length === 1 ? '' : 's'} still registered</>
+                      {full.repos.length > 0 && (
+                        <> — {full.repos.length} folder{full.repos.length === 1 ? '' : 's'} still registered</>
                       )}
                     </div>
+                    {/* While searching, NAME the folders that matched. The count alone answers
+                        "something here matched" and withholds which — and the whole point of the
+                        search is to find where a repo lives. They stay plain text, not buttons:
+                        the runner is down, so there is nothing to launch yet. */}
+                    {query && (
+                      <div className="pt-0.5 space-y-0.5">
+                        {m.repos.map((repo) => (
+                          <div key={repo.path} className="text-gray-400 truncate" title={repo.path}>
+                            {repo.name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="text-gray-600">
                       Start the runner on {m.hostname || 'that machine'} to launch here.
                     </div>
                   </div>
                 ) : editing ? (
                   <div className="px-3 pb-2 pl-7 space-y-1">
-                    {m.repos.length === 0 && <div className="text-[11px] text-gray-600">No folders yet — add one below.</div>}
-                    {m.repos.map((repo) => (
+                    {full.repos.length === 0 && <div className="text-[11px] text-gray-600">No folders yet — add one below.</div>}
+                    {full.repos.map((repo) => (
                       <div key={repo.path} className="flex items-center gap-2 text-xs text-gray-300">
                         <span className="flex-1 truncate" title={repo.path}>{repo.name}</span>
                         <button
@@ -338,6 +408,8 @@ export function MachineLauncher({ servers = [] }: Props) {
               </div>
               );
             })
+              )}
+            </>
           )}
         </div>
       )}

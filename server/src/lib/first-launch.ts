@@ -38,6 +38,20 @@ function tryInstall(python: string, url: string): boolean {
 }
 
 export function runFirstLaunchSetup(port: number): void {
+  /**
+   * An explicit opt-out, because this function's failure mode is silent and total.
+   *
+   * It bakes `http://localhost:<port>` into ~/.claude/settings.json for the whole
+   * machine. A SECOND instance on another port — a demo server, a test fixture, a
+   * contributor's dev copy — therefore repoints every agent on that machine at
+   * itself, and the only symptom is that cartridges stop appearing, with no error on
+   * either side. That is the same trap the README warns about for a changed server
+   * address, reached from inside the app instead.
+   *
+   * The sentinel alone does not cover it: it only helps on a machine where hooks were
+   * ALREADY installed. On a fresh one, whichever instance happens to start first wins.
+   */
+  if (process.env.NEONCORE_NO_FIRST_LAUNCH === '1') return;
   if (existsSync(SENTINEL)) return;
 
   // Run after the current event-loop tick so it never delays the startup banner

@@ -395,7 +395,7 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
 function RunRow({ run, onPress }: { run: Workflow; onPress: () => void }) {
   const s = run.stepSummary;
   const sub = s
-    ? `${s.completed}/${s.total} steps${s.projects.length ? ` · ${s.projects.join(', ')}` : ''}`
+    ? `${s.completed}/${s.total} steps${s.projects?.length ? ` · ${s.projects.join(', ')}` : ''}`
     : '';
   const color = runColor[run.status] ?? theme.textDim;
   return (
