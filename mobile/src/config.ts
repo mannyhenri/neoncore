@@ -167,6 +167,22 @@ export function activeServers(servers: ServerEntry[]): ServerEntry[] {
   return servers.filter((s) => !s.hidden);
 }
 
+/**
+ * Peers worth adopting from a roster.
+ *
+ * GET /api/peers reports `stale` for a peer the server has been failing to reach — one of
+ * ours sits at 5064 consecutive timeouts. Adopting it anyway put a machine that cannot
+ * answer into the phone's server list, where it can sort first and become the server every
+ * single-server screen talks to. The server already knows this; the phone just had to stop
+ * ignoring it.
+ *
+ * Absent means keep: an older server does not send the field, and dropping unknown peers
+ * would quietly shrink the fleet on the phone instead of on the machine that is down.
+ */
+export function reachablePeers<T extends { stale?: boolean }>(peers: T[]): T[] {
+  return peers.filter((p) => p.stale !== true);
+}
+
 // ─── Back-compat shims ──────────────────────────────────────────────────────
 // push.ts and the Connect flow were written against a single URL. They keep working
 // against the FIRST server, which is the one the phone was originally set up with.

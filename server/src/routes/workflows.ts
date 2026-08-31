@@ -7,7 +7,7 @@ import { sendCommandToAgent } from '../lib/send-command.js';
 import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
-import { unassignedStepNames } from '../lib/workflow-launch.js';
+import { unrunnableSteps } from '../lib/workflow-launch.js';
 import { workflowNeedsAttention } from '../lib/workflow-attention.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
@@ -611,13 +611,24 @@ router.post('/v2/:id/start', (req, res) => {
   // request assigns them, the run would be created, all its rows cloned, marked `running`, and
   // then die on step 1 with "has no cartridge assigned". Reject before anything exists — the
   // same rule the queue applies to enqueue: validate while a human is watching.
-  const unassigned = unassignedStepNames(req.params.id, req.body);
-  if (unassigned.length > 0) {
-    const shown = unassigned.slice(0, 3).join(', ');
-    const more = unassigned.length > 3 ? ` (+${unassigned.length - 3} more)` : '';
+  const blocked = unrunnableSteps(req.params.id, req.body);
+  if (blocked.length > 0) {
+    const names = blocked.map((b) => b.name);
+    const shown = names.slice(0, 3).join(', ');
+    const more = names.length > 3 ? ` (+${names.length - 3} more)` : '';
+    // "have none" and "point at a cartridge that no longer exists" send you to different places.
+    // A restarted cartridge keeps its steps but registers a NEW id, so the second case looks
+    // fully configured on the board and is the one worth naming out loud.
+    const gone = blocked.filter((b) => b.reason === 'cartridge-gone').length;
+    const why = gone === blocked.length
+      ? `their cartridge no longer exists (it was restarted, or removed)`
+      : gone > 0
+        ? `${gone} point at a cartridge that no longer exists, the rest have none`
+        : `they have none`;
     return res.status(400).json({
-      error: `Pick a cartridge for this run — ${unassigned.length} step(s) have none: ${shown}${more}`,
-      unassignedSteps: unassigned,
+      error: `Pick a cartridge for this run — ${blocked.length} step(s) cannot run: ${shown}${more} — ${why}`,
+      unassignedSteps: names,
+      blockedSteps: blocked,
     });
   }
 
