@@ -146,7 +146,7 @@ export default function App() {
               <span className="text-gl-blue">Neon</span>
               <span className="text-gl-pink">Core</span>
             </h1>
-            <span className="hidden sm:inline text-[13px] text-gray-500 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
+            <span className="hidden sm:inline text-sm text-gray-500 border border-white/10 px-2.5 py-1 rounded-full uppercase tracking-wider">
               Orchestrator
             </span>
             {/* Asked for: the fleet burn rate reads first, right after the label. */}

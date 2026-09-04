@@ -111,16 +111,16 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide">
+        <h2 className="text-gray-400 text-base md:text-lg font-semibold uppercase tracking-wide">
           Token Report
         </h2>
         {data && (
-          <div className="flex items-baseline gap-4 text-xs font-mono">
+          <div className="flex items-baseline gap-5 text-sm font-mono">
             <span className="text-gray-500">
-              <span className="text-gl-blue/90 text-sm">{compact(data.total.tokens)}</span> tokens
+              <span className="text-gl-blue/90 text-xl">{compact(data.total.tokens)}</span> tokens
             </span>
             <span className="text-gray-500">
-              <span className="text-emerald-500/90 text-sm">{money(data.total.costUsd)}</span> spend
+              <span className="text-emerald-500/90 text-xl">{money(data.total.costUsd)}</span> spend
             </span>
             <span className="text-gray-600">{data.total.samples.toLocaleString()} turns</span>
           </div>
@@ -128,14 +128,14 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
       </div>
 
       {partial && (
-        <div className="text-[11px] text-amber-500/90 border border-amber-500/20 bg-amber-500/5 rounded-md px-3 py-2">
+        <div className="text-[13px] text-amber-500/90 border border-amber-500/20 bg-amber-500/5 rounded-md px-3 py-2">
           Partial: {data!.serversReporting} of {data!.serversAsked} servers answered. The real
           figures are higher — a server is unreachable, or is running a build without this endpoint.
         </div>
       )}
 
       {/* Controls. Range and granularity are separate questions: "how far back" and "how fine". */}
-      <div className="flex items-center gap-3 flex-wrap text-xs">
+      <div className="flex items-center gap-3 flex-wrap text-sm">
         <Segmented options={RANGES.map((r) => ({ key: r.key, label: r.label }))} value={rangeKey} onChange={selectRange} accent="violet" />
         <Segmented options={BUCKETS.map((b) => ({ key: b.key, label: b.label }))} value={bucket} onChange={(k) => setBucket(k as 'hour' | 'day' | 'week')} accent="blue" />
         <Segmented
@@ -144,7 +144,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         />
         <button
           onClick={() => setCumulative((c) => !c)}
-          className={`px-3 py-1 rounded-md border transition-colors ${
+          className={`px-3.5 py-1.5 rounded-md border transition-colors ${
             cumulative
               ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
               : 'border-white/10 bg-white/[0.04] text-gray-500 hover:text-gray-300'
@@ -162,7 +162,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
 
       {data && data.byCartridge.length > 0 && (
         <section>
-          <h3 className="text-gray-500 text-xs font-semibold uppercase tracking-wide mb-2">
+          <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
             By cartridge — {range.label.toLowerCase()}
           </h3>
           <div className="border border-white/[0.06] rounded-lg overflow-hidden">
@@ -171,16 +171,16 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
               return (
                 <div
                   key={`${c.agentId}-${i}`}
-                  className="flex items-center gap-3 px-3 py-2 text-xs border-b border-white/[0.04] last:border-0"
+                  className="flex items-center gap-3 px-3 py-2.5 text-sm border-b border-white/[0.04] last:border-0"
                 >
                   <span className="flex-1 min-w-0 truncate text-gray-300">{c.name}</span>
                   {/* The share bar is the point of the row: which cartridge is the spend. */}
-                  <span className="hidden sm:block w-32 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                  <span className="hidden sm:block w-36 h-2 rounded-full bg-white/[0.06] overflow-hidden">
                     <span className="block h-full bg-gl-blue/60" style={{ width: `${Math.max(2, share * 100)}%` }} />
                   </span>
-                  <span className="w-12 text-right text-gray-600 font-mono">{(share * 100).toFixed(1)}%</span>
-                  <span className="w-16 text-right text-gray-400 font-mono">{compact(c.tokens)}</span>
-                  <span className="w-20 text-right text-gray-600 font-mono">{c.samples.toLocaleString()} turns</span>
+                  <span className="w-14 text-right text-gray-600 font-mono">{(share * 100).toFixed(1)}%</span>
+                  <span className="w-20 text-right text-gray-400 font-mono">{compact(c.tokens)}</span>
+                  <span className="w-24 text-right text-gray-600 font-mono">{c.samples.toLocaleString()} turns</span>
                 </div>
               );
             })}
@@ -204,7 +204,7 @@ function Segmented({ options, value, onChange, accent }: {
         <button
           key={o.key}
           onClick={() => onChange(o.key)}
-          className={`px-3 py-1 font-medium transition-colors ${
+          className={`px-3.5 py-1.5 font-medium transition-colors ${
             value === o.key ? on : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'
           }`}
         >
@@ -229,7 +229,7 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(900);
-  const H = 260, PAD_L = 56, PAD_B = 26, PAD_T = 12;
+  const H = 300, PAD_L = 68, PAD_B = 30, PAD_T = 14;
 
   useEffect(() => {
     const el = box.current;
@@ -251,9 +251,9 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
   return (
     <div ref={box} className="border border-white/[0.06] rounded-lg bg-white/[0.02] p-3 relative">
       {loading && !points.length ? (
-        <div className="h-[260px] flex items-center justify-center text-gray-600 text-xs">Loading…</div>
+        <div className="h-[300px] flex items-center justify-center text-gray-600 text-sm">Loading…</div>
       ) : !points.length ? (
-        <div className="h-[260px] flex items-center justify-center text-gray-600 text-xs">
+        <div className="h-[300px] flex items-center justify-center text-gray-600 text-sm">
           No usage recorded in this window.
         </div>
       ) : (
@@ -263,7 +263,7 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
             return (
               <g key={f}>
                 <line x1={PAD_L} x2={w - 8} y1={y} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-                <text x={PAD_L - 8} y={y + 3} textAnchor="end" fontSize={9} fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">
+                <text x={PAD_L - 10} y={y + 4} textAnchor="end" fontSize={11} fill="rgba(255,255,255,0.38)" fontFamily="ui-monospace, monospace">
                   {fmt(v, metric)}
                 </text>
               </g>
@@ -286,12 +286,12 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
 
           {/* A label every Nth bar — dense windows would otherwise print an unreadable smear. */}
           {points.map((p, i) => {
-            const every = Math.max(1, Math.ceil(points.length / Math.max(4, Math.floor(w / 90))));
+            const every = Math.max(1, Math.ceil(points.length / Math.max(4, Math.floor(w / 115))));
             if (i % every !== 0) return null;
             return (
               <text
                 key={`t-${p.t}`} x={PAD_L + i * step + barW / 2} y={H - 8}
-                textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace"
+                textAnchor="middle" fontSize={11} fill="rgba(255,255,255,0.38)" fontFamily="ui-monospace, monospace"
               >
                 {tickLabel(p.t, bucket)}
               </text>
@@ -301,7 +301,7 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
       )}
 
       {hovered && (
-        <div className="absolute top-3 right-3 text-[11px] font-mono bg-black/70 border border-white/10 rounded-md px-2.5 py-1.5 pointer-events-none">
+        <div className="absolute top-3 right-3 text-[13px] font-mono bg-black/80 border border-white/15 rounded-md px-3 py-2 pointer-events-none">
           <div className="text-gray-300">{new Date(hovered.t).toUTCString().replace(' GMT', ' UTC')}</div>
           <div className="text-gl-blue/90">{compact(hovered.tokens)} tokens</div>
           <div className="text-emerald-500/90">{money(hovered.costUsd)}</div>

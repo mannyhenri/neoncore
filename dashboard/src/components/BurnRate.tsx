@@ -79,7 +79,7 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
     <button
       type="button"
       onClick={onOpen}
-      className="hidden md:inline-flex items-center gap-1.5 text-[11px] font-mono text-gray-500 border border-white/10 px-2 py-0.5 rounded-full whitespace-nowrap hover:text-gray-300 hover:border-white/25 transition-colors"
+      className="hidden md:inline-flex items-center gap-2 text-[13px] font-mono text-gray-500 border border-white/10 px-3 py-1 rounded-full whitespace-nowrap hover:text-gray-300 hover:border-white/25 transition-colors"
       title={
         `Fleet burn rate, trailing ${rate.days} days — ${rate.activeCartridges} cartridge(s) active, ` +
         `${rate.samples.toLocaleString()} turns across ` +
