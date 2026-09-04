@@ -9,7 +9,8 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
-import { notifyWorkflowFinished, sendPushToAll } from './apns-push.js';
+import { notifyWorkflowFinished } from './notices.js';
+import { notifyAll } from './channels.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
 import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
@@ -335,8 +336,10 @@ export function notifyNeedsAttention(
     projects,
     timestamp: new Date().toISOString(),
   });
-  sendPushToAll(title, body, { type: pushType, workflowId: step.workflowId, stepId: step.id })
-    .catch(() => {});
+  notifyAll({
+    title, body,
+    data: { type: pushType, workflowId: step.workflowId, stepId: step.id },
+  }).catch(() => {});
 }
 
 function notifyManualAdvanceNeeded(step: WorkflowStep): void {
@@ -355,10 +358,9 @@ function notifyManualAdvanceNeeded(step: WorkflowStep): void {
     timestamp,
   });
 
-  sendPushToAll(title, body, {
-    type: 'workflow_manual_advance',
-    workflowId: step.workflowId,
-    stepId: step.id,
+  notifyAll({
+    title, body,
+    data: { type: 'workflow_manual_advance', workflowId: step.workflowId, stepId: step.id },
   }).catch(() => {});
 }
 
@@ -1220,10 +1222,13 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         timestamp: new Date().toISOString(),
       });
 
-      await sendPushToAll(title, body, {
-        type: 'workflow_connector_notification',
-        workflowId: step.workflowId,
-        stepId: step.id,
+      await notifyAll({
+        title, body,
+        data: {
+          type: 'workflow_connector_notification',
+          workflowId: step.workflowId,
+          stepId: step.id,
+        },
       }).catch(() => {});
       break;
     }

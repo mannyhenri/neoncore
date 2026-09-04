@@ -278,6 +278,18 @@ process.on('unhandledRejection', (reason) => {
   console.error('[fatal] Unhandled promise rejection — server staying up:', reason);
 });
 
+// ── Channels ────────────────────────────────────────────────────────────────
+//
+// Registered BEFORE any service that can raise a notice. startStuckDetector() below can fire
+// within its first tick, and a notice raised before its channels exist fans out to nobody —
+// which looks exactly like a channel that is misconfigured, and is the harder bug of the two.
+//
+// Registering an unconfigured channel is correct and deliberate: `isConfigured()` is checked
+// per send, so setting DISCORD_BOT_TOKEN and restarting is all it takes to light one up.
+registerChannel(apnsChannel);
+registerChannel(discordChannel);
+console.log(`[channels] registered: ${listChannels().map((c) => `${c.name}${c.isConfigured() ? '' : ' (not configured)'}`).join(', ')}`);
+
 // Start stuck detector and memory analyzer
 startStuckDetector();
 startMemoryAnalyzer();
@@ -305,6 +317,9 @@ try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] sta
 
 // Get local IP for display
 import os from 'os';
+import { registerChannel, listChannels } from './lib/channels.js';
+import { apnsChannel } from './lib/channels/apns.js';
+import { discordChannel } from './lib/channels/discord.js';
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces();
   for (const devName of Object.keys(interfaces)) {
