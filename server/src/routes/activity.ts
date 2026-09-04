@@ -10,6 +10,9 @@ import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { statusFromActivity } from '../lib/activity-status.js';
+import { computeBurnRate, type UsageSample } from '../lib/burn-rate.js';
+import { buildSeries, BUCKETS, type Bucket } from '../lib/usage-series.js';
+import { totalCostUsd as seriesCostUsd } from '../lib/pricing.js';
 
 const router = Router();
 
@@ -92,6 +95,81 @@ router.post('/', (req, res) => {
 });
 
 // Get activity for an agent
+// NB: THIS MUST STAY ABOVE `router.get('/:agentId')`. Express matches in declaration
+// order and `/:agentId` eats any single segment, so a burn-rate route declared after it
+// is not a 404 — it silently returns the activity list for an agent named 'burn-rate',
+// i.e. `[]`. Guarded by test/burn-rate.test.ts.
+// Fleet burn rate — the header readout. Aggregate across EVERY cartridge, not one agent.
+//
+// A trailing fixed window, not lifetime-to-date: a lifetime average is dragged down forever
+// by the weeks before the fleet was busy, and it can only ever move slower than reality.
+// `days` is the window; the two rates the header prints both come out of that one divisor.
+router.get('/burn-rate', (req, res) => {
+  const days = Math.min(90, Math.max(1, Number(req.query.days) || 7));
+  const windowHours = days * 24;
+  const since = new Date(Date.now() - windowHours * 3600_000).toISOString();
+
+  // Bounded by `since` and nothing else — every agent, so the header answers "the fleet",
+  // which is the question a global chrome element is asking.
+  const rows = db.prepare(`
+    SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at
+    FROM session_usage WHERE recorded_at >= ?
+  `).all(since) as UsageSample[];
+
+  const active = db.prepare(
+    'SELECT COUNT(DISTINCT agent_id) AS n FROM session_usage WHERE recorded_at >= ?'
+  ).get(since) as { n: number };
+
+  res.json({ ...computeBurnRate(rows, windowHours), days, since, activeCartridges: active?.n || 0 });
+});
+
+// Token burn over time — the reporting page. Same window/ordering rules as /burn-rate above,
+// and the same reason it must sit ABOVE `/:agentId`.
+//
+// `byCartridge` ships alongside the series deliberately: the series answers "when did my spend
+// change", and the immediate next question is always "on what", which a chart of one line
+// cannot answer. Both come off the same scan, so it costs nothing to answer both at once.
+router.get('/usage-series', (req, res) => {
+  const days = Math.min(400, Math.max(1, Number(req.query.days) || 30));
+  const bucket = (BUCKETS as string[]).includes(String(req.query.bucket))
+    ? (req.query.bucket as Bucket)
+    : 'day';
+
+  const to = Date.now();
+  const from = to - days * 86_400_000;
+  const sinceIso = new Date(from).toISOString();
+
+  const rows = db.prepare(`
+    SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at
+    FROM session_usage WHERE recorded_at >= ?
+  `).all(sinceIso) as UsageSample[];
+
+  const series = buildSeries(rows, bucket, from, to);
+
+  // Priced per row by its own model, so a window spanning a model switch stays honest.
+  const byCartridge = db.prepare(`
+    SELECT u.agent_id AS agentId, COALESCE(a.name, u.agent_id) AS name,
+           SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens) AS tokens,
+           COUNT(*) AS samples
+    FROM session_usage u LEFT JOIN agents a ON a.id = u.agent_id
+    WHERE u.recorded_at >= ?
+    GROUP BY u.agent_id ORDER BY tokens DESC
+  `).all(sinceIso) as { agentId: string; name: string; tokens: number; samples: number }[];
+
+  res.json({
+    bucket, days,
+    from: sinceIso,
+    to: new Date(to).toISOString(),
+    series,
+    total: {
+      tokens: series.reduce((n, p) => n + p.tokens, 0),
+      costUsd: seriesCostUsd(rows),
+      samples: rows.length,
+    },
+    byCartridge,
+  });
+});
+
 router.get('/:agentId', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const activities = db
