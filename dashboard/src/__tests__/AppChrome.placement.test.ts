@@ -83,6 +83,17 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // every view"; nothing else in this file would have caught that.
   { name: 'Confer', marker: /setConferOpen\(true\)/, region: 'header' },
 
+  // The fleet burn rate reads with the identity, not with the controls: it is the one
+  // thing in the chrome you READ rather than invoke, and it was asked for immediately
+  // after the Orchestrator label. Registered here so it cannot drift into the rail with
+  // the next chrome move — the same partial-relocation failure this file exists to catch.
+  { name: 'Burn rate readout', marker: /<BurnRate/, region: 'header' },
+  { name: 'Tokens view switch', marker: /setActiveView\('tokens'\)/, region: 'header' },
+  // The report itself is a working surface, not chrome — same region as the goals workspace
+  // and the task list. Registered so a chrome reshuffle cannot drag it into the rail, where
+  // a full-width chart has nowhere to go.
+  { name: 'Token report', marker: /<TokensPage/, region: 'main' },
+
   // NOT asked for — what you read or invoke while watching, which is what the rail is
   // for. Listed so an over-broad move fails here.
   { name: 'Workflows', marker: /<WorkflowPanel/, region: 'aside' },
@@ -461,15 +472,27 @@ describe('dashboard chrome placement', () => {
    * Agents, with the goal selected in a pane nothing was rendering. The hash was doing
    * exactly half its job, and the half it skipped is the half a notification link needs.
    */
+  /**
+   * The anchor is a PATTERN, not the literal union.
+   *
+   * It used to be `indexOf("useState<'agents' | 'goals' | 'tasks'>")`. Adding a fourth view
+   * made that return -1, and `slice(-1)` then scanned the last character of the file — so the
+   * guard failed with "expected '\n' to match /'agents'/" instead of saying its anchor had
+   * moved, and would just as easily have PASSED had the last character happened to match.
+   * A missing anchor must be a loud failure, never a silently relocated search.
+   */
+  function initialViewDeclaration(): string {
+    const at = SRC.search(/useState<(?:'\w+'\s*\|\s*)*'\w+'>\(/);
+    expect(at, 'App.tsx no longer declares the active view with a useState union').toBeGreaterThan(-1);
+    return SRC.slice(at, at + 240);
+  }
+
   it('the dashboard opens on Agents by default', () => {
-    const init = SRC.slice(SRC.indexOf("useState<'agents' | 'goals' | 'tasks'>"));
-    expect(init.slice(0, 240)).toMatch(/'agents'/);
+    expect(initialViewDeclaration()).toMatch(/'agents'/);
   });
 
   it('a goal deep link opens the Goals view, not the default one', () => {
-    const init = SRC.slice(
-      SRC.indexOf("useState<'agents' | 'goals' | 'tasks'>"),
-    ).slice(0, 240);
+    const init = initialViewDeclaration();
     expect(
       init,
       'the initial view ignores the URL — #goal/<id> would land on Agents with the goal ' +

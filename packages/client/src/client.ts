@@ -572,6 +572,23 @@ export function createClient(config: ClientConfig = {}) {
       `/activity/usage/${agentId}${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
 
+  // Fleet burn rate — the header readout. `days` is the trailing window (default 7).
+  getBurnRate: (days?: number) =>
+    request<{
+      windowHours: number; tokens: number; tokensPerHour: number; tokensPerDay: number;
+      costUsd: number; costPerDay: number; samples: number;
+      days: number; since: string; activeCartridges: number;
+    }>(`/activity/burn-rate${days ? `?days=${days}` : ''}`),
+
+  // Token burn over time — the reporting page. `bucket` is the granularity of each point.
+  getUsageSeries: (days: number, bucket: 'hour' | 'day' | 'week') =>
+    request<{
+      bucket: string; days: number; from: string; to: string;
+      series: { t: string; tokens: number; costUsd: number; samples: number }[];
+      total: { tokens: number; costUsd: number; samples: number };
+      byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
+    }>(`/activity/usage-series?days=${days}&bucket=${bucket}`),
+
   // Workflow V2 — Mid-task steering
   steerWorkflowStep: (workflowId: string, stepId: string, message: string) =>
     request<{ ok: boolean; commandId: string }>(`/workflows/v2/${workflowId}/steps/${stepId}/steer`, {

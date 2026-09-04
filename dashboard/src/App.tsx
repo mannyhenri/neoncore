@@ -14,6 +14,8 @@ import { parseGoalHash } from './lib/goalSelection';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
 import { ServerPicker } from './components/ServerPicker';
+import { BurnRate } from './components/BurnRate';
+import { TokensPage } from './components/TokensPage';
 import { api } from './lib/api';
 import type { AgentType, Activity, VirtualCartridge } from './types';
 
@@ -78,7 +80,7 @@ export default function App() {
   /* Agents is the default. A goal deep link overrides it, because addressing a goal without
      addressing the view that renders it is only half a link: `#goal/<id>` in a fresh tab
      otherwise opens Agents with the goal selected in a pane nobody is showing. */
-  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks'>(
+  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks' | 'tokens'>(
     () => (typeof window !== 'undefined' && parseGoalHash(window.location.hash) ? 'goals' : 'agents'),
   );
 
@@ -147,6 +149,8 @@ export default function App() {
             <span className="hidden sm:inline text-[13px] text-gray-500 border border-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
               Orchestrator
             </span>
+            {/* Asked for: the fleet burn rate reads first, right after the label. */}
+            <BurnRate servers={servers} onOpen={() => setActiveView('tokens')} />
           </div>
           {/* The middle track, right-aligned against the chrome cluster rather than centred on
               the bar — asked for after Confer widened the cluster enough to touch it.
@@ -172,6 +176,12 @@ export default function App() {
                 {activeTaskCount > 0 && (
                   <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
                 )}
+              </button>
+              <button
+                onClick={() => setActiveView('tokens')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'tokens' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+              >
+                Tokens
               </button>
             </div>
 
@@ -279,9 +289,13 @@ export default function App() {
           {activeView === 'goals' && <GoalsRail />}
         </aside>
 
-        <main className="lg:col-span-2 space-y-4 md:space-y-6 min-w-0">
+        <main className={`${activeView === 'tokens' ? 'lg:col-span-3' : 'lg:col-span-2'} space-y-4 md:space-y-6 min-w-0`}>
           {activeView === 'goals' ? (
             <GoalsWorkspace />
+          ) : activeView === 'tokens' ? (
+            /* Token reporting: burn over time, so a change in approach can be read off what
+               it cost. Full width — it has no rail. */
+            <TokensPage servers={servers} />
           ) : activeView === 'tasks' ? (
             /* ONE place for everything a cartridge will work through. "What is queued" and
                "what is running" are the same question, and splitting them across two tabs
