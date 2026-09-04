@@ -32,9 +32,13 @@ export interface FleetBurnRate extends ServerBurnRate {
   /** How many servers actually answered, and how many were asked. */
   serversReporting: number;
   serversAsked: number;
+  /** Named, with the reason — "reachable but on an old build" is not "down". */
+  problems: Problem[];
 }
 
 /** Quantities that ADD when two servers are combined. */
+import { problemsIn, type ServerAnswer, type Problem } from './serverAnswer';
+
 export const SUMMED_KEYS = [
   'tokens', 'tokensPerHour', 'tokensPerDay', 'costUsd', 'costPerDay', 'samples', 'activeCartridges',
 ] as const;
@@ -43,12 +47,15 @@ export const SUMMED_KEYS = [
 export const WINDOW_KEYS = ['windowHours', 'days'] as const;
 
 /**
- * `results` holds one entry per server asked, with `null` for any that failed or timed out.
- * A failed server is counted in `serversAsked` but contributes nothing — the readout can then
- * say it is partial instead of quietly under-reporting the fleet.
+ * `answers` holds one labelled entry per server asked. A server that failed contributes
+ * nothing but is still counted and NAMED, with the reason, so a partial total can say which
+ * machine is missing and what to do about it rather than only that one is.
  */
-export function mergeBurnRates(results: (ServerBurnRate | null)[], days: number): FleetBurnRate {
-  const ok = results.filter((r): r is ServerBurnRate => r != null && Number.isFinite(r.tokensPerDay));
+/** A well-formed answer. The old build's `[]` is truthy and fails this, which is the point. */
+const usableRate = (r: ServerBurnRate) => Number.isFinite(r?.tokensPerDay);
+
+export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: number): FleetBurnRate {
+  const ok = answers.map((a) => a.result).filter((r): r is ServerBurnRate => r != null && usableRate(r));
 
   const merged = {} as Record<string, number>;
   for (const k of SUMMED_KEYS) merged[k] = ok.reduce((sum, r) => sum + (Number(r[k]) || 0), 0);
@@ -59,6 +66,7 @@ export function mergeBurnRates(results: (ServerBurnRate | null)[], days: number)
   return {
     ...(merged as unknown as ServerBurnRate),
     serversReporting: ok.length,
-    serversAsked: results.length,
+    serversAsked: answers.length,
+    problems: problemsIn(answers, usableRate),
   };
 }
