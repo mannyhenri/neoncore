@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeSeries, type UsageSeries, type FleetSeries } from '../lib/usageSeries';
+import { describeProblems } from '../lib/serverAnswer';
 import type { ServerEntry } from '@neoncore/client';
 
 /**
@@ -79,12 +80,13 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
     const load = async () => {
       const list = activeServers(servers);
       const answers = await Promise.all(
-        list.map((s) =>
-          (s.url ? apiFor(s.url, s.token) : api)
+        list.map(async (s) => ({
+          label: s.name || (s.url ? new URL(s.url).hostname : 'This machine'),
+          result: await (s.url ? apiFor(s.url, s.token) : api)
             .getUsageSeries(range.days, bucket)
             .then((r) => r as UsageSeries)
             .catch(() => null),
-        ),
+        })),
       );
       if (!alive) return;
       setData(mergeSeries(answers, bucket, range.days));
@@ -106,7 +108,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   }, [data, metric, cumulative]);
 
   const max = points.reduce((m, p) => Math.max(m, p.v), 0) || 1;
-  const partial = data ? data.serversReporting < data.serversAsked : false;
+  const problems = data?.problems ?? [];
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -127,10 +129,10 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         )}
       </div>
 
-      {partial && (
+      {problems.length > 0 && (
         <div className="text-[13px] text-amber-500/90 border border-amber-500/20 bg-amber-500/5 rounded-md px-3 py-2">
-          Partial: {data!.serversReporting} of {data!.serversAsked} servers answered. The real
-          figures are higher — a server is unreachable, or is running a build without this endpoint.
+          Partial: {data!.serversReporting} of {data!.serversAsked} servers reported.
+          The figures below are lower than reality — {describeProblems(problems)}.
         </div>
       )}
 

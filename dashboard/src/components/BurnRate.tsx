@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeBurnRates, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
+import { describeProblems } from '../lib/serverAnswer';
 import type { ServerEntry } from '@neoncore/client';
 
 /**
@@ -49,12 +50,14 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       const list = activeServers(servers);
       // One failing server must not take the readout down with it — settle, do not race.
       const answers = await Promise.all(
-        list.map((s) =>
-          (s.url ? apiFor(s.url, s.token) : api)
+        list.map(async (s) => ({
+          // Named for a person, not by URL — "This machine" beats an empty origin string.
+          label: s.name || (s.url ? new URL(s.url).hostname : 'This machine'),
+          result: await (s.url ? apiFor(s.url, s.token) : api)
             .getBurnRate(WINDOW_DAYS)
             .then((r) => r as ServerBurnRate)
             .catch(() => null),
-        ),
+        })),
       );
       if (alive) setRate(mergeBurnRates(answers, WINDOW_DAYS));
     };
@@ -84,8 +87,8 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
         `Fleet burn rate, trailing ${rate.days} days — ${rate.activeCartridges} cartridge(s) active, ` +
         `${rate.samples.toLocaleString()} turns across ` +
         `${rate.serversReporting}/${rate.serversAsked} server(s).\n` +
-        (rate.serversReporting < rate.serversAsked
-          ? 'PARTIAL: a server did not answer, so the real figure is higher.\n'
+        (rate.problems.length
+          ? `PARTIAL — the real figure is higher. ${describeProblems(rate.problems)}.\n`
           : '') +
         'Counts input + output + cache read + cache creation, so it is larger than the ' +
         'per-cartridge figure on a card (which shows input + output only).\n\nClick for the full report.'
@@ -99,8 +102,8 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       <span className="text-white/10">·</span>
       <span className="text-emerald-500/80">{money(rate.costPerDay)}</span>
       <span className="text-gray-600">/day</span>
-      {rate.serversReporting < rate.serversAsked && (
-        <span className="text-amber-500/80" aria-label="partial — a server did not answer">*</span>
+      {rate.problems.length > 0 && (
+        <span className="text-amber-500/80" aria-label={`partial — ${describeProblems(rate.problems)}`}>*</span>
       )}
     </button>
   );

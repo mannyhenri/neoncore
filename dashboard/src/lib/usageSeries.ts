@@ -25,21 +25,24 @@ export interface UsageSeries {
 export interface FleetSeries extends UsageSeries {
   serversReporting: number;
   serversAsked: number;
+  /** Named, with the reason — see lib/serverAnswer.ts. */
+  problems: Problem[];
 }
+
+import { problemsIn, type ServerAnswer, type Problem } from './serverAnswer';
 
 /** Fields on a SeriesPoint that add when two servers are combined. */
 export const POINT_SUMMED_KEYS = ['tokens', 'costUsd', 'samples'] as const;
 
-function isUsable(s: UsageSeries | null): s is UsageSeries {
-  return s != null && Array.isArray(s.series);
-}
+/** The old build answers `[]`: truthy, an array, but with no `.series` of its own. */
+const usableSeries = (s: UsageSeries) => Array.isArray(s?.series) && !Array.isArray(s);
 
 export function mergeSeries(
-  results: (UsageSeries | null)[],
+  answers: ServerAnswer<UsageSeries>[],
   bucket: string,
   days: number,
 ): FleetSeries {
-  const ok = results.filter(isUsable);
+  const ok = answers.map((a) => a.result).filter((s): s is UsageSeries => s != null && usableSeries(s));
 
   // Union of every bucket start any server reported — a server that was down for a stretch
   // must not shorten the fleet's timeline.
@@ -68,6 +71,7 @@ export function mergeSeries(
     // spender is first regardless of which machine it lives on.
     byCartridge: ok.flatMap((s) => s.byCartridge ?? []).sort((a, b) => b.tokens - a.tokens),
     serversReporting: ok.length,
-    serversAsked: results.length,
+    serversAsked: answers.length,
+    problems: problemsIn(answers, usableSeries),
   };
 }

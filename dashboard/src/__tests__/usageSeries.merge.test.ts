@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { mergeSeries, POINT_SUMMED_KEYS, type UsageSeries, type SeriesPoint } from '../lib/usageSeries';
+import type { ServerAnswer } from '../lib/serverAnswer';
+
+const from = (label: string, result: UsageSeries | null): ServerAnswer<UsageSeries> =>
+  ({ label, result });
 
 /**
  * The reporting chart across two machines.
@@ -68,7 +72,7 @@ describe('federated usage series', () => {
     const failures: string[] = [];
 
     for (const shape of SHAPES) {
-      const merged = mergeSeries([srv(shape.a), srv(shape.b)], 'hour', 7);
+      const merged = mergeSeries([from('a', srv(shape.a)), from('b', srv(shape.b))], 'hour', 7);
 
       // Every timestamp either server reported must survive, exactly once.
       const want = new Set([...shape.a, ...shape.b].map((p) => p.t));
@@ -100,7 +104,7 @@ describe('federated usage series', () => {
   it('conserves every summed field across the merge', () => {
     const failures: string[] = [];
     for (const shape of SHAPES) {
-      const merged = mergeSeries([srv(shape.a), srv(shape.b)], 'hour', 7);
+      const merged = mergeSeries([from('a', srv(shape.a)), from('b', srv(shape.b))], 'hour', 7);
       for (const k of POINT_SUMMED_KEYS) {
         const want = [...shape.a, ...shape.b].reduce((n, p) => n + p[k], 0);
         const got = merged.series.reduce((n, p) => n + p[k], 0);
@@ -113,7 +117,7 @@ describe('federated usage series', () => {
   it('a server that fails or answers with old code contributes nothing but is counted', () => {
     // `[]` is what a server running pre-usage-series code returns: truthy, not an error.
     const merged = mergeSeries(
-      [srv([pt(T0, 10)]), null, [] as unknown as UsageSeries],
+      [from('this', srv([pt(T0, 10)])), from('down.local', null), from('old.local', [] as unknown as UsageSeries)],
       'hour', 7,
     );
     expect(merged.series).toHaveLength(1);
@@ -121,10 +125,15 @@ describe('federated usage series', () => {
     expect(merged.serversReporting).toBe(1);
     expect(merged.serversAsked).toBe(3);
     for (const p of merged.series) expect(Number.isFinite(p.tokens)).toBe(true);
+    // The two failures are distinguished, not lumped into one "partial".
+    expect(merged.problems).toEqual([
+      { label: 'down.local', reason: 'unreachable' },
+      { label: 'old.local', reason: 'outdated' },
+    ]);
   });
 
   it('is empty, not NaN, when every server fails', () => {
-    const merged = mergeSeries([null, null], 'day', 30);
+    const merged = mergeSeries([from('a', null), from('b', null)], 'day', 30);
     expect(merged.series).toEqual([]);
     expect(merged.total.tokens).toBe(0);
     expect(Number.isFinite(merged.total.costUsd)).toBe(true);
