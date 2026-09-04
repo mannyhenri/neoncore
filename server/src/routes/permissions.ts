@@ -5,9 +5,9 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { PermissionRequest} from '../types.js';
-import { sendPushToAll } from '../lib/apns-push.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
+import { notifyAll } from '../lib/channels.js';
 
 const router = Router();
 
@@ -159,12 +159,16 @@ router.post('/request', (req, res) => {
     pushTitle = `${projectLabel} — Approval Needed`;
     pushBody = `${toolName} is waiting for your approval.`;
   }
-  // Native app push (Expo) — deep-links into the Approvals screen.
-  // Fire-and-forget; a push failure must never block the agent's request.
-  sendPushToAll(pushTitle, pushBody, {
-    type: 'permission_request',
-    permissionId: id,
-    agentId: resolvedAgentId,
+  // Every configured channel. Fire-and-forget: a notification failure must never block the
+  // agent's request, which is why notifyAll swallows per-channel errors rather than rejecting.
+  //
+  // No `actions` yet — approve/reject buttons are N3, and adding them here would mean writing
+  // the resolution path against whichever app happens to be configured, which is the coupling
+  // N1 just removed.
+  notifyAll({
+    title: pushTitle,
+    body: pushBody,
+    data: { type: 'permission_request', permissionId: id, agentId: resolvedAgentId },
   }).catch(() => {});
 
   res.status(201).json({ id, status: 'pending' });
