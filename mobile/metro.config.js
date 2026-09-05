@@ -36,11 +36,29 @@ const monorepoRoot = path.resolve(__dirname, '..');
 /**
  * Packages that MUST be a single instance. Two Reacts is not a bigger bundle — it is two hook
  * dispatchers, and the app dies at launch with "Cannot read property 'useState' of null".
- * Build 32 shipped exactly that: adding mobile to the npm workspaces hoisted most deps to the
- * root while a nested react 19.2.3 survived against the root's 19.2.4, and nodeModulesPaths
- * below lists both directories.
  *
- * Deduping node_modules fixes today; pinning fixes every future install that re-nests a copy.
+ * THIS HAS SHIPPED TWICE. Build 32: adding mobile to the npm workspaces hoisted most deps to
+ * the root while a nested react survived, and nodeModulesPaths below lists both directories.
+ * Build 40: the identical crash, caught under lldb —
+ *
+ *     Unhandled JS Exception: TypeError: Cannot read property 'useState' of null
+ *       App@44944:40  renderWithHooks@9808:31
+ *
+ * ── WHY THE SECOND TIME HAPPENED WITH THIS PIN ALREADY IN PLACE ─────────────────────────
+ * The previous version mapped these through `extraNodeModules` and asserted in a comment that
+ * it "wins over nodeModulesPaths". IT DOES NOT. extraNodeModules is a FALLBACK, consulted
+ * only when normal resolution FAILS. A nested mobile/node_modules/react resolves perfectly
+ * well, so the fallback was never reached and the mapping did nothing. The comment was
+ * confident, load-bearing and wrong, which is worse than absent — it is why the nested copy
+ * was treated as harmless when the version drift reappeared.
+ *
+ * `resolveRequest` is the hook that actually overrides: metro calls it FIRST for every import,
+ * so redirecting there cannot be bypassed by a copy that happens to resolve.
+ *
+ * Three layers, because two have now failed: npm keeps one copy (aligned versions plus a root
+ * `overrides` entry), this redirect guarantees one even if npm re-nests, and
+ * src/__tests__/singleton-deps.test.ts fails the MOBILE suite if either slips — the suite an
+ * iOS build actually runs.
  */
 const SINGLETONS = ['react', 'react-native'];
 const pinned = Object.fromEntries(
@@ -54,8 +72,27 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
       path.resolve(__dirname, 'node_modules'),
       path.resolve(monorepoRoot, 'node_modules'),
     ],
-    // extraNodeModules wins over nodeModulesPaths, so even if a nested copy reappears every
-    // import of these resolves to the one instance.
+    // Kept as the fallback it actually is; resolveRequest below is what enforces.
     extraNodeModules: pinned,
+
+    /**
+     * Force every import of a singleton to the ONE copy at the monorepo root.
+     *
+     * Matches the bare specifier and its subpaths ('react', 'react/jsx-runtime') but not
+     * lookalikes ('react-native-svg' must not be redirected to react-native), which is why
+     * this tests for an exact name or a name followed by '/'.
+     */
+    resolveRequest: (context, moduleName, platform) => {
+      const hit = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
+      if (hit) {
+        const rest = moduleName.slice(hit.length);
+        return context.resolveRequest(
+          context,
+          path.resolve(monorepoRoot, 'node_modules', hit) + rest,
+          platform,
+        );
+      }
+      return context.resolveRequest(context, moduleName, platform);
+    },
   },
 });

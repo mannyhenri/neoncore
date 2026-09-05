@@ -19,5 +19,8 @@
     "install:hooks": "python3 agent/install.py",
     "extension:package": "cd extension && npm install && npm run package",
     "extension:publish": "cd extension && npm install && npm run publish:marketplace"
+  },
+  "overrides": {
+    "react": "19.2.4"
   }
 }
