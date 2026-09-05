@@ -5,7 +5,7 @@ import {
 import { theme } from '../theme';
 import { api, type BurnRate, type UsageSeries, type UsageBucket } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { Card, ScreenTitle } from '../components/ui';
+import { Card, ScreenTitle, Adaptive } from '../components/ui';
 
 /**
  * What the fleet is spending, and whether a change in approach moved it.
@@ -102,6 +102,7 @@ export function TokensScreen() {
       style={styles.wrap}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.accent} />}
     >
+      <Adaptive>
       <ScreenTitle title="Tokens" />
 
       {error !== '' && <Text style={styles.error}>{error}</Text>}
@@ -208,6 +209,7 @@ export function TokensScreen() {
       )}
 
       <View style={{ height: 28 }} />
+      </Adaptive>
     </ScrollView>
   );
 }
