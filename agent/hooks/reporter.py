@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 from urllib.request import Request, urlopen
 
+from _fleet import auth_headers
+
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 
 # Which engine these hooks report for. Every payload carries it, because a repo can
@@ -38,7 +40,7 @@ def post_json(url: str, body: str, retries: int = 3) -> bool:
     """POST JSON with retry."""
     for _ in range(retries):
         try:
-            req = Request(url, data=body.encode(), headers={"Content-Type": "application/json"}, method="POST")
+            req = Request(url, data=body.encode(), headers={"Content-Type": "application/json", **auth_headers()}, method="POST")
             urlopen(req, timeout=5)
             return True
         except Exception:
@@ -55,7 +57,7 @@ def post_json_read(url: str, body: str, timeout: int = 4):
     hold up (or, worse, alter) the end of a turn.
     """
     try:
-        req = Request(url, data=body.encode(), headers={"Content-Type": "application/json"}, method="POST")
+        req = Request(url, data=body.encode(), headers={"Content-Type": "application/json", **auth_headers()}, method="POST")
         with urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", errors="replace"))
     except Exception:

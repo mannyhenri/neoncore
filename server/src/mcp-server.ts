@@ -21,6 +21,9 @@
  *   neoncore_read_agent         — read another agent's recent transcript
  */
 
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -41,10 +44,30 @@ const AGENT_TYPE = process.env.NEONCORE_AGENT_TYPE || 'codex';
 // ---------------------------------------------------------------------------
 const log = (...args: unknown[]) => process.stderr.write(`[neoncore-mcp] ${args.join(' ')}\n`);
 
+/**
+ * The fleet token for this MCP process.
+ *
+ * Runs as its own process — often on a DIFFERENT machine from the server — so it cannot call
+ * getFleetToken(), which reads the server's database. Same contract as the relay and the
+ * hooks: env first so a remote agent can point at another fleet, then the file the server
+ * publishes locally. Read per call rather than cached, so rotating the token does not require
+ * restarting every MCP client.
+ */
+function authHeaders(): Record<string, string> {
+  const env = (process.env.NEONCORE_FLEET_TOKEN || '').trim();
+  if (env) return { Authorization: `Bearer ${env}` };
+  try {
+    const t = readFileSync(join(homedir(), '.neoncore', 'token'), 'utf8').trim();
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function post(path: string, body: unknown): Promise<unknown> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${await res.text()}`);
@@ -52,7 +75,7 @@ async function post(path: string, body: unknown): Promise<unknown> {
 }
 
 async function get(path: string, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetch(`${BASE_URL}${path}`, { signal });
+  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders(), signal });
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -470,7 +493,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     try {
       const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/claim`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ sessionId }),
       });
       if (res.status === 409) {

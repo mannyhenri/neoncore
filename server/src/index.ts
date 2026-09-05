@@ -35,7 +35,7 @@ import tasksRouter from './routes/tasks.js';
 import pushRouter from './routes/push.js';
 import machinesRouter from './routes/machines.js';
 import peersRouter from './routes/peers.js';
-import { fleetAuth, ensureFleetToken, getAuthMode } from './lib/auth.js';
+import { fleetAuth, ensureFleetToken, getAuthMode, writeTokenFile, TOKEN_FILE } from './lib/auth.js';
 import { startPeerScheduler, stopPeerScheduler } from './lib/peer-scheduler.js';
 import { findZombies } from './lib/zombie-reaper.js';
 import { startStuckDetector } from './stuck-detector.js';
@@ -382,6 +382,10 @@ server.listen(PORT, '0.0.0.0', () => {
   // whole point is that you can copy it onto the next machine — so a freshly generated
   // one is printed in full, once, right here in the startup box.
   const { token, generated, adopted } = ensureFleetToken();
+  // Publish it where hooks and the relay can read it. They are spawned by Claude Code and
+  // launchd, not by this process, so an env var set for `npm start` never reaches them —
+  // and without this every machine is a manual copy step that fails silently at 401.
+  const published = writeTokenFile(token);
   const lines = [
     'NeonCore Server',
     '',
@@ -393,6 +397,7 @@ server.listen(PORT, '0.0.0.0', () => {
     'IP is a DHCP lease and will eventually change.',
     '',
     `Fleet auth: ${getAuthMode()}`,
+    ...(published ? [`Token file: ${TOKEN_FILE}`] : []),
     ...(generated
       ? [
           '',

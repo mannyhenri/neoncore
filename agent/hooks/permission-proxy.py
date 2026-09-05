@@ -18,6 +18,8 @@ import platform
 import subprocess
 from urllib.request import Request, urlopen
 
+from _fleet import auth_headers
+
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 POLL_TIMEOUT = 120  # seconds per poll attempt
 MAX_POLL_RETRIES = 5  # retry up to 5 times (total ~10 minutes for plan reviews)
@@ -26,7 +28,7 @@ MAX_POLL_RETRIES = 5  # retry up to 5 times (total ~10 minutes for plan reviews)
 def post_json(url: str, body: str, timeout: int = 5) -> dict | None:
     """POST JSON and return parsed response."""
     try:
-        req = Request(url, data=body.encode(), headers={"Content-Type": "application/json"}, method="POST")
+        req = Request(url, data=body.encode(), headers={"Content-Type": "application/json", **auth_headers()}, method="POST")
         resp = urlopen(req, timeout=timeout)
         return json.loads(resp.read())
     except Exception:
