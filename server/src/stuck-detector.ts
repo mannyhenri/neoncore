@@ -1,6 +1,6 @@
 import db from './db.js';
 import { getIO } from './ws.js';
-import { sendPushToAll } from './lib/apns-push.js';
+import { notifyAll } from './lib/channels.js';
 
 export interface StuckAlert {
   agentId: string;
@@ -112,9 +112,12 @@ export function startStuckDetector() {
           const agentRow = db.prepare('SELECT repo_name, name, repo_path FROM agents WHERE id = ?')
             .get(id) as { repo_name: string; name: string; repo_path: string } | undefined;
           const label = agentRow?.repo_name || agentRow?.name || id;
-          sendPushToAll(`${label} — Agent Stuck`, alert.pattern, {
-            type: 'agent_stuck',
-            agentId: id,
+          // Every configured channel, not just the phone. notifyAll never throws.
+          notifyAll({
+            title: `${label} — Agent Stuck`,
+            body: alert.pattern,
+            detail: { Cartridge: label, Pattern: alert.pattern },
+            data: { type: 'agent_stuck', agentId: id },
           }).catch(() => {});
         }
       } else if (activeAlerts.has(id)) {
