@@ -16,6 +16,7 @@ import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
+import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
 } from '../lib/autonomy.js';
@@ -271,32 +272,6 @@ router.put('/:id/project', (req, res) => {
 
 // ─── V2 Canvas Workflow Routes ───────────────────────────────
 
-function normalizeStep(row: Record<string, unknown>): WorkflowStep {
-  return {
-    id: row.id as string,
-    workflowId: row.workflow_id as string,
-    name: row.name as string,
-    description: (row.description as string) || '',
-    positionX: row.position_x as number,
-    positionY: row.position_y as number,
-    executorType: row.executor_type as WorkflowStep['executorType'],
-    executorId: (row.executor_id as string) || '',
-    executorConfig: JSON.parse((row.executor_config as string) || '{}'),
-    autoAdvance: (row.auto_advance as number) === 1,
-    status: (row.status as WorkflowStep['status']) || 'pending',
-    result: (row.result as string) || '',
-    error: (row.error as string) || '',
-    dispatchedPrompt: (row.dispatched_prompt as string) || '',
-    dependsOn: JSON.parse((row.depends_on as string) || '[]'),
-    createdAt: row.created_at as string,
-    startedAt: (row.started_at as string) || null,
-    completedAt: (row.completed_at as string) || null,
-    recoveryStatus: (row.recovery_status as string) || '',
-    interruptedAt: (row.interrupted_at as string) || null,
-    recoveryAttempts: (row.recovery_attempts as number) || 0,
-    routingNote: (row.routing_note as string) || '',
-  };
-}
 
 // Create V2 workflow with steps
 /**
@@ -1021,7 +996,8 @@ router.post('/v2/:id/steps/:stepId/decide', (req, res) => {
     .get(req.params.stepId, req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Step not found' });
 
-  const config = JSON.parse((row.executor_config as string) || '{}');
+  // Guarded: a gate whose config is unreadable must 400 with 'Unknown optionId', not 500.
+  const config = parseExecutorConfig(row.executor_config as string, row.id as string);
   const options = (config.options as Array<{ id: string; label: string; description?: string; nextStepId?: string }>) || [];
   const chosen = options.find((o) => o.id === optionId);
   if (!chosen) return res.status(400).json({ error: 'Unknown optionId' });

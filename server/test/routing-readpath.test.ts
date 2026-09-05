@@ -105,7 +105,11 @@ const INTERNAL_AGENT_COLUMNS: Record<string, string> = {
 };
 
 const CASES = [
-  { table: 'workflow_steps', serializer: 'normalizeStep', internal: INTERNAL_STEP_COLUMNS, minCopies: 2 },
+  // minCopies was 2 until normalizeStep was consolidated into lib/workflow-normalize.ts. The two
+  // copies had drifted — the routes one threw on an unreadable executor_config where the
+  // executor logged and continued — so ONE is now the correct expectation, and this number going
+  // back up means a copy reappeared. The column coverage below is unaffected either way.
+  { table: 'workflow_steps', serializer: 'normalizeStep', internal: INTERNAL_STEP_COLUMNS, minCopies: 1 },
   { table: 'agents', serializer: 'normalizeAgent', internal: INTERNAL_AGENT_COLUMNS, minCopies: 2 },
 ];
 

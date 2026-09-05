@@ -17,6 +17,11 @@ import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
 import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
 import { resolveLoopCount, shouldStopLooping, type LoopConfig } from './workflow-loop.js';
+import { normalizeStep } from './workflow-normalize.js';
+// Re-exported for the modules that already import it from here. The DEFINITION lives in
+// lib/workflow-normalize.ts — a serializer is not the executor's to own, and it having been
+// owned by two modules at once is what let the copies drift.
+export { normalizeStep } from './workflow-normalize.js';
 
 const POLL_INTERVAL_MS = 12_000;
 
@@ -173,53 +178,6 @@ const ROLE_PROMPTS: Record<string, string> = {
  * would make this throw — inside a setInterval callback, which kills the process. A bad
  * config should degrade one step, not crash the orchestrator.
  */
-function parseExecutorConfig(raw: string | null | undefined, stepId: string): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    console.error(`[workflow-v2] Step ${stepId}: executor_config is not valid JSON — treating as empty. Raw: ${String(raw).slice(0, 120)}`);
-    return {};
-  }
-}
-
-/**
- * Exported for lib/workflow-resolve.ts. NOT unified with the copy in routes/workflows.ts:271 —
- * they differ, and this is the correct one. That copy parses executor_config with a bare
- * JSON.parse, while this uses parseExecutorConfig so a routing substitution recorded during
- * execution survives serialisation. Merging them is a real change with a known trap, not a
- * tidy-up, so it is left alone here and reported separately.
- */
-export function normalizeStep(row: Record<string, unknown>): WorkflowStep {
-  return {
-    id: row.id as string,
-    workflowId: row.workflow_id as string,
-    name: row.name as string,
-    description: (row.description as string) || '',
-    positionX: row.position_x as number,
-    positionY: row.position_y as number,
-    executorType: row.executor_type as WorkflowStep['executorType'],
-    executorId: (row.executor_id as string) || '',
-    executorConfig: parseExecutorConfig(row.executor_config as string, row.id as string),
-    autoAdvance: (row.auto_advance as number) === 1,
-    status: (row.status as WorkflowStep['status']) || 'pending',
-    result: (row.result as string) || '',
-    error: (row.error as string) || '',
-    dispatchedPrompt: (row.dispatched_prompt as string) || '',
-    dependsOn: JSON.parse((row.depends_on as string) || '[]'),
-    createdAt: row.created_at as string,
-    startedAt: (row.started_at as string) || null,
-    completedAt: (row.completed_at as string) || null,
-    recoveryStatus: (row.recovery_status as string) || '',
-    interruptedAt: (row.interrupted_at as string) || null,
-    recoveryAttempts: (row.recovery_attempts as number) || 0,
-    // This copy is the one that emits `workflow_step_updated` DURING execution, which is
-    // exactly when a routing substitution is recorded. Surfacing it only in the routes'
-    // serializer would have left the live path dropping the field.
-    routingNote: (row.routing_note as string) || '',
-  };
-}
 
 function emitWorkflowUpdate(workflowId: string) {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as Record<string, unknown> | undefined;
