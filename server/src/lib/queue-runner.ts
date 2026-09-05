@@ -60,6 +60,25 @@ export const BLOCKER_WEDGED_MS = 30 * 60 * 1000;
 /** Halt kinds. Only a transient one may clear itself. */
 const HALT_BLOCKED = 'blocked';
 
+/**
+ * A halt whose CAUSE resolves itself, so the lane must not need a human to clear it.
+ *
+ * REPORTED: "a task assigned for a cartridge and the agent was idled and it didn't execute it."
+ * Three halts had transient causes and only one said so. The other two — a target that was
+ * offline, and this process restarting mid-prompt — left the lane stopped forever, with work
+ * queued behind a cartridge that had been idle for hours. Restart the server a few times in a
+ * day and lanes accumulate stopped, each looking from the outside like an empty queue.
+ *
+ * Resuming is SAFE and is not the same as dispatching: the auto-resume path still refuses while
+ * the blocker is wedged, and once the lane is open the ordinary busyTargets check holds the item
+ * until the cartridge is actually free. Un-freezing a lane only lets the normal rules apply again.
+ *
+ * A halt for a real fault — a corrupt row, a detector that threw, a dispatch that failed three
+ * times — is NOT in here on purpose. Those need a person, because nothing about waiting fixes them.
+ */
+const HALT_TRANSIENT = 'transient';
+const SELF_CLEARING: ReadonlySet<string> = new Set([HALT_BLOCKED, HALT_TRANSIENT]);
+
 function nowIso(): string { return new Date().toISOString(); }
 
 /**
@@ -408,7 +427,7 @@ function tickLane(lane: string, now: number): void {
     // the lane sits stopped with work queued behind a cartridge that is free again — the exact
     // overnight failure the halt existed to prevent. So that ONE kind clears itself; a halt
     // from a real dispatch failure still waits for a human.
-    if (state.haltKind !== HALT_BLOCKED) return;
+    if (!SELF_CLEARING.has(state.haltKind)) return;
     const next = db.prepare(
       "SELECT * FROM queue_items WHERE lane = ? AND status = 'queued' AND paused = 0 ORDER BY position LIMIT 1",
     ).get(lane) as Record<string, unknown> | undefined;
@@ -494,7 +513,9 @@ function settleRunning(item: QueueItem, lane: string, now: number): 'wait' | 'ad
     db.prepare('UPDATE queue_items SET stall_ticks = ? WHERE id = ?').run(ticks, item.id);
     if (ticks >= MAX_STALL_TICKS) {
       finish(item, 'failed', `target unreachable for ${ticks} ticks: ${unreachable.join(', ')}`);
-      haltLane(lane, `a target of ${item.id.slice(0, 8)} stayed offline`, item.id);
+      // Transient: an offline cartridge comes back. The auto-resume path will not release the
+      // lane until it does, so this cannot dispatch into a machine that is still gone.
+      haltLane(lane, `a target of ${item.id.slice(0, 8)} stayed offline`, item.id, HALT_TRANSIENT);
     }
     return 'wait';
   }
@@ -600,7 +621,10 @@ export function reconcileQueue(): void {
     });
     finish(item, 'failed', 'server restarted while this prompt was running — its completion could not be observed');
     if (stillWorking.length) {
-      haltLane(item.lane, `restarted while ${stillWorking.join(', ')} was still working — may still be mid-prompt`, item.id);
+      // Transient: "may still be mid-prompt" stops being true the moment that cartridge is
+      // free, and the auto-resume path asks exactly that. Left permanent, every deploy or crash
+      // that caught a running prompt stopped its lane until someone noticed.
+      haltLane(item.lane, `restarted while ${stillWorking.join(', ')} was still working — may still be mid-prompt`, item.id, HALT_TRANSIENT);
     } else {
       console.log(`[queue] reconcile: lane ${item.lane} continues — no target was still working`);
     }
