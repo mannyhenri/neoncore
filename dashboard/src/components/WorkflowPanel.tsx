@@ -8,6 +8,7 @@ import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
 import { isWaitingSession } from '../types';
 import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem } from '../types';
+import { AutonomyControl } from './AutonomyControl';
 
 // ─── Browser notification helper ────────────────────
 
@@ -892,6 +893,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               {starting ? 'Starting...' : '▶ Run'}
             </button>
           )}
+          {/* The automate control sits WITH pause and cancel: they are the same question —
+              how much of this run is yours to drive right now. */}
+          {['running', 'paused'].includes(wf.status) && <AutonomyControl workflowId={wf.id} />}
           {wf.status === 'running' && (
             <button onClick={handlePause} className="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-white/5">Pause</button>
           )}
