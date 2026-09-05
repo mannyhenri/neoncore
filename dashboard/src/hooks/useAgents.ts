@@ -133,7 +133,26 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
   const refreshData = useCallback(() => {
     const list = serversRef.current;
     // allSettled, never all: one rejection must not cancel the others.
-    Promise.allSettled(list.map((s) => refreshServer(s))).finally(() => setLoading(false));
+    const jobs = list.map((server) => ({ server, done: refreshServer(server) }));
+
+    /*
+     * FIRST PAINT DEPENDS ONLY ON THE SERVER THAT SERVED THIS PAGE.
+     *
+     * Clearing `loading` in the `.finally` of an allSettled over EVERY server was the cause of
+     * two reported bugs. With no request deadline it never fired at all — "just says connecting
+     * to orchestrator" — because a sleeping laptop's fetch never settles. With a deadline it
+     * fired 15 seconds late — "each page load has a delay" — because allSettled still waits for
+     * the slowest member. The local server answers in about two milliseconds; nothing it knows
+     * should be withheld while a machine that is asleep is given its full timeout to say so.
+     *
+     * The remote jobs still run, and still populate their slices when they land. Only the gate
+     * on showing you anything moved.
+     */
+    const localJob = jobs.find((j) => !j.server.url);
+    const gate = localJob
+      ? localJob.done
+      : Promise.allSettled(jobs.map((j) => j.done));
+    gate.finally(() => setLoading(false));
   }, [refreshServer]);
 
   useEffect(() => { refreshData(); }, [refreshData, active.length]);
