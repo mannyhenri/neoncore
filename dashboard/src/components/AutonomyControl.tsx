@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 
 /**
@@ -38,6 +39,8 @@ interface State {
 export function AutonomyControl({ workflowId }: { workflowId: string }) {
   const [state, setState] = useState<State | null>(null);
   const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const [at, setAt] = useState<{ top: number; right: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -74,7 +77,14 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen((o) => !o)}
+        ref={btn}
+        onClick={() => {
+          // Measured at open time, not on every render: the rail scrolls independently, so a
+          // position captured once would drift away from its button.
+          const r = btn.current?.getBoundingClientRect();
+          if (r) setAt({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+          setOpen((o) => !o);
+        }}
         className={`text-xs px-2 py-1 rounded hover:bg-white/5 transition-colors ${current.color} ${
           raised ? 'border border-current/30' : ''
         }`}
@@ -91,8 +101,22 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
         )}
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-[#0d0f12] border border-white/[0.08] rounded-lg shadow-2xl p-2 space-y-1">
+      {/*
+        PORTALED OUT OF THE RAIL. The command rail is `lg:sticky`, and position:sticky always
+        creates a stacking context — so an `absolute z-50` panel is not "above the page", it is
+        above the RAIL, which paints before <main>. Reported as the dropdown appearing behind
+        the runs listed beneath it. No z-index can win against a sibling stacking context that
+        paints later; the panel has to leave the subtree. Same fix, and same reason, as
+        WorkflowPanel's deferred popup and the canvas editor's overlays.
+      */}
+      {open && at && createPortal(
+        <>
+          {/* Click-away. Inside the portal so it covers the page rather than the rail. */}
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[91] w-72 bg-[#0d0f12] border border-white/[0.08] rounded-lg shadow-2xl p-2 space-y-1"
+            style={{ top: at.top, right: at.right }}
+          >
           {LEVELS.map((l) => (
             <div key={l.key} className="rounded hover:bg-white/[0.04] p-2">
               <div className="flex items-center justify-between gap-2">
@@ -131,7 +155,9 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
               : 'Raising always expires. Failed and interrupted steps are never auto-resolved.'}
           </p>
           {error && <p className="text-[11px] text-red-400 px-2">{error}</p>}
-        </div>
+          </div>
+        </>,
+        document.body,
       )}
     </div>
   );

@@ -73,6 +73,41 @@ export const SETTABLE_LEVELS: AutonomyLevel[] = ['manual', 'advance', 'full'];
  */
 export const OVERRIDE_WINDOW_MS = 5 * 60_000;
 
+/**
+ * How hard each level tries to un-stick a cartridge that went quiet without reporting.
+ *
+ * Asked for directly: "I want full unsupervised autonomy if I select this." The first version
+ * nudged ONCE at every level, reasoning that a stall surviving a nudge is a person's problem.
+ * That is right for `advance`, whose promise is only that it decides nothing for you — and
+ * wrong for `full`, whose whole promise is that nobody has to be watching. A level that gives
+ * up after one attempt and waits is not unsupervised; it is manual with extra steps.
+ *
+ * BOUNDED, THOUGH, AND SPACED. The sweep runs every 60 seconds and a silent cartridge stays
+ * silent, so without a cooldown it would be nudged sixty times an hour, and without a ceiling
+ * it would be nudged until the run was cancelled. Six attempts ten minutes apart is an hour of
+ * genuine trying; a cartridge that has ignored six is not going to answer the seventh, and at
+ * that point the run legitimately needs a person.
+ */
+export const NUDGE_POLICY: Record<AutonomyLevel, { maxAttempts: number; cooldownMs: number }> = {
+  manual: { maxAttempts: 0, cooldownMs: 0 },
+  advance: { maxAttempts: 1, cooldownMs: 10 * 60_000 },
+  full: { maxAttempts: 6, cooldownMs: 10 * 60_000 },
+};
+
+/** May another nudge go out right now? `lastAt` is null when none has been sent. */
+export function nudgeAllowed(
+  level: AutonomyLevel,
+  sent: number,
+  lastAt: string | null,
+  now = Date.now(),
+): boolean {
+  const policy = NUDGE_POLICY[level];
+  if (!policy || sent >= policy.maxAttempts) return false;
+  if (!lastAt) return true;
+  const since = now - Date.parse(lastAt);
+  return Number.isFinite(since) ? since >= policy.cooldownMs : true;
+}
+
 export function isAutonomyLevel(v: string): v is AutonomyLevel {
   return (AUTONOMY_LEVELS as readonly string[]).includes(v);
 }
