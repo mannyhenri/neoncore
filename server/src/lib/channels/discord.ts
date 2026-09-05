@@ -6,7 +6,9 @@
  * this file knows it exists. Swapping it for Slack means adding a sibling here and registering
  * it, and changing nothing else.
  */
-import { isDiscordConfigured, sendToDiscord } from '../discord-bot.js';
+import { isDiscordConfigured, sendToDiscord, discordRouting as routing } from '../discord-bot.js';
+import { channelForTarget } from '../channel-targets.js';
+import { targetForNotice } from '../notice-target.js';
 import type { Channel, Notice, Delivery } from '../channels.js';
 
 /** Discord's button styles. An unknown style is rendered rather than refused. */
@@ -25,7 +27,20 @@ export const discordChannel: Channel = {
   isConfigured: () => isDiscordConfigured(),
 
   async send(notice: Notice): Promise<Delivery> {
+    /*
+     * Deliver where the conversation is. A cartridge with its own channel gets its notices
+     * there; everything else goes to the primary channel exactly as before.
+     *
+     * NeonCore says which CARTRIDGE a notice is about (`targetForNotice`, from the ids the
+     * notices already carry); this driver decides which of ITS rooms that means. Neither half
+     * knows the other's vocabulary, which is what lets a second driver map the same target onto
+     * something that is not a channel at all.
+     */
+    const { target } = targetForNotice(notice.data);
+    const channelId = channelForTarget(target, routing());
+
     const ok = await sendToDiscord(notice.title, renderBody(notice), {
+      channelId,
       files: notice.attachments,
       buttons: notice.actions?.map((a) => ({
         id: a.id,

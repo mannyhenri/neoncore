@@ -67,3 +67,24 @@ export function defaultTargetFor(channelId: string, cfg: ChannelRouting): string
   if (channelId === cfg.channelId) return undefined;
   return cfg.targets.get(channelId);
 }
+
+/**
+ * Which channel stands for a target — the map read the other way.
+ *
+ * Inbound made a channel an address; without this, outbound still lands in the primary channel
+ * and you talk to a cartridge in its own room while every answer arrives in another. Returns
+ * undefined when nothing is mapped, and the caller falls back to the primary channel rather
+ * than dropping the notice: a message in the wrong room is recoverable, a message nowhere is not.
+ *
+ * First match wins, and two channels mapped to one target is a config mistake that resolves
+ * deterministically rather than by iteration order luck.
+ */
+export function channelForTarget(target: string | undefined, cfg: ChannelRouting): string | undefined {
+  const want = String(target || '').trim().toLowerCase();
+  if (!want) return undefined;
+  const hits: string[] = [];
+  for (const [channelId, name] of cfg.targets) {
+    if (String(name).trim().toLowerCase() === want) hits.push(channelId);
+  }
+  return hits.sort()[0];
+}
