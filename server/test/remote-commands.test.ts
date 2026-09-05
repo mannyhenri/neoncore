@@ -114,10 +114,20 @@ test('the cartridge is split off without mangling the prompt behind it', () => {
   assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
 });
 
-/** THE SET: the commands N2 is done when it has. */
-const REQUIRED_COMMANDS = ['cartridges', 'prompt'];
+/**
+ * THE SET: every command the remote surface registers, and the phase that added it.
+ *
+ * Asserted as an EXACT set rather than a subset, so a command appearing without a line here
+ * fails — that is how N4's `autonomy` announced itself, which is the behaviour wanted. A
+ * command nobody listed is one nobody documented, tested, or decided to expose.
+ */
+const REQUIRED_COMMANDS = [
+  'cartridges',   // N2
+  'prompt',       // N2
+  'autonomy',     // N4 — read the posture, and raise it with a time-box
+];
 
-test('N2 registers its commands against the SHARED registry, not a driver', () => {
+test('every remote command registers against the SHARED registry, not a driver', () => {
   clearRegistries();
   assert.deepEqual(listCommands(), [], 'registry was not empty at the start of the test');
 

@@ -27,6 +27,9 @@ import { workflowNeedsAttention, ATTENTION_REASONS, type Attention, type Attenti
 import { decisionOptions, decideStep, advanceStep, workflowIdOfStep } from './workflow-resolve.js';
 import { recoverStep } from './recovery.js';
 import { registerAction } from './commands-registry.js';
+import {
+  effectiveAutonomy, canAutoResolve, recordAutoResolution, type AutonomyLevel,
+} from './autonomy.js';
 
 /**
  * Action id prefixes. SHORT on purpose: a Discord customId is capped at 100 characters and a
@@ -157,6 +160,17 @@ export async function sweepAttention(): Promise<number> {
 
     if (!attention) { lastNotified.delete(wf.id); continue; }
 
+    // N4: may this run settle this for itself? Checked BEFORE the dedupe key, because an
+    // auto-resolution is a different event from a request for attention and must not be
+    // suppressed by a key set when the run was still asking.
+    const resolved = tryAutoResolve(wf, attention);
+    if (resolved) {
+      lastNotified.delete(wf.id);   // it is no longer blocked on this; the next block is news
+      await notifyAll(resolved);
+      sent += 1;
+      continue;
+    }
+
     const key = keyOf(attention);
     if (lastNotified.get(wf.id) === key) continue;
     lastNotified.set(wf.id, key);
@@ -165,6 +179,65 @@ export async function sweepAttention(): Promise<number> {
     sent += 1;
   }
   return sent;
+}
+
+/**
+ * Settle a gate the run's autonomy level permits, and return the notice that SAYS SO.
+ *
+ * It still notifies. An autonomous action you are not told about is indistinguishable from a
+ * run that never blocked, and the audit table only helps someone who already knows to look.
+ * The difference from a normal attention notice is the tense: this reports what happened, and
+ * carries no button, because there is nothing left to press.
+ *
+ * Returns null when the level does not permit it — including for every reason in NEVER_AUTO,
+ * at every level.
+ */
+function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
+  const { level, source, expiresAt } = effectiveAutonomy(wf.id);
+  if (!canAutoResolve(level, attention.reason)) return null;
+
+  // Only `manual-advance` is auto-resolvable today; the switch is exhaustive so a reason added
+  // to AUTO_RESOLVABLE without an implementation here fails to compile rather than silently
+  // doing nothing while the audit claims otherwise.
+  let chose: string;
+  switch (attention.reason) {
+    case 'manual-advance': {
+      const r = advanceStep(attention.stepId);
+      if (!r.ok) {
+        console.warn(`[autonomy] ${wf.id}: advance failed: ${r.error}`);
+        return null;   // fall through to asking a person, which is the safe direction
+      }
+      chose = 'advance';
+      break;
+    }
+    default:
+      return null;
+  }
+
+  recordAutoResolution({
+    workflowId: wf.id, stepId: attention.stepId,
+    reason: attention.reason, chose, autonomy: level,
+  });
+
+  return {
+    title: `${runLabel(wf)} — advanced automatically`,
+    body: `"${attention.stepName}" finished and was released without you.`,
+    detail: {
+      Run: runLabel(wf),
+      Step: attention.stepName,
+      Autonomy: `${level} (${source}${expiresAt ? `, until ${expiresAt}` : ''})`,
+      Recorded: 'workflow_auto_resolutions',
+    },
+    actions: [],
+    data: {
+      type: 'workflow_auto_resolved',
+      reason: attention.reason,
+      workflowId: wf.id,
+      stepId: attention.stepId,
+      autonomy: level as AutonomyLevel,
+      chose,
+    },
+  };
 }
 
 let timer: NodeJS.Timeout | null = null;
