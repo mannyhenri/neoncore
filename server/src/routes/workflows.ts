@@ -892,6 +892,30 @@ router.post('/v2/:id/start', (req, res) => {
     }
   }
 
+  /**
+   * Confer participants, per step.
+   *
+   * A confer step needs a LIST of cartridges, not the single executor `agentOverrides` sets —
+   * that is the whole difference between "who runs this step" and "who works on it together".
+   * Without this the step launches with an empty roster and refuses at dispatch, which is the
+   * correct failure but a useless one if there is no way to supply them.
+   */
+  const conferOverrides = req.body?.conferOverrides as Record<string, string[]> | undefined;
+  if (conferOverrides && Object.keys(conferOverrides).length > 0) {
+    for (const [stepId, agentIds] of Object.entries(conferOverrides)) {
+      if (!Array.isArray(agentIds)) continue;
+      const stepRow = db.prepare('SELECT executor_config FROM workflow_steps WHERE id = ? AND workflow_id = ?')
+        .get(stepId, runId) as { executor_config: string } | undefined;
+      if (!stepRow) continue;
+      const config = JSON.parse(stepRow.executor_config || '{}');
+      config.conferAgentIds = agentIds.filter(Boolean);
+      config._wasDeferred = true;
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ? AND workflow_id = ?')
+        .run(JSON.stringify(config), stepId, runId);
+    }
+    console.log(`[workflow] Applied confer participants for ${Object.keys(conferOverrides).length} step(s) in run ${runId}`);
+  }
+
   // Apply deferred prompt overrides
   const promptOverrides = req.body?.promptOverrides as Record<string, Record<string, string>> | undefined;
   if (promptOverrides && Object.keys(promptOverrides).length > 0) {

@@ -229,6 +229,8 @@ export const FUNCTIONS: AgentFunction[] = [
   f('review-gate', 'T5', 'batch', 'executorType'),
   f('quality-gate', 'T5', 'batch', 'executorType'),
   f('deliberation', 'T5', 'batch', 'executorType'),
+  // A confer step runs the confer conductor, so it needs whatever a confer participant needs.
+  f('confer', 'T5', 'batch', 'executorType'),
 
   // --- Confer milestone roles (server/src/lib/confer-conductor.ts) ---
   f('align', 'T4', 'batch', 'conferMilestone'),

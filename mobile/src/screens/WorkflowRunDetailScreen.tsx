@@ -33,6 +33,8 @@ const execLabel: Record<string, string> = {
   'claude-code': 'AGENT',
   'review-gate': 'REVIEW',
   'deliberation': 'PANEL',
+  // Several cartridges working ONE objective together, possibly across repos.
+  'confer': 'CONFER',
   'quality-gate': 'GATE',
   'command': 'COMMAND',
   'connector': 'CONNECTOR',

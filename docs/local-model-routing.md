@@ -135,6 +135,7 @@ good". Content quality is the surrounding step's tier, tracked separately below.
 | `review-gate` | T5 | Judging whether work passes. Reserve for the generalist. |
 | `quality-gate` | T5 | Same. |
 | `deliberation` | T5 | Panel judgement across engines. |
+| `confer` | T5 | Several cartridges working one objective together, across repos. Runs the confer conductor, so a participant needs whatever a confer participant needs. |
 
 ### Confer milestone roles (`confer-conductor.ts`)
 

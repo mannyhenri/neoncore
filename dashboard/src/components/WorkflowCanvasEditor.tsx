@@ -276,6 +276,14 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
             deliberation
           </span>
         )}
+        {/* Several cartridges working ONE objective together — the confer relationship,
+            as a step. Distinct badge from deliberation: a panel gives N opinions on one
+            question, a confer splits one job between N cartridges. */}
+        {data.executorType === 'confer' && (
+          <span className="text-[13px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 uppercase">
+            confer
+          </span>
+        )}
         {data.executorType === 'quality-gate' && (
           <span className="text-[13px] text-teal-400/70 font-medium px-1.5 py-0.5 rounded-full bg-teal-500/10 uppercase">
             {data.gateType || 'quality'}
@@ -1218,6 +1226,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           if (!cfg.criteria) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'criteria', label: 'Review Criteria' });
         } else if (s.executorType === 'deliberation') {
           if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Shared Prompt' });
+        } else if (s.executorType === 'confer') {
+          if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Shared Objective' });
         } else if (s.executorType === 'quality-gate') {
           if (cfg.gateType === 'custom' && !cfg.customPrompt) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'customPrompt', label: 'Custom Quality Check' });
         }

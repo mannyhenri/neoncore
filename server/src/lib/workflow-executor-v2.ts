@@ -16,6 +16,8 @@ import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
 import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
+import { startConfer, getConfer } from './confer-conductor.js';
+import type { ConferSession } from '../types.js';
 import {
   explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom,
   MAX_LOOP_EXTENSIONS, type LoopConfig,
@@ -551,6 +553,142 @@ async function launchVSCodeWindows(repoPath: string, count: number, stepName: st
       if (err) console.error(`[workflow-v2] Failed to launch VS Code window ${i + 1} for "${stepName}": ${err.message}`);
     });
   }
+}
+
+/** Fail a confer step with a stated reason, so the run stops instead of waiting forever. */
+function failConferStep(step: WorkflowStep, reason: string): void {
+  const now = new Date().toISOString();
+  db.prepare('UPDATE workflow_steps SET status = ?, error = ?, completed_at = ? WHERE id = ?')
+    .run('failed', reason, now, step.id);
+  emitStepUpdate(step.id);
+  emitStepLog(step.workflowId, step.id, step.name, reason, 'error');
+}
+
+/**
+ * What the confer produced, for the steps downstream.
+ *
+ * Names the participants and their repos because a later step's whole reason for existing is
+ * often to check both sides landed — "who did this" is not recoverable from prose.
+ */
+function conferSummary(session: ConferSession): string {
+  const names = session.participantIds
+    .map((id) => {
+      const r = db.prepare('SELECT name, repo_name FROM agents WHERE id = ?').get(id) as
+        { name?: string; repo_name?: string } | undefined;
+      return r?.repo_name || r?.name || id.slice(0, 8);
+    });
+  const repos = [...new Set(names)];
+  return [
+    `CONFER: ${session.id}`,
+    `MODE: ${session.mode}`,
+    `PARTICIPANTS: ${session.participantIds.length} across ${repos.length} repo(s) — ${repos.join(', ')}`,
+    `MILESTONES: completed through ${session.currentMilestone}`,
+    '',
+    session.task,
+  ].join('\n');
+}
+
+/**
+ * Confer step — several cartridges working ONE objective together, across repos.
+ *
+ * REPORTED: "it should [be] them working together like the confer process but in a workflow."
+ *
+ * This does not reimplement collaboration. It starts a real confer and waits for it, so a
+ * workflow gets the conductor's milestones, rounds, worktrees and — the part that matters —
+ * its align milestone, which makes the participants "converge on ONE plan and split the work
+ * by area/files so you will not collide (state who owns what)". Two mechanisms for the same
+ * relationship would be two things to keep correct.
+ *
+ * CROSS-REPO IS THE POINT AND ALREADY WORKS. Confer participants each carry their own
+ * repoPath, validated per participant, so `conferAgentIds` may name cartridges in different
+ * repositories. `repoPath` here is only the session's home for the shared record; the work
+ * happens wherever each participant lives.
+ *
+ * `mode` defaults to `divide` — each participant owns a slice — because that is the shape
+ * asked for. `collaborate` produces one shared solution and is the right choice when the
+ * step is a single artefact rather than split work.
+ */
+async function executeConfer(step: WorkflowStep): Promise<void> {
+  const cfg = step.executorConfig as Record<string, unknown>;
+  const participantIds = (cfg.conferAgentIds as string[] | undefined)?.filter(Boolean) ?? [];
+
+  // Refuse at the door rather than starting a one-person confer. A confer with a single
+  // participant is a normal dispatch wearing a costume, and it would look like it worked.
+  if (participantIds.length < 2) {
+    throw new Error(
+      `Confer step "${step.name}" needs at least 2 participants; got ${participantIds.length}. `
+      + 'Assign them at launch — this is the step type for cartridges working together.',
+    );
+  }
+
+  const rows = db.prepare(
+    `SELECT id, repo_name, repo_path FROM agents WHERE id IN (${participantIds.map(() => '?').join(',')})`,
+  ).all(...participantIds) as { id: string; repo_name: string; repo_path: string }[];
+
+  const unknown = participantIds.filter((id) => !rows.some((r) => r.id === id));
+  if (unknown.length > 0) {
+    throw new Error(`Confer step "${step.name}": no such cartridge(s): ${unknown.join(', ')}`);
+  }
+
+  // The session's home repo. Participants keep their own; this only names where the shared
+  // record lives, so the first participant's repo is as good an answer as any and better
+  // than inventing one.
+  const home = rows.find((r) => r.repo_path) ?? rows[0];
+
+  const context = gatherDependencyContext(step);
+  const task = context + ((cfg.prompt as string) || step.description || step.name);
+
+  const session = startConfer({
+    repoName: home.repo_name || '',
+    repoPath: home.repo_path || '',
+    participantIds,
+    task,
+    mode: (cfg.conferMode as 'divide' | 'collaborate') === 'collaborate' ? 'collaborate' : 'divide',
+    isolation: (cfg.conferIsolation as 'worktree' | 'shared') === 'worktree' ? 'worktree' : 'shared',
+    buildRounds: typeof cfg.buildRounds === 'number' ? cfg.buildRounds : 1,
+  });
+
+  const repos = [...new Set(rows.map((r) => r.repo_name).filter(Boolean))];
+  emitStepLog(step.workflowId, step.id, step.name,
+    `Confer ${session.id.slice(0, 8)} started — ${participantIds.length} cartridges across `
+    + `${repos.length} repo(s): ${repos.join(', ') || 'unnamed'}`, 'info');
+
+  db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+    .run(JSON.stringify({ ...cfg, conferSessionId: session.id }), step.id);
+}
+
+/**
+ * Advance a confer step when its session ends.
+ *
+ * Polled on the same tick as deliberation rather than pushed from the conductor: the
+ * conductor already owns session state and a callback into the executor would make the two
+ * mutually dependent. A step that dispatches but never notices its work finished is the
+ * failure that looks exactly like health — "1 running", forever.
+ */
+function processConferStep(workflowId: string, step: WorkflowStep): void {
+  const sessionId = step.executorConfig.conferSessionId as string | undefined;
+  if (!sessionId) return;
+
+  const session = getConfer(sessionId);
+  if (!session) {
+    // The session vanished — cancelled and swept, or a database restored underneath us.
+    // Fail the step rather than wait for something that no longer exists.
+    failConferStep(step, `Confer ${sessionId.slice(0, 8)} no longer exists`);
+    return;
+  }
+  if (session.status !== 'completed' && session.status !== 'cancelled') return;
+
+  if (session.status === 'cancelled') {
+    failConferStep(step, `Confer ${sessionId.slice(0, 8)} was cancelled`);
+    return;
+  }
+
+  // Hand the confer's own record downstream. Later steps read dependency results, and a
+  // summary written here would be a second, drifting account of what happened.
+  const summary = conferSummary(session);
+  emitStepLog(workflowId, step.id, step.name,
+    `Confer ${sessionId.slice(0, 8)} completed — advancing`, 'success');
+  completeStepFromSignal(step.id, summary);
 }
 
 /** Deliberation step — dispatch prompt to panel agents in parallel */
@@ -1348,6 +1486,8 @@ async function executeStep(step: WorkflowStep): Promise<void> {
       await executeReviewGate(step);
     } else if (step.executorType === 'deliberation') {
       await executeDeliberation(step);
+    } else if (step.executorType === 'confer') {
+      await executeConfer(step);
     } else if (step.executorType === 'quality-gate') {
       await executeQualityGate(step);
     } else if (step.executorType === 'command') {
@@ -1691,6 +1831,9 @@ function processWorkflow(workflowId: string) {
     if (step.status !== 'running') continue;
     if (step.executorType === 'deliberation') {
       processDeliberationStep(workflowId, step);
+    }
+    if (step.executorType === 'confer') {
+      processConferStep(workflowId, step);
     }
   }
 

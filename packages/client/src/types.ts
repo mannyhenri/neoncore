@@ -513,7 +513,7 @@ export interface ProjectLearning {
 }
 
 // Workflow Step types (V2 canvas workflows)
-export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate' | 'command' | 'connector' | 'decision';
+export type StepExecutorType = 'claude-code' | 'review-gate' | 'deliberation' | 'confer' | 'quality-gate' | 'command' | 'connector' | 'decision';
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface WorkflowStep {

@@ -177,7 +177,7 @@ export interface Machine {
 
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 export type StepExecutorType =
-  | 'claude-code' | 'review-gate' | 'deliberation' | 'quality-gate'
+  | 'claude-code' | 'review-gate' | 'deliberation' | 'confer' | 'quality-gate'
   | 'command' | 'connector' | 'decision';
 
 // One option a `decision` step waits on. The human picks one to complete the step.

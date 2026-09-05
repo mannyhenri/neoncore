@@ -1079,7 +1079,7 @@ if (orphanNotes.length > 0) {
  * The standard templates, by name. Exported so the id-stability test iterates the real
  * registry rather than a copy that can drift from it.
  */
-export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
 
 /**
  * Re-seed the standard templates, PRESERVING each one's id.
@@ -1145,7 +1145,7 @@ export function seedDefaultTemplates() {
 
   // Agent-based types need __deferred__ so the user picks a cartridge at run time.
   // Connector/command steps run without a cartridge.
-  const DEFERRED_TYPES = new Set(['claude-code', 'quality-gate', 'review-gate', 'deliberation']);
+  const DEFERRED_TYPES = new Set(['claude-code', 'quality-gate', 'review-gate', 'deliberation', 'confer']);
 
   function step(
     wfId: string,
@@ -1561,6 +1561,68 @@ export function seedDefaultTemplates() {
       300, 770, 'connector',
       { connectorType: 'system-notify', title: 'Epic: Two Repos \u2014 Done', message: '{{workflowName}} finished.\n{{result}}' },
       [s4]);
+  }
+
+  // ── 9c. Epic: Confer Across Repos ────────────────────────────────────────
+  //
+  // REQUESTED, correcting the first attempt: "It shouldn't be per step it should [be] them
+  // working together like the confer process but in a workflow."
+  //
+  // `Epic: Two Repos` gives each branch ONE owner and joins at the end — the cartridges never
+  // talk. This is the other shape: a `confer` step, where the participants converge on one
+  // plan, split the work between THEMSELVES, and see each other as they go. The engine runs
+  // the real confer conductor, so the split is negotiated by the agents rather than decided
+  // up front by a scoping step that has never seen the code.
+  //
+  // WHEN TO USE WHICH. If you already know who owns what, Two Repos is faster and the
+  // boundary is explicit. If the split is the hard part — which is usually true when an epic
+  // spans a client and a server — confer it, because the partition is the thing the agents
+  // are better placed to decide than the template author.
+  {
+    const wfId = stableId('Epic: Confer Across Repos');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID();
+    insertWorkflow.run(wfId, 'Epic: Confer Across Repos',
+      'One epic, cartridges from different repos working it TOGETHER. They converge on one plan, split the work between themselves, and build in rounds \u2014 the confer relationship as a workflow step. Pick the participants at launch.', now);
+
+    step(wfId, s1, 'Read the Epic',
+      'Reads the epic once and states the objective, the repos involved and how done is measured. Decides nothing about who does what \u2014 the confer does that.',
+      300, 80, 'claude-code',
+      {
+        ...cc('researcher'), workflowContext: true,
+        prompt: 'An epic is specified above, spanning more than one repository.\n\n**Your job is to state the OBJECTIVE, not to partition it.** The next step is a confer: the participating cartridges converge on one plan and split the work between themselves. They are better placed to decide the split than you are \u2014 they can read their own repos. A partition invented here would be guesswork they then have to work around.\n\n1. Resolve the epic (a local doc first \u2014 `.claude/scoping/EPIC-*.md`, `docs/plans/*.md` \u2014 then a tracker CLI only if configured).\n2. State the objective in a paragraph a reader with no context could act on.\n3. Name every repository involved and what each is FOR \u2014 not what it should do here.\n4. List the tasks as the epic states them, unassigned, with their ids.\n5. State how the whole thing is verified: the test command per repo, and what "done" means across both.\n6. Name any hard ordering the epic itself imposes. If there is none, say so \u2014 inventing sequence is how a confer turns back into a queue.\n\n**OUTPUT:**\n```\nOBJECTIVE: [the paragraph]\nREPOS: [name \u2014 what it is for, one per line]\nTASKS: [id \u2014 title, one per line, unassigned]\nVERIFY: [test command per repo, and the cross-repo definition of done]\nORDERING: [what genuinely must come first, or \u0022none\u0022]\n```',
+      }, []);
+
+    // THE STEP THIS TEMPLATE EXISTS FOR. Participants are chosen at launch; the conductor's
+    // align milestone makes them state who owns what before anyone writes code.
+    step(wfId, s2, 'Confer & Build',
+      'The participating cartridges work the epic TOGETHER: converge on one plan, split the work between themselves, then build in rounds. Pick two or more cartridges at launch \u2014 they may live in different repos.',
+      300, 310, 'confer',
+      {
+        // `divide` = each participant owns a slice, which is the cross-repo case. `collaborate`
+        // would produce one shared solution and is the wrong shape when the repos differ.
+        conferMode: 'divide',
+        // Shared checkout: participants are in DIFFERENT repos already, so worktree isolation
+        // would split a repo that is not the thing being shared.
+        conferIsolation: 'shared',
+        buildRounds: 2,
+        conferAgentIds: [],
+        includeDepOutput: true,
+        prompt: 'The previous step states the objective, the repos, the unassigned task list and how this is verified.\n\n**You are conferring, not queueing.** Converge on ONE plan and split the work by repo and by file so you will not collide \u2014 state explicitly who owns what before anyone writes code. Every task in the list must end up owned by exactly one of you; a task nobody claims is a task nobody does.\n\nRules that make a cross-repo split work:\n- Own your own repository. Do not edit files in another participant\u0027s repo, even to fix something obviously broken \u2014 say what you need and let its owner do it.\n- Agree the INTERFACE between the repos first, in writing, before either side builds against it. That contract is the only thing both of you depend on.\n- Tests first, from the requirements. Run the full suite in YOUR repo before you call anything done.\n- Commit in your own repo as you go, one commit per task.\n\nWhen you report, state which tasks you took, which you completed, and anything you are waiting on from the other side.',
+      }, [s1]);
+
+    step(wfId, s3, 'Verify Across Repos',
+      'Checks the confer actually covered the epic: every task owned and done, both suites green, commits in the right repos.',
+      300, 540, 'claude-code',
+      {
+        ...cc('researcher'), includeDepOutput: true,
+        prompt: 'The confer has finished. **A confer can end tidily with the epic half done** \u2014 participants agree a split, one side finishes, the other runs out of rounds, and the session still completes. This step is what notices.\n\n**Do not implement anything. This step reports.**\n\n1. Take the task list from step 1. For EVERY task: owned by whom, and done, skipped, blocked or never claimed. A task nobody claimed is the characteristic confer failure \u2014 it is invisible to both participants because each assumed the other had it.\n2. Run the full suite in EVERY repo involved. All must be green.\n3. `git log --oneline` in each repo: one commit per completed task, in the repo that owns it. A commit for repo A\u0027s task inside repo B means the boundary broke.\n4. Confirm the interface the participants agreed is implemented on BOTH sides and that the two agree. A contract implemented once is the failure that passes both suites and breaks in production.\n\n**OUTPUT:**\n```\nCOVERAGE: [done]/[total] \u00b7 [unclaimed] never claimed \u00b7 [blocked] blocked\nBY REPO: [repo \u2014 done/total, suite pass/fail, commits]\nINTERFACE: [agreed / implemented both sides / MISMATCH \u2014 what differs]\n\nUNCLAIMED OR OUTSTANDING \u2014 one line each, with why:\n- [task-id] [title] \u2014 [never claimed / blocked by X / owner ran out of rounds]\n```\n\nIf every task is owned and done and all suites are green, say so in one line.',
+      }, [s2]);
+
+    step(wfId, s4, 'Notify',
+      'System notification: the cross-repo confer finished, carrying the coverage report.',
+      300, 770, 'connector',
+      { connectorType: 'system-notify', title: 'Epic: Confer Across Repos \u2014 Done', message: '{{workflowName}} finished.\n{{result}}' },
+      [s3]);
   }
 
   // ── 10. Product Strategy Session ─────────────────────────────────────────
