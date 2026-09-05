@@ -39,7 +39,7 @@ The dashboard is the source of truth for each template's exact steps. Current se
 
 **Jira**
 - **Jira Tasks Validation** — validate Jira issues against acceptance criteria.
-- **Jira Tasks Completion** — drive Jira tasks to completion.
+- **Epic: Task by Task** — load an epic (markdown file or tracker key) and work every task to the end: failing tests, implement, full suite, one commit per task. Runs unattended; never asks between tasks.
 
 **Compound Engineering (CE) delivery pipeline**
 - **CE: Phase 1 — Interrogate**, **Phase 2 — Plan**, **Phase 3 — Implement**,

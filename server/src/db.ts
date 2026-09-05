@@ -1079,7 +1079,7 @@ if (orphanNotes.length > 0) {
  * The standard templates, by name. Exported so the id-stability test iterates the real
  * registry rather than a copy that can drift from it.
  */
-export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Jira Tasks Completion', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
 
 /**
  * Re-seed the standard templates, PRESERVING each one's id.
@@ -1116,7 +1116,11 @@ export function seedDefaultTemplates() {
   const stableId = (name: string): string => preservedIds.get(name) ?? randomUUID();
 
   // Remove deprecated templates on every boot so they don't linger in existing DBs
-  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor'];
+  // Renamed templates go here, not just removed ones. The delete loop above only visits names
+  // in STANDARD_TEMPLATE_NAMES, so a rename that does not deprecate its old name leaves that row
+  // in every existing database forever, beside its replacement with nothing to tell them apart.
+  // Invisible on a fresh database, which is where a rename gets tested.
+  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion'];
   for (const name of deprecatedNames) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {
@@ -1438,36 +1442,41 @@ export function seedDefaultTemplates() {
       [s3]);
   }
 
-  // ── 9. Jira Tasks Completion ──────────────────────────────────────────────
+  // ── 9. Epic: Task by Task ───────────────────────────────
+  //
+  // Was "Jira Tasks Completion", which required the Jira CLI and asked the user after every
+  // task. Repurposed rather than copied: the epic is now a markdown file OR a tracker key, and
+  // the loop runs to the end unattended. The old name is in `deprecatedNames` above so its row
+  // is removed from existing databases instead of lingering beside this one.
   {
-    const wfId = stableId('Jira Tasks Completion');
+    const wfId = stableId('Epic: Task by Task');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID();
-    insertWorkflow.run(wfId, 'Jira Tasks Completion',
-      'TDD-driven loop: completes To Do tasks one by one (understand → failing tests → implement → verify → update Jira + doc → commit → ask to continue). All looping happens inside step 2 — answering YES automatically starts the next task without re-running the workflow.', now);
+    insertWorkflow.run(wfId, 'Epic: Task by Task',
+      'Loads an epic and works every task to the end: understand \u2192 failing tests \u2192 implement \u2192 verify \u2192 commit \u2192 next. One commit per task. Runs unattended \u2014 it never asks between tasks.', now);
 
-    // Step 1: Load context — identify epic + results doc paths (minimal output)
-    step(wfId, s1, 'Load Context',
-      'Read the epic context, identify the results doc and project root. Outputs only the key paths — the work loop in step 2 handles all tasks.',
+    // Step 1: where the epic is, where task state lives, how to run the tests.
+    step(wfId, s1, 'Load Epic',
+      'Resolves the epic (markdown file or tracker key), finds where per-task status is recorded, and reports the project root and test command. Outputs paths only.',
       300, 80, 'claude-code',
       {
         ...cc('researcher'), workflowContext: true,
-        prompt: 'The Jira epic to work on is specified above.\n\n**Goal: identify the scope. Output only the key paths — do not load task details.**\n\n1. FIND PROJECT ROOT — Run `git rev-parse --show-toplevel`.\n\n2. DISCOVER JIRA CLI — Try `jira --version`, `jira-cli --version`, or look for project scripts.\n\n3. DERIVE EPIC SLUG — Convert the epic name to kebab-case (e.g. "Document Generation" → "document-generation").\n\n4. LOCATE THE RESULTS DOC — Expected path: `{project-root}/.gridlight/jira-validation/{epic-slug}-results.md`. Check if it exists.\n\n5. OUTPUT ONLY these lines:\n```\nEpic: [epic name]\nEpic slug: [kebab-slug]\nProject root: [absolute path]\nJira CLI: [command name]\nResults doc: [absolute path] (exists: YES/NO)\nTasks doc: [absolute path to {slug}-tasks.md]\n```',
+        prompt: 'An epic is specified above. It is either a PATH to a markdown file, or the name/key of an epic in a tracker such as Jira.\n\n**Goal: identify the scope and where task state lives. Output only the key paths — do not load task details, step 2 does that one task at a time.**\n\n1. Decide what you were given:\n   - Looks like a path, or ends in `.md` → read that file. It is the epic.\n   - Otherwise → treat it as a tracker key. Look for a local epic doc first (`.claude/scoping/EPIC-*.md`, `docs/plans/*.md`), and use a tracker CLI only if one is configured and no local doc matches.\n2. Find where per-task STATE is recorded — a results doc, a checklist inside the epic, or the tracker. This is what step 2 reads to pick the next task and writes to mark one done. If none exists, say so and name the file you will create.\n3. Identify the project root and the exact command that runs this repository\'s tests.\n\n**OUTPUT — these lines and nothing else:**\n```\nEPIC: [path or key]\nSTATE: [path to the doc holding per-task status, or \"tracker\"]\nROOT: [project root]\nTESTS: [the exact test command]\nTASKS: [count of tasks not yet done]\n```',
       }, []);
 
-    // Step 2: The main work loop — agent iterates internally through tasks
-    step(wfId, s2, 'Work Through Tasks',
-      'Main loop. For each To Do task: fetch Jira requirements → explore code → write failing tests → implement → run tests → update Jira + doc → commit → AskUserQuestion to continue. Answer YES to auto-start next task, NO to stop.',
+    // Step 2: the loop. One task at a time, a commit after each, no question in between.
+    step(wfId, s2, 'Work Every Task',
+      'For each outstanding task: understand \u2192 failing tests \u2192 implement \u2192 full suite \u2192 commit \u2192 next. Stops only on a suite that stays red after 3 attempts.',
       300, 310, 'claude-code',
       {
         ...cc('backend'),
-        prompt: 'The previous step identified the epic, results doc path, and project root. You will now work through To Do tasks one at a time in a loop — do NOT stop after a single task unless the user says so or all tasks are done.\n\n**OVERALL LOOP — repeat until user says NO or no To Do tasks remain:**\n\n### PHASE 1 — PICK NEXT TASK\n- Read the results doc (or tasks doc if no results doc exists). Find the first task marked `VERDICT: ❌ To Do`.\n- If NO To Do tasks remain: output `🎉 All tasks in the epic are complete!` and END the loop. Do not call AskUserQuestion.\n- Otherwise note the ISSUE-KEY and Title — this is the current task.\n\n### PHASE 2 — UNDERSTAND\n- Use the Jira CLI to fetch full details for this one issue: description, acceptance criteria, technical notes.\n- Read the section for this issue in the tasks doc to cross-reference its originally-captured requirements.\n- Read the REASON line for this issue in the results doc — that tells you what was missing during validation.\n- Use Read/Grep/Glob to explore the codebase: what already exists? what is missing? where should the new code live? what patterns to follow?\n\n### PHASE 3 — WRITE TESTS FIRST (TDD)\n- Find the test file(s) for this area of the codebase.\n- Write real tests based on the requirements — NOT based on what the implementation will look like.\n- Each test must assert meaningful behavior: happy path + at least 2 edge cases + at least 1 error state per requirement.\n- Run the tests with Bash and CONFIRM they FAIL (since the implementation does not exist yet). If they pass before code is written, the tests are wrong — rewrite them.\n\n### PHASE 4 — IMPLEMENT\n- Write the minimum code needed to satisfy the requirements and make the tests pass.\n- Follow existing patterns, conventions, and architecture.\n- Do NOT modify the tests to make them pass — fix the implementation.\n- Handle error states and edge cases as specified.\n\n### PHASE 5 — VERIFY (with retry)\n- Run the tests using Bash. If any fail: go back to PHASE 4, fix the implementation, run again. Do this up to 3 times.\n- If after 3 attempts tests still fail: STOP the loop, output the failure details, and do not call AskUserQuestion.\n- Also run the full test suite (not just the new tests) to confirm nothing else broke.\n\n### PHASE 6 — FINALIZE\n- Use the Jira CLI to transition this issue to "Done".\n- In the results doc, find this issue\'s section and change:\n  - `VERDICT: ❌ To Do` → `VERDICT: ✅ Done`\n  - The REASON line to: `Implemented in this run — [brief 1-sentence description].`\n- Stage all changes (implementation files, test files, updated results doc).\n- Commit with message: `[ISSUE-KEY] [Title] — implement per Jira requirements`\n- Output a short confirmation: `✅ [ISSUE-KEY] done · commit [hash]`\n\n### PHASE 7 — ASK TO CONTINUE\n- Read the results doc again to find the NEXT task with `VERDICT: ❌ To Do`.\n- If no more To Do tasks: output `🎉 All tasks in the epic are complete!` and END the loop.\n- Otherwise use the AskUserQuestion tool with this exact message:\n  "✅ [just-completed KEY] — [just-completed title] done.\n\n  Next: [NEXT-KEY] — [next title]\n  [1-line description of what the next task requires]\n\n  Continue automatically to the next task? (YES / NO)"\n- If user replies YES (or anything starting with Y): GO BACK TO PHASE 1 and process the next task.\n- If user replies NO (or anything else): output `⏸️ Paused at user request. Resume anytime.` and END the loop.\n\n**Critical: only one task active at a time. Complete each phase fully before moving to the next. Never skip PHASE 3 (tests before implementation). The loop is mandatory — do not stop after one task unless the user says NO or tasks are exhausted or 3 consecutive test failures occur.**',
+        prompt: 'Step 1 identified the epic, the state doc, the project root and the test command. Work through EVERY outstanding task, one at a time, and DO NOT STOP until none remain.\n\n**THIS LOOP RUNS UNATTENDED. Do not ask the user anything between tasks — nobody is watching, and a question halts the run until a person answers it. Stop only for the two conditions in PHASE 6.**\n\n**REPEAT UNTIL NO TASKS REMAIN:**\n\n### PHASE 1 — PICK NEXT TASK\n- Read the state doc. Take the FIRST task not yet marked done.\n- If none remain: output `ALL TASKS COMPLETE — [n] done, [m] skipped` and END.\n\n### PHASE 2 — UNDERSTAND\n- Read that task\'s section in full: description, acceptance criteria, notes. If the epic lives in a tracker and a CLI is configured, fetch the issue for detail.\n- Use Read/Grep/Glob: what exists already, what is missing, where the code belongs, which patterns to follow.\n\n### PHASE 3 — WRITE TESTS FIRST\n- Write tests from the REQUIREMENTS, not from the implementation you intend to write.\n- Happy path, at least two edge cases, at least one error state per requirement.\n- Run them and CONFIRM THEY FAIL. If they pass before the code exists, the tests are wrong — rewrite them.\n\n### PHASE 4 — IMPLEMENT\n- The minimum code that satisfies the requirements. Follow existing patterns.\n- Do NOT edit the tests to make them pass — fix the implementation.\n\n### PHASE 5 — VERIFY\n- Run the new tests. On failure return to PHASE 4, up to 3 attempts.\n- Then run the FULL suite with the command from step 1 and confirm nothing else broke.\n\n### PHASE 6 — COMMIT, THEN CONTINUE\n- Mark the task done in the state doc, with a one-line note on what you did.\n- Stage everything: implementation, tests, the state doc.\n- **Commit. One commit per task, message: `[task-id] [title] — implement per epic`**\n- Output `DONE [task-id] · commit [hash] · [k] remaining`.\n- GO BACK TO PHASE 1 immediately.\n\n**THE ONLY TWO REASONS TO STOP EARLY:**\n1. The full suite still fails after 3 attempts on the SAME task. Commit nothing for it, mark it `BLOCKED` with the failure output, and END — a red suite makes every later commit build on breakage.\n2. A task cannot be understood from the epic at all. Mark it `SKIPPED` with the reason and CONTINUE — one unclear task must not cost you the other twelve.\n\nNever work two tasks at once. Never skip PHASE 3 or PHASE 5.',
       }, [s1]);
 
     // Step 3: Notify
     step(wfId, s3, 'Notify',
-      'System notification: Jira Tasks Completion run finished.',
+      'System notification: the epic run finished.',
       300, 540, 'connector',
-      { connectorType: 'system-notify', title: 'Jira Tasks Completion — Done', message: '{{workflowName}} finished. Check NeonCore for the session report.' },
+      { connectorType: 'system-notify', title: 'Epic: Task by Task \u2014 Done', message: '{{workflowName}} finished. Check NeonCore for the session report.' },
       [s2]);
   }
 

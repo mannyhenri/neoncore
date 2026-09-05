@@ -52,7 +52,7 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Bug Hunter':                     'quality',
   'CI/CD Pipeline':                 'quality',
   'Jira Tasks Validation':          'jira',
-  'Jira Tasks Completion':          'jira',
+  'Epic: Task by Task':             'jira',
   'CE: Phase 1 — Interrogate':      'compound',
   'CE: Phase 2 — Plan':             'compound',
   'CE: Phase 3 — Implement':        'compound',
@@ -611,7 +611,21 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   placeholder={"Feature: [name]\n\nWhat it should do:\n- \n\nArchitecture (components/routes/DB tables involved):\n- \n\nAcceptance criteria:\n- [ ] \n\nEdge cases / error states:\n- \n\nJira epic (optional): GRD-"}
                 />
               </>
-            ) : wf.name === 'Jira Tasks Validation' || wf.name === 'Jira Tasks Completion' ? (
+            ) : wf.name === 'Epic: Task by Task' ? (
+              <>
+                {/* The template resolves a path OR a tracker key, so the prompt must not
+                    imply that only one of them works. */}
+                <span className="text-[13px] text-gray-300 font-medium">Which epic?</span>
+                <p className="text-[12px] text-gray-600">A path to an epic markdown file, or a tracker key. Every task in it gets worked and committed, one at a time, until none are left.</p>
+                <textarea
+                  value={initialContext}
+                  onChange={(e) => setInitialContext(e.target.value)}
+                  rows={2}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  placeholder="docs/plans/EPIC-search.md   ·   or   GRD-1712"
+                />
+              </>
+            ) : wf.name === 'Jira Tasks Validation' ? (
               <>
                 <span className="text-[13px] text-gray-300 font-medium">Which Jira epic?</span>
                 <p className="text-[12px] text-gray-600">Enter the epic name or key (e.g. "Document Generation" or "GRD-1712").</p>
