@@ -293,6 +293,7 @@ registerChannel(discordChannel);
 // of uptime dispatches instead of being answered "unknown command".
 registerRemoteCommands();
 registerAttentionActions();
+registerPermissionActions();   // answer a question or approve a plan from any channel
 
 // Inbound drivers. `start()` is a no-op when the driver is not configured, so this is safe on a
 // machine that has never heard of Discord — which is every machine until someone sets a token.
@@ -342,6 +343,7 @@ import { discordChannel } from './lib/channels/discord.js';
 import { registerRemoteCommands } from './lib/remote-commands.js';
 import { discordSource } from './lib/discord-bot.js';
 import { registerAttentionActions, startAttentionNotifier, stopAttentionNotifier } from './lib/attention-notifier.js';
+import { registerPermissionActions } from './routes/permissions.js';
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces();
   for (const devName of Object.keys(interfaces)) {
