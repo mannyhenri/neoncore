@@ -15,7 +15,9 @@ import { WorkflowRunDetailScreen } from './src/screens/WorkflowRunDetailScreen';
 import { GoalsScreen } from './src/screens/GoalsScreen';
 import { GoalDetailScreen } from './src/screens/GoalDetailScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
-import { TabBar, type TabName } from './src/components/TabBar';
+import { TabBar, MORE_TABS, type TabName, type PrimaryTab } from './src/components/TabBar';
+import { TokensScreen } from './src/screens/TokensScreen';
+import { MoreSheet } from './src/components/MoreSheet';
 import { BrandHeader } from './src/components/BrandHeader';
 import type { Agent, Goal, Workflow } from './src/types';
 
@@ -28,6 +30,7 @@ type Route =
   | { name: 'goals' }
   | { name: 'goalDetail'; goal: Goal }
   | { name: 'tasks' }
+  | { name: 'tokens' }
   | { name: 'workflowRun'; run: Workflow };
 
 /**
@@ -43,6 +46,9 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [servers, setServers] = useState<ServerEntry[]>([]);
   const [route, setRoute] = useState<Route>({ name: 'list' });
+  // Sheet visibility is route-adjacent but not a ROUTE: opening More must not become a back
+  // destination, and closing it must not navigate anywhere.
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // loadServers migrates a pre-federation install (a single stored URL) on first run, so
   // upgrading never drops the server this phone was already set up with.
@@ -124,15 +130,30 @@ export default function App() {
               <GoalDetailScreen goal={route.goal} onBack={() => setRoute({ name: 'goals' })} />
             )}
             {route.name === 'tasks' && <TasksScreen />}
+            {route.name === 'tokens' && <TokensScreen />}
             {route.name === 'workflowRun' && (
               <WorkflowRunDetailScreen run={route.run} onBack={() => setRoute({ name: 'workflows' })} />
             )}
           </View>
 
+          {/* The More pile. A sheet rather than an overflow menu because this file's tab bar
+              already learned that a destination you cannot READ is one nobody opens. */}
+          <MoreSheet
+            open={moreOpen}
+            active={route.name as TabName}
+            items={MORE_TABS}
+            onSelect={(t) => { setMoreOpen(false); setRoute({ name: t } as Route); }}
+            onClose={() => setMoreOpen(false)}
+          />
+
           {!PUSHED.includes(route.name) && (
             <TabBar
               active={route.name as TabName}
-              onSelect={(t) => setRoute({ name: t } as Route)}
+              onSelect={(t: PrimaryTab) => {
+                if (t === 'more') { setMoreOpen(true); return; }
+                setMoreOpen(false);
+                setRoute({ name: t } as Route);
+              }}
             />
           )}
         </NeonCoreProvider>
