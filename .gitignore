@@ -52,3 +52,9 @@ agent/runner/runner.config.json
 agent/runner/logs/
 .neoncore/attachments/
 package-lock.json
+
+# Secrets. A bot token in a tracked file is a token you have to rotate — this is not a
+# convention, it is the reason server/.env exists at all.
+.env
+.env.*
+!.env.example
