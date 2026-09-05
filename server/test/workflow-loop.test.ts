@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveLoopCount, shouldStopLooping, MAX_LOOP_CEILING } from '../src/lib/workflow-loop.ts';
+import {
+  resolveLoopCount, shouldStopLooping, explainLoopCount, shouldExtendLoop,
+  MAX_LOOP_CEILING, MAX_LOOP_EXTENSIONS,
+} from '../src/lib/workflow-loop.ts';
 
 /**
  * A workflow that must cover N tasks has to be told N — not asked to remember.
@@ -93,4 +96,120 @@ test('the loop stops early when the work runs out', () => {
     if (got !== c.want) failures.push(`${c.label}: got ${got}, expected ${c.want}`);
   }
   assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
+});
+
+/**
+ * ── THE BUDGET CAN END WHILE THE WORK HAS NOT ────────────────────────────────────────────
+ *
+ * LIVE, on the Redo-Between-Frames epic. `Load Epic` counted the epic at 12:28 UTC and reported
+ * `TASKS: 10` — correct, Jira held exactly RBF-001..010. The run's OWN FIRST TASK was a probe,
+ * and its verdict added an eleventh: RBF-011 was created at 13:10 UTC, 42 minutes after the
+ * count, and inserted into the epic as a dependency of RBF-008. `Work Every Task` began at 14:38
+ * with the budget frozen at 10. The agent works in dependency order, so RBF-011 took a slot and
+ * pushed everything down one: the ten dispatches covered RBF-001..009 plus RBF-011, and RBF-010
+ * — last in dependency order — fell off the end, never dispatched. `Verify Coverage` saw it
+ * (`10/11 done · 1 outstanding`) and the run completed green anyway.
+ *
+ * A count sampled once is an ESTIMATE, and this template's first step exists precisely to
+ * discover things. Freezing it is right — a loop whose length is re-read from its own output
+ * every pass has no length. What was missing is the other half: a way for the loop to say the
+ * work is not finished, bounded so it can never run away.
+ *
+ * SET-BASED over every way the budget and the work can diverge without anyone being told, since
+ * the whole failure is that each of these reads as a clean finish.
+ */
+const DIVERGENCE = [
+  'scope grew after the count was taken',
+  'the count could not be read and fell back to the static one',
+  'the count exceeded the ceiling and was clamped',
+  'the final dispatch reported work still remaining',
+  'the count was read cleanly and is trusted',
+] as const;
+
+test('the divergence set is enumerated, not sampled', () => {
+  assert.equal(DIVERGENCE.length, 5,
+    'the set of ways a budget can end with work outstanding changed — update it deliberately');
+});
+
+/**
+ * Half one: the count's BASIS is always stated. A fallback to the static count is invisible
+ * today — the executor logs only when the resolved number differs from the static one, so a
+ * regex miss on a twelve-task epic resolves to 1, matches the static 1, and logs nothing at all.
+ */
+const BASIS_CASES: { label: string; deps: Record<string, string>; cfg?: Record<string, unknown>; basis: string; count: number }[] = [
+  { label: 'read from upstream data', deps: { 'Load Epic': 'TASKS: 7' }, basis: 'data', count: 7 },
+  { label: 'regex missed — fell back', deps: { 'Load Epic': 'EPIC: x' }, basis: 'fallback', count: 1 },
+  { label: 'upstream step absent — fell back', deps: {}, basis: 'fallback', count: 1 },
+  { label: 'unparseable number — fell back', deps: { 'Load Epic': 'TASKS: 0' }, basis: 'fallback', count: 1 },
+  { label: 'over the ceiling — clamped', deps: { 'Load Epic': 'TASKS: 100000' }, basis: 'clamped', count: MAX_LOOP_CEILING },
+  { label: 'no resolver configured at all', deps: {}, cfg: { loopCountFrom: undefined, loopCount: 3 }, basis: 'static', count: 3 },
+];
+
+test('every resolved count states HOW it was arrived at', () => {
+  const failures: string[] = [];
+  for (const c of BASIS_CASES) {
+    const got = explainLoopCount(CFG(c.cfg ?? {}), c.deps);
+    if (got.basis !== c.basis || got.count !== c.count) {
+      failures.push(`${c.label}: got ${got.count}/${got.basis}, expected ${c.count}/${c.basis}`);
+    }
+    if (!got.note.trim()) failures.push(`${c.label}: produced an empty note`);
+  }
+  assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
+});
+
+test('explainLoopCount and resolveLoopCount never disagree', () => {
+  for (const c of [...CASES, ...BASIS_CASES]) {
+    const cfg = CFG((c as { cfg?: Record<string, unknown> }).cfg ?? {});
+    assert.equal(explainLoopCount(cfg, c.deps).count, resolveLoopCount(cfg, c.deps),
+      `${c.label}: the two entry points resolved different counts`);
+  }
+});
+
+/**
+ * Half two: the loop may be EXTENDED when the last dispatch says work remains — the fix for
+ * RBF-010. Bounded three ways so a runaway is impossible: only for a count that came from data
+ * (a static count is the author's decision, not an estimate), never past MAX_LOOP_EXTENSIONS,
+ * and never past MAX_LOOP_CEILING.
+ */
+const EXTEND: { label: string; over?: Partial<Parameters<typeof shouldExtendLoop>[0]>; want: boolean }[] = [
+  { label: 'budget spent, work remains — the RBF-010 case', want: true },
+  { label: 'budget spent, nothing remains', over: { result: 'DONE t · commit abc · 0 remaining' }, want: false },
+  { label: 'budget spent, the stop sentinel was raised', over: { result: 'ALL TASKS COMPLETE · 2 remaining' }, want: false },
+  { label: 'budget not yet spent — ordinary re-dispatch handles it', over: { currentLoop: 5 }, want: false },
+  { label: 'the result says nothing about what remains', over: { result: 'finished the task' }, want: false },
+  { label: 'a static count is a decision, not an estimate', over: { config: { loopCount: 10, loopUntil: 'ALL TASKS COMPLETE' } }, want: false },
+  { label: 'a single-dispatch step is not a loop', over: { currentLoop: 1, loopCount: 1 }, want: false },
+  { label: 'extensions are exhausted', over: { extensions: MAX_LOOP_EXTENSIONS }, want: false },
+  { label: 'the hard ceiling is never crossed', over: { currentLoop: MAX_LOOP_CEILING, loopCount: MAX_LOOP_CEILING }, want: false },
+  { label: 'the agent shouts it', over: { result: 'DONE t · commit abc · 4 REMAINING' }, want: true },
+  { label: 'the last count in the output wins', over: { result: '3 remaining\nreconsidered: 0 remaining' }, want: false },
+];
+
+test('the loop extends exactly when the work outlived the budget', () => {
+  const base = {
+    result: 'DONE RBF-011 · commit 4f2a91c · 1 remaining',
+    config: { loopCount: 1, loopCountFrom: { step: 'Load Epic', pattern: 'TASKS:\\s*(\\d+)' }, loopUntil: 'ALL TASKS COMPLETE' },
+    currentLoop: 10,
+    loopCount: 10,
+    extensions: 0,
+  };
+  const failures: string[] = [];
+  for (const c of EXTEND) {
+    const got = shouldExtendLoop({ ...base, ...(c.over ?? {}) } as Parameters<typeof shouldExtendLoop>[0]);
+    if (got !== c.want) failures.push(`${c.label}: got ${got}, expected ${c.want}`);
+  }
+  assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
+});
+
+test('extension is bounded — no sequence of "work remains" runs past the ceiling', () => {
+  // The property that matters more than any single case: an agent that says "1 remaining"
+  // forever must still stop. Simulated end to end rather than asserted about one call.
+  let loop = 3, budget = 3, extensions = 0, dispatches = 0;
+  const config = { loopCount: 1, loopCountFrom: { step: 'Load Epic', pattern: 'TASKS:\\s*(\\d+)' }, loopUntil: 'ALL TASKS COMPLETE' };
+  while (shouldExtendLoop({ result: 'DONE x · commit y · 99 remaining', config, currentLoop: loop, loopCount: budget, extensions })) {
+    budget += 1; extensions += 1; loop += 1; dispatches += 1;
+    assert.ok(dispatches < 1000, 'the extension loop never terminated');
+  }
+  assert.equal(extensions, MAX_LOOP_EXTENSIONS, 'extensions stopped somewhere other than the stated cap');
+  assert.ok(budget <= MAX_LOOP_CEILING, `budget ${budget} exceeded the hard ceiling`);
 });
