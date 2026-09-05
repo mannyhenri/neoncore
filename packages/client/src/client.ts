@@ -567,7 +567,10 @@ export function createClient(config: ClientConfig = {}) {
   // `agentId` is the run-level cartridge: it fills every step that hasn't got one, so you
   // pick once instead of naming a cartridge for each step. `agentOverrides` still wins
   // per-step, for the genuine cross-cartridge case.
-  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null, agentId?: string, attachments?: import('./types').CommandAttachmentInput[]) =>
+  // `conferAllSteps` is the RUN-LEVEL confer mode: name two or more cartridges and every
+  // agent step of ANY workflow is worked by all of them together, whichever repo owns the
+  // code taking that piece. Distinct from `agentOverrides`, which pins ONE cartridge per step.
+  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null, agentId?: string, attachments?: import('./types').CommandAttachmentInput[], conferAllSteps?: string[]) =>
     // A 202 means the run was QUEUED behind a busy cartridge rather than started, and the body
     // is {queued, item, note} with no workflow. Callers must check `queued` before reaching for
     // `workflow` — typing it as always-present is what turns a queued run into a silent no-op.
@@ -579,7 +582,7 @@ export function createClient(config: ClientConfig = {}) {
       note?: string;
     }>(`/workflows/v2/${workflowId}/start`, {
       method: 'POST',
-      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId, agentId, attachments }),
+      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId, agentId, attachments, conferAllSteps }),
     }),
   completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
     request<import('./types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {

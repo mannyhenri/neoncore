@@ -428,6 +428,15 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   // exception, not the default the modal is built around.
   const [runAgentId, setRunAgentId] = useState('');
   const [perStepAgents, setPerStepAgents] = useState(false);
+  /**
+   * Run-level confer: two or more cartridges work EVERY agent step together.
+   *
+   * Deliberately a THIRD choice beside "one cartridge" and "one per step", not a variation of
+   * either — it answers a different question. One cartridge asks where the work runs; per step
+   * asks who owns which step; this asks who works the whole thing together, and lets them
+   * decide per step which repo owns the code.
+   */
+  const [conferAgents, setConferAgents] = useState<string[]>([]);
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
   const [initialContext, setInitialContext] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -536,14 +545,19 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     try {
       const result = await api.startWorkflowV2(
         wf.id,
-        perStepAgents && deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
+        // Confer mode replaces per-step assignment: the whole point is that no single
+        // cartridge owns a step.
+        conferAgents.length >= 2
+          ? undefined
+          : perStepAgents && deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
         initialContext.trim() || undefined,
         selectedProjectId || null,
         // The run-level cartridge fills every unassigned step server-side, so we don't have to
         // fan it out into a per-step map here.
-        !perStepAgents ? runAgentId || undefined : undefined,
+        conferAgents.length >= 2 ? undefined : (!perStepAgents ? runAgentId || undefined : undefined),
         payloads.length > 0 ? payloads : undefined,
+        conferAgents.length >= 2 ? conferAgents : undefined,
       );
       setDeferredPopup(null);
       // Queued, not started: the cartridge was mid-task. Say so — without this the modal just
@@ -697,7 +711,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                 <span className="text-[13px] text-gray-500 uppercase tracking-wider">Run on</span>
                 {/* The escape hatch. Almost nobody wants a different cartridge per step, so
                     that's opt-in rather than the default the whole modal is built around. */}
-                {deferredPopup.agentSteps.length > 1 && (
+                {deferredPopup.agentSteps.length > 1 && conferAgents.length === 0 && (
                   <button
                     onClick={() => setPerStepAgents((v) => !v)}
                     className="text-[11px] text-gray-500 hover:text-gl-purple transition-colors"
@@ -707,7 +721,45 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                 )}
               </div>
 
-              {!perStepAgents ? (
+              {/* Confer mode. Picking two or more cartridges here overrides both of the other
+                  modes: every agent step becomes a confer among them, and "which repo owns
+                  this" is answered by the participants at each step rather than by whoever
+                  filled in this modal. */}
+              <div className="mb-2">
+                <label className="text-[11px] text-gray-500 block mb-1">
+                  Confer across repos — pick 2+ cartridges to work every step together
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {(agents ?? []).map((a) => {
+                    const on = conferAgents.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        onClick={() => setConferAgents((prev) =>
+                          prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id])}
+                        className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                          on
+                            ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+                            : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        {a.repoName || a.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {conferAgents.length === 1 && (
+                  <p className="text-[11px] text-amber-400/70 mt-1">
+                    Pick at least one more — a one-cartridge confer is an ordinary run.
+                  </p>
+                )}
+              </div>
+
+              {conferAgents.length >= 2 ? (
+                <p className="text-[11px] text-gray-500">
+                  Every agent step will be worked by {conferAgents.length} cartridges together.
+                </p>
+              ) : !perStepAgents ? (
                 <>
                   <select
                     value={runAgentId}

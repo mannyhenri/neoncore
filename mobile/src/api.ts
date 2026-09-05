@@ -220,6 +220,8 @@ export const api = {
     agentId: string,
     initialContext?: string,
     agentOverrides?: Record<string, string>,
+    // Run-level confer: two or more cartridges work EVERY agent step together.
+    conferAllSteps?: string[],
   ) =>
     req<{ id?: string }>(base, `/api/workflows/v2/${id}/start`, {
       method: 'POST',
@@ -227,6 +229,7 @@ export const api = {
         agentId,
         ...(initialContext ? { initialContext } : {}),
         ...(agentOverrides && Object.keys(agentOverrides).length > 0 ? { agentOverrides } : {}),
+        ...(conferAllSteps && conferAllSteps.length > 0 ? { conferAllSteps } : {}),
       }),
     }),
 
