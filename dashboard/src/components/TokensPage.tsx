@@ -3,6 +3,7 @@ import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeSeries, type UsageSeries, type FleetSeries } from '../lib/usageSeries';
 import { describeProblems } from '../lib/serverAnswer';
+import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
 
 /**
@@ -77,20 +78,19 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    const load = async () => {
-      const list = activeServers(servers);
-      const answers = await Promise.all(
-        list.map(async (s) => ({
-          label: s.name || (s.url ? new URL(s.url).hostname : 'This machine'),
-          result: await (s.url ? apiFor(s.url, s.token) : api)
-            .getUsageSeries(range.days, bucket)
-            .then((r) => r as UsageSeries)
-            .catch(() => null),
-        })),
+    const load = () => {
+      // The chart appears as soon as ANY server answers and fills in as the rest arrive. The
+      // alternative — waiting for all of them — makes an asleep machine cost you the page.
+      fanOut<UsageSeries>(
+        activeServers(servers),
+        (s) => (s.url ? apiFor(s.url, s.token) : api)
+          .getUsageSeries(range.days, bucket).then((r) => r as UsageSeries),
+        (answers) => {
+          if (!alive) return;
+          setData(mergeSeries(answers, bucket, range.days));
+          setLoading(false);
+        },
       );
-      if (!alive) return;
-      setData(mergeSeries(answers, bucket, range.days));
-      setLoading(false);
     };
     load();
     const t = setInterval(load, 5 * 60_000);

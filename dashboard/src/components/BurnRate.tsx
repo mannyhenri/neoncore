@@ -3,6 +3,7 @@ import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeBurnRates, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
 import { describeProblems } from '../lib/serverAnswer';
+import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
 
 /**
@@ -46,20 +47,14 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
 
   useEffect(() => {
     let alive = true;
-    const load = async () => {
-      const list = activeServers(servers);
-      // One failing server must not take the readout down with it — settle, do not race.
-      const answers = await Promise.all(
-        list.map(async (s) => ({
-          // Named for a person, not by URL — "This machine" beats an empty origin string.
-          label: s.name || (s.url ? new URL(s.url).hostname : 'This machine'),
-          result: await (s.url ? apiFor(s.url, s.token) : api)
-            .getBurnRate(WINDOW_DAYS)
-            .then((r) => r as ServerBurnRate)
-            .catch(() => null),
-        })),
+    const load = () => {
+      // Render on the FIRST server's answer, not the last. A machine that is asleep must not
+      // hold the badge blank for its whole timeout — see lib/fanOut.ts.
+      fanOut<ServerBurnRate>(
+        activeServers(servers),
+        (s) => (s.url ? apiFor(s.url, s.token) : api).getBurnRate(WINDOW_DAYS).then((r) => r as ServerBurnRate),
+        (answers) => { if (alive) setRate(mergeBurnRates(answers, WINDOW_DAYS)); },
       );
-      if (alive) setRate(mergeBurnRates(answers, WINDOW_DAYS));
     };
     load();
     // Five minutes. This is a trailing 7-day average — it cannot visibly move faster than
