@@ -162,6 +162,38 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         loading={loading} hover={hover} setHover={setHover}
       />
 
+      {/* Projects BEFORE cartridges: "what did this project cost me" is the question you
+          arrive with, and several cartridges routinely share one repo — a per-cartridge list
+          cannot answer it however it is sorted. */}
+      {data && data.byProject.length > 0 && (
+        <section className="mb-6">
+          <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
+            By project — {range.label.toLowerCase()}
+          </h3>
+          <div className="border border-white/[0.06] rounded-lg overflow-hidden">
+            {data.byProject.map((p) => {
+              const share = data.total.tokens > 0 ? p.tokens / data.total.tokens : 0;
+              return (
+                <div
+                  key={p.project}
+                  className="flex items-center gap-3 px-3 py-2.5 text-sm border-b border-white/[0.04] last:border-0"
+                >
+                  <span className="flex-1 min-w-0 truncate text-gray-300">{p.project}</span>
+                  <span className="hidden sm:block w-36 h-2 rounded-full bg-white/[0.06] overflow-hidden">
+                    <span className="block h-full bg-gl-violet/60" style={{ width: `${Math.max(2, share * 100)}%` }} />
+                  </span>
+                  <span className="w-14 text-right text-gray-600 font-mono">{(share * 100).toFixed(1)}%</span>
+                  <span className="w-20 text-right text-gray-400 font-mono">{compact(p.tokens)}</span>
+                  <span className="w-24 text-right text-gray-600 font-mono">
+                    {p.cartridges} cartridge{p.cartridges === 1 ? '' : 's'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {data && data.byCartridge.length > 0 && (
         <section>
           <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">

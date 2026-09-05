@@ -20,6 +20,7 @@ export interface UsageSeries {
   series: SeriesPoint[];
   total: { tokens: number; costUsd: number; samples: number };
   byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
+  byProject: { project: string; tokens: number; samples: number; cartridges: number }[];
 }
 
 export interface FleetSeries extends UsageSeries {
@@ -70,8 +71,33 @@ export function mergeSeries(
     // Cartridges are per-server entities; concatenating is the merge. Sorted so the heaviest
     // spender is first regardless of which machine it lives on.
     byCartridge: ok.flatMap((s) => s.byCartridge ?? []).sort((a, b) => b.tokens - a.tokens),
+    // Projects SUM, cartridges concatenate — the one place copying the line above is wrong.
+    // A cartridge belongs to one server; a repo does not. film-engine runs on both machines,
+    // and concatenating would list it twice and halve its share of the fleet.
+    byProject: mergeProjects(ok),
     serversReporting: ok.length,
     serversAsked: answers.length,
     problems: problemsIn(answers, usableSeries),
   };
+}
+
+
+/** Fold per-server project rows into one row per repo. */
+function mergeProjects(
+  servers: UsageSeries[],
+): { project: string; tokens: number; samples: number; cartridges: number }[] {
+  const acc = new Map<string, { project: string; tokens: number; samples: number; cartridges: number }>();
+  for (const s of servers) {
+    for (const row of s.byProject ?? []) {
+      const at = acc.get(row.project);
+      if (at) {
+        at.tokens += row.tokens;
+        at.samples += row.samples;
+        at.cartridges += row.cartridges;
+      } else {
+        acc.set(row.project, { ...row });
+      }
+    }
+  }
+  return [...acc.values()].sort((a, b) => b.tokens - a.tokens);
 }

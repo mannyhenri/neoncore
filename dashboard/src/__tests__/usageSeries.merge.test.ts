@@ -27,7 +27,10 @@ function pt(ms: number, tokens: number): SeriesPoint {
   return { t: iso(ms), tokens, costUsd: tokens / 1000, samples: 1 };
 }
 
-function srv(points: SeriesPoint[]): UsageSeries {
+function srv(
+  points: SeriesPoint[],
+  byProject: UsageSeries['byProject'] = [],
+): UsageSeries {
   return {
     bucket: 'hour', days: 7, series: points,
     total: {
@@ -36,6 +39,7 @@ function srv(points: SeriesPoint[]): UsageSeries {
       samples: points.length,
     },
     byCartridge: [],
+    byProject,
   };
 }
 
@@ -144,3 +148,38 @@ describe('federated usage series', () => {
 function assert(failures: string[]) {
   expect(failures, `\n  ${failures.join('\n  ')}\n`).toEqual([]);
 }
+
+
+/**
+ * Projects sum across servers; cartridges concatenate.
+ *
+ * A cartridge belongs to exactly one machine, so listing both servers' cartridges side by side
+ * IS the merge. A repo does not: film-engine runs on the Mac Pro and the MacBook, and copying
+ * the cartridge rule would have listed it twice and halved its share of fleet spend — a fleet
+ * report that disagrees with itself about how many projects you have.
+ */
+describe('byProject across servers', () => {
+  it('folds the same repo from two servers into one row', () => {
+    const a = srv([pt(0, 10)], [{ project: 'film-engine', tokens: 100, samples: 4, cartridges: 1 }]);
+    const b = srv([pt(0, 10)], [{ project: 'film-engine', tokens: 40, samples: 2, cartridges: 1 }]);
+    const merged = mergeSeries([from('a', a), from('b', b)], 'hour', 7);
+    const fe = merged.byProject.filter((p) => p.project === 'film-engine');
+    expect(fe, 'film-engine appears more than once — it was concatenated, not summed').toHaveLength(1);
+    expect(fe[0].tokens).toBe(140);
+    expect(fe[0].samples).toBe(6);
+    expect(fe[0].cartridges, 'cartridge counts add across machines').toBe(2);
+  });
+
+  it('keeps distinct repos distinct, and orders by spend', () => {
+    const a = srv([pt(0, 1)], [{ project: 'gridlight', tokens: 10, samples: 1, cartridges: 1 }]);
+    const b = srv([pt(0, 1)], [{ project: 'neoncore', tokens: 90, samples: 1, cartridges: 1 }]);
+    const merged = mergeSeries([from('a', a), from('b', b)], 'hour', 7);
+    expect(merged.byProject.map((p) => p.project)).toEqual(['neoncore', 'gridlight']);
+  });
+
+  it('a server that answered with no projects contributes nothing rather than breaking', () => {
+    const a = srv([pt(0, 1)], [{ project: 'x', tokens: 5, samples: 1, cartridges: 1 }]);
+    const b = srv([pt(0, 1)]);
+    expect(mergeSeries([from('a', a), from('b', b)], 'hour', 7).byProject).toHaveLength(1);
+  });
+});

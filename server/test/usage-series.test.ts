@@ -177,3 +177,47 @@ test('byProject groups by REPO, not by cartridge — the two are not the same', 
   assert.ok(/repo_name/.test(q), 'byProject must join agents.repo_name — agent_id alone is a cartridge, not a project');
   assert.ok(/GROUP BY/i.test(q), 'byProject must aggregate, or it is just the cartridge list renamed');
 });
+
+/**
+ * ── A DIMENSION MUST REACH EVERY SURFACE, NOT WHICHEVER ONE WAS BEING WORKED ON ─────────
+ *
+ * I added `byProject` to this route to answer a request made from the phone, wired it into
+ * TokensScreen, and shipped. The dashboard's TokensPage renders `byCartridge` and knows
+ * nothing about it — a dimension exists on the server and appears on exactly one of the two
+ * surfaces that read it. That is the same defect class as the 105 capabilities missing from
+ * iOS, created fresh, in the session that diagnosed it.
+ *
+ * Set-based over dimensions x surfaces, because the failure is never the dimension you are
+ * thinking about — it is the surface you are not.
+ */
+const SURFACES = [
+  { name: 'dashboard', file: '../dashboard/src/components/TokensPage.tsx' },
+  { name: 'mobile', file: '../mobile/src/screens/TokensScreen.tsx' },
+  { name: 'shared client type', file: '../packages/client/src/client.ts' },
+] as const;
+
+test('EVERY dimension reaches EVERY surface that reads this report', () => {
+  const gaps: string[] = [];
+  for (const s of SURFACES) {
+    const p = path.join(import.meta.dirname, '..', s.file);
+    assert.ok(fs.existsSync(p), `${s.name}: ${s.file} not found — scanner broken`);
+    const src = fs.readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const d of DIMENSIONS) {
+      if (!new RegExp(`\\b${d}\\b`).test(src)) gaps.push(`${s.name} never reads ${d}`);
+    }
+  }
+  assert.deepEqual(gaps, [],
+    `a dimension the server sends that a surface cannot show:\n  ${gaps.join('\n  ')}`);
+});
+
+test('byProject SUMS across servers — the same repo exists on more than one machine', () => {
+  // byCartridge concatenates, correctly: a cartridge belongs to one server. A PROJECT does not.
+  // film-engine runs on both machines, and concatenating would list it twice and halve every
+  // share — the one merge rule where copying the cartridge line would be wrong.
+  const merge = fs.readFileSync(
+    path.join(import.meta.dirname, '..', '../dashboard/src/lib/usageSeries.ts'), 'utf8');
+  assert.match(merge, /byProject/, 'the federated merge drops byProject entirely');
+  const block = merge.slice(merge.indexOf('byProject'));
+  assert.ok(!/byProject:\s*ok\.flatMap\([^)]*\)\.sort/.test(block.slice(0, 200)),
+    'byProject is concatenated like byCartridge — the same project on two servers would appear twice');
+});

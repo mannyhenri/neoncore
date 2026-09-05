@@ -79,6 +79,12 @@ function readConfig(): DiscordConfig | null {
   return { token, channelId, operatorId, targets };
 }
 
+/** This driver's channel routing, for the adapter that delivers into it. */
+export function discordRouting(): { channelId: string; targets: Map<string, string> } {
+  const cfg = readConfig();
+  return cfg ? { channelId: cfg.channelId, targets: cfg.targets } : { channelId: '', targets: new Map() };
+}
+
 export function isDiscordConfigured(): boolean {
   return readConfig() !== null;
 }
@@ -192,6 +198,8 @@ export async function stopDiscordBot(): Promise<void> {
 // ── Sending ──────────────────────────────────────────────────────────────────
 
 export interface SendOptions {
+  /** Deliver to this channel instead of the primary one. Ignored unless it is a mapped channel. */
+  channelId?: string;
   /** Absolute paths on this machine. Oversized ones are named, not dropped silently. */
   files?: string[];
   /** Buttons: [{ id: 'approve:perm_123', label: 'Approve', style: 'success' }] */
@@ -217,9 +225,14 @@ export async function sendToDiscord(
   if (!cfg || !client || !ready) return false;
 
   try {
-    const channel = await client.channels.fetch(cfg.channelId);
+    /*
+     * The room this notice belongs in. Falls back to the primary channel, because a notice in
+     * the wrong room can still be read and one that was never sent cannot.
+     */
+    const wanted = opts.channelId && cfg.targets.has(opts.channelId) ? opts.channelId : cfg.channelId;
+    const channel = await client.channels.fetch(wanted);
     if (!channel || !channel.isTextBased()) {
-      console.warn(`[discord] channel ${cfg.channelId} is not a text channel`);
+      console.warn(`[discord] channel ${wanted} is not a text channel`);
       return false;
     }
 
