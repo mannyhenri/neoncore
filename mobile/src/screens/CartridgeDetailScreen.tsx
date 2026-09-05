@@ -7,7 +7,6 @@ import { theme } from '../theme';
 import { api } from '../api';
 import { needsStandardReview } from '../standardBanner';
 import { useNeonCore } from '../NeonCoreProvider';
-import { ProjectMemoryScreen } from './ProjectMemoryScreen';
 import { MessageBlocks, messageToText } from '../components/MessageBlocks';
 import { PermissionCard } from '../components/PermissionCard';
 import { QuestionIcon } from '../components/Icons';
@@ -16,12 +15,14 @@ import { useAdaptiveContent } from '../components/ui';
 
 const MODES: AgentMode[] = ['manual', 'plan', 'trust'];
 
-export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack: () => void }) {
+export function CartridgeDetailScreen(
+  { agent, onBack, onOpenMemory }:
+  { agent: Agent; onBack: () => void; onOpenMemory?: (project: string) => void },
+) {
   const adaptive = useAdaptiveContent();
   const { agents, permissions, onTranscript, urlForAgent, urlForPermission } = useNeonCore();
   // Prefer the live agent object so status/mode stay current.
   const live = agents.find((a) => a.id === agent.id) ?? agent;
-  const [memoryOpen, setMemoryOpen] = useState(false);
   // Anything this agent is currently blocked on — answerable inline, below.
   const myPermissions = permissions.filter((p) => p.agentId === agent.id);
 
@@ -208,20 +209,21 @@ export function CartridgeDetailScreen({ agent, onBack }: { agent: Agent; onBack:
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{live.repoName || live.name}</Text>
         {/* Memory belongs to THIS cartridge, exactly as on the web (CartridgeCard opens
-            ProjectMemoryPanel with project={agent.repoName}). Opening it from here means the
-            phone never asks which repo — it already knows. */}
-        <TouchableOpacity onPress={() => setMemoryOpen((v) => !v)} style={{ width: 96, alignItems: 'flex-end' }}>
-          <Text style={[styles.backText, memoryOpen && { color: theme.accent }]}>
-            {memoryOpen ? 'Close' : 'Memory'}
-          </Text>
+            ProjectMemoryPanel with project={agent.repoName}) — so the phone never asks which
+            repo, it already knows.
+
+            PUSHED, not embedded. It used to mount here as a `flex: 1` sibling of the transcript
+            FlatList, with its own KeyboardAvoidingView inside this screen's: whatever height it
+            won was a negotiation with a list that also wanted to grow. Reported as "the memory
+            button doesn't bring anything… maybe it's hidden behind the main screen", which was
+            the right diagnosis. A pushed route owns the surface and has nothing to compete with. */}
+        <TouchableOpacity
+          onPress={() => onOpenMemory?.(live.repoName)}
+          style={{ width: 96, alignItems: 'flex-end' }}
+        >
+          <Text style={styles.backText}>Memory</Text>
         </TouchableOpacity>
       </View>
-
-      {memoryOpen && (
-        <View style={{ flex: 1 }}>
-          <ProjectMemoryScreen project={live.repoName} />
-        </View>
-      )}
 
       <View style={styles.modeRow}>
         {MODES.map((m) => (

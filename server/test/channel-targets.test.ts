@@ -11,8 +11,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = (f: string) => fs.readFileSync(path.join(HERE, '..', 'src', f), 'utf8');
 import db from '../src/db.ts';
 import {
-  parseChannelTargets, acceptsChannel, defaultTargetFor,
+  parseChannelTargets, acceptsChannel, defaultTargetFor, channelForTarget,
 } from '../src/lib/channel-targets.ts';
+import { targetForNotice, TARGET_SOURCES, type TargetSource } from '../src/lib/notice-target.ts';
 import { registerRemoteCommands } from '../src/lib/remote-commands.ts';
 import { listCommands, getCommand, clearRegistries } from '../src/lib/commands-registry.ts';
 
@@ -194,4 +195,102 @@ test('nothing outside config names a particular target', () => {
     assert.doesNotMatch(code, /film-engine/,
       `${f} names a specific target in CODE — routing must read the name from config, never know it`);
   }
+});
+
+// ══ outbound: a reply lands where the conversation is ═══════════════════════
+
+/**
+ * Inbound made a channel an address and outbound stayed single-channel, so you could talk to a
+ * cartridge in its own room and have every answer arrive somewhere else. A half-built
+ * conversation is worse than none: a missing reply and a misdirected one look identical.
+ */
+test('a channel is found for a target, and an unmapped target finds none', () => {
+  const cfg = { channelId: MAIN, targets: parseChannelTargets(`${FILM}=film-engine`) };
+  assert.equal(channelForTarget('film-engine', cfg), FILM);
+  assert.equal(channelForTarget('FILM-ENGINE', cfg), FILM, 'target matching is case-sensitive');
+  assert.equal(channelForTarget('gl-dev', cfg), undefined,
+    'an unmapped target resolved to a channel — notices would land in the wrong room');
+  for (const empty of ['', '   ', undefined]) {
+    assert.equal(channelForTarget(empty as string, cfg), undefined);
+  }
+});
+
+/**
+ * SET-BASED OVER THE WAYS A NOTICE CAN NAME ITS CARTRIDGE — `TARGET_SOURCES`, the registry in
+ * notice-target.ts. Every notifyAll call site carries one of these already; resolving here
+ * rather than threading a target through eight call sites is eight fewer chances to forget one,
+ * and the one forgotten is the notice that goes to the wrong place.
+ */
+test('every declared way of naming a cartridge resolves', () => {
+  db.prepare(`INSERT INTO agents (id, name, repo_name, machine, repo_path, agent_type, status, last_seen)
+              VALUES ('t1', 'film', 'film-engine', 'm', '/x/film-engine', 'claude', 'working', datetime('now'))`).run();
+  db.prepare(`INSERT INTO workflows (id, name, status, target_repos, created_at)
+              VALUES ('w1', 'run', 'running', '["/x/film-engine"]', datetime('now'))`).run();
+
+  const cases: Record<TargetSource, Record<string, unknown>> = {
+    target: { target: 'film-engine' },
+    agentId: { agentId: 't1' },
+    workflowId: { workflowId: 'w1' },
+  };
+  assert.deepEqual(Object.keys(cases).sort(), [...TARGET_SOURCES].sort(),
+    'this test does not cover every declared way of naming a cartridge');
+
+  for (const source of TARGET_SOURCES) {
+    const r = targetForNotice(cases[source]);
+    assert.equal(r.target, 'film-engine', `${source} did not resolve the cartridge`);
+    assert.equal(r.via, source, `${source} resolved via ${r.via}`);
+  }
+
+  // Nothing to go on is answered honestly rather than guessed.
+  assert.deepEqual(targetForNotice({}), { via: null });
+  assert.deepEqual(targetForNotice(undefined), { via: null });
+
+  // An ambiguous workflow is NOT guessed: several repos is not an address.
+  db.prepare(`INSERT INTO workflows (id, name, status, target_repos, created_at)
+              VALUES ('w2', 'run', 'running', '["/x/a","/x/b"]', datetime('now'))`).run();
+  assert.equal(targetForNotice({ workflowId: 'w2' }).target, undefined,
+    'a workflow spanning several repos was routed to one of them');
+
+  db.prepare("DELETE FROM agents WHERE id = 't1'").run();
+  db.prepare("DELETE FROM workflows WHERE id IN ('w1','w2')").run();
+});
+
+/* An explicit target beats a derived one — a caller that knows better may say so. */
+test('an explicit target outranks what could be derived', () => {
+  db.prepare(`INSERT INTO agents (id, name, repo_name, machine, repo_path, agent_type, status, last_seen)
+              VALUES ('t2', 'other', 'gl-dev', 'm', '/x/gl-dev', 'claude', 'working', datetime('now'))`).run();
+  const r = targetForNotice({ agentId: 't2', target: 'film-engine' });
+  assert.equal(r.target, 'film-engine');
+  assert.equal(r.via, 'target');
+  db.prepare("DELETE FROM agents WHERE id = 't2'").run();
+});
+
+/* Every notifyAll site must carry something this can resolve, or the routing is decorative. */
+test('every notifyAll call site carries an id the resolver can use', () => {
+  const roots = ['lib', 'routes'];
+  const sites: string[] = [];
+  for (const root of roots) {
+    const dir = path.join(HERE, '..', 'src', root);
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.ts')) continue;
+      const src = fs.readFileSync(path.join(dir, f), 'utf8');
+      for (const m of src.matchAll(/notifyAll\(\{/g)) {
+        // The object literal, bounded by brace depth rather than a line window.
+        let depth = 0, started = false, end = m.index!;
+        for (let j = m.index!; j < src.length; j++) {
+          if (src[j] === '{') { depth++; started = true; }
+          else if (src[j] === '}') { depth--; if (started && depth === 0) { end = j; break; } }
+        }
+        const body = src.slice(m.index!, end);
+        const named = /\b(agentId|workflowId|target)\b/.test(body);
+        sites.push(`${root}/${f}${named ? '' : '  ← NAMES NO CARTRIDGE'}`);
+      }
+    }
+  }
+  assert.ok(sites.length >= 5, `only ${sites.length} notifyAll sites found; this scan is not reading them`);
+  const blind = sites.filter((s) => s.includes('NAMES NO'));
+  // Reported rather than failed: a notice about the machine as a whole legitimately names no
+  // cartridge. What must never happen is that NONE of them do.
+  assert.ok(blind.length < sites.length,
+    `no notifyAll site names a cartridge — outbound routing would never fire: ${sites.join(', ')}`);
 });

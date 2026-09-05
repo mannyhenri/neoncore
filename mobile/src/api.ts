@@ -125,6 +125,8 @@ export interface UsageSeries {
   series: { t: string; tokens: number; costUsd: number; samples: number }[];
   total: { tokens: number; costUsd: number; samples: number };
   byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
+  /** Grouped by repo, not by cartridge — several cartridges can share one project. */
+  byProject: { project: string; tokens: number; samples: number; cartridges: number }[];
 }
 
 export const api = {

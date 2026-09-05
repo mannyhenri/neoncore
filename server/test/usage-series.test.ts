@@ -14,6 +14,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { BUCKETS, BUCKET_MS, bucketStart, buildSeries, type Bucket } from '../src/lib/usage-series.ts';
 import type { UsageSample } from '../src/lib/burn-rate.ts';
 
@@ -128,4 +130,50 @@ test('rows outside the window and rows with a bad timestamp are dropped, not cou
   );
   assert.equal(series.reduce((s, p) => s + p.tokens, 0), 10);
   for (const p of series) assert.ok(Number.isFinite(p.tokens) && Number.isFinite(p.costUsd), `${p.t} was NaN`);
+});
+
+/**
+ * ── EVERY DIMENSION THE REPORT EXPOSES MUST BE REACHABLE ────────────────────────────────
+ *
+ * REPORTED, from the phone: "on the ios app in the metrics/report tool ... tap on any items
+ * and get more details, like for example tokens by project I can't really see them".
+ *
+ * Two different defects sit behind that one sentence, and only one is a UI problem:
+ *
+ *   byCartridge EXISTS and is rendered, but as a static bar list — nothing to tap.
+ *   byProject DOES NOT EXIST AT ALL. There is no project dimension anywhere in the response,
+ *   so no client could show it however it was written.
+ *
+ * A cartridge is not a project: 13 cartridges span 11 repos, and the ones that share a repo
+ * are exactly the ones you want summed. `session_usage` carries only agent_id, so the grouping
+ * is a JOIN to agents.repo_name — cheap on the server, and impossible on the phone without
+ * shipping the whole agent roster alongside every report.
+ *
+ * SET-BASED over the dimensions the route promises rather than asserting byProject alone: a
+ * report is a contract of dimensions, and the next one added would otherwise ship unrendered
+ * exactly as this one shipped unreachable.
+ */
+const DIMENSIONS = ['series', 'total', 'byCartridge', 'byProject'] as const;
+
+test('the usage report exposes EVERY dimension it claims', () => {
+  const src = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'routes', 'activity.ts'), 'utf8',
+  );
+  // The response literal, not the whole file: a dimension named only in a comment is not served.
+  const body = src.slice(src.indexOf("res.json({\n    bucket, days,"));
+  const payload = body.slice(0, body.indexOf('});'));
+  assert.ok(payload.length > 40, 'could not locate the usage-series response literal — scanner broken');
+
+  const missing = DIMENSIONS.filter((d) => !new RegExp(`\\b${d}\\b`).test(payload));
+  assert.deepEqual(missing, [],
+    `usage-series does not return: ${missing.join(', ')} — the phone cannot render a dimension the server never sends`);
+});
+
+test('byProject groups by REPO, not by cartridge — the two are not the same', () => {
+  const src = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'routes', 'activity.ts'), 'utf8',
+  );
+  const q = src.slice(src.indexOf('const byProject'), src.indexOf('const byProject') + 600);
+  assert.ok(/repo_name/.test(q), 'byProject must join agents.repo_name — agent_id alone is a cartridge, not a project');
+  assert.ok(/GROUP BY/i.test(q), 'byProject must aggregate, or it is just the cartridge list renamed');
 });
