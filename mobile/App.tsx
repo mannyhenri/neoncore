@@ -17,6 +17,7 @@ import { GoalDetailScreen } from './src/screens/GoalDetailScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
 import { TabBar, MORE_TABS, type TabName, type PrimaryTab } from './src/components/TabBar';
 import { TokensScreen } from './src/screens/TokensScreen';
+import { ProjectMemoryScreen } from './src/screens/ProjectMemoryScreen';
 import { MoreSheet } from './src/components/MoreSheet';
 import { BrandHeader } from './src/components/BrandHeader';
 import type { Agent, Goal, Workflow } from './src/types';
@@ -29,6 +30,7 @@ type Route =
   | { name: 'queue' }
   | { name: 'goals' }
   | { name: 'goalDetail'; goal: Goal }
+  | { name: 'memory'; project: string; agent: Agent }
   | { name: 'tasks' }
   | { name: 'tokens' }
   | { name: 'workflowRun'; run: Workflow };
@@ -40,7 +42,7 @@ type Route =
  * and a third pushed screen is exactly the moment one of them gets forgotten and a detail
  * screen renders with a tab bar under it.
  */
-const PUSHED: Route['name'][] = ['detail', 'workflowRun', 'goalDetail'];
+const PUSHED: Route['name'][] = ['detail', 'workflowRun', 'goalDetail', 'memory'];
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -116,7 +118,17 @@ export default function App() {
               <CartridgeListScreen onOpen={(agent) => setRoute({ name: 'detail', agent })} />
             )}
             {route.name === 'detail' && (
-              <CartridgeDetailScreen agent={route.agent} onBack={() => setRoute({ name: 'list' })} />
+              <CartridgeDetailScreen
+                agent={route.agent}
+                onBack={() => setRoute({ name: 'list' })}
+                onOpenMemory={(project) => setRoute({ name: 'memory', project, agent: route.agent })}
+              />
+            )}
+            {route.name === 'memory' && (
+              <ProjectMemoryScreen
+                project={route.project}
+                onBack={() => setRoute({ name: 'detail', agent: route.agent })}
+              />
             )}
             {route.name === 'approvals' && <ApprovalsScreen />}
             {route.name === 'workflows' && (

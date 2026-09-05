@@ -66,17 +66,36 @@ test('every mobile exemption names an operation the web actually has', () => {
 });
 
 test('the memory screen is REACHABLE on mobile, not merely present', () => {
-  // A screen that exists but is never routed is a file, not a feature. Reachability moved:
-  // memory is no longer a global tab, it opens from the CARTRIDGE detail screen, matching the
-  // web where ProjectMemoryPanel is opened from a cartridge card. So the chain to assert is
-  // detail-screen import + render, not tab + route case.
+  // A screen that exists but is never routed is a file, not a feature. Memory is not a global
+  // tab — it belongs to a CARTRIDGE, matching the web where ProjectMemoryPanel opens from a
+  // cartridge card. What changed is the MECHANISM, not the requirement.
+  //
+  // It used to be EMBEDDED in the detail screen, and this test asserted that by checking for
+  // the import. Embedding is what broke it: the panel mounted as a `flex: 1` sibling of the
+  // transcript FlatList with its own KeyboardAvoidingView nested inside the detail screen's,
+  // so whatever height it won was a negotiation with a list that also wanted to grow. Reported
+  // from the phone as "the memory button doesn't bring anything… maybe it's hidden behind the
+  // main screen".
+  //
+  // So the chain asserted here is now detail-screen HANDS OFF -> pushed route renders, scoped
+  // to this cartridge's repo. Asserting the import would now fail on the fixed app and pass on
+  // the broken one, which is the wrong way round.
   assert.ok(fs.existsSync(path.join(ROOT, 'mobile/src/screens/ProjectMemoryScreen.tsx')),
     'mobile/src/screens/ProjectMemoryScreen.tsx does not exist');
+
   const detail = read('mobile/src/screens/CartridgeDetailScreen.tsx');
-  assert.match(detail, /import \{ ProjectMemoryScreen \}/, 'the cartridge detail screen never imports it');
-  assert.match(detail, /<ProjectMemoryScreen/, 'the cartridge detail screen never renders it');
-  assert.match(detail, /project=\{live\.repoName\}/,
-    'memory is rendered without scoping to THIS cartridge — the whole point of the move');
+  assert.match(detail, /onOpenMemory/, 'the cartridge detail screen offers no way into memory');
+  assert.doesNotMatch(detail, /<ProjectMemoryScreen/,
+    'memory is embedded in the detail screen again — that is the layout bug this replaced');
+
+  const app = read('mobile/App.tsx');
+  assert.match(app, /route\.name === 'memory'/, 'no route renders the memory screen');
+  assert.match(app, /<ProjectMemoryScreen/, 'the memory route renders nothing');
+  const pushed = app.slice(app.indexOf('const PUSHED'), app.indexOf('];', app.indexOf('const PUSHED')));
+  assert.match(pushed, /'memory'/,
+    'memory must be a PUSHED screen so it owns the surface instead of sharing it');
+  assert.match(app, /project=\{route\.project\}/,
+    'memory is rendered without scoping to THIS cartridge — the whole point of opening it from one');
 });
 
 test('every knowledge file the web edits is editable on mobile', () => {

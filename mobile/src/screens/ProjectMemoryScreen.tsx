@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet,
-  ScrollView, Text, TextInput, View,
+  ScrollView, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { theme } from '../theme';
 import { api, type ProjectNote } from '../api';
@@ -31,7 +31,7 @@ import { Card, Chip, ActionButton, PrimaryButton, Adaptive } from '../components
 const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'] as const;
 type Tab = 'notes' | (typeof KNOWLEDGE_FILES)[number];
 
-export function ProjectMemoryScreen({ project: projectProp }: { project?: string }) {
+export function ProjectMemoryScreen({ project: projectProp, onBack }: { project?: string; onBack?: () => void }) {
   const { baseUrl, agents } = useNeonCore();
   // Project memory is keyed by REPO — which is exactly what a project owns now. So the choice
   // is "which cartridge", not "which project", and it is explicit rather than guessed: silently
@@ -40,7 +40,14 @@ export function ProjectMemoryScreen({ project: projectProp }: { project?: string
   const repos = [...new Set(agents.map((a) => a.repoName).filter(Boolean))].sort();
   const [picked, setPicked] = useState('');
   const project = projectProp || picked || repos[0] || '';
-  const [tab, setTab] = useState<Tab>('notes');
+  /**
+   * Opens on progress.md, NOT on notes.
+   *
+   * Measured against the live server: notes is [] for 10 of 11 projects, while every one of
+   * them has content in progress.md. Defaulting to the empty tab made a working screen look
+   * broken — "the memory button doesn't bring anything" was this, not a missing feature.
+   */
+  const [tab, setTab] = useState<Tab>('progress.md');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -100,6 +107,15 @@ export function ProjectMemoryScreen({ project: projectProp }: { project?: string
     // A text editor is always ONE column — two columns of prose to edit would be worse,
     // not better. It just stops stretching.
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {onBack && (
+        <View style={s.header}>
+          <TouchableOpacity onPress={onBack} style={s.back}>
+            <Text style={s.backText} numberOfLines={1}>‹ Back</Text>
+          </TouchableOpacity>
+          <Text style={s.title} numberOfLines={1}>{project} memory</Text>
+          <View style={s.back} />
+        </View>
+      )}
       <Adaptive style={s.flex}>
       {repos.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.repoBar} contentContainerStyle={s.repoChips}>
@@ -188,6 +204,13 @@ export function ProjectMemoryScreen({ project: projectProp }: { project?: string
 
 const s = StyleSheet.create({
   flex: { flex: 1 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12,
+    paddingVertical: 10, borderBottomWidth: 1, borderColor: theme.border,
+  },
+  back: { width: 84 },
+  backText: { color: theme.textDim, fontSize: 14 },
+  title: { flex: 1, color: theme.text, fontSize: 15, fontWeight: '700', textAlign: 'center' },
   pad: { padding: 16 },
   dim: { color: theme.textDim, fontSize: 13 },
   repoBar: { maxHeight: 40, flexGrow: 0 },

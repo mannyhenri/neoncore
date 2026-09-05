@@ -6,6 +6,7 @@ import { theme } from '../theme';
 import { api, type BurnRate, type UsageSeries, type UsageBucket } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { Card, ScreenTitle, Adaptive } from '../components/ui';
+import { Modal, Pressable } from 'react-native';
 
 /**
  * What the fleet is spending, and whether a change in approach moved it.
@@ -45,6 +46,17 @@ function short(n: number): string {
   return String(Math.round(n));
 }
 
+/** What a tapped row opens. `cartridges` is empty for a cartridge row — it IS one. */
+interface Drill {
+  kind: 'project' | 'cartridge';
+  title: string;
+  tokens: number;
+  samples: number;
+  cartridges: { agentId: string; name: string; tokens: number; samples: number }[];
+  subCount?: number;
+  windowTokens: number;
+}
+
 const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 function tickLabel(iso: string, bucket: string): string {
@@ -61,6 +73,12 @@ export function TokensScreen() {
   const [metric, setMetric] = useState<'tokens' | 'costUsd'>('tokens');
   const [burn, setBurn] = useState<BurnRate | null>(null);
   const [data, setData] = useState<UsageSeries | null>(null);
+  /**
+   * The row the user opened. A breakdown that shows a number and cannot be opened answers
+   * "how much" and refuses "what is inside it" — which is the question you have once you see
+   * a number you did not expect.
+   */
+  const [drill, setDrill] = useState<Drill | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -188,25 +206,54 @@ export function TokensScreen() {
         </View>
       </Card>
 
-      {(data?.byCartridge?.length ?? 0) > 0 && (
+      {(data?.byProject?.length ?? 0) > 0 && (
         <Card>
-          <Text style={styles.section}>By cartridge</Text>
-          {data!.byCartridge.slice(0, 12).map((c) => (
-            <View key={c.agentId} style={styles.row}>
-              <Text style={styles.rowName} numberOfLines={1}>{c.name || c.agentId.slice(0, 8)}</Text>
-              <View style={styles.rowBarTrack}>
-                <View
-                  style={[
-                    styles.rowBar,
-                    { width: `${Math.max(2, (c.tokens / Math.max(1, data!.byCartridge[0].tokens)) * 100)}%` },
-                  ]}
-                />
-              </View>
-              <Text style={styles.rowValue}>{short(c.tokens)}</Text>
-            </View>
+          <Text style={styles.section}>By project</Text>
+          {data!.byProject.map((row) => (
+            <BreakdownRow
+              key={row.project}
+              label={row.project}
+              value={short(row.tokens)}
+              fraction={row.tokens / Math.max(1, data!.byProject[0].tokens)}
+              onPress={() => setDrill({
+                kind: 'project',
+                title: row.project,
+                tokens: row.tokens,
+                samples: row.samples,
+                // Only a project row can name its cartridges; the server counted them because
+                // the phone cannot without the whole agent roster.
+                cartridges: data!.byCartridge.filter((c) => c.name.includes(row.project)),
+                subCount: row.cartridges,
+                windowTokens: data!.total.tokens,
+              })}
+            />
           ))}
         </Card>
       )}
+
+      {(data?.byCartridge?.length ?? 0) > 0 && (
+        <Card>
+          <Text style={styles.section}>By cartridge</Text>
+          {data!.byCartridge.slice(0, 12).map((row) => (
+            <BreakdownRow
+              key={row.agentId}
+              label={row.name || row.agentId.slice(0, 8)}
+              value={short(row.tokens)}
+              fraction={row.tokens / Math.max(1, data!.byCartridge[0].tokens)}
+              onPress={() => setDrill({
+                kind: 'cartridge',
+                title: row.name || row.agentId,
+                tokens: row.tokens,
+                samples: row.samples,
+                cartridges: [],
+                windowTokens: data!.total.tokens,
+              })}
+            />
+          ))}
+        </Card>
+      )}
+
+      <BreakdownSheet drill={drill} onClose={() => setDrill(null)} metricLabel={data?.bucket ?? bucket} />
 
       <View style={{ height: 28 }} />
       </Adaptive>
@@ -270,4 +317,102 @@ const styles = StyleSheet.create({
   rowBarTrack: { flex: 1, height: 6, backgroundColor: theme.border, borderRadius: 3, overflow: 'hidden' },
   rowBar: { height: 6, backgroundColor: theme.accent, borderRadius: 3 },
   rowValue: { color: theme.text, fontSize: 11, width: 48, textAlign: 'right' },
+  chev: { color: theme.textFaint, fontSize: 16, width: 12, textAlign: 'right' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
+  sheet: {
+    backgroundColor: theme.bgElevated, borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    borderTopWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingTop: 8,
+  },
+  grabber: {
+    width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border,
+    alignSelf: 'center', marginBottom: 14,
+  },
+  sheetTitle: { color: theme.text, fontSize: 17, fontWeight: '700' },
+  sheetSub: { color: theme.textFaint, fontSize: 11, marginTop: 2, marginBottom: 16 },
 });
+
+
+/** One pressable row of a breakdown. The whole row is the target, not a chevron. */
+function BreakdownRow({
+  label, value, fraction, onPress,
+}: {
+  label: string; value: string; fraction: number; onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.row}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value} tokens. Open for detail.`}
+    >
+      <Text style={styles.rowName} numberOfLines={1}>{label}</Text>
+      <View style={styles.rowBarTrack}>
+        <View style={[styles.rowBar, { width: `${Math.max(2, fraction * 100)}%` }]} />
+      </View>
+      <Text style={styles.rowValue}>{value}</Text>
+      <Text style={styles.chev}>›</Text>
+    </TouchableOpacity>
+  );
+}
+
+/**
+ * What one row of a breakdown is made of.
+ *
+ * Shows share-of-window rather than only the raw count: "4.2M tokens" is not actionable until
+ * you know it is 61% of everything you spent, which is the form the original request was in —
+ * "see if I change anything in my approach how my spend goes up or down".
+ */
+function BreakdownSheet({
+  drill, onClose, metricLabel,
+}: {
+  drill: Drill | null; onClose: () => void; metricLabel: string;
+}) {
+  if (!drill) return null;
+  const share = drill.windowTokens > 0 ? (drill.tokens / drill.windowTokens) * 100 : 0;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={styles.sheet}>
+        <View style={styles.grabber} />
+        <Text style={styles.sheetTitle} numberOfLines={2}>{drill.title}</Text>
+        <Text style={styles.sheetSub}>
+          {drill.kind === 'project' ? 'Project' : 'Cartridge'} · per {metricLabel}
+        </Text>
+
+        <View style={styles.rateRow}>
+          <View style={styles.rateCell}>
+            <Text style={styles.rateValue}>{short(drill.tokens)}</Text>
+            <Text style={styles.rateLabel}>tokens</Text>
+          </View>
+          <View style={styles.rateCell}>
+            <Text style={[styles.rateValue, { color: theme.teal }]}>{share.toFixed(1)}%</Text>
+            <Text style={styles.rateLabel}>of window</Text>
+          </View>
+          <View style={styles.rateCell}>
+            <Text style={styles.rateValue}>{drill.samples}</Text>
+            <Text style={styles.rateLabel}>sessions</Text>
+          </View>
+        </View>
+
+        {drill.kind === 'project' && (
+          <>
+            <Text style={styles.section}>
+              {drill.subCount ?? 0} cartridge{(drill.subCount ?? 0) === 1 ? '' : 's'} in this project
+            </Text>
+            {drill.cartridges.length === 0 ? (
+              // The server counted them; naming them needs a match this screen cannot always
+              // make. Saying so beats an empty list that reads as "none".
+              <Text style={styles.empty}>Open By cartridge for the per-cartridge split.</Text>
+            ) : drill.cartridges.map((c) => (
+              <View key={c.agentId} style={styles.row}>
+                <Text style={styles.rowName} numberOfLines={1}>{c.name}</Text>
+                <Text style={styles.rowValue}>{short(c.tokens)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+        <View style={{ height: 24 }} />
+      </View>
+    </Modal>
+  );
+}

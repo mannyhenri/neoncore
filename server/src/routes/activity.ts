@@ -156,6 +156,30 @@ router.get('/usage-series', (req, res) => {
     GROUP BY u.agent_id ORDER BY tokens DESC
   `).all(sinceIso) as { agentId: string; name: string; tokens: number; samples: number }[];
 
+  /**
+   * The same spend, grouped by REPO rather than by cartridge.
+   *
+   * A cartridge is not a project: 13 cartridges span 11 repos, and the ones sharing a repo are
+   * exactly the ones worth summing — "what did this project cost me" is the question a per-
+   * cartridge list cannot answer no matter how it is sorted.
+   *
+   * Grouped HERE and not on the client because session_usage carries only agent_id; deriving
+   * the repo on the phone would mean shipping the whole agent roster alongside every report,
+   * and it would still be wrong for a cartridge that has since been deleted.
+   *
+   * Cartridges with no repo collapse into one honest bucket rather than being dropped — a
+   * total that silently omits rows is worse than a row labelled "unassigned".
+   */
+  const byProject = db.prepare(`
+    SELECT COALESCE(NULLIF(a.repo_name, ''), 'unassigned') AS project,
+           SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens) AS tokens,
+           COUNT(*) AS samples,
+           COUNT(DISTINCT u.agent_id) AS cartridges
+    FROM session_usage u LEFT JOIN agents a ON a.id = u.agent_id
+    WHERE u.recorded_at >= ?
+    GROUP BY project ORDER BY tokens DESC
+  `).all(sinceIso) as { project: string; tokens: number; samples: number; cartridges: number }[];
+
   res.json({
     bucket, days,
     from: sinceIso,
@@ -167,6 +191,7 @@ router.get('/usage-series', (req, res) => {
       samples: rows.length,
     },
     byCartridge,
+    byProject,
   });
 });
 
