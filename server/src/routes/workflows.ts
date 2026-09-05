@@ -20,6 +20,7 @@ import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js
 import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
 } from '../lib/autonomy.js';
+import type { StepExecutorType } from '../types.js';
 
 const router = Router();
 
@@ -890,6 +891,100 @@ router.post('/v2/:id/start', (req, res) => {
       db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ? AND workflow_id = ?')
         .run(agentId, JSON.stringify(config), stepId, runId);
     }
+  }
+
+  /**
+   * RUN-LEVEL CONFER: two or more repos working the whole workflow together.
+   *
+   * REQUESTED: "select any of the workflow and have two repos confer on each step ... like
+   * epic jira task would work together on completing tasks whichever repo owns the code
+   * throughout."
+   *
+   * So this is not a step type and not a template — it is a MODE applied to whatever template
+   * you already wanted to run. Every step that would have been dispatched to one cartridge is
+   * rewritten to a `confer` step with these participants, and the question of which repo owns
+   * a given piece is answered by the participants at each step. That is the only place it can
+   * be answered: the template author does not know, and a scoping step deciding it up front
+   * is exactly what made the earlier attempts wrong.
+   *
+   * ── WHY EACH TYPE IS TREATED THE WAY IT IS ────────────────────────────────────────────
+   * Converting only the obvious type and ignoring the rest produces a half-collaborative run
+   * — some steps conferred, some single-owner, no error anywhere — so every member of
+   * StepExecutorType is a stated decision here:
+   *
+   *   'claude-code'    CONVERTED. The agent-work step; this is the whole point.
+   *   'review-gate'    LEFT ALONE. A gate reads a PASS/FAIL verdict out of the result. A
+   *   'quality-gate'   confer produces work, not a judgement, so converting these breaks the
+   *                    gate — and it breaks as a gate that never passes, which reads as the
+   *                    agents being bad rather than as a wiring mistake.
+   *   'deliberation'   LEFT ALONE. Already multi-agent, with its own panel semantics.
+   *   'confer'         LEFT ALONE. Already a confer; participants come from the step or from
+   *                    conferOverrides below.
+   *   'command'        LEFT ALONE. A shell command has no cartridge to confer with.
+   *   'connector'      LEFT ALONE. Server-side action, no agent involved.
+   *   'decision'       LEFT ALONE. Waits for a HUMAN. Converting it would quietly replace
+   *                    your judgement with the agents' own.
+   */
+  const conferAllSteps = (req.body?.conferAllSteps as string[] | undefined)?.filter(Boolean) ?? [];
+  if (conferAllSteps.length > 0) {
+    if (conferAllSteps.length < 2) {
+      return res.status(400).json({
+        error: 'conferAllSteps needs at least 2 cartridges — a one-person confer is an ordinary dispatch.',
+      });
+    }
+    const known = db.prepare(
+      `SELECT id FROM agents WHERE id IN (${conferAllSteps.map(() => '?').join(',')})`,
+    ).all(...conferAllSteps) as { id: string }[];
+    const missing = conferAllSteps.filter((id) => !known.some((k) => k.id === id));
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `No such cartridge(s): ${missing.join(', ')}` });
+    }
+
+    /**
+     * What run-level confer does to each executor type — as a Record keyed by the union, so
+     * adding a new type FAILS TO COMPILE until someone decides. A comment would have rotted;
+     * this cannot.
+     *
+     *   convert       the agent-work step — the whole point of the mode
+     *   verdict       a gate reads PASS/FAIL out of the result; a confer produces work, not a
+     *                 judgement, so converting breaks it AS a gate that never passes — which
+     *                 reads as the agents being bad rather than as a wiring mistake
+     *   already-multi has its own multi-agent semantics; leave them alone
+     *   no-agent      no cartridge involved, nothing to confer with
+     *   human         waits for YOUR judgement; converting would quietly replace it
+     */
+    const CONFER_CONVERSION: Record<StepExecutorType, 'convert' | 'verdict' | 'already-multi' | 'no-agent' | 'human'> = {
+      'claude-code': 'convert',
+      'review-gate': 'verdict',
+      'quality-gate': 'verdict',
+      'deliberation': 'already-multi',
+      'confer': 'already-multi',
+      'command': 'no-agent',
+      'connector': 'no-agent',
+      'decision': 'human',
+    };
+    const CONVERTS = new Set(
+      (Object.keys(CONFER_CONVERSION) as StepExecutorType[]).filter((t) => CONFER_CONVERSION[t] === 'convert'),
+    );
+    const rows = db.prepare('SELECT id, executor_type, executor_config FROM workflow_steps WHERE workflow_id = ?')
+      .all(runId) as { id: string; executor_type: string; executor_config: string }[];
+
+    let converted = 0;
+    for (const r of rows) {
+      if (!CONVERTS.has(r.executor_type as StepExecutorType)) continue;
+      const config = JSON.parse(r.executor_config || '{}') as Record<string, unknown>;
+      config.conferAgentIds = conferAllSteps;
+      config.conferMode = config.conferMode ?? 'divide';
+      config.conferIsolation = config.conferIsolation ?? 'shared';
+      config._wasDeferred = true;
+      // executor_id stops meaning anything for a confer step, and leaving a stale one behind
+      // makes the run look single-owner on every surface that reads it.
+      db.prepare('UPDATE workflow_steps SET executor_type = ?, executor_id = ?, executor_config = ? WHERE id = ?')
+        .run('confer', '', JSON.stringify(config), r.id);
+      converted += 1;
+    }
+    console.log(`[workflow] Run ${runId}: ${converted} step(s) converted to confer across `
+      + `${conferAllSteps.length} cartridges`);
   }
 
   /**
