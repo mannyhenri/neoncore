@@ -112,8 +112,35 @@ async function req<T>(base: string, path: string, init?: RequestInit): Promise<T
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+export type UsageBucket = 'hour' | 'day' | 'week';
+
+export interface BurnRate {
+  windowHours: number; tokens: number; tokensPerHour: number; tokensPerDay: number;
+  costUsd: number; costPerDay: number; samples: number;
+  days: number; since: string; activeCartridges: number;
+}
+
+export interface UsageSeries {
+  bucket: string; days: number; from: string; to: string;
+  series: { t: string; tokens: number; costUsd: number; samples: number }[];
+  total: { tokens: number; costUsd: number; samples: number };
+  byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
+}
+
 export const api = {
   health: (base: string) => req<{ status: string }>(base, '/api/health'),
+
+  // ── Token usage ────────────────────────────────────────────────────────────
+  //
+  // Added ahead of the client migration (C2/C3 in docs/plans/ios-parity.md) because the
+  // reporting screen was asked for twice and the migration is 62 call sites. These two are
+  // deliberately shaped EXACTLY like packages/client's getBurnRate/getUsageSeries so the
+  // migration is a delete, not a rewrite.
+  burnRate: (base: string, days?: number) =>
+    req<BurnRate>(base, `/api/activity/burn-rate${days ? `?days=${days}` : ''}`),
+
+  usageSeries: (base: string, days: number, bucket: UsageBucket) =>
+    req<UsageSeries>(base, `/api/activity/usage-series?days=${days}&bucket=${bucket}`),
 
   /** This server's identity plus every peer it knows — how the phone finds the fleet. */
   getPeers: (base: string) =>

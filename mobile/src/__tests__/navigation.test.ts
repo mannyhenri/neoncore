@@ -17,20 +17,55 @@ import path from 'node:path';
 const ROOT = path.join(import.meta.dirname, '..', '..');
 const APP = fs.readFileSync(path.join(ROOT, 'App.tsx'), 'utf8');
 const TABBAR = fs.readFileSync(path.join(ROOT, 'src/components/TabBar.tsx'), 'utf8');
+const SHEET = fs.readFileSync(path.join(ROOT, 'src/components/MoreSheet.tsx'), 'utf8');
 
-/** Tab names as the bar actually declares them, not as this test remembers them. */
-function declaredTabs(): string[] {
-  const block = TABBAR.slice(TABBAR.indexOf('const TABS'), TABBAR.indexOf('];', TABBAR.indexOf('const TABS')));
+/** Names from one declaration block, as the source declares them — not as this test remembers. */
+function namesIn(marker: string): string[] {
+  const start = TABBAR.indexOf(marker);
+  if (start < 0) return [];
+  const block = TABBAR.slice(start, TABBAR.indexOf('];', start));
   return [...block.matchAll(/name:\s*'([^']+)'/g)].map((m) => m[1]);
 }
 
-describe('the tab bar and the router agree', () => {
-  const tabs = declaredTabs();
+/**
+ * The bar is TWO TIERS now: five primary tabs, the fifth of which opens a sheet holding the
+ * rest. `more` is the one entry that is NOT a destination — it opens the sheet — so every
+ * check below reasons about the union of real destinations rather than about one array.
+ *
+ * The original gap this file guards is unchanged: a destination that renders nothing is
+ * silence, not an error. The regroup adds a second way to be silent — a destination that is
+ * in neither tier, reachable from nowhere — so that is now asserted too.
+ */
+const primary = namesIn('const TABS');
+const more = namesIn('export const MORE_TABS');
+const destinations = [...primary.filter((t) => t !== 'more'), ...more];
 
-  it('finds the tabs (a parse failure here would assert nothing)', () => {
-    expect(tabs.length).toBeGreaterThanOrEqual(6);
+describe('the tab bar and the router agree', () => {
+  const tabs = destinations;
+
+  it('finds both tiers (a parse failure here would assert nothing)', () => {
+    expect(primary.length, 'no primary tabs parsed').toBeGreaterThanOrEqual(4);
+    expect(more.length, 'no More entries parsed').toBeGreaterThanOrEqual(2);
     expect(tabs).toContain('goals');
     expect(tabs).toContain('tasks');
+    expect(tabs).toContain('tokens');
+  });
+
+  it('keeps the bar to five — the reason the More pile exists at all', () => {
+    // Each tab is flex:1. Six was already shrinking "Cartridges" to fit on a 320pt phone;
+    // seven would make every label illegible to save one tap on a reference surface.
+    expect(primary.length, `the bar declares ${primary.length} tabs: ${primary.join(', ')}`).toBeLessThanOrEqual(5);
+    expect(primary, 'the bar must offer a way to reach the rest').toContain('more');
+  });
+
+  it('routes nothing to `more` — it opens a sheet, it is not a destination', () => {
+    expect(APP.includes("route.name === 'more'"), '`more` must not be a route').toBe(false);
+  });
+
+  it('renders every More entry in the sheet, so none is reachable from nowhere', () => {
+    // MORE_TABS is passed to MoreSheet as `items` and mapped; the sheet must actually map them.
+    expect(APP, 'App.tsx must hand MORE_TABS to the sheet').toContain('MORE_TABS');
+    expect(SHEET, 'the sheet must render its items').toMatch(/items\.map\(/);
   });
 
   it('renders a screen for every tab', () => {
