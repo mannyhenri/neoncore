@@ -8,6 +8,8 @@ import type { PermissionRequest} from '../types.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { notifyAll } from '../lib/channels.js';
+import { buildPermissionParts, answerPayloadFor, PERM_PREFIX } from '../lib/permission-notice.js';
+import { registerAction } from '../lib/commands-registry.js';
 
 const router = Router();
 
@@ -159,15 +161,24 @@ router.post('/request', (req, res) => {
     pushTitle = `${projectLabel} — Approval Needed`;
     pushBody = `${toolName} is waiting for your approval.`;
   }
-  // Every configured channel. Fire-and-forget: a notification failure must never block the
-  // agent's request, which is why notifyAll swallows per-channel errors rather than rejecting.
+  // Every configured channel, carrying the QUESTION and its OPTIONS — not just the fact that
+  // one exists. This shipped with `actions: []` and a note deferring buttons to N3; N3 covered
+  // workflow attention events, so permission requests arrived as "gridlight — Question /
+  // AskUserQuestion" with no way to reply. A notification you cannot act on is a worse version
+  // of the dashboard you were not at.
   //
-  // No `actions` yet — approve/reject buttons are N3, and adding them here would mean writing
-  // the resolution path against whichever app happens to be configured, which is the coupling
-  // N1 just removed.
+  // Fire-and-forget: a notification failure must never block the agent's request, which is why
+  // notifyAll swallows per-channel errors rather than rejecting.
+  const parts = buildPermissionParts(id, toolName, toolInput, description || '');
   notifyAll({
     title: pushTitle,
     body: pushBody,
+    detail: {
+      Cartridge: projectLabel,
+      ...parts.detail,
+      ...(parts.needsDashboard ? { Answer: 'Open NeonCore — this one needs the dashboard.' } : {}),
+    },
+    actions: parts.actions,
     data: { type: 'permission_request', permissionId: id, agentId: resolvedAgentId },
   }).catch(() => {});
 
@@ -211,19 +222,27 @@ router.get('/poll/:id', (req, res) => {
 });
 
 // Decide on a permission (called from dashboard)
-router.post('/decide', (req, res) => {
-  const { id, decision, response: responseData } = req.body;
-
-  if (!id || !['allowed', 'denied'].includes(decision)) {
-    return res.status(400).json({ error: 'id and decision (allowed|denied) required' });
-  }
-
+/**
+ * Record a decision. ONE implementation, called by the route and by the channel buttons.
+ *
+ * Extracted when permission requests became answerable from Discord. A second copy of "record
+ * the decision" is how the two paths drift into disagreeing about what an answered request looks
+ * like — and this one also resolves the agent's long-poll, clears the question banner, and
+ * releases the plan prompt. Half of that missing from one caller is a hook that hangs.
+ *
+ * Returns the normalized permission, or null when the id is unknown.
+ */
+export function applyDecision(
+  id: string,
+  decision: 'allowed' | 'denied',
+  responseData?: unknown,
+): PermissionRequest | null {
   const now = new Date().toISOString();
   const responseStr = responseData ? (typeof responseData === 'string' ? responseData : JSON.stringify(responseData)) : '';
   db.prepare(`UPDATE permissions SET status = ?, decided_at = ?, response = ? WHERE id = ?`).run(decision, now, responseStr, id);
 
   const perm = db.prepare('SELECT * FROM permissions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
-  if (!perm) return res.status(404).json({ error: 'Permission not found' });
+  if (!perm) return null;
 
   // Update agent status back to working, and clear the question banner. `pending_question`
   // is set by the hook when AskUserQuestion fires; nothing used to clear it, so a cartridge
@@ -272,6 +291,18 @@ router.post('/decide', (req, res) => {
     }
   }
 
+  return normalized;
+}
+
+router.post('/decide', (req, res) => {
+  const { id, decision, response: responseData } = req.body;
+
+  if (!id || !['allowed', 'denied'].includes(decision)) {
+    return res.status(400).json({ error: 'id and decision (allowed|denied) required' });
+  }
+
+  const normalized = applyDecision(id, decision, responseData);
+  if (!normalized) return res.status(404).json({ error: 'Permission not found' });
   res.json(normalized);
 });
 
@@ -304,6 +335,49 @@ function normalizePermission(row: Record<string, unknown>): PermissionRequest {
     decidedAt: (row.decided_at ?? row.decidedAt) as string | null,
     response: ((row.response as string) ?? '') as string,
   };
+}
+
+/**
+ * Answer a permission from any channel.
+ *
+ * Routed through the SAME code path as the dashboard's decide — not a copy of it. The payload
+ * shape is the agent's contract (lib/permission-notice.ts explains why), and a second
+ * implementation of "record the decision" is how the two drift into disagreeing about what an
+ * answered request looks like.
+ */
+export function registerPermissionActions(): void {
+  const settle = (id: string, decision: 'allowed' | 'denied', response?: unknown): string => {
+    const perm = db.prepare('SELECT * FROM permissions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!perm) return 'That request is no longer on record.';
+    if (perm.status !== 'pending') return `Already ${perm.status as string}.`;
+    applyDecision(id, decision, response);
+    return '';
+  };
+
+  registerAction(PERM_PREFIX.answer, async ({ payload, reply }) => {
+    const [id, idxRaw] = payload.split(':');
+    const perm = id ? db.prepare('SELECT tool_input, status FROM permissions WHERE id = ?').get(id) as
+      { tool_input: string; status: string } | undefined : undefined;
+    if (!perm) return reply('That question is no longer on record.');
+    if (perm.status !== 'pending') return reply(`Already answered (${perm.status}).`);
+
+    const answer = answerPayloadFor(perm.tool_input, Number.parseInt(idxRaw || '', 10));
+    if (!answer) return reply('That option no longer exists — answer it in the dashboard.');
+
+    const err = settle(id, 'allowed', answer);
+    if (err) return reply(err);
+    await reply(`Answered: ${Object.values(answer.answers)[0]}`);
+  });
+
+  registerAction(PERM_PREFIX.approve, async ({ payload, reply }) => {
+    const err = settle(payload.split(':')[0], 'allowed');
+    await reply(err || 'Approved.');
+  });
+
+  registerAction(PERM_PREFIX.reject, async ({ payload, reply }) => {
+    const err = settle(payload.split(':')[0], 'denied');
+    await reply(err || 'Rejected.');
+  });
 }
 
 export default router;
