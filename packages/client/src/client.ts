@@ -47,16 +47,47 @@ export function createClient(config: ClientConfig = {}) {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   /**
-   * A signal that aborts on its own after `timeoutMs`.
+   * A deadline that works on EVERY runtime this client ships to.
    *
-   * A caller's own signal wins — it is a deliberate cancellation and must not be weakened by
-   * being merged with a deadline. `AbortSignal.timeout` is absent on older runtimes; there the
-   * client behaves exactly as it did before rather than failing to construct.
+   * Built from AbortController and setTimeout rather than AbortSignal.timeout. The statics are
+   * Node and browser features; Hermes — which React Native runs — supplies AbortController from
+   * a polyfill that has the constructor and NOT the statics. mobile/src/api.ts learned this the
+   * hard way and wrote it down: reaching for the static "would throw a TypeError on device
+   * while every test on Node passed."
+   *
+   * The first version here guarded with `'timeout' in AbortSignal`, which avoided the TypeError
+   * and replaced it with something quieter — on Hermes it returned undefined, so there was NO
+   * deadline. That is the "Connecting to orchestrator" hang this deadline exists to prevent,
+   * reintroduced on the one runtime where no test would catch it.
+   *
+   * A CALLER'S SIGNAL IS ADDED TO, NOT SUBSTITUTED FOR. `signal: options?.signal ?? deadline()`
+   * meant that passing your own signal silently disabled the timeout: a caller that wanted to be
+   * able to cancel gave up its protection against a server that never answers. Either may abort
+   * the request now.
+   *
+   * `done()` must be called in a finally. An uncleared timer keeps React Native from tearing a
+   * screen down cleanly, and Node never complains, so the leak is invisible where it is tested.
    */
-  function deadline(): AbortSignal | undefined {
-    return typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-      ? AbortSignal.timeout(timeoutMs)
-      : undefined;
+  function deadline(callerSignal?: AbortSignal | null): {
+    signal: AbortSignal;
+    done: () => void;
+    timedOut: () => boolean;
+  } {
+    const controller = new AbortController();
+    let expired = false;
+    const timer = setTimeout(() => { expired = true; controller.abort(); }, timeoutMs);
+
+    const forward = () => controller.abort();
+    callerSignal?.addEventListener('abort', forward);
+
+    return {
+      signal: controller.signal,
+      timedOut: () => expired,
+      done: () => {
+        clearTimeout(timer);
+        callerSignal?.removeEventListener('abort', forward);
+      },
+    };
   }
 
   async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -71,15 +102,27 @@ export function createClient(config: ClientConfig = {}) {
     }
 
     let res: Response;
+    const gate = deadline(options?.signal);
     try {
       res = await doFetch(`${BASE_URL}${path}`, {
         ...options,
-        signal: options?.signal ?? deadline(),
+        signal: gate.signal,
         headers: { ...headers, ...(options?.headers as Record<string, string>) },
       });
     } catch (err) {
       // No HTTP reply at all: refused, DNS failure, TLS rejection, aborted timeout.
+      //
+      // A timeout arrives as an abort, so say which it was: "Aborted" reads like the caller did
+      // something and "timed out" reads like the machine did.
+      if (gate.timedOut()) {
+        throw asUnreachable(
+          new Error(`timed out after ${timeoutMs / 1000}s — ${origin || 'this server'} accepted the connection but never answered`),
+          origin,
+        );
+      }
       throw asUnreachable(err, origin);
+    } finally {
+      gate.done();
     }
 
     if (!res.ok) {
