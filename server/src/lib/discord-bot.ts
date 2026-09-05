@@ -37,6 +37,7 @@ import {
   type Interaction, type TextBasedChannel,
 } from 'discord.js';
 import { getCommand, getAction, listCommands, type CommandSource } from './commands-registry.js';
+import { parseChannelTargets, acceptsChannel, defaultTargetFor } from './channel-targets.js';
 
 /*
  * Discord's attachment ceiling is 10MB on a free tier and higher with Nitro or
@@ -57,12 +58,16 @@ interface DiscordConfig {
   token: string;
   channelId: string;
   operatorId: string;
+  /** channel id → the target it addresses. Read here, interpreted nowhere. */
+  targets: Map<string, string>;
 }
 
 function readConfig(): DiscordConfig | null {
   const token = process.env.DISCORD_BOT_TOKEN || '';
   const channelId = process.env.DISCORD_CHANNEL_ID || '';
   const operatorId = process.env.DISCORD_OPERATOR_ID || '';
+  // Optional. Absent means one channel and explicit targets, exactly as before.
+  const targets = parseChannelTargets(process.env.DISCORD_CHANNEL_TARGETS);
   if (!token || !channelId) return null;
   if (!operatorId) {
     // Refuse rather than degrade. Without an operator id every member of the
@@ -71,7 +76,7 @@ function readConfig(): DiscordConfig | null {
       + 'Channel membership is not an authorisation model.');
     return null;
   }
-  return { token, channelId, operatorId };
+  return { token, channelId, operatorId, targets };
 }
 
 export function isDiscordConfigured(): boolean {
@@ -115,7 +120,9 @@ export async function startDiscordBot(): Promise<void> {
 
   client.on(Events.MessageCreate, async (msg) => {
     if (msg.author.bot) return;
-    if (msg.channelId !== cfg.channelId) return;
+    // The primary channel plus whatever config maps, and nowhere else. A bot can be invited to
+    // any channel on a server; one that answers everywhere answers in the wrong place.
+    if (!acceptsChannel(msg.channelId, cfg)) return;
     if (!msg.content.startsWith('!')) return;
 
     // The identity gate. Anyone can be in the channel; one person can drive.
@@ -133,7 +140,13 @@ export async function startDiscordBot(): Promise<void> {
       return;
     }
     try {
-      await handler({ args: rest.join(' '), reply });
+      await handler({
+        args: rest.join(' '),
+        reply,
+        // What this channel stands for, if anything. Undefined in the primary channel, so a
+        // command there still has to say who it is for.
+        defaultTarget: defaultTargetFor(msg.channelId, cfg),
+      });
     } catch (err) {
       console.error('[discord] command failed', err);
       await reply(`\`${word}\` failed: ${(err as Error).message}`);
