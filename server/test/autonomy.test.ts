@@ -28,7 +28,7 @@ import { registerChannel, clearChannels, type Notice } from '../src/lib/channels
  */
 
 // Production always has a socket server; the stub keeps the tests on that path.
-installStubIO();
+const io = installStubIO();
 
 const CROSS = AUTONOMY_LEVELS.flatMap((l) => ATTENTION_REASONS.map((r) => ({ level: l, reason: r })));
 
@@ -393,8 +393,25 @@ test('the window CLOSES — an old resolution is not reversible from a notificat
 
 // ── the stall, and answering ─────────────────────────────────────────────────
 
+/** Nudges sent for a step. Lives in executor_config, deliberately not in recovery_attempts. */
+function nudgesOf(stepId: string): number {
+  const r = db.prepare('SELECT executor_config AS c FROM workflow_steps WHERE id = ?').get(stepId) as { c: string };
+  return (JSON.parse(r.c || '{}')._nudges as number) || 0;
+}
+
+/** Pretend the last nudge went out long enough ago that the cooldown has passed. */
+function ageLastNudge(stepId: string, minutes: number): void {
+  const r = db.prepare('SELECT executor_config AS c FROM workflow_steps WHERE id = ?').get(stepId) as { c: string };
+  const cfg = JSON.parse(r.c || '{}');
+  cfg._lastNudgeAt = new Date(Date.now() - minutes * 60_000).toISOString();
+  db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(cfg), stepId);
+}
+
 /** A step dispatched to a cartridge that then went quiet without reporting. */
 function seedStalledStep(quietMinutes: number, agentStatus = 'idle'): void {
+  // A relay must be listening, or sendCommandToAgent reports NO COMMAND CHANNEL and the nudge
+  // is correctly abandoned — which is production behaviour, and useless for testing the policy.
+  io.connect('cart1');
   const now = new Date().toISOString();
   const lastSeen = new Date(Date.now() - quietMinutes * 60_000).toISOString();
   db.prepare(`INSERT OR REPLACE INTO agents
@@ -449,16 +466,22 @@ test('at advance, a stalled step is nudged once and never again', async () => {
   const seen = collector();
 
   await sweepAttention();
-  const after = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
-  assert.equal(after.recovery_attempts, 1, 'the stalled cartridge was not nudged');
+  assert.equal(nudgesOf('st1'), 1, 'the stalled cartridge was not nudged');
   assert.equal(seen[0]?.data?.type, 'workflow_auto_resolved');
-  assert.equal(listAutoResolutions('wf1')[0]?.chose, 'nudged');
+  // The audit records WHICH attempt it was — 'nudged (1/1)' — so a run that was nudged five
+  // times is distinguishable from one nudged once, months later when it matters.
+  assert.match(listAutoResolutions('wf1')[0]?.chose ?? '', /^nudged \(1\/1\)$/);
 
   // A cartridge that ignores the first nudge must not be pestered every sweep forever.
   __resetAttentionStateForTest();
   await sweepAttention();
-  const twice = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
-  assert.equal(twice.recovery_attempts, 1, 'it nudged a second time — a stall that survives a nudge is a person\'s problem');
+  assert.equal(nudgesOf('st1'), 1,
+    'advance nudged twice — its promise is one attempt, then a person');
+  // And the orphan guard's budget is untouched: two mechanisms, two counters.
+  const rec = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
+  assert.equal(rec.recovery_attempts, 0,
+    'the nudge spent recovery_attempts — that column is the orphan guard\'s, and sharing it '
+    + 'disables crash recovery for a step that was never orphaned');
 });
 
 test('at manual, a stalled step is reported and NOT touched', async () => {
@@ -468,8 +491,7 @@ test('at manual, a stalled step is reported and NOT touched', async () => {
   const seen = collector();
 
   await sweepAttention();
-  const after = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
-  assert.equal(after.recovery_attempts, 0, 'manual nudged something');
+  assert.equal(nudgesOf('st1'), 0, 'manual nudged something');
   assert.equal(seen[0]?.data?.type, 'workflow_attention');
   assert.ok(seen[0]?.detail?.Resolve, 'no buttons and no hint — the reader is told nothing');
 });
@@ -524,6 +546,43 @@ test('a stale waiting flag is nudged by advance, exactly like an idle one', asyn
   collector();
 
   await sweepAttention();
-  const after = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
-  assert.equal(after.recovery_attempts, 1, 'a stale waiting flag was not nudged — the run would sit');
+  assert.equal(nudgesOf('st1'), 1, 'a stale waiting flag was not nudged — the run would sit');
+});
+
+test('at FULL, a cartridge that stays quiet keeps being nudged — that is what unsupervised means', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'full', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedStalledStep(30);
+  db.prepare("UPDATE agents SET pending_question = '' WHERE id = 'cart1'").run();
+  collector();
+
+  // Four sweeps, each after the cooldown has elapsed. `advance` would have stopped at one.
+  for (let i = 1; i <= 4; i++) {
+    __resetAttentionStateForTest();
+    await sweepAttention();
+    assert.equal(nudgesOf('st1'), i, `full stopped nudging after ${nudgesOf('st1')} — it should keep trying`);
+    ageLastNudge('st1', 30);
+  }
+});
+
+test('but full is BOUNDED and SPACED — it never hammers a cartridge that cannot answer', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'full', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedStalledStep(30);
+  db.prepare("UPDATE agents SET pending_question = '' WHERE id = 'cart1'").run();
+  collector();
+
+  // Spacing: consecutive sweeps inside the cooldown must send exactly one nudge, not five.
+  for (let i = 0; i < 5; i++) { __resetAttentionStateForTest(); await sweepAttention(); }
+  assert.equal(nudgesOf('st1'), 1, 'the cooldown was ignored — a silent cartridge would be nudged every sweep');
+
+  // Ceiling: past maxAttempts it stops, and the run legitimately needs a person.
+  const { NUDGE_POLICY } = await import('../src/lib/autonomy.ts');
+  for (let i = 0; i < NUDGE_POLICY.full.maxAttempts + 3; i++) {
+    ageLastNudge('st1', 30);
+    __resetAttentionStateForTest();
+    await sweepAttention();
+  }
+  assert.equal(nudgesOf('st1'), NUDGE_POLICY.full.maxAttempts,
+    'full nudged past its ceiling — an unbounded loop hammers a cartridge that cannot answer');
 });

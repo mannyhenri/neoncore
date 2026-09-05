@@ -57,10 +57,23 @@ function code(file: string): string {
     .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
 }
 
-/** Every full-screen overlay in the rail subtree, with its source offset. */
+/**
+ * Every overlay in the rail subtree that must escape it, with its source offset.
+ *
+ * TWO SHAPES, because only one was covered and the other shipped the identical bug. A
+ * full-screen `fixed inset-0` is the obvious one. A POSITIONED POPOVER — `absolute` with a
+ * z-index, the shape of every dropdown — is sealed into the sticky rail in exactly the same
+ * way and for exactly the same reason: no z-index wins against a sibling stacking context that
+ * paints later. The autonomy dropdown was reported rendering behind the runs beneath it, and
+ * this scanner did not see it because it was looking only for the full-screen form.
+ */
 function overlaysIn(file: string) {
   const src = code(file);
-  return [...src.matchAll(/fixed inset-0/g)].map((m) => ({
+  const hits = [
+    ...src.matchAll(/fixed inset-0/g),
+    ...src.matchAll(/absolute[^"'`]*\bz-\d+/g),
+  ];
+  return hits.map((m) => ({
     file,
     index: m.index!,
     src,
