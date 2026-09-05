@@ -38,6 +38,7 @@
 
 import { io } from 'socket.io-client';
 import os from 'os';
+import { authHeaders } from '../lib/fleet-token.mjs';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -127,7 +128,7 @@ function getIdentity() {
 async function registerAgent(identity) {
   const res = await fetch(`${URL}/api/agents/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       name: `${identity.machine}/${identity.repoName}`,
       machine: identity.machine,
@@ -260,7 +261,7 @@ async function main() {
     if (!agentId) return;
     fetch(`${URL}/api/agents/interrupted`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ agentId, machine: identity.machine, repoPath: identity.repoPath, agentType: AGENT_TYPE }),
       keepalive: true,
     }).catch((err) => log(`reportInterrupted failed: ${err}`));

@@ -15,6 +15,7 @@
  */
 import fs from 'fs';
 import os from 'os';
+import { authHeaders } from '../lib/fleet-token.mjs';
 import path from 'path';
 import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
@@ -101,7 +102,7 @@ if (!process.env.NEONCORE_RUNNER_ALLOW_MULTI) {
 async function register() {
   const res = await fetch(`${cfg.serverUrl}/api/machines/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(identity),
   });
   if (!res.ok) {

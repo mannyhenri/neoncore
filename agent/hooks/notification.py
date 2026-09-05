@@ -11,6 +11,8 @@ import os
 import platform
 from urllib.request import Request, urlopen
 
+from _fleet import auth_headers
+
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 
 
@@ -18,7 +20,7 @@ def post_json(url: str, body: str, retries: int = 3) -> bool:
     """POST JSON with retry."""
     for _ in range(retries):
         try:
-            req = Request(url, data=body.encode(), headers={"Content-Type": "application/json"}, method="POST")
+            req = Request(url, data=body.encode(), headers={"Content-Type": "application/json", **auth_headers()}, method="POST")
             urlopen(req, timeout=5)
             return True
         except Exception:

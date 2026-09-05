@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs';
+import { getFleetToken } from './auth.js';
 import http from 'http';
 import os from 'os';
 import path from 'path';
@@ -215,7 +216,13 @@ export function registerCliAgent(repoPath: string, agentType: string, sessionId:
       port: Number(port),
       path: '/api/agents/register',
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        // Registers a cartridge exactly once per new repo — rare enough that it would have
+        // sat unnoticed between appearances and 401'd the first launch after strict.
+        ...(getFleetToken() ? { Authorization: `Bearer ${getFleetToken()}` } : {}),
+      },
     });
     req.on('error', () => { /* fire-and-forget */ });
     req.write(body);

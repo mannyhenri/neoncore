@@ -31,6 +31,9 @@
  */
 
 import { randomBytes, timingSafeEqual } from 'crypto';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import type { Request, Response, NextFunction } from 'express';
 import db from '../db.js';
 
@@ -65,6 +68,38 @@ function writeSetting(key: string, value: string): void {
     `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   ).run(key, value, new Date().toISOString());
+}
+
+/**
+ * Where the agent side reads the token from.
+ *
+ * The hooks are spawned by Claude Code and the relay by launchd — NOT by this server — so an
+ * env var set for `npm start` never reaches them. Without a file, every machine and every hook
+ * becomes a manual copy step, and a manual step that is skipped once fails silently at 401.
+ *
+ * 0600 and under the user's own home: it is a credential, and the whole fleet's credential.
+ */
+export const TOKEN_FILE = path.join(os.homedir(), '.neoncore', 'token');
+
+/**
+ * Publish the token where local agents can read it. Best-effort by design — a server that
+ * cannot write this file must still start, because refusing to boot over a cache file would
+ * turn a permissions problem into an outage.
+ */
+export function writeTokenFile(token: string): boolean {
+  if (!token) return false;
+  try {
+    fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
+    fs.writeFileSync(TOKEN_FILE, `${token}\n`, { mode: 0o600 });
+    // writeFileSync's mode applies only on CREATE; an existing file keeps its old mode.
+    fs.chmodSync(TOKEN_FILE, 0o600);
+    return true;
+  } catch (err) {
+    console.warn(`[auth] could not publish the fleet token to ${TOKEN_FILE}: `
+      + `${err instanceof Error ? err.message : String(err)} — local agents will need `
+      + 'NEONCORE_FLEET_TOKEN set explicitly before auth is set to strict.');
+    return false;
+  }
 }
 
 /** The configured fleet token, or null if none has been generated yet. */

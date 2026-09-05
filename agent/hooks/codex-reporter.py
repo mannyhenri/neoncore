@@ -33,6 +33,8 @@ import tempfile
 import time
 from urllib.request import Request, urlopen
 
+from _fleet import auth_headers
+
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 
 # Size caps, mirroring reporter.py so Codex rows can't bloat the DB either.
@@ -45,7 +47,7 @@ def post_json(url: str, body: str, retries: int = 3, timeout: int = 5) -> bool:
     data = body.encode()
     for _ in range(retries):
         try:
-            req = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+            req = Request(url, data=data, headers={"Content-Type": "application/json", **auth_headers()}, method="POST")
             urlopen(req, timeout=timeout)
             return True
         except Exception:
