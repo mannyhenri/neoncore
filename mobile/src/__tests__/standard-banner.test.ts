@@ -12,19 +12,35 @@ import path from 'path';
  * partial change that looks done, builds fine, and produces a confusing TestFlight upload.
  */
 
-const EXPECTED_BUILD = 36;
-
 describe('iOS build number', () => {
   const pbxproj = readFileSync(
     path.resolve(__dirname, '../../ios/NeonCore.xcodeproj/project.pbxproj'),
     'utf8',
   );
 
-  it('is set to the new build in EVERY configuration', () => {
+  /*
+   * The invariant is AGREEMENT, not a specific number.
+   *
+   * This used to compare every configuration against a hardcoded EXPECTED_BUILD, which meant a
+   * test that fails on every legitimate release: the build number is SUPPOSED to change, so
+   * pinning it makes a correct bump look like a regression. `chore(ios): bump build to 37`
+   * moved both configurations together — the thing this test exists to protect — and the suite
+   * went red anyway because the constant was left at 36. A test that cries wolf on every
+   * release trains people to edit it reflexively, which is how the partial bump it guards
+   * against would eventually sail through.
+   *
+   * So it now asserts what the comment above always said it was for: Debug and Release carry
+   * the SAME build. The marketing-version test beside it already worked this way.
+   */
+  it('carries the same build in EVERY configuration', () => {
     const found = [...pbxproj.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => m[1]);
-    expect(found.length).toBeGreaterThanOrEqual(2); // Debug + Release at minimum
-    const wrong = found.filter((v) => v !== String(EXPECTED_BUILD));
-    expect(wrong, `configs left on an old build number: ${wrong.join(', ')}`).toEqual([]);
+    expect(found.length, 'no build numbers found — the pbxproj format changed').toBeGreaterThanOrEqual(2);
+    expect(
+      new Set(found).size,
+      `configurations disagree about the build number: ${[...new Set(found)].join(', ')} — ` +
+      'one was bumped and another left behind, which builds fine and uploads confusingly',
+    ).toBe(1);
+    expect(Number.isInteger(Number(found[0])), `build "${found[0]}" is not a number`).toBe(true);
   });
 
   it('keeps the marketing version untouched — this is a build bump, not a release', () => {
