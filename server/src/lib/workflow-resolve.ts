@@ -13,6 +13,7 @@
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { normalizeStep } from './workflow-executor-v2.js';
+import { parseExecutorConfig } from './workflow-normalize.js';
 
 export interface ResolveResult {
   ok: boolean;
@@ -52,11 +53,10 @@ export interface DecisionOption { id: string; label: string; description?: strin
 export function decisionOptions(stepId: string): DecisionOption[] {
   const row = stepById(stepId);
   if (!row) return [];
-  try {
-    return (JSON.parse(row.executor_config || '{}').options as DecisionOption[]) || [];
-  } catch {
-    return [];
-  }
+  // Through the shared parser: its own try/catch was a third place that decided what an
+  // unreadable config means, and three answers to that question is how they diverge.
+  const cfg = parseExecutorConfig(row.executor_config, stepId);
+  return (cfg.options as DecisionOption[]) || [];
 }
 
 /** Answer a decision gate. */
