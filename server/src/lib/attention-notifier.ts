@@ -29,6 +29,12 @@ import {
   unadvanceStep, undecideStep, executorConfigOf,
 } from './workflow-resolve.js';
 import { recoverStep } from './recovery.js';
+import { sendCommandToAgent } from './send-command.js';
+// The single decision path, reused rather than reimplemented. It lives under routes/ because
+// that is where a decision has always been recorded; a second copy is how the dashboard and a
+// channel start disagreeing about what an answered request looks like.
+import { applyDecision } from '../routes/permissions.js';
+import { answerPayloadFor, parseQuestions } from './permission-notice.js';
 import { registerAction } from './commands-registry.js';
 import {
   effectiveAutonomy, canAutoResolve, recordAutoResolution, recommendationOf,
@@ -96,6 +102,11 @@ function hint(attention: Attention, cartridge: string | null): string | null {
       : 'Answer it from the dashboard.';
   }
   if (attention.reason === 'failed') return 'Open the run to skip the step or cancel.';
+  if (attention.reason === 'agent-idle') {
+    return cartridge
+      ? `The cartridge went quiet without reporting. Nudge it: \`!prompt ${cartridge} finish the step and report\``
+      : 'The cartridge went quiet without reporting. Re-dispatch the step from the dashboard.';
+  }
   return null;
 }
 
@@ -206,8 +217,8 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
   // Only `manual-advance` is auto-resolvable today; the switch is exhaustive so a reason added
   // to AUTO_RESOLVABLE without an implementation here fails to compile rather than silently
   // doing nothing while the audit claims otherwise.
-  let chose: string;
-  let what: string;
+  let chose = '';
+  let what = '';
 
   switch (attention.reason) {
     case 'manual-advance': {
@@ -239,11 +250,64 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
       break;
     }
 
-    case 'agent-waiting':
-      // Granted by `full`, and it holds every time: nothing in the schema carries a default
-      // answer to a question a cartridge asked you. Answering it by guessing would be worse
-      // than waiting, so this falls through to a normal attention notice.
-      return null;
+    case 'agent-waiting': {
+      // ANSWER IT. `full` holding at every question made it a slower manual — see autonomy.ts.
+      const perm = db.prepare(`
+        SELECT p.id, p.tool_name, p.tool_input FROM permissions p
+        JOIN workflow_steps s ON s.executor_id = p.agent_id
+        WHERE s.id = ? AND p.status = 'pending' ORDER BY p.created_at DESC LIMIT 1
+      `).get(attention.stepId) as { id: string; tool_name: string; tool_input: string } | undefined;
+      if (!perm) return null;   // nothing pending to answer; ask a person rather than guess
+
+      if (perm.tool_name === 'AskUserQuestion') {
+        // The FIRST option — AskUserQuestion lists the recommended choice first by convention.
+        const answer = answerPayloadFor(perm.tool_input, 0);
+        if (answer) {
+          applyDecision(perm.id, 'allowed', answer);
+          chose = Object.values(answer.answers)[0];
+        } else {
+          // Free text, or several questions at once. Say "use your judgement" plainly rather
+          // than fabricating a specific answer that reads like a decision someone made.
+          const q = parseQuestions(perm.tool_input)[0];
+          applyDecision(perm.id, 'allowed', {
+            answers: { [q?.question || 'answer']: 'Proceed on your best judgement and record the choice you made.' },
+          });
+          chose = 'proceed on best judgement';
+        }
+      } else {
+        applyDecision(perm.id, 'allowed');
+        chose = `approved ${perm.tool_name}`;
+      }
+      what = `Answered a question from "${attention.stepName}" without you: ${chose}.`;
+      break;
+    }
+
+    case 'agent-idle': {
+      // NUDGE, never re-run. The prompt was delivered and may be half-done, so re-sending it
+      // would duplicate work; this asks the cartridge to finish and report what it owes.
+      //
+      // Capped at one attempt per step via recovery_attempts, the same counter the orphan guard
+      // uses. Without the cap a cartridge that ignores the first nudge is pestered every sweep
+      // forever — and a stall that survives a nudge is a person's problem, not a louder loop's.
+      const row = db.prepare(
+        'SELECT executor_id, recovery_attempts FROM workflow_steps WHERE id = ?',
+      ).get(attention.stepId) as { executor_id: string; recovery_attempts: number } | undefined;
+      if (!row?.executor_id || (row.recovery_attempts || 0) >= 1) return null;
+
+      db.prepare('UPDATE workflow_steps SET recovery_attempts = COALESCE(recovery_attempts,0) + 1 WHERE id = ?')
+        .run(attention.stepId);
+
+      const sent = sendCommandToAgent(row.executor_id,
+        `You went idle without completing the workflow step "${attention.stepName}", so the run is `
+        + 'stalled and nothing behind it can start. Finish it now: produce the output its prompt '
+        + 'asked for and POST it to the completion webhook in that prompt. Do not ask anything — '
+        + 'decide from what you already have and proceed.', false);
+      if (!sent) return null;
+
+      chose = 'nudged';
+      what = `"${attention.stepName}" was dispatched and went quiet; the cartridge was asked to finish and report.`;
+      break;
+    }
 
     default:
       return null;
