@@ -51,11 +51,17 @@ function step(wf: string, over: {
   return id;
 }
 
-function agent(status: string): string {
+/**
+ * `question` is not decoration. A cartridge counts as blocked on a person only when something
+ * is genuinely outstanding — `waiting` with an empty banner is the flag Claude Code sets when a
+ * turn merely ends, and workflow-attention now reads that as an abandoned step. A fixture that
+ * omits it is testing a stall while claiming to test a question.
+ */
+function agent(status: string, question = ''): string {
   const id = `ag-att-${++n}`;
-  db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, agent_type, status, last_seen, active_queue_item_id)
-              VALUES (?,?,?,?,?,?,?,?,'')`)
-    .run(id, `t/${id}`, 'm', '/r', 'r', 'claude', status, ISO);
+  db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, agent_type, status, last_seen, pending_question, active_queue_item_id)
+              VALUES (?,?,?,?,?,?,?,?,?,'')`)
+    .run(id, `t/${id}`, 'm', '/r', 'r', 'claude', status, ISO, question);
   return id;
 }
 
@@ -114,7 +120,9 @@ test('EVERY human-blocking state is detected', () => {
       reason: 'agent-waiting',
       build: () => {
         const wf = run();
-        step(wf, { status: 'running', executor: agent('waiting') });
+        // A real question, or this fixture is a STALL wearing the waiting label — see
+        // workflow-attention.ts on why `waiting` alone stopped counting.
+        step(wf, { status: 'running', executor: agent('waiting', 'Which approach?') });
         return wf;
       },
     },

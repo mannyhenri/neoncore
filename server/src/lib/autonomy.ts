@@ -40,7 +40,11 @@ export const AUTO_RESOLVABLE: Record<AutonomyLevel, AttentionReason[]> = {
   manual: [],
   // Reason 5 only: releasing a finished step decides nothing. It is the one gate where the
   // work is already done and the only question is whether the next step may begin.
-  advance: ['manual-advance'],
+  // `manual-advance` releases finished work. `agent-idle` NUDGES a cartridge that was told to
+  // do something and went quiet without reporting — it decides nothing either, it asks the
+  // agent to finish the instruction it was already given. Both belong at the level whose whole
+  // definition is "decides nothing on your behalf".
+  advance: ['manual-advance', 'agent-idle'],
   // Decision gates and agent questions, TAKEN BY THEIR CONFIGURED DEFAULT.
   //
   // GRANTING IS NOT THE SAME AS ALWAYS RESOLVING. A grant says the level MAY settle this
@@ -49,7 +53,7 @@ export const AUTO_RESOLVABLE: Record<AutonomyLevel, AttentionReason[]> = {
   // has no default-answer field anywhere in the schema, so `full` grants it and then holds
   // every time, by the same rule. Inventing an answer to a question a cartridge asked you is
   // the one thing worse than waiting for you to answer it.
-  full: ['manual-advance', 'decision', 'agent-waiting'],
+  full: ['manual-advance', 'agent-idle', 'decision', 'agent-waiting'],
 };
 
 /**

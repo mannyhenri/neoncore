@@ -68,8 +68,18 @@ test('manual grants nothing', () => {
   for (const reason of ATTENTION_REASONS) assert.equal(canAutoResolve('manual', reason), false);
 });
 
-test('advance grants exactly reason 5 — releasing a finished step decides nothing', () => {
-  assert.deepEqual(AUTO_RESOLVABLE.advance, ['manual-advance']);
+test('advance grants only the reasons where nothing is decided for you', () => {
+  // `manual-advance` releases work that is already finished. `agent-idle` nudges a cartridge to
+  // complete the instruction it was already given. Neither picks anything on your behalf, which
+  // is the whole definition of this level — so the assertion is the PROPERTY, not a fixed list
+  // that has to be edited every time a reason is added.
+  assert.deepEqual(AUTO_RESOLVABLE.advance.slice().sort(), ['agent-idle', 'manual-advance']);
+
+  const DECIDES_FOR_YOU: string[] = ['decision', 'agent-waiting'];
+  for (const r of AUTO_RESOLVABLE.advance) {
+    assert.ok(!DECIDES_FOR_YOU.includes(r),
+      `advance grants ${r}, which makes a choice for you — that belongs to full`);
+  }
 });
 
 /**
@@ -88,6 +98,8 @@ test('full is a strict superset of advance, and both are settable', () => {
   const extra = AUTO_RESOLVABLE.full.filter((r) => !AUTO_RESOLVABLE.advance.includes(r));
   assert.deepEqual(extra.slice().sort(), ['agent-waiting', 'decision'],
     'full must add decision gates and agent questions, and nothing else');
+  assert.ok(AUTO_RESOLVABLE.full.includes('agent-idle'),
+    'full must still nudge a stalled cartridge — it is a superset of advance');
 
   assert.deepEqual(SETTABLE_LEVELS.slice().sort(), ['advance', 'full', 'manual']);
   assert.ok(SETTABLE_LEVELS.every((l) => isAutonomyLevel(l)), 'a settable level must be a known level');
@@ -377,4 +389,141 @@ test('the window CLOSES — an old resolution is not reversible from a notificat
 
   const already = { ...fresh, overridden: 1 };
   assert.equal(isOverridable(already), false, 'an already-reversed resolution was overridable twice');
+});
+
+// ── the stall, and answering ─────────────────────────────────────────────────
+
+/** A step dispatched to a cartridge that then went quiet without reporting. */
+function seedStalledStep(quietMinutes: number, agentStatus = 'idle'): void {
+  const now = new Date().toISOString();
+  const lastSeen = new Date(Date.now() - quietMinutes * 60_000).toISOString();
+  db.prepare(`INSERT OR REPLACE INTO agents
+      (id, name, machine, repo_path, repo_name, status, last_seen, session_id, agent_type)
+      VALUES ('cart1','box/repo','box','/tmp/repo','repo',?,?,'sess','claude')`)
+    .run(agentStatus, lastSeen);
+  db.prepare(`INSERT INTO workflow_steps
+      (id, workflow_id, name, status, executor_type, executor_id, executor_config,
+       auto_advance, position_y, created_at, dispatched_prompt, result)
+      VALUES ('st1','wf1','Load Epic','running','claude-code','cart1','{}',1,0,?,'do the thing','')`)
+    .run(now);
+}
+
+test('a dispatched step whose cartridge went quiet is DETECTED — it used to be invisible', async () => {
+  const { workflowNeedsAttention } = await import('../src/lib/workflow-attention.ts');
+  __resetAttentionStateForTest();
+  seedRun();
+  seedStalledStep(30);
+
+  const a = workflowNeedsAttention('wf1');
+  assert.equal(a?.reason, 'agent-idle',
+    'a run with a dispatched-and-abandoned step reported ' + (a?.reason ?? 'nothing') +
+    ' — this is the failure that looks exactly like health');
+});
+
+test('a cartridge that is merely between tool calls is NOT accused of stalling', async () => {
+  const { workflowNeedsAttention } = await import('../src/lib/workflow-attention.ts');
+  // `blocked on a question` needs an ACTUAL question. Without one, `waiting` is a stale flag and
+  // being called a stall is now the correct answer — this case asserted the opposite until the
+  // rule changed, which is the test doing its job rather than the code being wrong.
+  const CASES = [
+    { label: 'quiet for only a minute', minutes: 1, status: 'idle', question: '' },
+    { label: 'actively working', minutes: 60, status: 'working', question: '' },
+    { label: 'blocked on a real question', minutes: 60, status: 'waiting', question: 'Which approach?' },
+  ];
+  const failures: string[] = [];
+  for (const c of CASES) {
+    __resetAttentionStateForTest();
+    seedRun();
+    seedStalledStep(c.minutes, c.status);
+    db.prepare("UPDATE agents SET pending_question = ? WHERE id = 'cart1'").run(c.question);
+    const a = workflowNeedsAttention('wf1');
+    if (a?.reason === 'agent-idle') failures.push(`${c.label}: wrongly called a stall`);
+  }
+  assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
+});
+
+test('at advance, a stalled step is nudged once and never again', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'advance', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedStalledStep(30);
+  const seen = collector();
+
+  await sweepAttention();
+  const after = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
+  assert.equal(after.recovery_attempts, 1, 'the stalled cartridge was not nudged');
+  assert.equal(seen[0]?.data?.type, 'workflow_auto_resolved');
+  assert.equal(listAutoResolutions('wf1')[0]?.chose, 'nudged');
+
+  // A cartridge that ignores the first nudge must not be pestered every sweep forever.
+  __resetAttentionStateForTest();
+  await sweepAttention();
+  const twice = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
+  assert.equal(twice.recovery_attempts, 1, 'it nudged a second time — a stall that survives a nudge is a person\'s problem');
+});
+
+test('at manual, a stalled step is reported and NOT touched', async () => {
+  __resetAttentionStateForTest();
+  seedRun();
+  seedStalledStep(30);
+  const seen = collector();
+
+  await sweepAttention();
+  const after = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
+  assert.equal(after.recovery_attempts, 0, 'manual nudged something');
+  assert.equal(seen[0]?.data?.type, 'workflow_attention');
+  assert.ok(seen[0]?.detail?.Resolve, 'no buttons and no hint — the reader is told nothing');
+});
+
+/**
+ * THE SET: a cartridge's status crossed with whether anything is genuinely outstanding.
+ *
+ * `waiting` with nothing pending is the case that cost a whole run. Claude Code fires a
+ * `notification` hook when a turn simply ends, which sets `waiting` with no question attached —
+ * so the run reported "the cartridge is waiting for your input" while there was nothing to
+ * input, `full` correctly refused to invent an answer, and it sat there. queue-runner.ts had
+ * already written the rule down for the queue; this applies it to attention.
+ */
+const WAITING_CASES: { label: string; status: string; question: string; perm: boolean; want: string | null }[] = [
+  { label: 'waiting WITH a question banner', status: 'waiting', question: 'Which approach?', perm: false, want: 'agent-waiting' },
+  { label: 'waiting WITH a pending permission', status: 'waiting', question: '', perm: true, want: 'agent-waiting' },
+  { label: 'waiting with NOTHING outstanding', status: 'waiting', question: '', perm: false, want: 'agent-idle' },
+  { label: 'idle with nothing outstanding', status: 'idle', question: '', perm: false, want: 'agent-idle' },
+  { label: 'working', status: 'working', question: '', perm: false, want: null },
+];
+
+test('a cartridge is only WAITING when something is actually outstanding', async () => {
+  const { workflowNeedsAttention } = await import('../src/lib/workflow-attention.ts');
+  const failures: string[] = [];
+
+  for (const c of WAITING_CASES) {
+    __resetAttentionStateForTest();
+    seedRun();
+    seedStalledStep(30, c.status);
+    db.prepare("UPDATE agents SET pending_question = ? WHERE id = 'cart1'").run(c.question);
+    db.prepare('DELETE FROM permissions').run();
+    if (c.perm) {
+      db.prepare(`INSERT INTO permissions (id, agent_id, tool_name, tool_input, description, status, created_at)
+                  VALUES ('p1','cart1','AskUserQuestion','{}','','pending',?)`).run(new Date().toISOString());
+    }
+
+    const got = workflowNeedsAttention('wf1')?.reason ?? null;
+    if (got !== c.want) failures.push(`${c.label}: got ${got}, expected ${c.want}`);
+  }
+
+  assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
+});
+
+test('a stale waiting flag is nudged by advance, exactly like an idle one', async () => {
+  // The whole point: the two are the same abandonment wearing different labels, so the level
+  // that fixes one must fix the other.
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'advance', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedStalledStep(30, 'waiting');
+  db.prepare("UPDATE agents SET pending_question = '' WHERE id = 'cart1'").run();
+  db.prepare('DELETE FROM permissions').run();
+  collector();
+
+  await sweepAttention();
+  const after = db.prepare("SELECT recovery_attempts FROM workflow_steps WHERE id='st1'").get() as { recovery_attempts: number };
+  assert.equal(after.recovery_attempts, 1, 'a stale waiting flag was not nudged — the run would sit');
 });

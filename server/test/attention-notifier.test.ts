@@ -70,9 +70,12 @@ test('every reason in ATTENTION_REASONS produces a usable notice', () => {
 const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   failed: 'told-how',
   interrupted: 'buttons',
-  decision: 'buttons',        // one per option; none configured in this fixture
-  'agent-waiting': 'told-how',
+  decision: 'buttons',        // one per option
+  'agent-waiting': 'told-how',   // a person answers with text; `full` answers it automatically
   'manual-advance': 'buttons',
+  // Nothing a button can fix — the cartridge has to be asked to finish. `advance` and `full`
+  // nudge it automatically; a person is told what happened and where.
+  'agent-idle': 'told-how',
 };
 
 test('every reason either offers a control or says how to resolve it — none is a dead end', () => {

@@ -82,10 +82,17 @@ function step(
          extra.config ?? '{}', extra.autoAdvance ?? 1, extra.recovery ?? '', n, ISO);
   return id;
 }
-function agent(status: string): string {
+/**
+ * `question` matters for the 'waiting' status: a cartridge is only genuinely blocked on a
+ * person when something is actually outstanding. `waiting` with an empty banner is a stale
+ * flag — Claude Code sets it whenever a turn simply ends — and workflow-attention now reads it
+ * as an abandoned step rather than a question. A fixture that omits the question is testing a
+ * stall while claiming to test a question.
+ */
+function agent(status: string, question = ''): string {
   const id = `a-${++n}`;
-  db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, agent_type, status, last_seen, active_queue_item_id)
-              VALUES (?,?,'m',?,?,'claude',?,?,'')`).run(id, `t/${id}`, `/r/${id}`, id, status, ISO);
+  db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, agent_type, status, last_seen, active_queue_item_id, pending_question)
+              VALUES (?,?,'m',?,?,'claude',?,?,'',?)`).run(id, `t/${id}`, `/r/${id}`, id, status, ISO, question);
   return id;
 }
 
@@ -214,7 +221,7 @@ const REASON_FIXTURES: { reason: string; wire: (runId: string) => void }[] = [
   { reason: 'failed', wire: (w) => { step(w, 'failed'); } },
   { reason: 'interrupted', wire: (w) => { step(w, 'running', { recovery: 'interrupted' }); } },
   { reason: 'decision', wire: (w) => { step(w, 'running', { executorType: 'decision' }); } },
-  { reason: 'agent-waiting', wire: (w) => { step(w, 'running', { executorId: agent('waiting') }); } },
+  { reason: 'agent-waiting', wire: (w) => { step(w, 'running', { executorId: agent('waiting', 'Which approach?') }); } },
   { reason: 'manual-advance', wire: (w) => { step(w, 'completed', { autoAdvance: 0 }); step(w, 'pending'); } },
 ];
 
