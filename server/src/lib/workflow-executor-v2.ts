@@ -1886,6 +1886,17 @@ function tick() {
   }
 }
 
+/**
+ * One executor pass, on demand.
+ *
+ * Exported so an integration test can drive a whole run deterministically instead of sleeping
+ * on a 15-second interval — the same reason lib/queue-runner.ts exports tickQueue. A loop that
+ * is only ever exercised by watching a real epic for an hour is one nobody exercises.
+ */
+export function tickWorkflowsOnce(): void {
+  tick();
+}
+
 export function startWorkflowExecutorV2() {
   setInterval(tick, POLL_INTERVAL_MS);
   console.log(`[workflow-v2] Executor started (polling every ${POLL_INTERVAL_MS / 1000}s)`);
