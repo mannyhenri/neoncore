@@ -2194,6 +2194,32 @@ export function seedDefaultTemplates() {
 }
 
 /**
+ * N4 autonomy: what a run was allowed to resolve for itself, and what it chose.
+ *
+ * "The audit table is not optional. The first time a `full` run picks something you disagree
+ * with, the only useful question is what it chose and on what basis." (docs/plans/build-order.md)
+ *
+ * `autonomy` records the level IN FORCE AT THE TIME, not the level now — a run whose posture
+ * was raised for two hours and then lapsed must still show why it advanced itself at 3am.
+ * `overridden` is set when a person reverses the decision afterwards, which is the signal that
+ * a level is granting more latitude than it should.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflow_auto_resolutions (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    chose TEXT NOT NULL,
+    autonomy TEXT NOT NULL,
+    overridden INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_auto_res_workflow ON workflow_auto_resolutions(workflow_id);
+  CREATE INDEX IF NOT EXISTS idx_auto_res_created ON workflow_auto_resolutions(created_at);
+`);
+
+/**
  * Migration: decomposition provenance and task dependencies (GOAL-041/044).
  *
  * `origin_decomposition_id` answers "which run proposed this, and did a person accept it" for
@@ -2225,6 +2251,16 @@ for (const [table, column, decl] of [
   ['goals', 'autonomy', "TEXT NOT NULL DEFAULT ''"],
   ['tasks', 'origin_decomposition_id', 'TEXT'],
   ['projects', 'origin_decomposition_id', 'TEXT'],
+
+  // N4 autonomy (docs/plans/build-order.md). 'manual' is the default because a posture nobody
+  // chose must not grant latitude — the same reasoning as `goals.autonomy` above, which uses
+  // '' for unset. Here the plan specifies a literal default, and 'manual' IS the safe one.
+  //
+  // `autonomy_expires_at` is what makes raising a level a decision you cannot forget you made:
+  // an unbounded grant is one you stop noticing.
+  ['workflows', 'autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
+  ['workflows', 'autonomy_expires_at', 'TEXT'],
+  ['projects', 'default_autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
 ] as const) {
   try {
     db.prepare(`SELECT ${column} FROM ${table} LIMIT 1`).get();

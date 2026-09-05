@@ -16,6 +16,10 @@
 import db from '../db.js';
 import { registerCommand } from './commands-registry.js';
 import { sendCommandToAgent } from './send-command.js';
+import {
+  AUTONOMY_LEVELS, SETTABLE_LEVELS, isAutonomyLevel, effectiveAutonomy,
+  setWorkflowAutonomy, parseDuration, listAutoResolutions,
+} from './autonomy.js';
 
 export interface CartridgeRow {
   id: string;
@@ -76,6 +80,43 @@ function liveCartridges(): CartridgeRow[] {
 
 const label = (r: CartridgeRow) => r.repo_name || r.name || r.id;
 
+export interface RunRow { id: string; name: string; run_number: number }
+
+function runningRuns(): RunRow[] {
+  return db.prepare(
+    "SELECT id, name, run_number FROM workflows WHERE status = 'running' ORDER BY started_at DESC",
+  ).all() as RunRow[];
+}
+
+const runLabel = (r: RunRow) => `${r.name}${r.run_number ? ` #${r.run_number}` : ''}`;
+
+/**
+ * Same rules as resolveCartridge: exact first, then a unique fragment, and an ambiguous query
+ * is answered with its candidates rather than guessed. Raising a run's autonomy is exactly the
+ * kind of thing that must not land on the wrong run.
+ */
+export function resolveRun(rows: RunRow[], rawQuery: string):
+  | { kind: 'found'; run: RunRow }
+  | { kind: 'none'; query: string }
+  | { kind: 'ambiguous'; query: string; candidates: RunRow[] } {
+  const query = (rawQuery || '').trim();
+  if (!query) return { kind: 'none', query };
+  const q = query.toLowerCase();
+
+  const byId = rows.find((r) => r.id === query);
+  if (byId) return { kind: 'found', run: byId };
+
+  const exact = rows.filter((r) => (r.name || '').toLowerCase() === q);
+  if (exact.length === 1) return { kind: 'found', run: exact[0] };
+  if (exact.length > 1) return { kind: 'ambiguous', query, candidates: exact };
+
+  const fuzzy = rows.filter((r) => (r.name || '').toLowerCase().includes(q));
+  if (fuzzy.length === 1) return { kind: 'found', run: fuzzy[0] };
+  if (fuzzy.length > 1) return { kind: 'ambiguous', query, candidates: fuzzy };
+
+  return { kind: 'none', query };
+}
+
 /** Registered once at startup, before any driver starts. */
 export function registerRemoteCommands(): void {
   registerCommand('cartridges', async ({ reply }) => {
@@ -108,5 +149,66 @@ export function registerRemoteCommands(): void {
     if (!command) return reply(`Could not reach \`${label(found.agent)}\` — it may have gone offline.`);
 
     await reply(`Sent to \`${label(found.agent)}\`.`);
+  });
+
+  registerCommand('autonomy', async ({ args, reply }) => {
+    const parts = (args || '').trim().split(/\s+/).filter(Boolean);
+
+    // Bare `!autonomy` reports. You cannot raise a posture you cannot see.
+    if (parts.length === 0) {
+      const runs = runningRuns();
+      if (!runs.length) return reply('No runs are in progress.');
+      const lines = runs.map((r) => {
+        const a = effectiveAutonomy(r.id);
+        const until = a.expiresAt ? `, until ${a.expiresAt}` : '';
+        const auto = listAutoResolutions(r.id, 1).length ? ' · has auto-resolutions' : '';
+        return `\`${runLabel(r)}\` — **${a.level}** (${a.source}${until})${auto}`;
+      });
+      return reply(
+        `**Autonomy**\n${lines.join('\n')}\n\n` +
+        `Set: \`!autonomy <run> <${SETTABLE_LEVELS.join('|')}> [2h]\``,
+      );
+    }
+
+    const [target, levelArg, durationArg] = parts;
+    if (!levelArg) {
+      return reply(`Usage: \`!autonomy <run> <${SETTABLE_LEVELS.join('|')}> [2h]\``);
+    }
+
+    const level = levelArg.toLowerCase();
+    if (!isAutonomyLevel(level)) {
+      return reply(`Unknown level \`${levelArg}\`. Known: ${AUTONOMY_LEVELS.join(', ')}.`);
+    }
+    // `full` exists in the schema and the audit, but grants nothing `advance` does not yet.
+    // Accepting it would promise latitude the machinery to exercise safely is not written —
+    // see docs/plans/build-order.md: ship advance first, live with it for a week.
+    if (!SETTABLE_LEVELS.includes(level)) {
+      return reply(
+        `\`${level}\` is not available yet — it grants nothing \`advance\` does not, and the ` +
+        `hold-if-no-default rule and override window it needs are unwritten. Use \`advance\`.`,
+      );
+    }
+
+    const found = resolveRun(runningRuns(), target);
+    if (found.kind === 'none') return reply(`No run in progress matches \`${target}\`.`);
+    if (found.kind === 'ambiguous') {
+      return reply(`\`${target}\` matches ${found.candidates.length}: ` +
+        found.candidates.map((c) => `\`${runLabel(c)}\``).join(', ') + '. Be more specific.');
+    }
+
+    // A raise without a time-box is a grant you stop noticing. Refuse the typo rather than
+    // treating an unparseable duration as "forever".
+    let untilMs: number | null = null;
+    if (durationArg) {
+      const ms = parseDuration(durationArg);
+      if (ms === null) return reply(`Could not read \`${durationArg}\` as a duration. Try \`2h\`, \`30m\`, \`1d\`.`);
+      untilMs = Date.now() + ms;
+    } else if (level !== 'manual') {
+      return reply(`Raising autonomy needs a time-box: \`!autonomy ${target} ${level} 2h\`.`);
+    }
+
+    setWorkflowAutonomy(found.run.id, level, untilMs);
+    const until = untilMs ? ` until ${new Date(untilMs).toISOString()}` : '';
+    await reply(`\`${runLabel(found.run)}\` is now **${level}**${until}.`);
   });
 }

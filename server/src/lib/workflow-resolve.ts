@@ -26,10 +26,23 @@ function stepById(stepId: string): StepRow | undefined {
   return db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as StepRow | undefined;
 }
 
+/**
+ * Broadcast the change, but never let the broadcast undo it.
+ *
+ * The database write has already happened by the time this runs. `getIO()` THROWS when the
+ * socket server is not up, so an unguarded emit turns a successful advance into a half-done
+ * one: the step is released, and the audit row and the notification that were supposed to
+ * follow never happen — the single worst outcome, because the run moves and nobody is told.
+ * Caught live by an autonomy test, where the socket is stubbed and momentarily was not.
+ */
 function emit(stepId: string): ReturnType<typeof normalizeStep> {
   const updated = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown>;
   const step = normalizeStep(updated);
-  getIO().emit('workflow_step_updated', step);
+  try {
+    getIO().emit('workflow_step_updated', step);
+  } catch (err) {
+    console.warn(`[workflow-resolve] step ${stepId} updated but not broadcast: ${err instanceof Error ? err.message : String(err)}`);
+  }
   return step;
 }
 
