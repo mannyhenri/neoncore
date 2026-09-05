@@ -143,3 +143,64 @@ test('the epic can come from a file OR a tracker — neither is assumed', () => 
   assert.match(all, /\.md|markdown|file/i, 'no way to point it at an epic file');
   assert.match(all, /jira/i, 'Jira support was dropped rather than made optional');
 });
+
+// ── The count has to be READ FROM DATA, and the wiring has to be real ────────
+
+function loopStepConfig(): Record<string, unknown> {
+  const row = db.prepare(`
+    SELECT s.executor_config AS c FROM workflows w JOIN workflow_steps s ON s.workflow_id = w.id
+    WHERE w.name = ? AND s.name = 'Work Every Task'
+  `).get(EPIC_TEMPLATE) as { c: string } | undefined;
+  assert.ok(row, 'no "Work Every Task" step');
+  return JSON.parse(row!.c) as Record<string, unknown>;
+}
+
+/**
+ * THE WIRING, END TO END.
+ *
+ * `loopCountFrom` names its source step by NAME and greps its output with a pattern. Both sides
+ * are strings, and a typo in either degrades SILENTLY to looping once — which is precisely the
+ * bug this feature was added to fix, restored in a form nobody would notice. So the test checks
+ * the producer actually emits what the consumer greps for, rather than checking each in isolation.
+ */
+test('the loop count is read from data, and its source really produces it', () => {
+  const cfg = loopStepConfig();
+  const from = cfg.loopCountFrom as { step?: string; pattern?: string } | undefined;
+
+  assert.ok(from?.step && from?.pattern,
+    'the loop step has no loopCountFrom — its coverage is back to whatever the prompt remembers');
+  assert.ok(cfg.loopUntil, 'no loopUntil: when the tasks run out the remaining dispatches do nothing');
+
+  // The named step must EXIST in this template...
+  const names = stepsOf(EPIC_TEMPLATE).map((x) => x.name);
+  assert.ok(names.includes(from!.step!),
+    `loopCountFrom names "${from!.step}", which is not a step in this template — got: ${names.join(', ')}`);
+
+  // ...and must be a DEPENDENCY, or its result is not available when the count is resolved.
+  const dep = db.prepare(`
+    SELECT s.depends_on AS d FROM workflows w JOIN workflow_steps s ON s.workflow_id = w.id
+    WHERE w.name = ? AND s.name = 'Work Every Task'
+  `).get(EPIC_TEMPLATE) as { d: string };
+  const srcId = db.prepare(`
+    SELECT s.id FROM workflows w JOIN workflow_steps s ON s.workflow_id = w.id
+    WHERE w.name = ? AND s.name = ?
+  `).get(EPIC_TEMPLATE, from!.step!) as { id: string };
+  assert.ok((dep.d || '').includes(srcId.id),
+    `"${from!.step}" is not a dependency of the loop step, so its output is not there to read`);
+
+  // ...and the producer's own prompt must emit text the consumer's pattern matches.
+  const producer = stepsOf(EPIC_TEMPLATE).find((x) => x.name === from!.step!)!;
+  const emitted = JSON.parse(producer.config).prompt as string;
+  const probe = emitted.replace(/\[count of tasks not yet done\]|\[[^\]]*\]/g, '7');
+  assert.match(probe, new RegExp(from!.pattern!),
+    `"${from!.step}" never emits anything matching /${from!.pattern}/ — the count would silently fall back to 1`);
+});
+
+test('a final sweep confirms nothing was missed', () => {
+  // The loop guarantees N dispatches; it cannot guarantee N completions. Something has to look
+  // at the state doc afterwards and say which tasks are still outstanding, or a blocked task in
+  // the middle of the run is only discoverable by reading twelve step outputs.
+  const names = stepsOf(EPIC_TEMPLATE).map((x) => x.name);
+  assert.ok(names.includes('Verify Coverage'),
+    `no sweep step — got: ${names.join(', ')}`);
+});
