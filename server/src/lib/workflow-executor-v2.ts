@@ -16,6 +16,7 @@ import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
 import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
+import { resolveLoopCount, shouldStopLooping, type LoopConfig } from './workflow-loop.js';
 
 const POLL_INTERVAL_MS = 12_000;
 
@@ -395,6 +396,17 @@ function composeIntentPrompt(config: Record<string, unknown>): string {
 }
 
 /** Collect result text from all dependency steps (capped by budget) */
+/** Dependency results keyed by step NAME, for loopCountFrom. */
+function dependencyResultsByName(step: WorkflowStep): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const depId of step.dependsOn) {
+    const row = db.prepare('SELECT name, result FROM workflow_steps WHERE id = ?')
+      .get(depId) as { name?: string; result?: string } | undefined;
+    if (row?.name) out[row.name] = row.result || '';
+  }
+  return out;
+}
+
 function gatherDependencyContext(step: WorkflowStep): string {
   if (step.dependsOn.length === 0) return '';
 
@@ -1445,9 +1457,36 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
   const now = new Date().toISOString();
 
   // ── Looped steps: re-dispatch until the loop count is exhausted ──
-  const loopCount = (step.executorConfig.loopCount as number) || 1;
+  //
+  // The count may come from DATA rather than the template. A template author cannot know how
+  // many tasks are in an epic they have never seen, so `loopCountFrom` reads it out of an
+  // earlier step's output — see lib/workflow-loop.ts for why a missing count falls back to the
+  // static one instead of guessing.
+  //
+  // Resolved ONCE and persisted: re-reading it every loop would let a later dispatch's output
+  // change how many dispatches remain, which is a loop whose length depends on its own results.
+  const cfg = step.executorConfig as LoopConfig & Record<string, unknown>;
+  let loopCount: number;
+  if (typeof cfg._resolvedLoopCount === 'number') {
+    loopCount = cfg._resolvedLoopCount;
+  } else {
+    loopCount = resolveLoopCount(cfg, dependencyResultsByName(step));
+    if (loopCount !== ((cfg.loopCount as number) || 1)) {
+      emitStepLog(workflowId, step.id, step.name, `Loop count resolved from upstream: ${loopCount}`, 'info');
+    }
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+      .run(JSON.stringify({ ...cfg, _resolvedLoopCount: loopCount }), step.id);
+    step.executorConfig = { ...cfg, _resolvedLoopCount: loopCount };
+  }
+
   const currentLoop = (step.executorConfig._currentLoop as number) || 1;
-  if (loopCount > 1 && currentLoop < loopCount) {
+
+  // Stop early when the work ran out. A guaranteed count guarantees coverage, not that there is
+  // that much work — dispatching an agent to do nothing is worse than stopping short.
+  if (shouldStopLooping(result, cfg) && loopCount > 1 && currentLoop < loopCount) {
+    emitStepLog(workflowId, step.id, step.name,
+      `Stopped at loop ${currentLoop}/${loopCount} — the work is done`, 'info');
+  } else if (loopCount > 1 && currentLoop < loopCount) {
     const nextLoop = currentLoop + 1;
     db.prepare('UPDATE workflow_steps SET executor_config = ?, started_at = ? WHERE id = ?')
       .run(JSON.stringify({ ...step.executorConfig, _currentLoop: nextLoop }), now, step.id);

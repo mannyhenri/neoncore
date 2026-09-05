@@ -1450,7 +1450,7 @@ export function seedDefaultTemplates() {
   // is removed from existing databases instead of lingering beside this one.
   {
     const wfId = stableId('Epic: Task by Task');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID();
     insertWorkflow.run(wfId, 'Epic: Task by Task',
       'Loads an epic and works every task to the end: understand \u2192 failing tests \u2192 implement \u2192 verify \u2192 commit \u2192 next. One commit per task. Runs unattended \u2014 it never asks between tasks.', now);
 
@@ -1463,21 +1463,35 @@ export function seedDefaultTemplates() {
         prompt: 'An epic is specified above. It is either a PATH to a markdown file, or the name/key of an epic in a tracker such as Jira.\n\n**Goal: identify the scope and where task state lives. Output only the key paths — do not load task details, step 2 does that one task at a time.**\n\n1. Decide what you were given:\n   - Looks like a path, or ends in `.md` → read that file. It is the epic.\n   - Otherwise → treat it as a tracker key. Look for a local epic doc first (`.claude/scoping/EPIC-*.md`, `docs/plans/*.md`), and use a tracker CLI only if one is configured and no local doc matches.\n2. Find where per-task STATE is recorded — a results doc, a checklist inside the epic, or the tracker. This is what step 2 reads to pick the next task and writes to mark one done. If none exists, say so and name the file you will create.\n3. Identify the project root and the exact command that runs this repository\'s tests.\n\n**OUTPUT — these lines and nothing else:**\n```\nEPIC: [path or key]\nSTATE: [path to the doc holding per-task status, or \"tracker\"]\nROOT: [project root]\nTESTS: [the exact test command]\nTASKS: [count of tasks not yet done]\n```',
       }, []);
 
-    // Step 2: the loop. One task at a time, a commit after each, no question in between.
+    // Step 2: ONE task per dispatch. The engine repeats it `TASKS: n` times — the count comes
+    // from step 1's output, so coverage is guaranteed by the runner rather than by an agent
+    // remembering to keep going. `loopUntil` ends it early if the work runs out first.
     step(wfId, s2, 'Work Every Task',
-      'For each outstanding task: understand \u2192 failing tests \u2192 implement \u2192 full suite \u2192 commit \u2192 next. Stops only on a suite that stays red after 3 attempts.',
+      'Handles ONE task per dispatch: understand \u2192 failing tests \u2192 implement \u2192 full suite \u2192 commit. The engine re-runs it once per outstanding task, using the count step 1 reported.',
       300, 310, 'claude-code',
       {
-        ...cc('backend'),
-        prompt: 'Step 1 identified the epic, the state doc, the project root and the test command. Work through EVERY outstanding task, one at a time, and DO NOT STOP until none remain.\n\n**THIS LOOP RUNS UNATTENDED. Do not ask the user anything between tasks — nobody is watching, and a question halts the run until a person answers it. Stop only for the two conditions in PHASE 6.**\n\n**REPEAT UNTIL NO TASKS REMAIN:**\n\n### PHASE 1 — PICK NEXT TASK\n- Read the state doc. Take the FIRST task not yet marked done.\n- If none remain: output `ALL TASKS COMPLETE — [n] done, [m] skipped` and END.\n\n### PHASE 2 — UNDERSTAND\n- Read that task\'s section in full: description, acceptance criteria, notes. If the epic lives in a tracker and a CLI is configured, fetch the issue for detail.\n- Use Read/Grep/Glob: what exists already, what is missing, where the code belongs, which patterns to follow.\n\n### PHASE 3 — WRITE TESTS FIRST\n- Write tests from the REQUIREMENTS, not from the implementation you intend to write.\n- Happy path, at least two edge cases, at least one error state per requirement.\n- Run them and CONFIRM THEY FAIL. If they pass before the code exists, the tests are wrong — rewrite them.\n\n### PHASE 4 — IMPLEMENT\n- The minimum code that satisfies the requirements. Follow existing patterns.\n- Do NOT edit the tests to make them pass — fix the implementation.\n\n### PHASE 5 — VERIFY\n- Run the new tests. On failure return to PHASE 4, up to 3 attempts.\n- Then run the FULL suite with the command from step 1 and confirm nothing else broke.\n\n### PHASE 6 — COMMIT, THEN CONTINUE\n- Mark the task done in the state doc, with a one-line note on what you did.\n- Stage everything: implementation, tests, the state doc.\n- **Commit. One commit per task, message: `[task-id] [title] — implement per epic`**\n- Output `DONE [task-id] · commit [hash] · [k] remaining`.\n- GO BACK TO PHASE 1 immediately.\n\n**THE ONLY TWO REASONS TO STOP EARLY:**\n1. The full suite still fails after 3 attempts on the SAME task. Commit nothing for it, mark it `BLOCKED` with the failure output, and END — a red suite makes every later commit build on breakage.\n2. A task cannot be understood from the epic at all. Mark it `SKIPPED` with the reason and CONTINUE — one unclear task must not cost you the other twelve.\n\nNever work two tasks at once. Never skip PHASE 3 or PHASE 5.',
+        ...cc('backend'), includeDepOutput: true,
+        loopCount: 1,
+        loopCountFrom: { step: 'Load Epic', pattern: 'TASKS:\\s*(\\d+)' },
+        loopUntil: 'ALL TASKS COMPLETE',
+        prompt: 'Step 1 identified the epic, the state doc, the project root and the test command.\n\n**YOU HANDLE EXACTLY ONE TASK IN THIS DISPATCH.** The workflow engine re-runs this step once per outstanding task — the count came from step 1, so coverage is guaranteed by the engine and not by you remembering to continue. Do one task properly and finish. Do not ask the user anything; nobody is watching.\n\n### 1 — PICK\n- Read the state doc. Take the FIRST task not yet marked done or skipped.\n- If none remain, output exactly `ALL TASKS COMPLETE` with a one-line tally and STOP. That sentinel ends the loop early, so the remaining dispatches are not spent on nothing.\n\n### 2 — UNDERSTAND\n- Read that task\'s section in full: description, acceptance criteria, notes. If the epic lives in a tracker and a CLI is configured, fetch the issue for detail.\n- Use Read/Grep/Glob: what exists, what is missing, where the code belongs, which patterns to follow.\n\n### 3 — TESTS FIRST\n- Write tests from the REQUIREMENTS, not from the implementation you intend to write.\n- Happy path, at least two edge cases, at least one error state per requirement.\n- Run them and CONFIRM THEY FAIL. If they pass before the code exists, the tests are wrong — rewrite them.\n\n### 4 — IMPLEMENT\n- The minimum code that satisfies the requirements. Follow existing patterns.\n- Do NOT edit the tests to make them pass — fix the implementation.\n\n### 5 — VERIFY\n- Run the new tests. On failure return to step 4, up to 3 attempts.\n- Then run the FULL suite with the command from step 1 and confirm nothing else broke.\n\n### 6 — RECORD AND COMMIT\n- Mark the task done in the state doc with a one-line note.\n- Stage everything: implementation, tests, the state doc.\n- **Commit. One commit for this task, message: `[task-id] [title] — implement per epic`**\n- Output `DONE [task-id] · commit [hash] · [k] remaining`.\n\n**IF THIS TASK CANNOT BE FINISHED:**\n- Full suite still red after 3 attempts → commit NOTHING, mark the task `BLOCKED` in the state doc with the failure output, and say so. A red suite makes every later commit build on breakage.\n- The task cannot be understood from the epic → mark it `SKIPPED` with the reason and commit only that change, so the next dispatch moves past it instead of retrying it forever.\n\nNever work two tasks in one dispatch. Never skip step 3 or step 5.',
       }, [s1]);
 
-    // Step 3: Notify
-    step(wfId, s3, 'Notify',
-      'System notification: the epic run finished.',
-      300, 540, 'connector',
-      { connectorType: 'system-notify', title: 'Epic: Task by Task \u2014 Done', message: '{{workflowName}} finished. Check NeonCore for the session report.' },
-      [s2]);
+    // Step 3: the sweep. The loop guarantees N dispatches; only this says what got DONE.
+    step(wfId, s3, 'Verify Coverage',
+      'Reports what the run actually covered: every task classified done/skipped/blocked/outstanding, the full suite re-run, and one commit confirmed per completed task. Implements nothing.',
+      300, 540, 'claude-code',
+      {
+        ...cc('researcher'), includeDepOutput: true,
+        prompt: 'Every dispatch of the work loop has finished. Confirm what was actually covered — the loop guarantees a number of ATTEMPTS, not a number of completions, and a task blocked in the middle of a long run is otherwise only discoverable by reading every step output.\n\n**Do not implement anything here. This step reports.**\n\n1. Re-read the state doc identified in step 1. Classify EVERY task in it: done, skipped, blocked, or still outstanding.\n2. Run the full test suite once, with the command from step 1. It must be green — if the last task committed on a red suite, that is the most important thing on this page.\n3. Run `git log --oneline` for the run and confirm there is one commit per completed task. A completed task with no commit means work exists only in the working tree.\n\n**OUTPUT — exactly this shape:**\n```\nCOVERAGE: [done]/[total] done · [skipped] skipped · [blocked] blocked · [outstanding] outstanding\nSUITE: [pass/fail] — [the command you ran]\nCOMMITS: [n] commits for [done] completed tasks\n\nOUTSTANDING (if any) — one line each, with why:\n- [task-id] [title] — [blocked by X / never attempted / skipped: reason]\n```\n\nIf everything is done and the suite is green, say so in one line and stop. If anything is outstanding, name it — an epic that is 9 of 12 done is a useful result, and an epic that CLAIMS to be 12 of 12 while three tasks were silently skipped is not.',
+      }, [s2]);
+
+    // Step 4: Notify
+    step(wfId, s4, 'Notify',
+      'System notification: the epic run finished, carrying the coverage report.',
+      300, 770, 'connector',
+      { connectorType: 'system-notify', title: 'Epic: Task by Task \u2014 Done', message: '{{workflowName}} finished.\n{{result}}' },
+      [s3]);
   }
 
   // ── 10. Product Strategy Session ─────────────────────────────────────────
