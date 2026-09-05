@@ -1079,7 +1079,7 @@ if (orphanNotes.length > 0) {
  * The standard templates, by name. Exported so the id-stability test iterates the real
  * registry rather than a copy that can drift from it.
  */
-export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
 
 /**
  * Re-seed the standard templates, PRESERVING each one's id.
@@ -1492,6 +1492,75 @@ export function seedDefaultTemplates() {
       300, 770, 'connector',
       { connectorType: 'system-notify', title: 'Epic: Task by Task \u2014 Done', message: '{{workflowName}} finished.\n{{result}}' },
       [s3]);
+  }
+
+  // ── 9b. Epic: Two Repos ──────────────────────────────────────────────────
+  //
+  // REQUESTED: "in workflows (like in confer) to involve more than one repo/cartridge
+  // (example use the epic jira task template with two repos working together owning their
+  // own piece)".
+  //
+  // The ENGINE already did all of this — per-step cartridges (agentOverrides), parallel
+  // dispatch (readySteps), join steps, and a per-branch loop count read from one shared
+  // upstream step. What was missing was a template that used them together: `Epic: Task by
+  // Task` is a line, and assigning its steps to different cartridges only moves where the
+  // single thread runs.
+  //
+  // The shape is a diamond. Scope once, fan out to two cartridges that each loop over THEIR
+  // OWN tasks, then join on a step that refuses to call the epic done unless both sides are.
+  //
+  // WHY SCOPING IS SHARED AND WORK IS NOT. One epic means one list, or the two sides disagree
+  // about what "done" is. But the WORK is partitioned by repo and each side is told, in its
+  // own prompt, that it owns only its half — two agents editing the same task is the failure
+  // this shape exists to prevent, and it is not preventable after the fact.
+  {
+    const wfId = stableId('Epic: Two Repos');
+    const s1 = randomUUID(), sA = randomUUID(), sB = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'Epic: Two Repos',
+      'One epic, two repos, working at the same time. Scope and partition once \u2192 each cartridge works only its own repo\u0027s tasks, committing as it goes \u2192 a join step that fails if either side is short. Assign a cartridge per side at launch ("assign per step").', now);
+
+    // Step 1: scope BOTH repos and partition the epic. Runs on either cartridge — it reads.
+    step(wfId, s1, 'Scope & Partition',
+      'Reads the epic once, decides which repo owns each task, and reports a per-repo count. The only step that sees the whole epic.',
+      300, 80, 'claude-code',
+      {
+        ...cc('researcher'), workflowContext: true,
+        prompt: 'An epic is specified above, spanning TWO repositories. It is either a PATH to a markdown file or a tracker key.\n\n**Goal: one list, split in two.** Both cartridges below read THIS output and nothing else, so a task you fail to assign is a task nobody does, and a task you assign twice is two agents editing one thing.\n\n1. Resolve the epic (a local doc first \u2014 `.claude/scoping/EPIC-*.md`, `docs/plans/*.md` \u2014 then a tracker CLI only if one is configured).\n2. Identify the TWO repositories involved and which is A and which is B. State the project root and the exact test command for EACH \u2014 they are different repos and will not share a test runner.\n3. Assign EVERY task to exactly one repo, by where its code must change. A task needing both is assigned to the repo that owns the INTERFACE, and its dependency on the other side is named.\n4. Find where per-task state is recorded. There is ONE state doc for the whole epic; both sides write to it, so say where it is.\n5. Name the tasks in B that cannot start until a task in A lands, if any. Do not invent ordering that is not there \u2014 the whole point is that both sides run at once.\n\n**OUTPUT \u2014 these lines and nothing else:**\n```\nEPIC: [path or key]\nSTATE: [path to the shared state doc]\nREPO_A: [name]\nROOT_A: [project root]\nTESTS_A: [exact test command]\nTASKS_A: [count of A tasks not yet done]\nREPO_B: [name]\nROOT_B: [project root]\nTESTS_B: [exact test command]\nTASKS_B: [count of B tasks not yet done]\nBLOCKED_BY_A: [task ids in B that wait on A, or \u0022none\u0022]\n```',
+      }, []);
+
+    // Steps A and B: the fan-out. Same shape, opposite halves, one dispatch per task.
+    // Each reads its OWN count from step 1 — `loopCountFrom` names the step and the pattern,
+    // so one upstream output drives two independent loops.
+    const side = (letter: 'A' | 'B') => ({
+      ...cc('backend'), includeDepOutput: true,
+      loopCount: 1,
+      loopCountFrom: { step: 'Scope & Partition', pattern: `TASKS_${letter}:\\s*(\\d+)` },
+      loopUntil: `ALL ${letter} TASKS COMPLETE`,
+      prompt: `Step 1 partitioned one epic across two repositories. **YOU OWN REPO ${letter} ONLY.**\n\n**YOU HANDLE EXACTLY ONE TASK IN THIS DISPATCH.** The engine re-runs this step once per task assigned to ${letter} \u2014 the count came from step 1, so coverage is guaranteed by the engine, not by you continuing. Another cartridge is working the OTHER repo at the same time, right now. Do not ask the user anything; nobody is watching.\n\n**THE BOUNDARY, which matters more than speed:**\n- Work ONLY in ROOT_${letter}. Never edit files in the other repo, even to fix something obviously broken there \u2014 that agent is editing them as you read this, and you will collide.\n- If your task needs a change on the other side, do NOT make it. Write what you need in the state doc under the other repo\u0027s task, finish your side against the interface as specified, and say so.\n- The state doc is SHARED. Append to your own task\u0027s line; never rewrite the whole file or reorder it \u2014 that is how the other side\u0027s progress disappears.\n\n### 1 \u2014 PICK\n- Read the state doc. Take the FIRST task assigned to REPO_${letter} that is not done or skipped.\n- If BLOCKED_BY_A named this task and the task it waits on is not yet done, take the next one instead and say which you skipped and why.\n- If none remain, output exactly \u0060ALL ${letter} TASKS COMPLETE\u0060 with a one-line tally and STOP. That sentinel ends YOUR loop only \u2014 the other side keeps running.\n\n### 2 \u2014 UNDERSTAND\nRead the task in full. Use Read/Grep/Glob in ROOT_${letter}: what exists, what is missing, which patterns to follow.\n\n### 3 \u2014 TESTS FIRST\nWrite tests from the REQUIREMENTS. Happy path, two edge cases, one error state per requirement. Run them and CONFIRM THEY FAIL.\n\n### 4 \u2014 IMPLEMENT\nThe minimum code that satisfies the requirements. Do not edit tests to make them pass.\n\n### 5 \u2014 VERIFY\nRun the new tests, then the FULL suite with TESTS_${letter}. It must be green.\n\n### 6 \u2014 RECORD AND COMMIT\n- Mark the task done in the shared state doc with a one-line note naming REPO_${letter}.\n- Commit in ROOT_${letter} only: \u0060[task-id] [title] \u2014 implement per epic\u0060\n- Re-read the state doc and COUNT what is still outstanding for ${letter}. Do not decrement step 1\u0027s number \u2014 that is the one that can be stale.\n- Output \u0060DONE [task-id] \u00b7 commit [hash] \u00b7 [k] remaining\u0060. The engine reads that count and extends the run if ${letter}\u0027s work outlived its budget, so report it on EVERY exit path below.\n\n**IF THIS TASK CANNOT BE FINISHED:**\n- Suite red after 3 attempts \u2192 commit NOTHING, mark it \u0060BLOCKED\u0060 with the failure output, output \u0060BLOCKED [task-id] \u00b7 [k] remaining\u0060.\n- Needs the other repo first \u2192 mark it \u0060WAITING ON ${letter === 'A' ? 'B' : 'A'}\u0060 with what you need, and output \u0060WAITING [task-id] \u00b7 [k] remaining\u0060.\n- Cannot be understood \u2192 \u0060SKIPPED\u0060 with the reason, commit only that, output \u0060SKIPPED [task-id] \u00b7 [k] remaining\u0060.`,
+    });
+
+    step(wfId, sA, 'Work Repo A',
+      'Handles ONE task per dispatch in repo A. Runs at the same time as repo B, and touches only its own repo.',
+      140, 310, 'claude-code', side('A'), [s1]);
+
+    step(wfId, sB, 'Work Repo B',
+      'Handles ONE task per dispatch in repo B. Runs at the same time as repo A, and touches only its own repo.',
+      460, 310, 'claude-code', side('B'), [s1]);
+
+    // Step 4: the JOIN. Depends on BOTH, so the executor cannot reach it until both sides end.
+    step(wfId, s4, 'Verify Both Repos',
+      'Waits for BOTH sides, classifies every task in the shared doc, re-runs both suites, and reports per repo. A run where one side finished and the other stalled is the failure this catches.',
+      300, 540, 'claude-code',
+      {
+        ...cc('researcher'), includeDepOutput: true,
+        prompt: 'Both repos have finished their dispatches. **This step exists because a two-sided run fails asymmetrically:** one cartridge completes cleanly, the other stalls on task two, and every surface reports a finished workflow. The loop guarantees ATTEMPTS, not completions, and it guarantees them per side.\n\n**Do not implement anything. This step reports.**\n\n1. Re-read the shared state doc. Classify EVERY task: done, skipped, blocked, waiting-on-the-other-repo, or never attempted \u2014 and which repo owned it.\n2. Run the FULL suite in BOTH repos, with TESTS_A and TESTS_B. Both must be green. If one side committed on a red suite, that is the most important thing on this page.\n3. `git log --oneline` in BOTH roots: one commit per completed task, in the right repo. A commit for an A task inside repo B means the boundary was crossed.\n4. Name any task marked WAITING that the other side never delivered \u2014 that is work neither cartridge owns, and it is invisible from either side alone.\n\n**OUTPUT \u2014 exactly this shape:**\n```\nREPO_A: [done]/[total] done \u00b7 [skipped] skipped \u00b7 [blocked] blocked \u00b7 [outstanding] outstanding\nREPO_B: [done]/[total] done \u00b7 [skipped] skipped \u00b7 [blocked] blocked \u00b7 [outstanding] outstanding\nSUITE_A: [pass/fail] \u2014 [command]\nSUITE_B: [pass/fail] \u2014 [command]\nCOMMITS: [n] in A for [k] tasks \u00b7 [m] in B for [j] tasks\nCROSS-REPO EDITS: [none / the commits that touched the wrong repo]\n\nOUTSTANDING (if any) \u2014 one line each, with the owning repo and why:\n- [repo] [task-id] [title] \u2014 [blocked by X / waiting on other side / never attempted]\n```\n\nIf both sides are complete and both suites are green, say so in one line. If either is short, name it \u2014 an epic that is A-complete and B-half-done is a useful result, and one that CLAIMS to be done is not.',
+      }, [sA, sB]);
+
+    step(wfId, s5, 'Notify',
+      'System notification: the two-repo epic run finished, carrying the per-repo coverage report.',
+      300, 770, 'connector',
+      { connectorType: 'system-notify', title: 'Epic: Two Repos \u2014 Done', message: '{{workflowName}} finished.\n{{result}}' },
+      [s4]);
   }
 
   // ── 10. Product Strategy Session ─────────────────────────────────────────
