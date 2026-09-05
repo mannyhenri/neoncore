@@ -169,17 +169,21 @@ function sendOne(
  * Send one notification to every registered device. Prunes tokens Apple reports as dead so
  * the table doesn't accumulate garbage. Never throws — a push failure must not affect
  * workflow execution.
+ *
+ * Returns what actually happened rather than void: lib/channels/apns.ts wraps this as a
+ * Channel, and a Channel that reports `ok` without knowing whether anything was delivered is
+ * the "pretending" the channel contract exists to forbid.
  */
 export async function sendPushToAll(
   title: string,
   body: string,
   data?: Record<string, unknown>,
-): Promise<void> {
+): Promise<{ sent: number; pruned: number }> {
   const cfg = readConfig();
-  if (!cfg) return; // push not configured — silently inert, same as having no devices
+  if (!cfg) return { sent: 0, pruned: 0 }; // not configured — inert, same as having no devices
 
   const tokens = allTokens().filter(isApnsDeviceToken);
-  if (tokens.length === 0) return;
+  if (tokens.length === 0) return { sent: 0, pruned: 0 };
 
   // aps carries the user-visible alert; custom keys ride alongside it and arrive in the
   // notification's userInfo, which is what the app's tap-routing reads.
@@ -209,29 +213,11 @@ export async function sendPushToAll(
       }
     }
     console.log(`[apns] Sent "${title}" to ${sent} device(s)${pruned ? `, pruned ${pruned}` : ''}`);
+    return { sent, pruned };
   } catch (err) {
     console.warn(`[apns] Failed: ${err instanceof Error ? err.message : String(err)}`);
+    return { sent: 0, pruned: 0 };
   } finally {
     session?.close();
   }
-}
-
-/**
- * Push that a workflow run reached a terminal state. Called from the executor's completion
- * path. `finalStatus` is 'completed' | 'failed'.
- */
-export async function notifyWorkflowFinished(workflowId: string, finalStatus: string): Promise<void> {
-  const row = db.prepare('SELECT name, run_number FROM workflows WHERE id = ?')
-    .get(workflowId) as { name: string; run_number: number } | undefined;
-  if (!row) return;
-
-  const label = `${row.name}${row.run_number ? ` #${row.run_number}` : ''}`;
-  const title = finalStatus === 'failed' ? 'Workflow failed' : 'Workflow complete';
-  const body = finalStatus === 'failed' ? `${label} failed.` : `${label} finished.`;
-
-  await sendPushToAll(title, body, {
-    type: 'workflow_finished',
-    workflowId,
-    status: finalStatus,
-  });
 }

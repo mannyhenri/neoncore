@@ -278,6 +278,30 @@ process.on('unhandledRejection', (reason) => {
   console.error('[fatal] Unhandled promise rejection — server staying up:', reason);
 });
 
+// ── Channels ────────────────────────────────────────────────────────────────
+//
+// Registered BEFORE any service that can raise a notice. startStuckDetector() below can fire
+// within its first tick, and a notice raised before its channels exist fans out to nobody —
+// which looks exactly like a channel that is misconfigured, and is the harder bug of the two.
+//
+// Registering an unconfigured channel is correct and deliberate: `isConfigured()` is checked
+// per send, so setting DISCORD_BOT_TOKEN and restarting is all it takes to light one up.
+registerChannel(apnsChannel);
+registerChannel(discordChannel);
+
+// Commands are registered BEFORE any driver starts, so a message arriving in the first second
+// of uptime dispatches instead of being answered "unknown command".
+registerRemoteCommands();
+
+// Inbound drivers. `start()` is a no-op when the driver is not configured, so this is safe on a
+// machine that has never heard of Discord — which is every machine until someone sets a token.
+for (const source of [discordSource]) {
+  source.start().catch((err) => {
+    console.warn(`[commands] ${source.name} failed to start: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
+console.log(`[channels] registered: ${listChannels().map((c) => `${c.name}${c.isConfigured() ? '' : ' (not configured)'}`).join(', ')}`);
+
 // Start stuck detector and memory analyzer
 startStuckDetector();
 startMemoryAnalyzer();
@@ -305,6 +329,11 @@ try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] sta
 
 // Get local IP for display
 import os from 'os';
+import { registerChannel, listChannels } from './lib/channels.js';
+import { apnsChannel } from './lib/channels/apns.js';
+import { discordChannel } from './lib/channels/discord.js';
+import { registerRemoteCommands } from './lib/remote-commands.js';
+import { discordSource } from './lib/discord-bot.js';
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces();
   for (const devName of Object.keys(interfaces)) {
