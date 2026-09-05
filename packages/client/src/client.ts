@@ -23,7 +23,20 @@ export interface ClientConfig {
   token?: string | null;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
+  /**
+   * How long to wait for a server before giving up. Default 15s.
+   *
+   * NOT optional in practice. A machine that is asleep does not REFUSE a connection — it
+   * accepts nothing and says nothing, so a fetch against it never settles. Every fan-out in
+   * this codebase is an `allSettled`, which settles only when every member does, so a single
+   * sleeping laptop hangs the whole read. That is what left the dashboard on "Connecting to
+   * orchestrator..." while nine local cartridges were answering in a millisecond.
+   */
+  timeoutMs?: number;
 }
+
+/** Long enough for a slow LAN, short enough that a person does not conclude it is broken. */
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 export type NeonCoreClient = ReturnType<typeof createClient>;
 
@@ -31,6 +44,20 @@ export function createClient(config: ClientConfig = {}) {
   const origin = (config.baseUrl ?? '').replace(/\/+$/, '');
   const BASE_URL = `${origin}/api`;
   const doFetch = config.fetchImpl ?? fetch;
+  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  /**
+   * A signal that aborts on its own after `timeoutMs`.
+   *
+   * A caller's own signal wins — it is a deliberate cancellation and must not be weakened by
+   * being merged with a deadline. `AbortSignal.timeout` is absent on older runtimes; there the
+   * client behaves exactly as it did before rather than failing to construct.
+   */
+  function deadline(): AbortSignal | undefined {
+    return typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+  }
 
   async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const headers: Record<string, string> = {};
@@ -47,6 +74,7 @@ export function createClient(config: ClientConfig = {}) {
     try {
       res = await doFetch(`${BASE_URL}${path}`, {
         ...options,
+        signal: options?.signal ?? deadline(),
         headers: { ...headers, ...(options?.headers as Record<string, string>) },
       });
     } catch (err) {
