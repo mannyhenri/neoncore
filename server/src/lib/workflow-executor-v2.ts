@@ -16,7 +16,10 @@ import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
 import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
-import { resolveLoopCount, shouldStopLooping, type LoopConfig } from './workflow-loop.js';
+import {
+  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom,
+  MAX_LOOP_EXTENSIONS, type LoopConfig,
+} from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
 // Re-exported for the modules that already import it from here. The DEFINITION lives in
 // lib/workflow-normalize.ts — a serializer is not the executor's to own, and it having been
@@ -1428,16 +1431,34 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
   if (typeof cfg._resolvedLoopCount === 'number') {
     loopCount = cfg._resolvedLoopCount;
   } else {
-    loopCount = resolveLoopCount(cfg, dependencyResultsByName(step));
-    if (loopCount !== ((cfg.loopCount as number) || 1)) {
-      emitStepLog(workflowId, step.id, step.name, `Loop count resolved from upstream: ${loopCount}`, 'info');
-    }
+    // The BASIS is logged every time, not only when the number is surprising. Logging only a
+    // difference hid the worst case: a regex miss on a twelve-task epic falls back to the static
+    // 1, matches it, and says nothing — indistinguishable from a deliberate single dispatch.
+    const resolved = explainLoopCount(cfg, dependencyResultsByName(step));
+    loopCount = resolved.count;
+    emitStepLog(workflowId, step.id, step.name, resolved.note,
+      resolved.basis === 'fallback' || resolved.basis === 'clamped' ? 'warn' : 'info');
     db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
       .run(JSON.stringify({ ...cfg, _resolvedLoopCount: loopCount }), step.id);
     step.executorConfig = { ...cfg, _resolvedLoopCount: loopCount };
   }
 
   const currentLoop = (step.executorConfig._currentLoop as number) || 1;
+  const extensions = (step.executorConfig._loopExtensions as number) || 0;
+
+  // The budget was spent and the last dispatch said work is still outstanding. See
+  // lib/workflow-loop.ts: an epic that GREW after it was counted (its own first step found an
+  // eleventh task) spent ten dispatches on eleven tasks and dropped the last one, reporting a
+  // clean finish. The count stays frozen; the budget may be extended one dispatch at a time,
+  // bounded, and only on a positive statement that work remains.
+  if (shouldExtendLoop({ result, config: cfg, currentLoop, loopCount, extensions })) {
+    loopCount += 1;
+    const nextExtensions = extensions + 1;
+    step.executorConfig = { ...step.executorConfig, _resolvedLoopCount: loopCount, _loopExtensions: nextExtensions };
+    emitStepLog(workflowId, step.id, step.name,
+      `Budget spent at ${currentLoop} but "${step.name}" reports ${remainingFrom(result)} task(s) remaining — `
+      + `extending to ${loopCount} (extension ${nextExtensions}/${MAX_LOOP_EXTENSIONS})`, 'warn');
+  }
 
   // Stop early when the work ran out. A guaranteed count guarantees coverage, not that there is
   // that much work — dispatching an agent to do nothing is worse than stopping short.
