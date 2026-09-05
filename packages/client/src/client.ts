@@ -617,6 +617,18 @@ export function createClient(config: ClientConfig = {}) {
       byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
     }>(`/activity/usage-series?days=${days}&bucket=${bucket}`),
 
+  // Workflow V2 — Autonomy (N4). A raise carries its own expiry; see the route.
+  getWorkflowAutonomy: (workflowId: string) =>
+    request<{
+      level: 'manual' | 'advance' | 'full'; source: string; expiresAt: string | null;
+      resolutions: { stepId: string; reason: string; chose: string; autonomy: string }[];
+    }>(`/workflows/v2/${workflowId}/autonomy`),
+  setWorkflowAutonomy: (workflowId: string, level: string, durationMs?: number) =>
+    request<{ ok: boolean; level: string; source: string; expiresAt: string | null }>(
+      `/workflows/v2/${workflowId}/autonomy`,
+      { method: 'PUT', body: JSON.stringify({ level, durationMs }) },
+    ),
+
   // Workflow V2 — Mid-task steering
   steerWorkflowStep: (workflowId: string, stepId: string, message: string) =>
     request<{ ok: boolean; commandId: string }>(`/workflows/v2/${workflowId}/steps/${stepId}/steer`, {

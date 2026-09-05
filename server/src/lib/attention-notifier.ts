@@ -24,11 +24,16 @@
 import db from '../db.js';
 import { notifyAll, type Notice } from './channels.js';
 import { workflowNeedsAttention, ATTENTION_REASONS, type Attention, type AttentionReason } from './workflow-attention.js';
-import { decisionOptions, decideStep, advanceStep, workflowIdOfStep } from './workflow-resolve.js';
+import {
+  decisionOptions, decideStep, advanceStep, workflowIdOfStep,
+  unadvanceStep, undecideStep, executorConfigOf,
+} from './workflow-resolve.js';
 import { recoverStep } from './recovery.js';
 import { registerAction } from './commands-registry.js';
 import {
-  effectiveAutonomy, canAutoResolve, recordAutoResolution, type AutonomyLevel,
+  effectiveAutonomy, canAutoResolve, recordAutoResolution, recommendationOf,
+  getAutoResolution, isOverridable, markOverridden, OVERRIDE_WINDOW_MS,
+  type AutonomyLevel,
 } from './autonomy.js';
 
 /**
@@ -40,6 +45,8 @@ export const ACTION_PREFIX = {
   decide: 'wfdecide',
   advance: 'wfadvance',
   recover: 'wfrecover',
+  /** Reverse an auto-resolution. Payload is the audit row's id, not the step's. */
+  undo: 'wfundo',
 } as const;
 
 /** Discord's hard cap. Asserted in the test rather than discovered in production. */
@@ -200,6 +207,8 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
   // to AUTO_RESOLVABLE without an implementation here fails to compile rather than silently
   // doing nothing while the audit claims otherwise.
   let chose: string;
+  let what: string;
+
   switch (attention.reason) {
     case 'manual-advance': {
       const r = advanceStep(attention.stepId);
@@ -208,27 +217,57 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
         return null;   // fall through to asking a person, which is the safe direction
       }
       chose = 'advance';
+      what = `"${attention.stepName}" finished and was released without you.`;
       break;
     }
+
+    case 'decision': {
+      // THE CONFIGURED DEFAULT, or nothing. A gate with no recommendation — or one naming an
+      // option that no longer exists — HOLDS AND NOTIFIES. Inventing a branch is the one thing
+      // a level must never do; it is the difference between taking your default and guessing.
+      const rec = recommendationOf(executorConfigOf(attention.stepId));
+      if (!rec) return null;
+
+      const r = decideStep(attention.stepId, rec);
+      if (!r.ok) {
+        console.warn(`[autonomy] ${wf.id}: decide failed: ${r.error}`);
+        return null;
+      }
+      const label = decisionOptions(attention.stepId).find((o) => o.id === rec)?.label || rec;
+      chose = label;
+      what = `Took the recommended option at "${attention.stepName}": ${label}.`;
+      break;
+    }
+
+    case 'agent-waiting':
+      // Granted by `full`, and it holds every time: nothing in the schema carries a default
+      // answer to a question a cartridge asked you. Answering it by guessing would be worse
+      // than waiting, so this falls through to a normal attention notice.
+      return null;
+
     default:
       return null;
   }
 
-  recordAutoResolution({
+  const resolutionId = recordAutoResolution({
     workflowId: wf.id, stepId: attention.stepId,
     reason: attention.reason, chose, autonomy: level,
   });
 
   return {
-    title: `${runLabel(wf)} — advanced automatically`,
-    body: `"${attention.stepName}" finished and was released without you.`,
+    title: `${runLabel(wf)} — resolved automatically`,
+    body: what,
     detail: {
       Run: runLabel(wf),
       Step: attention.stepName,
+      Chose: chose,
       Autonomy: `${level} (${source}${expiresAt ? `, until ${expiresAt}` : ''})`,
-      Recorded: 'workflow_auto_resolutions',
+      Override: `available for ${Math.round(OVERRIDE_WINDOW_MS / 60_000)} minutes`,
     },
-    actions: [],
+    // THE SOFT GATE. Work continued immediately; this is the window in which you can take it
+    // back. An auto-resolution with no way to reverse it is automation you watch rather than
+    // automation you trust — and the `overridden` audit column would have no writer.
+    actions: [{ id: `${ACTION_PREFIX.undo}:${resolutionId}`, label: 'Override', style: 'danger' }],
     data: {
       type: 'workflow_auto_resolved',
       reason: attention.reason,
@@ -236,6 +275,7 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
       stepId: attention.stepId,
       autonomy: level as AutonomyLevel,
       chose,
+      resolutionId,
     },
   };
 }
@@ -275,6 +315,31 @@ export function registerAttentionActions(): void {
     if (!stepId) return reply('Malformed advance action.');
     const r = advanceStep(stepId);
     await reply(r.ok ? 'Advanced.' : `Could not advance: ${r.error}`);
+  });
+
+  registerAction(ACTION_PREFIX.undo, async ({ payload, reply }) => {
+    const id = payload.split(':')[0];
+    const row = id ? getAutoResolution(id) : null;
+    if (!row) return reply('That auto-resolution is not on record.');
+
+    if (row.overridden) return reply('Already overridden.');
+    if (!isOverridable(row)) {
+      const mins = Math.round(OVERRIDE_WINDOW_MS / 60_000);
+      return reply(
+        `The ${mins}-minute override window has closed. The run has built on this since — ` +
+        'reverse it from the dashboard, with the rest of the run in front of you.',
+      );
+    }
+
+    const r = row.reason === 'decision' ? undecideStep(row.stepId) : unadvanceStep(row.stepId);
+    if (!r.ok) return reply(`Could not override: ${r.error}`);
+
+    markOverridden(row.id);
+    await reply(
+      row.reason === 'decision'
+        ? `Overridden. The gate is open again — choose with \`!cartridges\` or the dashboard.`
+        : 'Overridden. The step is held again.',
+    );
   });
 
   registerAction(ACTION_PREFIX.recover, async ({ payload, reply }) => {

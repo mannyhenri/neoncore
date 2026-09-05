@@ -89,3 +89,30 @@ export function advanceStep(stepId: string): ResolveResult {
 export function workflowIdOfStep(stepId: string): string | null {
   return stepById(stepId)?.workflow_id ?? null;
 }
+
+/**
+ * Undo an auto-advance: hold the step again.
+ *
+ * Reversal is per-step and deliberately narrow. It puts the gate BACK; it does not attempt to
+ * unwind anything a dependent step started in the seconds since. That is why the override
+ * window is minutes rather than hours — past it, this is no longer an undo, it is a repair.
+ */
+export function unadvanceStep(stepId: string): ResolveResult {
+  if (!stepById(stepId)) return { ok: false, error: 'Step not found' };
+  db.prepare('UPDATE workflow_steps SET auto_advance = 0 WHERE id = ?').run(stepId);
+  return { ok: true, step: emit(stepId) };
+}
+
+/** Undo an auto-decision: reopen the gate so a person chooses. */
+export function undecideStep(stepId: string): ResolveResult {
+  if (!stepById(stepId)) return { ok: false, error: 'Step not found' };
+  db.prepare(
+    "UPDATE workflow_steps SET status = 'running', result = '', completed_at = NULL WHERE id = ?",
+  ).run(stepId);
+  return { ok: true, step: emit(stepId) };
+}
+
+/** A step's raw executor_config, for reading a decision gate's recommendation. */
+export function executorConfigOf(stepId: string): string {
+  return stepById(stepId)?.executor_config ?? '';
+}

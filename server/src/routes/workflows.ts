@@ -16,6 +16,9 @@ import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
+import {
+  isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
+} from '../lib/autonomy.js';
 
 const router = Router();
 
@@ -1237,6 +1240,36 @@ router.post('/webhook/:stepId/panel/:agentId/complete', (req, res) => {
 // Resume an interrupted step (human-gated recovery). Rebuilds context from the
 // stored transcript and re-dispatches it to the step's agent. Idempotent via a
 // CAS on recovery_status inside recoverStep.
+/**
+ * Set a run's autonomy — the dashboard's half of N4.
+ *
+ * A raise REQUIRES a duration. "I'm willing to take the risk" is nearly always bounded risk,
+ * and a mode you forget to flip back is not bounded. Lowering to 'manual' needs no window.
+ */
+router.put('/v2/:id/autonomy', (req, res) => {
+  const { level, durationMs } = req.body || {};
+  if (!isAutonomyLevel(level) || !SETTABLE_LEVELS.includes(level)) {
+    return res.status(400).json({ error: `level must be one of: ${SETTABLE_LEVELS.join(', ')}` });
+  }
+  const row = db.prepare('SELECT id FROM workflows WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Workflow not found' });
+
+  const ms = Number(durationMs);
+  if (level !== 'manual' && (!Number.isFinite(ms) || ms <= 0)) {
+    return res.status(400).json({ error: 'Raising autonomy requires a positive durationMs' });
+  }
+
+  setWorkflowAutonomy(req.params.id, level, level === 'manual' ? null : Date.now() + ms);
+  res.json({ ok: true, ...effectiveAutonomy(req.params.id) });
+});
+
+/** What is in force, where it came from, and what it has already decided. */
+router.get('/v2/:id/autonomy', (req, res) => {
+  const row = db.prepare('SELECT id FROM workflows WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Workflow not found' });
+  res.json({ ...effectiveAutonomy(req.params.id), resolutions: listAutoResolutions(req.params.id, 10) });
+});
+
 router.post('/steps/:stepId/recover', (req, res) => {
   const result = recoverStep(req.params.stepId);
   if (!result.ok) return res.status(400).json(result);

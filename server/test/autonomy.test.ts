@@ -8,7 +8,8 @@ import { ATTENTION_REASONS } from '../src/lib/workflow-attention.ts';
 import {
   AUTONOMY_LEVELS, AUTO_RESOLVABLE, NEVER_AUTO, SETTABLE_LEVELS,
   canAutoResolve, effectiveAutonomy, setWorkflowAutonomy, parseDuration,
-  listAutoResolutions, isAutonomyLevel, type AutonomyLevel,
+  listAutoResolutions, isAutonomyLevel, recommendationOf,
+  getAutoResolution, isOverridable, OVERRIDE_WINDOW_MS, type AutonomyLevel,
 } from '../src/lib/autonomy.ts';
 import { sweepAttention, __resetAttentionStateForTest } from '../src/lib/attention-notifier.ts';
 import { registerChannel, clearChannels, type Notice } from '../src/lib/channels.ts';
@@ -72,21 +73,23 @@ test('advance grants exactly reason 5 — releasing a finished step decides noth
 });
 
 /**
- * THE ORDERING CONSTRAINT, ENCODED.
+ * THE ORDERING CONSTRAINT, LIFTED ON THE RECORD.
  *
- * The plan's "Do not" is explicit: ship `advance` before `full`, live with it for a week. So
- * `full` exists in the schema and the audit but must grant nothing more than `advance` until
- * the hold-if-no-default rule and the override window are written. Asserting it here means the
- * day someone adds `decision` to `full` they must also come and change this test, which is the
- * moment to ask whether the machinery landed with it.
+ * This test previously asserted `full` granted nothing beyond `advance`, so that anyone growing
+ * it had to come here first and ask whether the machinery had landed. That is exactly what
+ * happened: `full` was asked for, and it ships WITH the two things that gate it — the
+ * hold-if-no-default rule and the override window. The assertion inverts rather than
+ * disappearing, because "full is a strict superset of advance" is the property that stays true.
  */
-test('full grants nothing beyond advance yet, and is not settable', () => {
+test('full is a strict superset of advance, and both are settable', () => {
+  for (const r of AUTO_RESOLVABLE.advance) {
+    assert.ok(AUTO_RESOLVABLE.full.includes(r), `full lost ${r}, which advance grants`);
+  }
   const extra = AUTO_RESOLVABLE.full.filter((r) => !AUTO_RESOLVABLE.advance.includes(r));
-  assert.deepEqual(extra, [],
-    `full grants ${extra.join(', ')} beyond advance — did the hold-if-no-default rule and ` +
-    'override window ship with it? See docs/plans/build-order.md N4.');
+  assert.deepEqual(extra.slice().sort(), ['agent-waiting', 'decision'],
+    'full must add decision gates and agent questions, and nothing else');
 
-  assert.ok(!SETTABLE_LEVELS.includes('full'), 'full must not be settable while it means nothing extra');
+  assert.deepEqual(SETTABLE_LEVELS.slice().sort(), ['advance', 'full', 'manual']);
   assert.ok(SETTABLE_LEVELS.every((l) => isAutonomyLevel(l)), 'a settable level must be a known level');
 });
 
@@ -204,7 +207,10 @@ test('at advance, a held step is released, announced, and RECORDED', async () =>
 
   assert.equal(seen.length, 1, 'an autonomous action was taken without telling anyone');
   assert.equal(seen[0].data?.type, 'workflow_auto_resolved');
-  assert.deepEqual(seen[0].actions, [], 'nothing left to press, so no buttons');
+  // This asserted "no buttons" until the override window shipped. That was the wrong call:
+  // an auto-resolution you cannot take back is automation you watch rather than trust.
+  assert.equal(seen[0].actions?.length, 1, 'an auto-resolution shipped with no way to reverse it');
+  assert.equal(seen[0].actions?.[0].label, 'Override');
 
   const audit = listAutoResolutions('wf1');
   assert.equal(audit.length, 1, 'no audit row — the plan calls the audit table not optional');
@@ -237,4 +243,138 @@ test('the audit records the level in force even after the grant lapses', async (
   setWorkflowAutonomy('wf1', 'manual', null);
   assert.equal(effectiveAutonomy('wf1').level, 'manual');
   assert.equal(listAutoResolutions('wf1')[0].autonomy, 'advance', 'the audit followed the current level');
+});
+
+// ── full: decision gates, and the hold rule ──────────────────────────────────
+
+/** A decision gate with a recommendation — the configured default `full` is allowed to take. */
+function seedDecisionGate(recommendation: string | null): void {
+  const now = new Date().toISOString();
+  const cfg = {
+    question: 'Ship it?',
+    ...(recommendation ? { recommendation } : {}),
+    options: [{ id: 'ship', label: 'Ship it' }, { id: 'hold', label: 'Hold' }],
+  };
+  db.prepare(`INSERT INTO workflow_steps
+      (id, workflow_id, name, status, executor_type, executor_id, executor_config, auto_advance, position_y, created_at)
+      VALUES ('d1','wf1','[P4] Review Decision','running','decision','',?,1,0,?)`)
+    .run(JSON.stringify(cfg), now);
+}
+
+/**
+ * THE SET: what a gate's config can look like, and whether it constitutes a default.
+ *
+ * "What full does at a decision gate with no configured default" was flagged as a tunable and
+ * set to HOLD. A stale recommendation — one naming an option that no longer exists — is the
+ * same case and the easy one to get wrong: it looks configured and is not.
+ */
+const GATE_CONFIGS: { label: string; config: string; want: string | null }[] = [
+  { label: 'a recommendation matching an option', config: '{"recommendation":"ship","options":[{"id":"ship"},{"id":"hold"}]}', want: 'ship' },
+  { label: 'no recommendation at all', config: '{"options":[{"id":"ship"}]}', want: null },
+  { label: 'an empty recommendation', config: '{"recommendation":"","options":[{"id":"ship"}]}', want: null },
+  { label: 'a STALE recommendation naming a removed option', config: '{"recommendation":"gone","options":[{"id":"ship"}]}', want: null },
+  { label: 'no options at all', config: '{"recommendation":"ship"}', want: null },
+  { label: 'unparseable config', config: 'not json', want: null },
+  { label: 'empty config', config: '', want: null },
+];
+
+test('a configured default is recognised, and anything less is not', () => {
+  const failures: string[] = [];
+  for (const c of GATE_CONFIGS) {
+    const got = recommendationOf(c.config);
+    if (got !== c.want) failures.push(`${c.label}: got ${JSON.stringify(got)}, want ${JSON.stringify(c.want)}`);
+  }
+  assert.deepEqual(failures, [], `\n  ${failures.join('\n  ')}\n`);
+});
+
+test('at full, a decision gate is taken by its recommendation and recorded', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'full', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedDecisionGate('ship');
+  const seen = collector();
+
+  await sweepAttention();
+
+  const step = db.prepare("SELECT status, result FROM workflow_steps WHERE id='d1'").get() as { status: string; result: string };
+  assert.equal(step.status, 'completed', 'the gate was not taken');
+  assert.match(step.result, /ship/);
+
+  const audit = listAutoResolutions('wf1');
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].reason, 'decision');
+  assert.equal(audit[0].chose, 'Ship it', 'the audit should record the LABEL a person would recognise');
+  assert.equal(seen[0].data?.type, 'workflow_auto_resolved');
+});
+
+test('at full, a gate with NO configured default holds and asks — it never invents a branch', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'full', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedDecisionGate(null);
+  const seen = collector();
+
+  await sweepAttention();
+
+  const step = db.prepare("SELECT status FROM workflow_steps WHERE id='d1'").get() as { status: string };
+  assert.equal(step.status, 'running', 'a gate with no default was decided anyway');
+  assert.equal(seen[0].data?.type, 'workflow_attention', 'it should ASK, not announce');
+  assert.deepEqual(listAutoResolutions('wf1'), []);
+});
+
+test('at advance, a decision gate is never touched', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'advance', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedDecisionGate('ship');
+  const seen = collector();
+
+  await sweepAttention();
+  const step = db.prepare("SELECT status FROM workflow_steps WHERE id='d1'").get() as { status: string };
+  assert.equal(step.status, 'running', 'advance decided something');
+  assert.equal(seen[0].data?.type, 'workflow_attention');
+});
+
+// ── the override window ──────────────────────────────────────────────────────
+
+test('every auto-resolution carries an Override button', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'advance', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedHeldStep();
+  const seen = collector();
+
+  await sweepAttention();
+  const actions = seen[0].actions ?? [];
+  assert.equal(actions.length, 1, 'an auto-resolution shipped with no way to take it back');
+  assert.match(actions[0].id, /^wfundo:/);
+  assert.equal(actions[0].label, 'Override');
+  assert.ok(seen[0].data?.resolutionId, 'the notice must carry the audit row id the button acts on');
+});
+
+test('an override inside the window reverses the action and marks the audit row', async () => {
+  __resetAttentionStateForTest();
+  seedRun({ autonomy: 'advance', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+  seedHeldStep();
+  collector();
+  await sweepAttention();
+
+  const id = listAutoResolutions('wf1').length ? getAutoResolution(
+    (db.prepare('SELECT id FROM workflow_auto_resolutions LIMIT 1').get() as { id: string }).id,
+  ) : null;
+  assert.ok(id, 'no audit row to override');
+  assert.equal(isOverridable(id!), true, 'a fresh resolution should be overridable');
+});
+
+test('the window CLOSES — an old resolution is not reversible from a notification', () => {
+  // Past the window the run has built on the decision, so reversing one step in isolation is a
+  // repair rather than an undo. The button must say so instead of half-working.
+  const stale = {
+    id: 'r1', workflowId: 'wf1', stepId: 's1', reason: 'manual-advance' as const,
+    chose: 'advance', autonomy: 'advance' as const, overridden: 0,
+    createdAt: new Date(Date.now() - OVERRIDE_WINDOW_MS - 1000).toISOString(),
+  };
+  assert.equal(isOverridable(stale), false, 'an expired resolution was still overridable');
+
+  const fresh = { ...stale, createdAt: new Date().toISOString() };
+  assert.equal(isOverridable(fresh), true);
+
+  const already = { ...fresh, overridden: 1 };
+  assert.equal(isOverridable(already), false, 'an already-reversed resolution was overridable twice');
 });
