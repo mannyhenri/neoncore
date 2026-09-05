@@ -292,6 +292,7 @@ registerChannel(discordChannel);
 // Commands are registered BEFORE any driver starts, so a message arriving in the first second
 // of uptime dispatches instead of being answered "unknown command".
 registerRemoteCommands();
+registerAttentionActions();
 
 // Inbound drivers. `start()` is a no-op when the driver is not configured, so this is safe on a
 // machine that has never heard of Discord — which is every machine until someone sets a token.
@@ -312,8 +313,14 @@ startConferConductor();
   startQueueRunner();
 startPeerScheduler();
 
+// N3: fan attention events out as notices. Started AFTER the channels are registered and the
+// drivers have begun — a sweep that runs before them would compute the right answer and have
+// nowhere to send it, and its dedupe key would then swallow the repeat.
+startAttentionNotifier();
+
 // Graceful shutdown — stop the schedulers that own intervals.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => stopAttentionNotifier());
   process.on(sig, () => {
     console.log(`[shutdown] ${sig} received — stopping schedulers`);
     stopHeartbeatScheduler();
@@ -334,6 +341,7 @@ import { apnsChannel } from './lib/channels/apns.js';
 import { discordChannel } from './lib/channels/discord.js';
 import { registerRemoteCommands } from './lib/remote-commands.js';
 import { discordSource } from './lib/discord-bot.js';
+import { registerAttentionActions, startAttentionNotifier, stopAttentionNotifier } from './lib/attention-notifier.js';
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces();
   for (const devName of Object.keys(interfaces)) {

@@ -183,7 +183,14 @@ function parseExecutorConfig(raw: string | null | undefined, stepId: string): Re
   }
 }
 
-function normalizeStep(row: Record<string, unknown>): WorkflowStep {
+/**
+ * Exported for lib/workflow-resolve.ts. NOT unified with the copy in routes/workflows.ts:271 —
+ * they differ, and this is the correct one. That copy parses executor_config with a bare
+ * JSON.parse, while this uses parseExecutorConfig so a routing substitution recorded during
+ * execution survives serialisation. Merging them is a real change with a known trap, not a
+ * tidy-up, so it is left alone here and reported separately.
+ */
+export function normalizeStep(row: Record<string, unknown>): WorkflowStep {
   return {
     id: row.id as string,
     workflowId: row.workflow_id as string,
