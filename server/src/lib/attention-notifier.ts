@@ -36,10 +36,11 @@ import { sendCommandToAgent } from './send-command.js';
 import { applyDecision } from '../routes/permissions.js';
 import { answerPayloadFor, parseQuestions } from './permission-notice.js';
 import { registerAction } from './commands-registry.js';
+import { parseExecutorConfig } from './workflow-normalize.js';
 import {
   effectiveAutonomy, canAutoResolve, recordAutoResolution, recommendationOf,
   getAutoResolution, isOverridable, markOverridden, OVERRIDE_WINDOW_MS,
-  type AutonomyLevel,
+  nudgeAllowed, NUDGE_POLICY, type AutonomyLevel,
 } from './autonomy.js';
 
 /**
@@ -57,6 +58,18 @@ export const ACTION_PREFIX = {
 
 /** Discord's hard cap. Asserted in the test rather than discovered in production. */
 export const MAX_ACTION_ID = 100;
+
+/**
+ * The ONLY non-question permissions `full` autonomy may settle for you.
+ *
+ * An allow-list rather than a deny-list on purpose: a tool added to the product later is
+ * refused by default and waits for a person, instead of being approved by an else-branch
+ * nobody re-reads. Everything absent from this set is trust mode's business, per cartridge.
+ *
+ * ExitPlanMode is here because reviewing a plan IS the decision autonomy exists to make, and
+ * the plan itself is in the notice you were sent — you can see what was approved.
+ */
+export const AUTO_APPROVABLE_TOOLS: ReadonlySet<string> = new Set(['ExitPlanMode']);
 
 export interface WorkflowRow { id: string; name: string; run_number: number }
 
@@ -274,9 +287,22 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
           });
           chose = 'proceed on best judgement';
         }
-      } else {
+      } else if (AUTO_APPROVABLE_TOOLS.has(perm.tool_name)) {
         applyDecision(perm.id, 'allowed');
         chose = `approved ${perm.tool_name}`;
+      } else {
+        // NOT approvable by autonomy. Hold and tell a person.
+        //
+        // This was an unconditional else, which meant `full` approved ANY tool a cartridge asked
+        // for — including Bash. A cartridge not in trust mode inserts a pending permission for a
+        // shell command and goes `waiting`; that branch then authorised it with nobody looking.
+        // 603 Bash requests passed through this server in a day, so the shape was not theoretical.
+        //
+        // The codebase already draws this line: TRUST MODE is the feature for granting tool
+        // calls, it is set per cartridge, and it deliberately excludes AskUserQuestion.
+        // Autonomy resolves workflow GATES. Answering a question is not the same act as
+        // authorising a command, and choosing one must not silently confer the other.
+        return null;
       }
       what = `Answered a question from "${attention.stepName}" without you: ${chose}.`;
       break;
@@ -286,16 +312,30 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
       // NUDGE, never re-run. The prompt was delivered and may be half-done, so re-sending it
       // would duplicate work; this asks the cartridge to finish and report what it owes.
       //
-      // Capped at one attempt per step via recovery_attempts, the same counter the orphan guard
-      // uses. Without the cap a cartridge that ignores the first nudge is pestered every sweep
-      // forever — and a stall that survives a nudge is a person's problem, not a louder loop's.
+      // How many times and how far apart is the LEVEL's decision — see NUDGE_POLICY. `advance`
+      // tries once and then asks a person; `full` keeps trying, because a level that gives up
+      // after one attempt is not unsupervised.
+      //
+      // The counter lives in executor_config, NOT in recovery_attempts. That column belongs to
+      // redispatchOrphanedSteps, which allows itself one re-send gated on `recovery_attempts < 1`
+      // — so incrementing it here silently spent the crash-recovery budget of a step that had
+      // never been orphaned. Two mechanisms, two jobs, two counters.
       const row = db.prepare(
-        'SELECT executor_id, recovery_attempts FROM workflow_steps WHERE id = ?',
-      ).get(attention.stepId) as { executor_id: string; recovery_attempts: number } | undefined;
-      if (!row?.executor_id || (row.recovery_attempts || 0) >= 1) return null;
+        'SELECT executor_id, executor_config FROM workflow_steps WHERE id = ?',
+      ).get(attention.stepId) as { executor_id: string; executor_config: string } | undefined;
+      if (!row?.executor_id) return null;
 
-      db.prepare('UPDATE workflow_steps SET recovery_attempts = COALESCE(recovery_attempts,0) + 1 WHERE id = ?')
-        .run(attention.stepId);
+      // Guarded parse: an unreadable config must not throw inside the sweep, and a step whose
+      // config cannot be read has certainly never been nudged.
+      const stepCfg = parseExecutorConfig(row.executor_config, attention.stepId);
+      const sentSoFar = (stepCfg._nudges as number) || 0;
+      const lastAt = (stepCfg._lastNudgeAt as string) || null;
+      if (!nudgeAllowed(level, sentSoFar, lastAt)) return null;
+
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(
+        JSON.stringify({ ...stepCfg, _nudges: sentSoFar + 1, _lastNudgeAt: new Date().toISOString() }),
+        attention.stepId,
+      );
 
       const sent = sendCommandToAgent(row.executor_id,
         `You went idle without completing the workflow step "${attention.stepName}", so the run is `
@@ -304,7 +344,7 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
         + 'decide from what you already have and proceed.', false);
       if (!sent) return null;
 
-      chose = 'nudged';
+      chose = `nudged (${sentSoFar + 1}/${NUDGE_POLICY[level].maxAttempts})`;
       what = `"${attention.stepName}" was dispatched and went quiet; the cartridge was asked to finish and report.`;
       break;
     }
