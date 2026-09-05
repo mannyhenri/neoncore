@@ -129,8 +129,36 @@ export function registerRemoteCommands(): void {
     await reply(`**Cartridges (${rows.length})**\n${lines.join('\n')}\n\nDrive one: \`!prompt <name> <text>\``);
   });
 
-  registerCommand('prompt', async ({ args, reply }) => {
-    const { target, text } = splitPromptArgs(args);
+  registerCommand('prompt', async ({ args, reply, defaultTarget }) => {
+    /*
+     * A channel can BE the target. Posted where the driver maps a cartridge, the whole message
+     * is the prompt; posted anywhere else, the first word still names who it is for.
+     *
+     * An explicitly typed target always wins. A channel default that overrode what someone
+     * actually wrote would send work to the wrong cartridge and look like it worked.
+     */
+    const parsed = splitPromptArgs(args);
+    /*
+     * In a channel that names a target, the FIRST WORD IS PART OF THE PROMPT unless it happens
+     * to name another live cartridge. `splitPromptArgs` always peels a target off the front,
+     * which is right when you must address someone and wrong here: "!prompt fix the tests" in
+     * the film channel was resolving `fix` as the cartridge and answering "No online cartridge
+     * matches `fix`". Checked against what is ACTUALLY ONLINE rather than by shape, because a
+     * cartridge name and an ordinary English word look identical.
+     */
+    let target = parsed.target;
+    let text = parsed.text;
+    if (defaultTarget) {
+      const first = parsed.target
+        ? resolveCartridge(liveCartridges(), parsed.target)
+        : { kind: 'none' as const };
+      if (first.kind === 'none') {
+        target = defaultTarget;
+        text = String(args || '').trim();
+      }
+    }
+    target = target || defaultTarget || '';
+
     if (!target) return reply('Usage: `!prompt <cartridge> <text>`');
     if (!text) return reply(`Nothing to send. Usage: \`!prompt ${target} <text>\``);
 

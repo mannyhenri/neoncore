@@ -17,6 +17,15 @@ export interface CommandContext {
   args: string;
   /** Reply to the operator. Safe to call more than once. */
   reply: (text: string) => Promise<void>;
+  /**
+   * What this command addresses when the operator named nothing — supplied by the driver from
+   * ITS own config, e.g. a Discord channel that stands for one cartridge.
+   *
+   * A STRING THIS REGISTRY NEVER INTERPRETS. It is handed to the same resolver a typed argument
+   * goes through, so a driver can make a channel an address without anything here learning what
+   * lives behind the name. Absent means the operator must say.
+   */
+  defaultTarget?: string;
 }
 
 export interface ActionContext {
