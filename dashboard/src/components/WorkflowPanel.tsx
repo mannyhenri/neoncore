@@ -484,6 +484,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           if (!cfg.criteria) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'criteria', label: 'Review Criteria' });
         } else if (s.executorType === 'deliberation') {
           if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Shared Prompt' });
+        } else if (s.executorType === 'confer') {
+          if (!cfg.prompt && !s.description) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'prompt', label: 'Shared Objective' });
         } else if (s.executorType === 'quality-gate') {
           if (cfg.gateType === 'custom' && !cfg.customPrompt) promptSteps.push({ stepId: s.id, stepName: s.name, field: 'customPrompt', label: 'Custom Quality Check' });
         }
