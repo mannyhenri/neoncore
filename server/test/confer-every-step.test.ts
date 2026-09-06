@@ -93,3 +93,44 @@ test('gates and human steps are NOT converted', () => {
   const cc = body.match(/'claude-code':\s*'([a-z-]+)'/);
   assert.equal(cc?.[1], 'convert', "claude-code must convert — it is the mode's entire point");
 });
+
+/**
+ * ── EVERY SURFACE THAT LETS A HUMAN PICK CARTRIDGES MUST OFFER CONFER ───────────────────
+ *
+ * Caught by the stop hook asking whether the SET was complete. It was not: I wired the two
+ * launchers I happened to be looking at — the workflow panel and the phone — and left the
+ * canvas editor and the goals page, both of which present a cartridge picker of their own.
+ *
+ * That is the exact failure this standard exists to prevent. A mode reachable from two of four
+ * launchers is not a mode; it is a feature that works depending on which button you pressed,
+ * and nothing anywhere reports the difference.
+ *
+ * The set is derived from the CALL SITES of the launch client function, filtered to the ones
+ * where a human chooses cartridges — a launcher that assigns none has nothing to offer.
+ */
+const LAUNCH_SURFACES = [
+  { file: 'dashboard/src/components/WorkflowPanel.tsx',         picks: 'runAgentId + per-step' },
+  { file: 'dashboard/src/components/WorkflowCanvasEditor.tsx',  picks: 'deferredAssignments' },
+  { file: 'dashboard/src/components/GoalsPage.tsx',             picks: 'agentId' },
+  { file: 'mobile/src/screens/WorkflowsScreen.tsx',             picks: 'agentId + per-step' },
+] as const;
+
+test('the launch-surface set is real — each one does let a human pick cartridges', () => {
+  // Self-checking: a surface listed here that assigns no cartridge would be a stale entry,
+  // and demanding confer of it would be noise.
+  const notPickers = LAUNCH_SURFACES
+    .filter((s) => !/agentId|deferredAssignments/.test(read(s.file)))
+    .map((s) => s.file);
+  assert.deepEqual(notPickers, [],
+    `listed as cartridge pickers but assign none: ${notPickers.join(', ')}`);
+  assert.equal(LAUNCH_SURFACES.length, 4, 'the launcher set changed — update it deliberately');
+});
+
+test('EVERY launch surface can start a run-level confer', () => {
+  const missing = LAUNCH_SURFACES
+    .filter((s) => !/conferAllSteps|conferAgents/.test(read(s.file)))
+    .map((s) => `${s.file} (picks ${s.picks})`);
+  assert.deepEqual(missing, [],
+    `these let you choose cartridges but not to confer, so the mode depends on which button ` +
+    `you pressed:\n  ${missing.join('\n  ')}`);
+});

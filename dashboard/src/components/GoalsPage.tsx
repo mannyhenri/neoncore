@@ -717,6 +717,12 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
   const [learningsCount, setLearningsCount] = useState(0);
   const [templateId, setTemplateId] = useState('');
   const [agentId, setAgentId] = useState('');
+  /**
+   * Run-level confer: 2+ cartridges work every step together and decide between themselves
+   * which repo owns each piece. Overrides `agentId` — in confer mode no single cartridge owns
+   * a step, and sending both would leave the outcome depending on which the server wrote last.
+   */
+  const [conferAgents, setConferAgents] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
@@ -748,7 +754,9 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
         undefined,
         note.trim() || undefined,
         project.id,
-        agentId || undefined,
+        conferAgents.length >= 2 ? undefined : (agentId || undefined),
+        undefined,
+        conferAgents.length >= 2 ? conferAgents : undefined,
       );
       onClose(result?.workflow?.id);
     } catch (e: unknown) {
@@ -788,6 +796,47 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
             <option key={a.id} value={a.id}>{a.repoName || a.name} ({a.status})</option>
           ))}
         </select>
+
+        {/* Run-level confer. A third option beside "one cartridge": 2+ cartridges work every
+            step together and settle between themselves which repo owns each piece. */}
+        {agents.length >= 2 && (
+          <div className="mt-2">
+            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+              Or confer across repos
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {agents.map((a) => {
+                const on = conferAgents.includes(a.id);
+                return (
+                  <button
+                    key={`confer-${a.id}`}
+                    type="button"
+                    onClick={() => setConferAgents((prev) =>
+                      prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id])}
+                    className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                      on
+                        ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+                        : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {a.repoName || a.name}
+                  </button>
+                );
+              })}
+            </div>
+            {conferAgents.length === 1 && (
+              <p className="text-[11px] text-amber-400/70 mt-1">
+                Pick one more. A single-cartridge confer is an ordinary run.
+              </p>
+            )}
+            {conferAgents.length >= 2 && (
+              <p className="text-[11px] text-gray-500 mt-1">
+                {conferAgents.length} cartridges will work every step together. The cartridge
+                above is ignored.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div>
