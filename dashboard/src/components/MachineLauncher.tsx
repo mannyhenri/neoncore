@@ -112,7 +112,14 @@ export function MachineLauncher({ servers = [] }: Props) {
   useEffect(() => {
     if (!open) return;
     const fetchMachines = async () => {
-      setLoading((prev) => (machines.length === 0 ? true : prev));
+      // Read from the SETTER, not from the closure. `machines` here came from the render
+      // that created this effect, and the deps are [open, baseKey] with exhaustive-deps
+      // disabled — so `machines.length` was always the initial 0 and this fired on every
+      // poll, not just the first. That is what made the list vanish every 20 seconds.
+      setMachines((current) => {
+        setLoading(current.length === 0);
+        return current;
+      });
       // allSettled, not all: a sleeping laptop in the fleet must not blank the machines
       // from every healthy server. Same tolerance useAgents applies to agents.
       const results = await Promise.allSettled(
@@ -138,7 +145,11 @@ export function MachineLauncher({ servers = [] }: Props) {
         const seen = byId.get(m.id);
         if (!seen || (seen.status !== 'online' && m.status === 'online')) byId.set(m.id, m);
       }
-      setMachines([...byId.values()]);
+      const next = [...byId.values()];
+      // Keep what we have if every server failed this round. allSettled already stops one
+      // sleeping laptop from THROWING, but the merge still yields [] when nothing answers —
+      // and blanking a good list because the network hiccuped is the same defect one layer on.
+      setMachines((current) => (next.length === 0 && current.length > 0 ? current : next));
       setLoading(false);
     };
     fetchMachines();
@@ -228,7 +239,9 @@ export function MachineLauncher({ servers = [] }: Props) {
 
       {open && (
         <div className="absolute right-0 top-full mt-1.5 z-50 glass rounded-xl shadow-2xl py-1.5 min-w-[260px] max-h-[440px] overflow-y-auto">
-          {loading ? (
+          {/* Only when there is nothing to show. A refresh must never replace live content
+              with a spinner — TokensPage's `loading && !points.length` is the same rule. */}
+          {loading && machines.length === 0 ? (
             <div className="text-xs text-gray-500 px-3 py-2">Loading…</div>
           ) : machines.length === 0 ? (
             <div className="text-xs text-gray-500 px-3 py-2 leading-relaxed">
