@@ -59,6 +59,16 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   // Which cartridge the workflow runs on. Template steps ship as `__deferred__` ("ask at
   // launch"), so without this every mobile-launched run hung silently at step 1.
   const [agentId, setAgentId] = useState('');
+  /**
+   * Run-level confer: two or more cartridges work EVERY agent step together, and decide
+   * between themselves which repo owns each piece.
+   *
+   * A LIST, not a second selected id — that is the whole difference from RUN ON above. It
+   * overrides both RUN ON and the per-step tool picker, because in confer mode no single
+   * cartridge owns a step and sending a run agent alongside participants would leave the
+   * outcome depending on which the server wrote last.
+   */
+  const [conferAgents, setConferAgents] = useState<string[]>([]);
   // The template's steps, loaded when the launch sheet opens, so we can show per-step
   // engine pins (executor_config.agentType) and let the user override a step's cartridge.
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
@@ -130,18 +140,34 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
 
   const start = async () => {
     if (!selected) return;
-    if (!agentId) {
-      flash('Pick a cartridge to run this on.');
+    const confering = conferAgents.length >= 2;
+    if (!confering && !agentId) {
+      flash('Pick a cartridge to run this on, or pick 2+ to confer.');
+      return;
+    }
+    if (conferAgents.length === 1) {
+      // The server rejects this too, but saying it here beats a round trip that cannot succeed.
+      flash('Pick at least one more — a one-cartridge confer is an ordinary run.');
       return;
     }
     setStarting(true);
     try {
-      const activeOverrides = perStep ? overrides : {};
-      await api.startWorkflow(baseUrl, selected.id, agentId, context.trim() || undefined, activeOverrides);
+      // In confer mode there is no run agent and no per-step owner: both are replaced by the
+      // participant list, so they are sent empty rather than alongside it.
+      const activeOverrides = confering ? {} : (perStep ? overrides : {});
+      await api.startWorkflow(
+        baseUrl,
+        selected.id,
+        confering ? '' : agentId,
+        context.trim() || undefined,
+        activeOverrides,
+        confering ? conferAgents : undefined,
+      );
       flash(`Started "${selected.name}"`);
       setSelected(null);
       setContext('');
       setAgentId('');
+      setConferAgents([]);
       setPerStep(false);
       setOverrides({});
       await load();
@@ -219,10 +245,51 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
             </View>
           )}
           <Text style={styles.hint}>
-            {projectTools.length >= 2
-              ? 'Runs on this tool by default — set a different tool per step below.'
-              : 'Every step of the workflow runs on this cartridge.'}
+            {conferAgents.length >= 2
+              ? 'Ignored while conferring — the participants below own every step.'
+              : projectTools.length >= 2
+                ? 'Runs on this tool by default — set a different tool per step below.'
+                : 'Every step of the workflow runs on this cartridge.'}
           </Text>
+
+          {/* Confer across repos. A third choice beside RUN ON and TOOL PER STEP, because it
+              answers a different question: not where the work runs, nor who owns which step,
+              but who works the whole thing together — and they decide per step which repo
+              owns the code. */}
+          {liveAgents.length >= 2 && (
+            <>
+              <Text style={styles.label}>CONFER ACROSS REPOS</Text>
+              <View style={styles.agentWrap}>
+                {liveAgents.map((a) => {
+                  const on = conferAgents.includes(a.id);
+                  return (
+                    <TouchableOpacity
+                      key={`confer-${a.id}`}
+                      style={[styles.agentChip, on && styles.conferChipOn]}
+                      onPress={() => setConferAgents((prev) =>
+                        prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id])}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <Text
+                        style={[styles.agentChipText, on && styles.conferChipTextOn]}
+                        numberOfLines={1}
+                      >
+                        {a.repoName || a.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={[styles.hint, conferAgents.length === 1 && styles.hintWarn]}>
+                {conferAgents.length === 0
+                  ? 'Optional. Pick 2+ cartridges and they work every step together.'
+                  : conferAgents.length === 1
+                    ? 'Pick at least one more — a one-cartridge confer is an ordinary run.'
+                    : `${conferAgents.length} cartridges will work every step together.`}
+              </Text>
+            </>
+          )}
 
           {/* Tool per step: the project is fixed by RUN ON above; pick which TOOL runs each
               step. Only shown when the project has 2+ live tools (e.g. Claude + Codex). */}
@@ -287,9 +354,9 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
           <Text style={styles.hint}>Passed to the workflow as its initial context.</Text>
 
           <TouchableOpacity
-            style={[styles.runBtn, (!agentId || starting) && styles.runBtnOff]}
+            style={[styles.runBtn, ((!agentId && conferAgents.length < 2) || starting) && styles.runBtnOff]}
             onPress={start}
-            disabled={starting || !agentId}
+            disabled={starting || (!agentId && conferAgents.length < 2)}
           >
             {starting ? (
               <ActivityIndicator color="#0d0f12" />
@@ -431,6 +498,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.border,
   },
   agentChipOn: { borderColor: theme.accent, backgroundColor: theme.bgCard },
+  conferChipOn: { borderColor: theme.amber, backgroundColor: theme.warnSoft },
+  conferChipTextOn: { color: theme.amber, fontWeight: '700' },
+  hintWarn: { color: theme.amber },
   agentChipText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
   agentChipTextOn: { color: theme.accentSoft },
   noAgents: { color: theme.amber, fontSize: 13, marginBottom: 4 },
