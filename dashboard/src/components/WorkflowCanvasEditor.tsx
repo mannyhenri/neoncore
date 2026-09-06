@@ -578,6 +578,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     promptSteps: { stepId: string; stepName: string; field: string; label: string }[];
   } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
+  /**
+   * Run-level confer, same as the workflow panel's. Picking 2+ replaces the per-step
+   * assignments below: no single cartridge owns a step when the run confers on all of them.
+   */
+  const [conferAgents, setConferAgents] = useState<string[]>([]);
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
 
   // Run mode: if this workflow is a run (has templateId), it's read-only
@@ -1236,6 +1241,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       if (agentSteps.length > 0 || promptSteps.length > 0) {
         setDeferredPopup({ workflowId: id, agentSteps, promptSteps });
         setDeferredAssignments({});
+      setConferAgents([]);
         setDeferredPrompts({});
         setRunning(false);
         return;
@@ -1273,7 +1279,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   const handleDeferredRun = useCallback(async () => {
     if (!deferredPopup) return;
     // Validate all deferred agents have assignments
-    const allAgentsAssigned = deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]);
+    // Confer mode supplies the cartridges, so per-step assignment is not required — demanding
+    // it would make a fully-specified confer un-runnable from this surface.
+    const confering = conferAgents.length >= 2;
+    const allAgentsAssigned = confering
+      || deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]);
     // Validate all deferred prompts have values
     const allPromptsAssigned = deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim());
     if (!allAgentsAssigned || !allPromptsAssigned) return;
@@ -1283,8 +1293,13 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     try {
       const result = await api.startWorkflowV2(
         deferredPopup.workflowId,
-        deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
+        confering ? undefined : (deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined),
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        confering ? conferAgents : undefined,
       );
       // Queued behind a busy cartridge: nothing to switch to yet.
       if (result?.queued || !result?.workflow || !result?.steps) { setDeferredPopup(null); onSaved?.(); return; }
@@ -1687,9 +1702,45 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     ))}
                   </select>
                   <p className="text-[13px] text-gray-600">
-                    Runs all {deferredPopup.agentSteps.length} step{deferredPopup.agentSteps.length > 1 ? 's' : ''} on this cartridge
-                    {deferredPopup.agentSteps.length <= 6 && `: ${deferredPopup.agentSteps.map((s) => s.stepName).join(', ')}`}
+                    {conferAgents.length >= 2
+                      ? 'Ignored while conferring — the participants below own every step.'
+                      : <>Runs all {deferredPopup.agentSteps.length} step{deferredPopup.agentSteps.length > 1 ? 's' : ''} on this cartridge
+                        {deferredPopup.agentSteps.length <= 6 && `: ${deferredPopup.agentSteps.map((s) => s.stepName).join(', ')}`}</>}
                   </p>
+
+                  {/* Run-level confer: 2+ cartridges work every step together and settle
+                      between themselves which repo owns each piece. Replaces the selection
+                      above — no single cartridge owns a step when the run confers. */}
+                  {onlineAgents.length >= 2 && (
+                    <div className="pt-2">
+                      <span className="text-[13px] text-gray-500 uppercase tracking-wider">Or confer across repos</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {onlineAgents.map((a) => {
+                          const on = conferAgents.includes(a.id);
+                          return (
+                            <button
+                              key={`confer-${a.id}`}
+                              type="button"
+                              onClick={() => setConferAgents((prev) =>
+                                prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id])}
+                              className={`text-[13px] px-2 py-1 rounded-full border transition-colors ${
+                                on
+                                  ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+                                  : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
+                              }`}
+                            >
+                              {a.repoName || a.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {conferAgents.length === 1 && (
+                        <p className="text-[13px] text-amber-400/70 mt-1">
+                          Pick one more. A single-cartridge confer is an ordinary run.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
