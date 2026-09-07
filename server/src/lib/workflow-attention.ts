@@ -31,6 +31,13 @@ import db from '../db.js';
  */
 export const STALE_AFTER_MS = 10 * 60 * 1000;
 
+/**
+ * How long a dispatch may run with NOTHING reported before a still-working cartridge counts as
+ * silent rather than busy. Calibrated against observed reality, not a guess: the longest
+ * legitimate loop on a live epic took 65 minutes and completed; the stall this caught ran 2h53m.
+ */
+export const DISPATCH_SILENT_AFTER_MS = 90 * 60 * 1000;
+
 export const ATTENTION_REASONS = [
   'failed',         // the run cannot continue at all
   'interrupted',    // a step's executor died mid-work; needs recovery
@@ -38,6 +45,7 @@ export const ATTENTION_REASONS = [
   'agent-waiting',  // the executing cartridge stopped to ask a question
   'manual-advance', // a step finished but is held for a human to advance
   'agent-idle',     // dispatched, the cartridge went quiet, and nothing was ever reported
+  'agent-silent',   // dispatched, the cartridge is still WORKING, and nothing was ever reported
 ] as const;
 
 export type AttentionReason = (typeof ATTENTION_REASONS)[number];
@@ -61,6 +69,8 @@ interface StepRow {
   recovery_status: string;
   dispatched_prompt: string;
   result: string;
+  /** When the dispatch went out. Null on a step that was never started. */
+  started_at: string | null;
 }
 
 /**
@@ -99,7 +109,7 @@ export function workflowNeedsAttention(workflowId: string): Attention | null {
 
   const steps = db.prepare(
     `SELECT id, name, status, executor_type, executor_id, executor_config, auto_advance,
-            recovery_status, dispatched_prompt, result
+            recovery_status, dispatched_prompt, result, started_at
        FROM workflow_steps WHERE workflow_id = ? ORDER BY position_y`,
   ).all(workflowId) as StepRow[];
   if (steps.length === 0) return null;
@@ -179,6 +189,48 @@ export function workflowNeedsAttention(workflowId: string): Attention | null {
   if (stalled) {
     return found('agent-idle', stalled,
       `"${stalled.name}" was dispatched but the cartridge went quiet without reporting.`);
+  }
+
+  // 6. DISPATCHED, ALIVE, AND SILENT — the other half of reason 5, and the one that hides best.
+  //
+  // Reason 5 asks "did the cartridge go quiet?". That question has a blind spot precisely where
+  // it is guarded: `if (a.status === 'working') return false` exists so a busy cartridge is
+  // never accused of stalling, and a busy cartridge is exactly what this looks like.
+  //
+  // SEEN LIVE. A dispatch went out at 20:25Z. Six minutes later the session hit its context
+  // limit and auto-compacted, and the summary carried the epic forward but dropped the
+  // completion contract the dispatch had given it — the step id and the webhook. The cartridge
+  // kept working from its own state doc for 2h53m, committing real work, while the engine sat
+  // on "Waiting for webhook callback" and every surface read healthy. It even asked questions
+  // its dispatch prompt forbade, which is what losing the contract looks like from outside.
+  // Reason 5 could never fire: the agent was never quiet for a single sweep.
+  //
+  // So the signal here is the INVERSE liveness test — the agent is demonstrably alive and the
+  // dispatch is old and nothing has been reported. The threshold is deliberately generous
+  // against observed reality rather than tuned tight: the longest LEGITIMATE loop on a live
+  // epic ran 65 minutes and completed normally, so 90 minutes clears real work while catching
+  // a stall that ran nearly three hours. The remedy is a nudge, not a re-dispatch, so the cost
+  // of being wrong is one interrupting message rather than duplicated side effects.
+  const silent = steps.find((s) => {
+    if (s.status !== 'running' || !s.executor_id) return false;
+    if (!(s.dispatched_prompt || '').trim()) return false;
+    if ((s.result || '').trim()) return false;
+    if (!s.started_at) return false;
+    const dispatchedFor = Date.now() - Date.parse(s.started_at);
+    if (!Number.isFinite(dispatchedFor) || dispatchedFor <= DISPATCH_SILENT_AFTER_MS) return false;
+    const a = db.prepare('SELECT status, last_seen FROM agents WHERE id = ?').get(s.executor_id) as
+      { status?: string; last_seen?: string } | undefined;
+    if (!a) return false;
+    // Alive: the exact complement of reason 5's staleness test, so the two clauses partition
+    // the space instead of overlapping — a step is quiet-stalled or loud-stalled, never both.
+    const quietFor = a.last_seen ? Date.now() - Date.parse(a.last_seen) : Infinity;
+    return Number.isFinite(quietFor) && quietFor <= STALE_AFTER_MS;
+  });
+  if (silent) {
+    return found('agent-silent', silent,
+      `"${silent.name}" was dispatched over ${Math.round(DISPATCH_SILENT_AFTER_MS / 60000)} minutes `
+      + 'ago and the cartridge is still working, but nothing has been reported — it may have lost '
+      + 'the completion contract (a context compaction drops it).');
   }
 
   // 6. Finished, but held. Only meaningful while there is still something left to advance to.

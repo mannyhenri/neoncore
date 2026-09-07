@@ -81,7 +81,7 @@ router.post('/:id/launch', (req, res) => {
   const row = db.prepare('SELECT * FROM machines WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Machine not found' });
 
-  const { repoPath, agentType, context } = req.body || {};
+  const { repoPath, agentType, context, resumeSessionId } = req.body || {};
   if (!repoPath || typeof repoPath !== 'string') {
     return res.status(400).json({ error: 'repoPath is required' });
   }
@@ -99,12 +99,17 @@ router.post('/:id/launch', (req, res) => {
     return res.status(409).json({ error: 'Machine is offline' });
   }
 
+  // `sessionId` is a LABEL for this launch, not a resumable session — hence the synthetic
+  // `remote-` prefix. `resumeSessionId` is the real thing: a native session id the caller wants
+  // this cartridge to come back as. Keeping them separate is what stops an ordinary launch from
+  // trying to resume `remote-8f3a91c2`, which is not a session anyone can resume.
   const sessionId = `remote-${randomUUID().slice(0, 8)}`;
   const ok = dispatchLaunchToMachine(req.params.id, {
     repoPath,
     agentType,
     sessionId,
     context: typeof context === 'string' ? context : '',
+    resumeSessionId: typeof resumeSessionId === 'string' ? resumeSessionId : '',
   });
   if (!ok) return res.status(409).json({ error: 'Machine is offline' });
 

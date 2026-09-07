@@ -44,7 +44,10 @@ export const AUTO_RESOLVABLE: Record<AutonomyLevel, AttentionReason[]> = {
   // do something and went quiet without reporting — it decides nothing either, it asks the
   // agent to finish the instruction it was already given. Both belong at the level whose whole
   // definition is "decides nothing on your behalf".
-  advance: ['manual-advance', 'agent-idle'],
+  // `agent-silent` sits beside `agent-idle` for the same reason: nudging a cartridge to finish
+  // the instruction it already holds decides nothing on anyone's behalf. It differs only in
+  // which symptom exposed the stall — a quiet cartridge or a busy one that stopped reporting.
+  advance: ['manual-advance', 'agent-idle', 'agent-silent'],
   // Decision gates and agent questions, TAKEN BY THEIR CONFIGURED DEFAULT.
   //
   // GRANTING IS NOT THE SAME AS ALWAYS RESOLVING. A grant says the level MAY settle this
@@ -53,7 +56,7 @@ export const AUTO_RESOLVABLE: Record<AutonomyLevel, AttentionReason[]> = {
   // has no default-answer field anywhere in the schema, so `full` grants it and then holds
   // every time, by the same rule. Inventing an answer to a question a cartridge asked you is
   // the one thing worse than waiting for you to answer it.
-  full: ['manual-advance', 'agent-idle', 'decision', 'agent-waiting'],
+  full: ['manual-advance', 'agent-idle', 'agent-silent', 'decision', 'agent-waiting'],
 };
 
 /**
