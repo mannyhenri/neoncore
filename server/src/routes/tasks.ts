@@ -6,7 +6,7 @@ import { resolveAgentId, projectIdsForAgent, agentIdsForProject } from '../lib/r
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
-import { blockedReason, readyTaskIds, taskIsReady } from '../lib/task-dependencies.js';
+import { blockedReason, readyTaskIds, taskIsReady, nextTaskToward } from '../lib/task-dependencies.js';
 import { decompositionContextFor } from '../lib/goal-decomposition.js';
 import type { Task, TaskStatus } from '../types.js';
 
@@ -308,10 +308,32 @@ router.post('/:id/claim', (req, res) => {
   // no longer applies, and an autonomous cartridge claiming its own next task is not that.
   const blocked = blockedReason(req.params.id);
   if (blocked) {
+    // SWITCH, don't just refuse. An agent that asked "give me this task" and got a 409 has
+    // learned only that it may not work — it still has to figure out WHAT to work, and the
+    // dependency graph already knows. Hand it the prerequisite instead, claimed and runnable.
+    const instead = nextTaskToward(req.params.id, agentId);
+    if (instead) {
+      const swapped = new Date().toISOString();
+      const took = db.prepare(`
+        UPDATE tasks SET status = 'claimed', assigned_agent_id = ?, claimed_at = ?
+         WHERE id = ? AND status = 'queued' AND assigned_agent_id IS NULL
+      `).run(agentId, swapped, instead.id);
+      if (took.changes > 0) {
+        const substitute = getTask(instead.id)!;
+        getIO().emit('task_updated', substitute);
+        console.log(`[tasks] ${agentId} asked for ${req.params.id} (blocked) → given prerequisite ${instead.id}`);
+        // `substitutedFor` is not decoration: without it the agent believes it is working the
+        // task it named, and reports its result against the wrong id.
+        return res.json({ ...substitute, substitutedFor: req.params.id, substitutedReason: blocked });
+      }
+      // Lost the race to another agent between resolving and claiming. Fall through to the
+      // refusal rather than retrying — the queue will offer it again on the next poll.
+    }
     return res.status(409).json({
       error: `This task is ${blocked}.`,
       blocked: true,
-      hint: 'Pick a different task from neoncore_my_queue — this one is waiting on its prerequisite.',
+      hint: 'Its prerequisite is not something you can start either — pick a different task '
+        + 'from neoncore_my_queue.',
     });
   }
 
