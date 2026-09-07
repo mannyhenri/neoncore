@@ -68,6 +68,13 @@ test('EVERY task-picking loop is told to work the prerequisite first', () => {
       section: /DEPENDENCIES FIRST/.test(p),
       // The word the epic docs and trackers actually use.
       prerequisite: /prerequisite/i.test(p),
+      // THE SHAPE REAL EPICS ACTUALLY USE. backend-1.2.0-completion declares every dependency
+      // in a markdown table column headed `Dependencies`, holding bare ids (`BC-004`), comma
+      // lists (`BC-003, BC-009`) and the sentinel `None` — no verb anywhere. A trigger list of
+      // prose phrases misses all of it, and that epic's FIRST dependency (BC-002 → BC-004) is a
+      // backwards reference, so document order breaks it at the second task.
+      tableColumn: /Dependencies\b[^\n]*column|column[^\n]*Dependencies|table[^\n]*Dependencies/i.test(p),
+      bareIds: /bare (task )?id|comma-separated|\bNone\b/i.test(p),
       // The specific instruction — an agent told only "consider dependencies" will still take
       // the first undone task, because that is what the surrounding steps tell it to do.
       switchTo: /work (its|that) prerequisite|switch to (the|its) prerequisite/i.test(p),
