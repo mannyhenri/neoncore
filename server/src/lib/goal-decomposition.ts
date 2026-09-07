@@ -19,10 +19,15 @@
  * worst possible lie in a surface whose entire job is review.
  *
  * ── DEPENDENCIES DO SOMETHING TODAY ────────────────────────────────────────────────────
- * Nothing enforces task ordering until Phase 6. Storing `dependsOn` and stopping there would
- * be another mechanism no data flows through — this repo's characteristic failure. So accept
- * derives each task's `priority` from its dependency DEPTH: roots run first, dependents after.
- * The dependency graph therefore changes real queue behaviour the moment it is accepted.
+ * Two mechanisms, and it matters which is which. Accept derives each task's `priority` from its
+ * dependency DEPTH, so roots SORT ahead of dependents — that is ordering, not enforcement, and
+ * it is why a single cartridge draining the queue looks correctly ordered even when nothing is
+ * checking. Enforcement is `lib/task-dependencies.ts`, which every path that can start a task
+ * now consults, so a dependent cannot begin while its prerequisite is unfinished.
+ *
+ * This paragraph used to read "Nothing enforces task ordering until Phase 6." That sentence
+ * outlived the gate and became the opposite of load-bearing: two readers could grep this repo
+ * and reach opposite conclusions depending on which comment they hit first.
  */
 import db from '../db.js';
 import { randomUUID } from 'crypto';

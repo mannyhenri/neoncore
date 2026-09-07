@@ -8,10 +8,25 @@
  * that does not yet have what it was written to assume, and fails in a way that looks like a
  * bad prompt rather than a scheduling bug.
  *
- * This module is the gate. It is deliberately separate from the queue so BOTH entry points —
- * the queue runner and the manual dispatch route — consult the same rule; a check living
- * inside the runner would leave the manual button as an unguarded back door, which is exactly
- * how the busy-guard was bypassed before it was moved to a shared helper.
+ * This module is the gate. It is deliberately separate from the queue so EVERY entry point
+ * consults the same rule; a check living inside the runner would leave the manual button as an
+ * unguarded back door, which is exactly how the busy-guard was bypassed before it was moved to
+ * a shared helper.
+ *
+ * ── EVERY, AND WHY THAT WORD IS NOW LOAD-BEARING ───────────────────────────────────────
+ * This header used to say "BOTH entry points — the queue runner and the manual dispatch
+ * route". That was true of two of the FOUR paths that can start a task, and the two it left
+ * out were the pull path an autonomous cartridge uses: `GET /api/tasks/queue` behind
+ * `neoncore_my_queue`, and `POST /api/tasks/:id/claim` behind `neoncore_claim_task`. A reader
+ * who trusted the sentence — as one did — concluded ordering was enforced without checking the
+ * callers. The four are now:
+ *   · POST /:id/dispatch      → blockedReason(), overridable with force (a person may know better)
+ *   · releaseReadyTasks()     → readyTaskIds()
+ *   · GET  /queue             → filtered through taskIsReady(), unclaimed rows only
+ *   · POST /:id/claim         → blockedReason(), NOT overridable
+ * `POST /:id/start` is deliberately not gated: it requires the caller to already own the task,
+ * so it sits downstream of all four, and gating it would also veto a deliberate force-dispatch.
+ * server/test/task-dependency-gate.test.ts enumerates the router and fails on a fifth path.
  *
  * ── WHY 'done' AND NOT 'not failed' ────────────────────────────────────────────────────
  * A failed prerequisite does NOT release its dependent. The dependent was written assuming the

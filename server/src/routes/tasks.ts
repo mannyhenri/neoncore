@@ -6,7 +6,7 @@ import { resolveAgentId, projectIdsForAgent, agentIdsForProject } from '../lib/r
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
-import { blockedReason, readyTaskIds } from '../lib/task-dependencies.js';
+import { blockedReason, readyTaskIds, taskIsReady } from '../lib/task-dependencies.js';
 import { decompositionContextFor } from '../lib/goal-decomposition.js';
 import type { Task, TaskStatus } from '../types.js';
 
@@ -262,7 +262,23 @@ router.get('/queue', (req, res) => {
         OR (assigned_agent_id = ? AND status IN ('queued','claimed','in_progress'))
      ORDER BY priority DESC, created_at ASC LIMIT 100
   `).all(...projectIds, agentId) as Record<string, unknown>[];
-  res.json(rows.map(normalizeTask));
+
+  // THE DEPENDENCY GATE, on the agent's side of the fence.
+  //
+  // `priority` is derived from dependency depth, so prerequisites SORT first and a single
+  // cartridge draining this queue usually looks correctly ordered. It is not enforcement: two
+  // cartridges polling concurrently will happily take a dependent whose prerequisite is still
+  // in_progress. This is where that stops for the pull path, and it is filtered HERE rather
+  // than in the SQL so `taskIsReady` stays the one definition of readiness — a WHERE NOT EXISTS
+  // clause would be a second one, and would get "a failed prerequisite still blocks" wrong.
+  //
+  // Only UNCLAIMED work is filtered. A task already assigned to this agent stays visible even
+  // when a dependency is unmet, because hiding an item mid-flight would make an agent's own
+  // in-progress work vanish from under it.
+  const visible = rows.filter(
+    (r) => r.assigned_agent_id === agentId || taskIsReady(r.id as string),
+  );
+  res.json(visible.map(normalizeTask));
 });
 
 // Get one task
@@ -283,6 +299,20 @@ router.post('/:id/claim', (req, res) => {
   // project's cartridge. (Race-safe claim still enforced by the UPDATE below.)
   if (existing.projectId && !projectIdsForAgent(agentId).includes(existing.projectId)) {
     return res.status(403).json({ error: 'Task is pinned to a different project/cartridge' });
+  }
+
+  // THE DEPENDENCY GATE. The queue filter above hides blocked work, but the filter alone is not
+  // enough: there is a window between listing and claiming, and this route is directly callable
+  // — `neoncore_claim_task` takes a taskId from wherever the agent got it. Deliberately NOT
+  // overridable the way `dispatch` is: force there is a person saying they know the dependency
+  // no longer applies, and an autonomous cartridge claiming its own next task is not that.
+  const blocked = blockedReason(req.params.id);
+  if (blocked) {
+    return res.status(409).json({
+      error: `This task is ${blocked}.`,
+      blocked: true,
+      hint: 'Pick a different task from neoncore_my_queue — this one is waiting on its prerequisite.',
+    });
   }
 
   const now = new Date().toISOString();
