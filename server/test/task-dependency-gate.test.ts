@@ -123,17 +123,24 @@ const START_PATHS: { name: string; offered: (taskId: string) => Promise<boolean>
   },
   {
     name: 'POST /:id/claim  (neoncore_claim_task)',
+    // `offered` means THE TASK ASKED FOR started — not merely that the request succeeded.
+    // Since the redirect landed, a blocked claim answers 200 carrying a DIFFERENT task (its
+    // prerequisite, claimed on the agent's behalf). Reading that as success would assert the
+    // opposite of the gate: the whole point is that the task asked for did not start.
     offered: async (id) => {
       const r = await fetch(`${base}/api/tasks/${id}/claim`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: SESSION }),
       });
+      const body = await r.json() as { id?: string; blocked?: boolean; substitutedFor?: string };
       if (r.ok) {
-        // Put it back so one path's success cannot mask another's behaviour.
-        db.prepare("UPDATE tasks SET status='queued', assigned_agent_id=NULL, claimed_at=NULL WHERE id=?").run(id);
-        return true;
+        const startedWhatIAskedFor = body.id === id && !body.substitutedFor;
+        // Put everything back so one path's success cannot mask another's behaviour.
+        db.prepare("UPDATE tasks SET status='queued', assigned_agent_id=NULL, claimed_at=NULL WHERE id=?")
+          .run(body.id ?? id);
+        return startedWhatIAskedFor;
       }
-      return !(await r.json() as { blocked?: boolean }).blocked;
+      return !body.blocked;
     },
   },
 ];

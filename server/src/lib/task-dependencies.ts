@@ -36,6 +36,7 @@
  * dependent is reported as blocked-by-choice rather than blocked-by-failure.
  */
 import db from '../db.js';
+import { projectIdsForAgent } from './resolve-agent.js';
 
 export interface Dependency {
   id: string;
@@ -111,4 +112,65 @@ export function readyTaskIds(projectIds?: string[]): string[] {
     `SELECT id FROM tasks WHERE status = 'queued' ${scoped} ORDER BY priority DESC, created_at ASC`,
   ).all(...(projectIds ?? [])) as { id: string }[];
   return rows.filter((r) => taskIsReady(r.id)).map((r) => r.id);
+}
+
+/**
+ * The task this agent should do INSTEAD, when the one it asked for is blocked.
+ *
+ * Refusing a blocked claim stops the wrong work; it does not answer the question the agent
+ * actually asked, which is "what do I do now". The dependency graph already knows, so it says.
+ *
+ * DEEPEST, NOT NEAREST. A → B → C: handing back B when C was asked for is still blocked, and
+ * the agent bounces once per level. This descends to the deepest prerequisite that is genuinely
+ * startable, so one claim yields one runnable task however deep the chain.
+ *
+ * Only returns something THIS agent may legally start:
+ *   · `queued` and unassigned — anything in_progress or claimed belongs to someone else, and two
+ *     cartridges on one task is worse than waiting;
+ *   · not `failed` or `cancelled` — redirecting into a failure would launder the exact situation
+ *     the gate exists to prevent, and a cancellation was a human's decision;
+ *   · claimable under the project hard-pin, so substitution cannot become a way around it.
+ * Returns null when none qualifies — the caller then refuses and names what it is waiting on.
+ */
+export function nextTaskToward(
+  taskId: string,
+  agentId: string,
+  seen: Set<string> = new Set(),
+): Dependency | null {
+  // Cycle guard. Decomposition drops circular links on arrival, but a state doc or a hand-edited
+  // row can still describe one, and a walk that trusts the data hangs the request.
+  if (seen.has(taskId)) return null;
+  seen.add(taskId);
+
+  for (const dep of unmetDependencies(taskId)) {
+    // Depth first: if this prerequisite has its own unfinished prerequisite, that one is the
+    // real answer.
+    const deeper = nextTaskToward(dep.id, agentId, seen);
+    if (deeper) return deeper;
+    if (startableBy(dep.id, agentId)) return dep;
+  }
+  return null;
+}
+
+/**
+ * Could this agent claim this task right now — INCLUDING its own dependencies being satisfied?
+ *
+ * That last clause is load-bearing and was missing at first. Without it the walk hands back a
+ * candidate whose own prerequisite is unfinished, which the claim gate then refuses — the agent
+ * is redirected to a second blocked task and bounces again. Two shapes produce it:
+ *   · C → B → A where A FAILED: the recursion returns null for A (not startable), and B then
+ *     looks fine on claimability alone despite being blocked by A;
+ *   · a dependency CYCLE, where every node is claimable in isolation and none is ever ready.
+ * Checking readiness here means "startable" means startable, not merely unclaimed.
+ */
+function startableBy(taskId: string, agentId: string): boolean {
+  const row = db.prepare(
+    'SELECT status, assigned_agent_id, project_id FROM tasks WHERE id = ?',
+  ).get(taskId) as { status: string; assigned_agent_id: string | null; project_id: string | null } | undefined;
+  if (!row) return false;
+  if (row.status !== 'queued') return false;
+  if (row.assigned_agent_id && row.assigned_agent_id !== agentId) return false;
+  if (unmetDependencies(taskId).length > 0) return false;
+  if (!row.project_id) return true;
+  return projectIdsForAgent(agentId).includes(row.project_id);
 }
