@@ -120,6 +120,14 @@ function hint(attention: Attention, cartridge: string | null): string | null {
       ? `The cartridge went quiet without reporting. Nudge it: \`!prompt ${cartridge} finish the step and report\``
       : 'The cartridge went quiet without reporting. Re-dispatch the step from the dashboard.';
   }
+  if (attention.reason === 'agent-silent') {
+    // The step id is the payload here, not decoration: a compaction drops the completion
+    // contract, and the id is the one thing the cartridge can no longer recover on its own.
+    return cartridge
+      ? `Still working but not reporting — it has likely lost the step id. `
+        + `Remind it: \`!prompt ${cartridge} report step ${attention.stepId} done with result, scope and verify\``
+      : 'Still working but not reporting — remind it of the step id from the dashboard.';
+  }
   return null;
 }
 
@@ -308,7 +316,8 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
       break;
     }
 
-    case 'agent-idle': {
+    case 'agent-idle':
+    case 'agent-silent': {
       // NUDGE, never re-run. The prompt was delivered and may be half-done, so re-sending it
       // would duplicate work; this asks the cartridge to finish and report what it owes.
       //
@@ -337,15 +346,31 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
         attention.stepId,
       );
 
-      const sent = sendCommandToAgent(row.executor_id,
-        `You went idle without completing the workflow step "${attention.stepName}", so the run is `
-        + 'stalled and nothing behind it can start. Finish it now: produce the output its prompt '
-        + 'asked for and POST it to the completion webhook in that prompt. Do not ask anything — '
-        + 'decide from what you already have and proceed.', false);
+      // TWO SYMPTOMS, TWO SENTENCES. Telling a cartridge that is visibly mid-task "you went
+      // idle" is a message it can correctly dismiss as untrue, and a nudge that argues with the
+      // agent's own view of itself gets ignored. The silent case also NAMES THE STEP ID,
+      // because the likeliest cause of the silence is a context compaction that dropped the
+      // completion contract — the id is the one thing it can no longer look up.
+      const nudge = attention.reason === 'agent-silent'
+        ? `You are still working, but workflow step "${attention.stepName}" (id ${attention.stepId}) `
+          + 'has had nothing reported since it was dispatched, so the run is blocked behind you and '
+          + 'every later step is waiting. If your context was compacted you have lost the completion '
+          + 'contract: that step id is what you must report against. Finish or cleanly park what you '
+          + 'are on, then report the step done with the result, scope and verification its prompt '
+          + 'asked for. Do not ask anything — decide from what you already have and proceed.'
+        : `You went idle without completing the workflow step "${attention.stepName}", so the run is `
+          + 'stalled and nothing behind it can start. Finish it now: produce the output its prompt '
+          + 'asked for and POST it to the completion webhook in that prompt. Do not ask anything — '
+          + 'decide from what you already have and proceed.';
+
+      const sent = sendCommandToAgent(row.executor_id, nudge, false);
       if (!sent) return null;
 
       chose = `nudged (${sentSoFar + 1}/${NUDGE_POLICY[level].maxAttempts})`;
-      what = `"${attention.stepName}" was dispatched and went quiet; the cartridge was asked to finish and report.`;
+      what = attention.reason === 'agent-silent'
+        ? `"${attention.stepName}" has been dispatched for a long time with nothing reported; the `
+          + 'cartridge is still working and was asked to report against the step.'
+        : `"${attention.stepName}" was dispatched and went quiet; the cartridge was asked to finish and report.`;
       break;
     }
 
