@@ -33,11 +33,15 @@ import './helpers/isolated-db.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db from '../src/db.js';
 import { installStubIO } from './helpers/stub-io.js';
-import { RESUME_ARGS, resumeArgsFor } from '../../agent/relay/resume-args.mjs';
+import {
+  RESUME_ARGS, resumeArgsFor, TRANSCRIPT_LOCATORS, transcriptExists,
+} from '../../agent/relay/resume-args.mjs';
+import { isResumableSessionId, launchResumeDecision } from '../src/lib/last-session.ts';
 import {
   RELAY_LAUNCH_TYPES, relayLaunchEnv, RELAY_INSTALL_FILES, RELAY_INSTALL_SIBLINGS,
 } from '../src/lib/open-directory.ts';
@@ -256,4 +260,77 @@ test('a dispatch that already reported a result is never a stall, however old', 
     result: 'DONE GLW-022 · commit 941fd84 · 25 remaining',
   });
   assert.equal(workflowNeedsAttention(wf), null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SET 5 — resume by DEFAULT when launching, and a transcript that really exists.
+//
+// The launch button is where a person actually expects "put me back where I was", and it was
+// the one caller still starting cold. Defaulting to resume carries one risk worth engineering
+// against rather than accepting: silently reattaching a session whose transcript is gone, which
+// fails at the CLI with an unknown-session error and leaves a dead terminal. So the server
+// PROPOSES a session id and the relay — which runs on the machine that owns the file — DISPOSES,
+// falling back to a cold start it announces.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('EVERY AgentType has an explicit transcript-locator verdict', () => {
+  const missing = agentTypesFromSource().filter(
+    (t) => !Object.prototype.hasOwnProperty.call(TRANSCRIPT_LOCATORS, t),
+  );
+  assert.deepEqual(missing, [],
+    `no way to verify a transcript for: ${missing.join(', ')}. A locator, or null to say `
+    + 'this engine cannot be verified and must not be auto-resumed.');
+});
+
+test('the claude locator finds a transcript that exists and misses one that does not', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ncres-'));
+  const cwd = '/Users/someone/code/my-repo';
+  const dir = path.join(home, '.claude', 'projects', '-Users-someone-code-my-repo');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${SESSION}.jsonl`), '{}\n');
+
+  assert.equal(transcriptExists('claude', cwd, SESSION, home), true);
+  assert.equal(transcriptExists('claude', cwd, 'ffffffff-0000-0000-0000-000000000000', home), false);
+});
+
+test('an engine with no locator is never auto-resumed, even given a session id', () => {
+  const unverifiable = Object.entries(TRANSCRIPT_LOCATORS).filter(([, v]) => v === null).map(([k]) => k);
+  for (const type of unverifiable) {
+    assert.equal(transcriptExists(type, '/tmp/x', SESSION, '/tmp/home'), false,
+      `${type} has no locator, so its transcript can never be confirmed — resuming would guess`);
+  }
+});
+
+test('EVERY synthetic session label is refused as a resume target', () => {
+  // These are LAUNCH LABELS, not sessions: `relay-<pid>` from the relay's own registration,
+  // `neoncore-claude-<ts>` from openDirectory, `remote-<uuid>` and `recover-<id>` from the
+  // launch route. Resuming any of them asks the CLI for a session that never existed.
+  const SYNTHETIC = ['relay-65488', 'neoncore-claude-1757000000000', 'remote-8f3a91c2', 'recover-a447265c'];
+  for (const id of SYNTHETIC) {
+    assert.equal(isResumableSessionId(id), false, `${id} is a label, not a session`);
+  }
+  assert.equal(isResumableSessionId(SESSION), true, 'a real uuid session id must be accepted');
+});
+
+test('the launch resume decision is correct for EVERY combination of the three inputs', () => {
+  // Truth table, not examples: fresh × explicit id × a session on record. Defaulting to resume
+  // is only safe if `fresh` beats it unconditionally and an explicit id beats the lookup.
+  const CASES: { fresh: boolean; explicit: string; last: string | null; want: string }[] = [
+    { fresh: false, explicit: '',        last: null,      want: '' },
+    { fresh: false, explicit: '',        last: SESSION,   want: SESSION },
+    { fresh: false, explicit: 'EXPLICIT', last: null,     want: 'EXPLICIT' },
+    { fresh: false, explicit: 'EXPLICIT', last: SESSION,  want: 'EXPLICIT' },
+    { fresh: true,  explicit: '',        last: null,      want: '' },
+    { fresh: true,  explicit: '',        last: SESSION,   want: '' },
+    { fresh: true,  explicit: 'EXPLICIT', last: null,     want: '' },
+    { fresh: true,  explicit: 'EXPLICIT', last: SESSION,  want: '' },
+  ];
+  const wrong: string[] = [];
+  for (const c of CASES) {
+    const got = launchResumeDecision({ fresh: c.fresh, resumeSessionId: c.explicit, lastSession: c.last });
+    if (got !== c.want) {
+      wrong.push(`fresh=${c.fresh} explicit=${JSON.stringify(c.explicit)} last=${JSON.stringify(c.last)} → ${JSON.stringify(got)}, want ${JSON.stringify(c.want)}`);
+    }
+  }
+  assert.deepEqual(wrong, [], wrong.join('\n'));
 });

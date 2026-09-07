@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
+import { getIO, upgradeSocketsToAgentRoom, hasActiveSocket } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
@@ -771,7 +771,13 @@ router.post('/:id/recover-session', (req, res) => {
   // the terminal AND resume the real session in one step, which is strictly better than what a
   // replay could have offered even if a session had been running. Replay stays the fallback for
   // an engine with no native resume, and for when no runner can be reached.
-  if (agent.status === 'offline') {
+  // LIVENESS, NOT THE STATUS COLUMN. `status` lags by design — the sweep walks
+  // working → idle → offline over minutes — so a cartridge you exited seconds ago still reads
+  // `idle`. Taking the online path then injects a replay into a session that no longer exists,
+  // it fails with "no command channel", and the person is told to relaunch by hand: the exact
+  // dead end this route was fixed to remove. The socket is the truth and it drops instantly.
+  const isLive = hasActiveSocket(req.params.id);
+  if (!isLive) {
     db.prepare(
       `UPDATE agents
        SET recovery_status = CASE WHEN recovery_status = '' THEN 'interrupted' ELSE recovery_status END,

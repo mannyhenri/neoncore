@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import db from '../db.js';
 import { getIO, isMachineOnline, dispatchLaunchToMachine, dispatchSetReposToMachine, dispatchScanToMachine } from '../ws.js';
 import type { Machine, MachineRepo } from '../types.js';
+import { launchResumeDecision, lastResumableSession } from '../lib/last-session.js';
 
 const router = Router();
 
@@ -81,7 +82,7 @@ router.post('/:id/launch', (req, res) => {
   const row = db.prepare('SELECT * FROM machines WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Machine not found' });
 
-  const { repoPath, agentType, context, resumeSessionId } = req.body || {};
+  const { repoPath, agentType, context, resumeSessionId, fresh } = req.body || {};
   if (!repoPath || typeof repoPath !== 'string') {
     return res.status(400).json({ error: 'repoPath is required' });
   }
@@ -104,17 +105,32 @@ router.post('/:id/launch', (req, res) => {
   // this cartridge to come back as. Keeping them separate is what stops an ordinary launch from
   // trying to resume `remote-8f3a91c2`, which is not a session anyone can resume.
   const sessionId = `remote-${randomUUID().slice(0, 8)}`;
+
+  // RESUME IS THE DEFAULT. Launching a cartridge for a project is where continuity is expected,
+  // so the last real session for this machine+repo+engine is picked up unless the caller asks
+  // for `fresh`. The lookup refuses synthetic labels, and the relay on the far machine still
+  // vetoes a session whose transcript is gone — this server cannot see that disk.
+  const machineHost = (row.hostname as string) || '';
+  const resume = launchResumeDecision({
+    fresh: fresh === true,
+    resumeSessionId: typeof resumeSessionId === 'string' ? resumeSessionId : '',
+    lastSession: lastResumableSession(repoPath, agentType, machineHost),
+  });
+
   const ok = dispatchLaunchToMachine(req.params.id, {
     repoPath,
     agentType,
     sessionId,
     context: typeof context === 'string' ? context : '',
-    resumeSessionId: typeof resumeSessionId === 'string' ? resumeSessionId : '',
+    resumeSessionId: resume,
   });
   if (!ok) return res.status(409).json({ error: 'Machine is offline' });
 
-  console.log(`[machines] Dispatched launch to ${req.params.id}: ${agentType} @ ${repoPath}`);
-  res.json({ ok: true, sessionId });
+  console.log(`[machines] Dispatched launch to ${req.params.id}: ${agentType} @ ${repoPath}`
+    + (resume ? ` (resuming ${resume})` : ' (fresh session)'));
+  // `resumed` is reported back so the UI can say which it did rather than leaving the person to
+  // guess whether their context came with them.
+  res.json({ ok: true, sessionId, resumed: resume || null });
 });
 
 // Set a machine's exposed-folder allowlist from the portal. The runner is the authority on

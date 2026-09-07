@@ -39,7 +39,7 @@
 import { io } from 'socket.io-client';
 import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
-import { resumeArgsFor } from './resume-args.mjs';
+import { resumeArgsFor, canVerifyTranscript, transcriptExists } from './resume-args.mjs';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -89,7 +89,20 @@ const EXPLICIT_ARGS = dashIdx >= 0 ? process.argv.slice(dashIdx + 1) : [];
 // extend them, and an already-explicit `--resume` wins rather than being duplicated.
 const RESUME_SESSION_ID = (process.env.NEONCORE_RESUME_SESSION_ID || '').trim();
 const alreadyResuming = EXPLICIT_ARGS.some((a) => a === '--resume' || a === 'resume');
-const resumeArgs = alreadyResuming ? null : resumeArgsFor(AGENT_TYPE, RESUME_SESSION_ID);
+
+// THE RELAY HAS THE VETO. The server proposes a session id from what the hooks last reported,
+// but only this process is on the disk that holds the transcript. Resuming one that has been
+// deleted or rotated exits the CLI with an unknown-session error and leaves a dead terminal —
+// worse than the cold start it replaced, and the very failure that made native resume distrusted
+// in the first place. Checked ONLY where verification is possible: an engine whose layout we do
+// not model is trusted rather than blocked, or no codex session could ever resume.
+const transcriptMissing = Boolean(RESUME_SESSION_ID)
+  && canVerifyTranscript(AGENT_TYPE)
+  && !transcriptExists(AGENT_TYPE, process.cwd(), RESUME_SESSION_ID);
+
+const resumeArgs = (alreadyResuming || transcriptMissing)
+  ? null
+  : resumeArgsFor(AGENT_TYPE, RESUME_SESSION_ID);
 const AGENT_ARGS = resumeArgs ? [...resumeArgs, ...EXPLICIT_ARGS] : EXPLICIT_ARGS;
 
 // Reported at spawn time, not here: `log()` writes to LOG_FILE, which is a `const` declared
@@ -202,7 +215,11 @@ async function main() {
   // Say a downgrade out loud. A silent fall back to a cold session is the failure this whole
   // path exists to end: the cartridge comes back looking healthy with none of its context, and
   // nobody finds out until it answers as if the last three hours never happened.
-  if (RESUME_DOWNGRADED) {
+  if (transcriptMissing) {
+    log(`Resume requested for ${RESUME_SESSION_ID} but no ${AGENT_TYPE} transcript for it exists `
+      + `under ${process.cwd()} — starting a fresh session rather than a terminal that dies on `
+      + 'an unknown session id.');
+  } else if (RESUME_DOWNGRADED) {
     log(`Resume requested for ${RESUME_SESSION_ID} but ${AGENT_TYPE} has no native resume — `
       + 'starting a fresh session; NeonCore transcript replay is the fallback.');
   } else if (resumeArgs) {
