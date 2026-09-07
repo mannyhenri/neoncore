@@ -686,10 +686,21 @@ export function createClient(config: ClientConfig = {}) {
 
   // Machines — remote cartridge launch
   getMachines: () => request<import('./types').Machine[]>('/machines'),
-  launchOnMachine: (machineId: string, repoPath: string, agentType: string, context?: string) =>
-    request<{ ok: boolean; sessionId: string }>(`/machines/${machineId}/launch`, {
+  // `fresh` opts OUT of the default, which is to resume the last real session for this
+  // machine+repo+engine. `resumed` comes back naming the session that was picked up, or null
+  // for a cold start, so the caller can say which happened instead of leaving it to be guessed.
+  launchOnMachine: (
+    machineId: string, repoPath: string, agentType: string, context?: string,
+    opts?: { fresh?: boolean; resumeSessionId?: string },
+  ) =>
+    request<{ ok: boolean; sessionId: string; resumed: string | null }>(`/machines/${machineId}/launch`, {
       method: 'POST',
-      body: JSON.stringify({ repoPath, agentType, ...(context ? { context } : {}) }),
+      body: JSON.stringify({
+        repoPath, agentType,
+        ...(context ? { context } : {}),
+        ...(opts?.fresh ? { fresh: true } : {}),
+        ...(opts?.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : {}),
+      }),
     }),
   setMachineRepos: (machineId: string, repos: { path: string; name?: string }[]) =>
     request<{ ok: boolean }>(`/machines/${machineId}/repos`, {

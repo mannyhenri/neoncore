@@ -253,7 +253,7 @@ export function isMachineOnline(machineId: string): boolean {
  */
 export function dispatchLaunchToMachine(
   machineId: string,
-  payload: { repoPath: string; agentType: string; sessionId: string; context: string },
+  payload: { repoPath: string; agentType: string; sessionId: string; context: string; resumeSessionId?: string },
 ): boolean {
   const target = resolveMachineSocket(machineId, socketIsConnected);
   if (!target) return false;
@@ -263,6 +263,7 @@ export function dispatchLaunchToMachine(
     agentType: payload.agentType as import('./types.js').AgentType,
     sessionId: payload.sessionId,
     context: payload.context,
+    resumeSessionId: payload.resumeSessionId || '',
   });
   return true;
 }

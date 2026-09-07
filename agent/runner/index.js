@@ -120,7 +120,7 @@ async function register() {
  *   2. You can watch and type in the session locally, same as the old one-click launch.
  * The cartridge also registers back to the portal as usual.
  */
-function launchCartridge({ repoPath, agentType, sessionId, context }) {
+function launchCartridge({ repoPath, agentType, sessionId, context, resumeSessionId }) {
   const allowed = identity.repos.find((r) => r.path === repoPath);
   if (!allowed) { log(`Refused launch: ${repoPath} is not in the allowlist.`); return; }
   if (!fs.existsSync(repoPath)) { log(`Refused launch: ${repoPath} does not exist on disk.`); return; }
@@ -134,6 +134,10 @@ function launchCartridge({ repoPath, agentType, sessionId, context }) {
     NEONCORE_SESSION_ID: sessionId || '',
     NEONCORE_LAUNCH_CONTEXT: context || '',
   };
+  // Native resume. Set ONLY when the portal is recovering a specific session — a cold launch
+  // must not carry it, or the relay would try to resume a session that never existed. Both the
+  // POSIX and Windows branches below serialize this same object, so one line covers both.
+  if (resumeSessionId) env.NEONCORE_RESUME_SESSION_ID = resumeSessionId;
   if (isWin && type === 'claude') env.NEONCORE_AGENT_CMD = 'claude.cmd';
 
   try {
