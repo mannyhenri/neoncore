@@ -276,10 +276,17 @@ export const api = {
   // Machines — remote cartridge launch. Lists computers running the runner daemon and
   // dispatches a launch to one of them.
   getMachines: (base: string) => req<Machine[]>(base, '/api/machines'),
-  launchOnMachine: (base: string, machineId: string, repoPath: string, agentType: string, context?: string) =>
-    req<{ ok: boolean; sessionId: string }>(base, `/api/machines/${machineId}/launch`, {
+  launchOnMachine: (
+    base: string, machineId: string, repoPath: string, agentType: string, context?: string,
+    opts?: { fresh?: boolean },
+  ) =>
+    req<{ ok: boolean; sessionId: string; resumed: string | null }>(base, `/api/machines/${machineId}/launch`, {
       method: 'POST',
-      body: JSON.stringify({ repoPath, agentType, ...(context ? { context } : {}) }),
+      body: JSON.stringify({
+        repoPath, agentType,
+        ...(context ? { context } : {}),
+        ...(opts?.fresh ? { fresh: true } : {}),
+      }),
     }),
   setMachineRepos: (base: string, machineId: string, repos: { path: string; name?: string }[]) =>
     req<{ ok: boolean }>(base, `/api/machines/${machineId}/repos`, {

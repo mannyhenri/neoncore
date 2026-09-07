@@ -62,3 +62,75 @@ export function resumeArgsFor(agentType, sessionId) {
   if (typeof build !== 'function') return null;
   return build(sessionId);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transcript verification — the relay's veto on a resume it cannot honour.
+//
+// The server PROPOSES a session id: it reads the last one the hooks reported for that
+// machine+repo. It cannot check whether the file is still there, because on a fleet the repo
+// lives on someone else's disk. The relay runs ON that disk, so it gets the veto. Without it,
+// resuming a session whose transcript was deleted or rotated exits the CLI with an
+// unknown-session error and leaves a dead terminal — strictly worse than the cold start it
+// replaced, and the exact failure that made D1 distrust `--resume` in the first place.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import fsSync from 'fs';
+import osSync from 'os';
+import pathSync from 'path';
+
+/**
+ * Claude Code keys its transcript directory on the session's CWD with every non-alphanumeric
+ * character replaced by `-`. Verified against real directories: `/Users/me/code/gl-dev` →
+ * `-Users-me-code-gl-dev`, and `/private/var/.../13mc78td1z79w_n2508x35zw0000gn/T` →
+ * `-private-var-...-13mc78td1z79w-n2508x35zw0000gn-T` (note the `_` folded to `-` too).
+ */
+function claudeTranscript(cwd, sessionId, homeDir) {
+  const encoded = cwd.replace(/[^A-Za-z0-9]/g, '-');
+  const direct = pathSync.join(homeDir, '.claude', 'projects', encoded, `${sessionId}.jsonl`);
+  if (fsSync.existsSync(direct)) return direct;
+
+  // Fallback scan. The encoding above is inferred from observed directories rather than
+  // documented, so a path shape it gets wrong must not read as "the session is gone" — that
+  // would silently downgrade a perfectly resumable session to a cold start.
+  const root = pathSync.join(homeDir, '.claude', 'projects');
+  try {
+    for (const dir of fsSync.readdirSync(root)) {
+      const candidate = pathSync.join(root, dir, `${sessionId}.jsonl`);
+      if (fsSync.existsSync(candidate)) return candidate;
+    }
+  } catch { /* no projects dir — nothing to find */ }
+  return null;
+}
+
+/**
+ * Engine → how to find a session's transcript on this disk, or null when the layout is not
+ * modelled. Null means "cannot verify", which means "do not AUTO-resume" — an explicit resume
+ * a person asked for is still honoured, because that is them saying they know it exists.
+ */
+export const TRANSCRIPT_LOCATORS = {
+  claude: claudeTranscript,
+  // Codex stores sessions under ~/.codex, but its on-disk layout is not modelled here and
+  // guessing a path that silently never matches would downgrade every codex resume to cold
+  // while looking like it worked. Explicit resume still passes through.
+  codex: null,
+  // No resume at all, so nothing to locate. See RESUME_ARGS above.
+  gridlight: null,
+};
+
+/** True only when this engine's transcript for `sessionId` is confirmed present on this disk. */
+export function transcriptExists(agentType, cwd, sessionId, homeDir = osSync.homedir()) {
+  if (!sessionId || !cwd) return false;
+  const locate = TRANSCRIPT_LOCATORS[agentType];
+  if (typeof locate !== 'function') return false;
+  return Boolean(locate(cwd, sessionId, homeDir));
+}
+
+/**
+ * Can this engine's transcripts be located at all?
+ *
+ * The veto must only apply where verification is POSSIBLE. Treating "no locator" as "not found"
+ * would block every codex resume forever while looking like a considered safety decision.
+ */
+export function canVerifyTranscript(agentType) {
+  return typeof TRANSCRIPT_LOCATORS[agentType] === 'function';
+}
