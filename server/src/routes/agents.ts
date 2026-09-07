@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { getIO, upgradeSocketsToAgentRoom } from '../ws.js';
+import { getIO, upgradeSocketsToAgentRoom, hasActiveSocket } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
@@ -16,6 +16,7 @@ import { detectTrailingQuestion } from '../lib/trailing-question.js';
 import { recordQueueCompletion } from '../lib/queue-kinds.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
+import { relaunchSessionNatively } from '../lib/native-relaunch.js';
 
 const router = Router();
 
@@ -753,15 +754,6 @@ function renderAgentRecoveryPrompt(agent: Record<string, unknown>, rows: Message
 router.post('/:id/recover-session', (req, res) => {
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  if (agent.status === 'offline') {
-    db.prepare(
-      `UPDATE agents
-       SET recovery_status = CASE WHEN recovery_status = '' THEN 'interrupted' ELSE recovery_status END
-       WHERE id = ?`,
-    ).run(req.params.id);
-    return res.status(409).json({ error: 'Relaunch this cartridge before resuming its session', delivered: false });
-  }
-
   const requestedSessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
   const sessionId = requestedSessionId
     || (agent.recovery_session_id as string)
@@ -772,6 +764,46 @@ router.post('/:id/recover-session', (req, res) => {
 
   if (!sessionId) {
     return res.status(400).json({ error: 'No captured transcript is available for this cartridge' });
+  }
+
+  // An OFFLINE cartridge used to end here with "relaunch it yourself, then come back". There is
+  // nothing to inject a replay into when nothing is running — but the machine's runner can open
+  // the terminal AND resume the real session in one step, which is strictly better than what a
+  // replay could have offered even if a session had been running. Replay stays the fallback for
+  // an engine with no native resume, and for when no runner can be reached.
+  // LIVENESS, NOT THE STATUS COLUMN. `status` lags by design — the sweep walks
+  // working → idle → offline over minutes — so a cartridge you exited seconds ago still reads
+  // `idle`. Taking the online path then injects a replay into a session that no longer exists,
+  // it fails with "no command channel", and the person is told to relaunch by hand: the exact
+  // dead end this route was fixed to remove. The socket is the truth and it drops instantly.
+  const isLive = hasActiveSocket(req.params.id);
+  if (!isLive) {
+    db.prepare(
+      `UPDATE agents
+       SET recovery_status = CASE WHEN recovery_status = '' THEN 'interrupted' ELSE recovery_status END,
+           recovery_session_id = ?
+       WHERE id = ?`,
+    ).run(sessionId, req.params.id);
+
+    const relaunch = relaunchSessionNatively(agent, sessionId);
+    if (relaunch.ok) {
+      db.prepare(
+        `UPDATE agents SET recovery_status = 'recovering', interrupted_at = COALESCE(interrupted_at, ?) WHERE id = ?`,
+      ).run(new Date().toISOString(), req.params.id);
+      return res.json({
+        ok: true,
+        relaunched: true,
+        sessionId,
+        note: 'A terminal is opening on that machine, resuming the session natively. '
+          + 'It will reconnect on its own — no replay needed.',
+      });
+    }
+    return res.status(409).json({
+      error: `Could not relaunch this cartridge automatically (${relaunch.reason}). `
+        + 'Start it yourself, then retry Resume session.',
+      delivered: false,
+      relaunched: false,
+    });
   }
 
   const rows = db.prepare(

@@ -157,17 +157,28 @@ export function MachineLauncher({ servers = [] }: Props) {
     return () => clearInterval(interval);
   }, [open, baseKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Resume is the default: clicking an engine picks up that repo's last real session. This is
+  // the opt-out, and it is per-expanded-repo rather than global so choosing "fresh" for one
+  // project cannot silently apply to the next one you open.
+  const [freshRepo, setFreshRepo] = useState<string | null>(null);
+
   const flash = (kind: 'ok' | 'err', msg: string) => {
     setNotice({ kind, msg });
     setTimeout(() => setNotice(null), 5000);
   };
 
-  const launch = async (machine: FleetMachine, repoPath: string, repoName: string, agentType: string) => {
+  const launch = async (
+    machine: FleetMachine, repoPath: string, repoName: string, agentType: string, fresh: boolean,
+  ) => {
     setOpen(false);
     setExpandedRepo(null);
     try {
-      await clientFor(machine.origin).launchOnMachine(machine.id, repoPath, agentType);
-      flash('ok', `Launching ${agentType} in ${repoName} on ${machine.hostname}…`);
+      const r = await clientFor(machine.origin)
+        .launchOnMachine(machine.id, repoPath, agentType, undefined, fresh ? { fresh: true } : undefined);
+      // SAY WHICH ONE. "Launching…" is ambiguous once resume is the default, and finding out
+      // your context did not come with you by reading the terminal is the wrong way to learn it.
+      const how = r?.resumed ? `resuming session ${String(r.resumed).slice(0, 8)}…` : 'fresh session';
+      flash('ok', `Launching ${agentType} in ${repoName} on ${machine.hostname} — ${how}`);
     } catch (e) {
       flash('err', e instanceof Error ? e.message : 'Launch failed');
     }
@@ -402,16 +413,27 @@ export function MachineLauncher({ servers = [] }: Props) {
                           <span className={`text-gray-600 text-[13px] transition-transform ${expandedRepo === rid ? 'rotate-90' : ''}`}>▶</span>
                         </button>
                         {expandedRepo === rid && (
-                          <div className="flex flex-wrap gap-1 px-3 pb-1.5 pl-9">
-                            {AGENT_TYPES.map((t) => (
-                              <button
-                                key={t.key}
-                                onClick={() => launch(m, repo.path, repo.name, t.key)}
-                                className={`text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors ${t.color}`}
-                              >
-                                {t.label}
-                              </button>
-                            ))}
+                          <div className="px-3 pb-1.5 pl-9">
+                            <div className="flex flex-wrap gap-1">
+                              {AGENT_TYPES.map((t) => (
+                                <button
+                                  key={t.key}
+                                  onClick={() => launch(m, repo.path, repo.name, t.key, freshRepo === rid)}
+                                  className={`text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors ${t.color}`}
+                                >
+                                  {t.label}
+                                </button>
+                              ))}
+                            </div>
+                            <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={freshRepo === rid}
+                                onChange={(e) => setFreshRepo(e.target.checked ? rid : null)}
+                                className="accent-cyan-500"
+                              />
+                              Start fresh session (don&apos;t resume)
+                            </label>
                           </div>
                         )}
                       </div>

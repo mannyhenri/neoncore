@@ -39,6 +39,7 @@
 import { io } from 'socket.io-client';
 import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
+import { resumeArgsFor, canVerifyTranscript, transcriptExists } from './resume-args.mjs';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -77,7 +78,36 @@ const AGENT_CMD = process.env.NEONCORE_AGENT_CMD
   || (process.platform === 'win32' ? `${AGENT_TYPE}.cmd` : AGENT_TYPE);
 // Everything after a literal `--` is forwarded to the agent CLI.
 const dashIdx = process.argv.indexOf('--');
-const AGENT_ARGS = dashIdx >= 0 ? process.argv.slice(dashIdx + 1) : [];
+const EXPLICIT_ARGS = dashIdx >= 0 ? process.argv.slice(dashIdx + 1) : [];
+
+// Native session resume. NEONCORE_RESUME_SESSION_ID is set only when a launcher is RECOVERING
+// a specific session — never on an ordinary cold start. It is deliberately NOT
+// NEONCORE_SESSION_ID, which carries synthetic labels like `neoncore-claude-1757...` on every
+// normal launch and would turn each of them into a resume against a session that never existed.
+//
+// The resume args go FIRST so an explicit `-- <args>` from the caller can still override or
+// extend them, and an already-explicit `--resume` wins rather than being duplicated.
+const RESUME_SESSION_ID = (process.env.NEONCORE_RESUME_SESSION_ID || '').trim();
+const alreadyResuming = EXPLICIT_ARGS.some((a) => a === '--resume' || a === 'resume');
+
+// THE RELAY HAS THE VETO. The server proposes a session id from what the hooks last reported,
+// but only this process is on the disk that holds the transcript. Resuming one that has been
+// deleted or rotated exits the CLI with an unknown-session error and leaves a dead terminal —
+// worse than the cold start it replaced, and the very failure that made native resume distrusted
+// in the first place. Checked ONLY where verification is possible: an engine whose layout we do
+// not model is trusted rather than blocked, or no codex session could ever resume.
+const transcriptMissing = Boolean(RESUME_SESSION_ID)
+  && canVerifyTranscript(AGENT_TYPE)
+  && !transcriptExists(AGENT_TYPE, process.cwd(), RESUME_SESSION_ID);
+
+const resumeArgs = (alreadyResuming || transcriptMissing)
+  ? null
+  : resumeArgsFor(AGENT_TYPE, RESUME_SESSION_ID);
+const AGENT_ARGS = resumeArgs ? [...resumeArgs, ...EXPLICIT_ARGS] : EXPLICIT_ARGS;
+
+// Reported at spawn time, not here: `log()` writes to LOG_FILE, which is a `const` declared
+// further down this module — calling it now is a temporal-dead-zone crash.
+const RESUME_DOWNGRADED = Boolean(RESUME_SESSION_ID) && !resumeArgs && !alreadyResuming;
 
 // Bracketed-paste wrappers — let the agent TUI treat multi-line prompts as a
 // single paste instead of submitting on the first embedded newline.
@@ -135,7 +165,11 @@ async function registerAgent(identity) {
       repoPath: identity.repoPath,
       repoName: identity.repoName,
       branch: identity.branch,
-      sessionId: `relay-${process.pid}`,
+      // On a RESUME we already know the real session id — registering `relay-<pid>` would
+      // display a placeholder for the session we deliberately came back as, until the first
+      // hook fired and corrected it. On a cold start there is genuinely nothing to name yet,
+      // so the pid label stands until the hooks report the session Claude Code assigns.
+      sessionId: resumeArgs ? RESUME_SESSION_ID : `relay-${process.pid}`,
       agentType: AGENT_TYPE,
       status: 'idle',
     }),
@@ -176,6 +210,20 @@ async function main() {
   } catch (err) {
     process.stderr.write(`NeonCore relay: could not reach orchestrator at ${URL} — launching agent anyway.\n`);
     log(`registerAgent failed: ${err}`);
+  }
+
+  // Say a downgrade out loud. A silent fall back to a cold session is the failure this whole
+  // path exists to end: the cartridge comes back looking healthy with none of its context, and
+  // nobody finds out until it answers as if the last three hours never happened.
+  if (transcriptMissing) {
+    log(`Resume requested for ${RESUME_SESSION_ID} but no ${AGENT_TYPE} transcript for it exists `
+      + `under ${process.cwd()} — starting a fresh session rather than a terminal that dies on `
+      + 'an unknown session id.');
+  } else if (RESUME_DOWNGRADED) {
+    log(`Resume requested for ${RESUME_SESSION_ID} but ${AGENT_TYPE} has no native resume — `
+      + 'starting a fresh session; NeonCore transcript replay is the fallback.');
+  } else if (resumeArgs) {
+    log(`Resuming ${AGENT_TYPE} session ${RESUME_SESSION_ID} (${resumeArgs.join(' ')})`);
   }
 
   // 2. Spawn the agent CLI inside a PTY we own, and bridge it to this terminal.

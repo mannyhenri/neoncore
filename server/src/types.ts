@@ -537,7 +537,7 @@ export type ServerToClientEvents = {
   heartbeat_fired: (data: { heartbeatId: string; runId: string; projectId: string | null; templateId: string; label: unknown; firedAt: string; nextRunAt: string }) => void;
   machine_updated: (machine: Machine) => void;
   // Server → runner: launch a cartridge on this machine (delivered to the machine's room).
-  launch_cartridge: (data: { machineId: string; repoPath: string; agentType: AgentType; sessionId: string; context: string }) => void;
+  launch_cartridge: (data: { machineId: string; repoPath: string; agentType: AgentType; sessionId: string; context: string; resumeSessionId?: string }) => void;
   // Server → runner: replace this machine's exposed-folder allowlist (portal-managed).
   machine_set_repos: (data: { machineId: string; repos: MachineRepo[] }) => void;
   // Server → runner: scan a directory ON that machine and add the git repos under it.

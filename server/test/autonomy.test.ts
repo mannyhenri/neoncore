@@ -70,10 +70,15 @@ test('manual grants nothing', () => {
 
 test('advance grants only the reasons where nothing is decided for you', () => {
   // `manual-advance` releases work that is already finished. `agent-idle` nudges a cartridge to
-  // complete the instruction it was already given. Neither picks anything on your behalf, which
-  // is the whole definition of this level — so the assertion is the PROPERTY, not a fixed list
-  // that has to be edited every time a reason is added.
-  assert.deepEqual(AUTO_RESOLVABLE.advance.slice().sort(), ['agent-idle', 'manual-advance']);
+  // complete the instruction it was already given. `agent-silent` nudges the same instruction to
+  // a cartridge that is still working but has stopped reporting — same nudge, opposite symptom.
+  // None picks anything on your behalf, which is the whole definition of this level.
+  //
+  // The explicit list stays as a tripwire even though the property below is the real invariant:
+  // it is what made `agent-silent` fail here first and be granted deliberately rather than by
+  // being appended to a registry somewhere else.
+  assert.deepEqual(AUTO_RESOLVABLE.advance.slice().sort(),
+    ['agent-idle', 'agent-silent', 'manual-advance']);
 
   const DECIDES_FOR_YOU: string[] = ['decision', 'agent-waiting'];
   for (const r of AUTO_RESOLVABLE.advance) {

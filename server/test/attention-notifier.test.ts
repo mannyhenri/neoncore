@@ -76,6 +76,10 @@ const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   // Nothing a button can fix — the cartridge has to be asked to finish. `advance` and `full`
   // nudge it automatically; a person is told what happened and where.
   'agent-idle': 'told-how',
+  // Same remedy, opposite symptom: the cartridge is still working but has stopped reporting,
+  // usually because a context compaction dropped the step id it owes a result to. A button
+  // cannot say a step id; the hint does, which is the whole reason it is `told-how`.
+  'agent-silent': 'told-how',
 };
 
 test('every reason either offers a control or says how to resolve it — none is a dead end', () => {

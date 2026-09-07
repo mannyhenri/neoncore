@@ -7,7 +7,9 @@ import db from '../db.js';
 import { dispatchSetReposToMachine, isMachineOnline } from '../ws.js';
 import {
   openDirectory,
+  RELAY_LAUNCH_TYPES,
 } from '../lib/open-directory.js';
+import { launchResumeDecision, lastResumableSession } from '../lib/last-session.js';
 
 // Fallback GitHub owner when the request doesn't specify one and no active account is set.
 const DEFAULT_OWNER = 'mannyhenri';
@@ -150,17 +152,26 @@ router.get('/', (_req, res) => {
 // POST /api/repos/open - open a repo with the chosen agent tool
 // ---------------------------------------------------------------------------
 router.post('/open', (req, res) => {
-  const { path: repoPath, agentType } = req.body;
+  const { path: repoPath, agentType, fresh, resumeSessionId } = req.body;
   if (!repoPath || typeof repoPath !== 'string') {
     return res.status(400).json({ error: 'path required' });
   }
 
   // Cursor needs a special error message when binary is missing
 
+  // Resume by default, same contract as the remote launch route. Non-relay agent types (VS
+  // Code, Cursor) ignore the resume id entirely — openDirectory only threads it into the relay
+  // branches — so passing it unconditionally is safe.
+  const resume = launchResumeDecision({
+    fresh: fresh === true,
+    resumeSessionId: typeof resumeSessionId === 'string' ? resumeSessionId : '',
+    lastSession: lastResumableSession(repoPath, RELAY_LAUNCH_TYPES[agentType] || agentType),
+  });
+
   // openDirectory handles all agent types, including CLI + VS Code + Cursor
-  const err = openDirectory(repoPath, agentType);
+  const err = openDirectory(repoPath, agentType, { resumeSessionId: resume });
   if (err) return res.status(500).json({ error: err });
-  res.json({ ok: true });
+  res.json({ ok: true, resumed: resume || null });
 });
 
 // ---------------------------------------------------------------------------
