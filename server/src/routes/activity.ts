@@ -129,6 +129,13 @@ router.get('/burn-rate', (req, res) => {
 // `byCartridge` ships alongside the series deliberately: the series answers "when did my spend
 // change", and the immediate next question is always "on what", which a chart of one line
 // cannot answer. Both come off the same scan, so it costs nothing to answer both at once.
+//
+// Each cartridge carries its `project`, the SAME expression `byProject` groups on, so a client
+// can split a project into its cartridges by equality. Clients previously matched on the name
+// — `cartridge.name.includes(project)` — which is wrong the moment one repo name contains
+// another: tapping `gridlight` also listed `gridlight-work` and `gridlight-manager`, under a
+// heading that correctly said "1 cartridge". Deriving it here is also the only place it CAN be
+// derived, since `session_usage` carries an agent id and nothing else.
 router.get('/usage-series', (req, res) => {
   const days = Math.min(400, Math.max(1, Number(req.query.days) || 30));
   const bucket = (BUCKETS as string[]).includes(String(req.query.bucket))
@@ -149,12 +156,14 @@ router.get('/usage-series', (req, res) => {
   // Priced per row by its own model, so a window spanning a model switch stays honest.
   const byCartridge = db.prepare(`
     SELECT u.agent_id AS agentId, COALESCE(a.name, u.agent_id) AS name,
+           COALESCE(NULLIF(a.repo_name, ''), 'unassigned') AS project,
            SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens) AS tokens,
            COUNT(*) AS samples
     FROM session_usage u LEFT JOIN agents a ON a.id = u.agent_id
     WHERE u.recorded_at >= ?
     GROUP BY u.agent_id ORDER BY tokens DESC
-  `).all(sinceIso) as { agentId: string; name: string; tokens: number; samples: number }[];
+  `).all(sinceIso) as
+    { agentId: string; name: string; project: string; tokens: number; samples: number }[];
 
   /**
    * The same spend, grouped by REPO rather than by cartridge.

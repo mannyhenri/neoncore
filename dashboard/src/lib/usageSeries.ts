@@ -19,7 +19,7 @@ export interface UsageSeries {
   days: number;
   series: SeriesPoint[];
   total: { tokens: number; costUsd: number; samples: number };
-  byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
+  byCartridge: { agentId: string; name: string; project: string; tokens: number; samples: number }[];
   byProject: { project: string; tokens: number; samples: number; cartridges: number }[];
 }
 

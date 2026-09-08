@@ -10,8 +10,20 @@ import type { ServerEntry } from '@neoncore/client';
  * Token reporting: burn over time, so a change in how you work can be seen in what it costs.
  *
  * Two questions drive the layout. "Did my spend move, and when" is the chart. "On what" is the
- * cartridge table under it — a single line cannot answer the second, and it is always the next
+ * project table under it — a single line cannot answer the second, and it is always the next
  * thing asked, so both come off one fetch.
+ *
+ * ── ONE BREAKDOWN, NOT TWO ────────────────────────────────────────────────────────────
+ * There was a per-CARTRIDGE table under the per-project one. On a fleet where each repo runs a
+ * single cartridge — which is every fleet observed — the two are the same table twice, row for
+ * row, in the same order, differing only in that the cartridge names carry a `<machine>/` prefix.
+ * A reader comparing them learns nothing and spends the effort anyway.
+ *
+ * The project grouping is the one that survives, because it is the one that stays correct when
+ * they diverge: a repo run by two cartridges sums into one project row, and a per-cartridge list
+ * cannot be sorted into that answer. What the cartridge table alone used to show — turns — moved
+ * onto the project row, and the cartridge COUNT appears there only when it is greater than one,
+ * which is the only time it says anything.
  *
  * THE NUMBERS HERE ARE THE MEASURED ONES. `session_usage`, written per turn from the transcript,
  * counting all four token classes. Not `workflow_steps.tokens_in/out`, which is a `length / 4`
@@ -162,9 +174,8 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         loading={loading} hover={hover} setHover={setHover}
       />
 
-      {/* Projects BEFORE cartridges: "what did this project cost me" is the question you
-          arrive with, and several cartridges routinely share one repo — a per-cartridge list
-          cannot answer it however it is sorted. */}
+      {/* "What did this project cost me" is the question you arrive with. See the header for
+          why this is the only breakdown. */}
       {data && data.byProject.length > 0 && (
         <section className="mb-6">
           <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
@@ -184,8 +195,12 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
                   </span>
                   <span className="w-14 text-right text-gray-600 font-mono">{(share * 100).toFixed(1)}%</span>
                   <span className="w-20 text-right text-gray-400 font-mono">{compact(p.tokens)}</span>
-                  <span className="w-24 text-right text-gray-600 font-mono">
-                    {p.cartridges} cartridge{p.cartridges === 1 ? '' : 's'}
+                  {/* Turns, which the removed cartridge table used to be the only place to see.
+                      The cartridge count rides along ONLY when a project spans more than one —
+                      "1 cartridge" repeated down every row was the noise, but a project that
+                      really does span several is the one case this row hides something. */}
+                  <span className="w-28 text-right text-gray-600 font-mono">
+                    {p.samples.toLocaleString()} turns{p.cartridges > 1 ? ` · ${p.cartridges} cart` : ''}
                   </span>
                 </div>
               );
@@ -194,33 +209,6 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         </section>
       )}
 
-      {data && data.byCartridge.length > 0 && (
-        <section>
-          <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
-            By cartridge — {range.label.toLowerCase()}
-          </h3>
-          <div className="border border-white/[0.06] rounded-lg overflow-hidden">
-            {data.byCartridge.map((c, i) => {
-              const share = data.total.tokens > 0 ? c.tokens / data.total.tokens : 0;
-              return (
-                <div
-                  key={`${c.agentId}-${i}`}
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm border-b border-white/[0.04] last:border-0"
-                >
-                  <span className="flex-1 min-w-0 truncate text-gray-300">{c.name}</span>
-                  {/* The share bar is the point of the row: which cartridge is the spend. */}
-                  <span className="hidden sm:block w-36 h-2 rounded-full bg-white/[0.06] overflow-hidden">
-                    <span className="block h-full bg-gl-blue/60" style={{ width: `${Math.max(2, share * 100)}%` }} />
-                  </span>
-                  <span className="w-14 text-right text-gray-600 font-mono">{(share * 100).toFixed(1)}%</span>
-                  <span className="w-20 text-right text-gray-400 font-mono">{compact(c.tokens)}</span>
-                  <span className="w-24 text-right text-gray-600 font-mono">{c.samples.toLocaleString()} turns</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
