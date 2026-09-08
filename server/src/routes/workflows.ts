@@ -9,6 +9,7 @@ import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
 import { unrunnableSteps } from '../lib/workflow-launch.js';
 import { workflowNeedsAttention } from '../lib/workflow-attention.js';
+import { libelleContexte } from '../lib/context-label.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
@@ -53,6 +54,9 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     maxIterations: (row.max_iterations ?? 3) as number,
     sharedContext: (row.shared_context ?? '') as string,
     initialContext: (row.initial_context ?? '') as string,
+    // The short subject a list shows instead of an id. Derived from initialContext at write
+    // time, not here: a list must not have to re-derive it for every row it renders.
+    contextLabel: (row.context_label ?? '') as string,
     // Derived, not stored: "is this waiting on me right now" must be answerable at any moment,
     // not only at the instant something happened and a notification fired.
     needsAttention: workflowNeedsAttention(row.id as string),
@@ -679,14 +683,17 @@ router.post('/v2/:id/start', (req, res) => {
 
     db.prepare(`
       INSERT INTO workflows (id, name, jira_task_id, description, players, phases, status,
-        current_phase, iteration, max_iterations, shared_context, initial_context, created_at, started_at, completed_at, error,
+        current_phase, iteration, max_iterations, shared_context, initial_context, context_label, created_at, started_at, completed_at, error,
         target_repos, template_id, run_number)
-      VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, NULL, '',
+      VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, NULL, '',
         ?, ?, ?)
     `).run(
       runId,
       row.name, row.jira_task_id, row.description, row.players, row.phases,
       row.current_phase, row.iteration, row.max_iterations, row.shared_context, initialContext,
+      // Derived HERE, beside the context it summarises. Deriving it at render time would make
+      // every list row re-parse a paragraph, and two surfaces would drift on how they cut it.
+      libelleContexte(initialContext),
       now, now,
       row.target_repos, templateId, runNum,
     );
@@ -756,7 +763,11 @@ router.post('/v2/:id/start', (req, res) => {
     // ── Re-run an existing run in place ───────────────
     runId = req.params.id;
     const reRunCtx = (req.body?.initialContext as string) || '';
-    db.prepare("UPDATE workflows SET status = 'running', started_at = ?, completed_at = NULL, error = '', initial_context = ? WHERE id = ?").run(now, reRunCtx, runId);
+    // The label travels with the context it describes. A re-run with a NEW subject that kept the
+    // old label would name the run after work it is no longer doing — the worst kind of stale,
+    // because it looks correct.
+    db.prepare("UPDATE workflows SET status = 'running', started_at = ?, completed_at = NULL, error = '', initial_context = ?, context_label = ? WHERE id = ?")
+      .run(now, reRunCtx, libelleContexte(reRunCtx), runId);
 
     db.prepare(`
       UPDATE workflow_steps

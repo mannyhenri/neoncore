@@ -29,6 +29,16 @@ const STATUS_STYLE: Record<string, string> = {
  * themselves are rows in the task list — a queued prompt is a task, and giving it a second
  * panel above the list was the duplication the user asked us to remove.
  */
+/**
+ * What to call a queued item. The server derives `description` from the kind's own describer on
+ * every read — "Epic: Task by Task #11 · GRD-3665" rather than the repo path this used to print,
+ * which named the machine and not the work. The old expression stays as the fallback so an item
+ * fetched by a response that returns a bare row still reads as something.
+ */
+function itemTitle(i: QueueItem): string {
+  return i.description || String(i.payload?.text ?? i.payload?.repoPath ?? i.id.slice(0, 8));
+}
+
 export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [lanes, setLanes] = useState<QueueLane[]>([]);
@@ -141,8 +151,8 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
                     {i.status}
                   </span>
                   <span className="text-gray-500 shrink-0">{i.kind}</span>
-                  <span className="text-gray-300 truncate flex-1">
-                    {String(i.payload?.text ?? i.payload?.repoPath ?? i.id.slice(0, 8))}
+                  <span className="text-gray-300 truncate flex-1" title={itemTitle(i)}>
+                    {itemTitle(i)}
                   </span>
                   {i.error && <span className="text-red-400/90 truncate max-w-[16rem]">{i.error}</span>}
                   {i.status === 'queued' && (

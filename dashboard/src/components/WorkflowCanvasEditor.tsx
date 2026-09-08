@@ -3601,14 +3601,22 @@ function SidePanel({
           <div>
             <label className="block text-xs text-gray-500 mb-1">Depends on</label>
             <div className="flex flex-wrap gap-1">
-              {step.dependsOn.map((depId) => (
-                <span
-                  key={depId}
-                  className="text-[13px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-mono"
-                >
-                  {depId.slice(0, 8)}
-                </span>
-              ))}
+              {/* The whole point of a dependency chip is to say WHICH step must land first.
+                  An id fragment cannot answer that without opening another panel, and the step
+                  is already in `steps` right here. The id stays as the tooltip for the case
+                  where a dependency points at a step that has since been deleted. */}
+              {step.dependsOn.map((depId) => {
+                const dep = steps.find((s) => s.id === depId);
+                return (
+                  <span
+                    key={depId}
+                    title={depId}
+                    className={`text-[13px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 ${dep ? '' : 'font-mono'}`}
+                  >
+                    {dep?.name || depId.slice(0, 8)}
+                  </span>
+                );
+              })}
             </div>
           </div>
         )}

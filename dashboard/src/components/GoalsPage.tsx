@@ -900,6 +900,7 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
   const [form, setForm] = useState<HeartbeatFormData>(EMPTY_FORM);
   const [firing, setFiring] = useState<string | null>(null);
   const [firedRun, setFiredRun] = useState<string | null>(null);
+  const [firedRunName, setFiredRunName] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -951,6 +952,10 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
     try {
       const result = await api.fireHeartbeat(id);
       setFiredRun(result.runId);
+      // The schedule already knows what it launches, and it is the same name the row above is
+      // labelled with — so the confirmation names the run instead of handing back an id.
+      const fired = heartbeats.find((h) => h.id === id);
+      setFiredRunName(fired?.label || fired?.templateName || '');
       const updated = await api.getHeartbeats(project.id);
       setHeartbeats(updated);
     } catch { /* no-op */ } finally {
@@ -997,8 +1002,12 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
     <div className="space-y-3">
       {firedRun && (
         <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
-          <span className="text-[12px] text-emerald-400">Run started — ID: {firedRun.slice(0, 8)}…</span>
-          <button onClick={() => setFiredRun(null)} className="text-emerald-600 hover:text-emerald-400 text-[11px]">dismiss</button>
+          {/* An id tells you a run exists; the name tells you which one, which is what you go
+              looking for in the workflow list a second later. */}
+          <span className="text-[12px] text-emerald-400">
+            Run started — {firedRunName || `ID: ${firedRun.slice(0, 8)}…`}
+          </span>
+          <button onClick={() => { setFiredRun(null); setFiredRunName(''); }} className="text-emerald-600 hover:text-emerald-400 text-[11px]">dismiss</button>
         </div>
       )}
 
