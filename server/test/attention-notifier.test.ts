@@ -80,6 +80,9 @@ const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   // usually because a context compaction dropped the step id it owes a result to. A button
   // cannot say a step id; the hint does, which is the whole reason it is `told-how`.
   'agent-silent': 'told-how',
+  // A button cannot relaunch a relay on another machine, and the thing that would carry the
+  // instruction is the very channel that is gone. Words, with the resume form spelled out.
+  'channel-lost': 'told-how',
 };
 
 test('every reason either offers a control or says how to resolve it — none is a dead end', () => {

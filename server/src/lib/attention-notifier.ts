@@ -22,8 +22,12 @@
  * times costs you the afternoon.
  */
 import db from '../db.js';
+import { hasActiveSocket } from '../ws.js';
 import { notifyAll, type Notice } from './channels.js';
-import { workflowNeedsAttention, ATTENTION_REASONS, type Attention, type AttentionReason } from './workflow-attention.js';
+import {
+  workflowNeedsAttention, observeChannels, ATTENTION_REASONS,
+  type Attention, type AttentionReason,
+} from './workflow-attention.js';
 import {
   decisionOptions, decideStep, advanceStep, workflowIdOfStep,
   unadvanceStep, undecideStep, executorConfigOf,
@@ -120,6 +124,15 @@ function hint(attention: Attention, cartridge: string | null): string | null {
       ? `The cartridge went quiet without reporting. Nudge it: \`!prompt ${cartridge} finish the step and report\``
       : 'The cartridge went quiet without reporting. Re-dispatch the step from the dashboard.';
   }
+  if (attention.reason === 'channel-lost') {
+    // The fix is a relaunch, not a message — and a message is exactly what cannot be delivered.
+    // Naming the resume form matters: relaunching WITHOUT it starts a cold session and loses
+    // the context the run has been building.
+    return cartridge
+      ? `No command channel — a dispatch would bounce. Relaunch its relay: \`cd <repo> && `
+        + 'NEONCORE_RESUME_SESSION_ID=<session> node ~/.neoncore/relay/launch.js`'
+      : 'No command channel. Relaunch that cartridge\'s relay before the next dispatch.';
+  }
   if (attention.reason === 'agent-silent') {
     // The step id is the payload here, not decoration: a compaction drops the completion
     // contract, and the id is the one thing the cartridge can no longer recover on its own.
@@ -181,6 +194,20 @@ export async function sweepAttention(): Promise<number> {
   const runs = db.prepare(
     "SELECT id, name, run_number FROM workflows WHERE status = 'running'",
   ).all() as WorkflowRow[];
+
+  // OBSERVE BEFORE ASKING. `channel-lost` needs to know how long a cartridge's socket has been
+  // absent, and that clock cannot live inside `workflowNeedsAttention` — it is called from
+  // routes/workflows.ts on every dashboard list request, and a GET must not advance a stall
+  // timer. This sweep is the one place with the right cadence to own it.
+  //
+  // Executors of RUNNING steps only: an agent with nothing dispatched to it owes no channel.
+  const executors = db.prepare(
+    `SELECT DISTINCT s.executor_id AS id
+       FROM workflow_steps s JOIN workflows w ON w.id = s.workflow_id
+      WHERE w.status = 'running' AND s.status = 'running'
+        AND s.executor_id != '' AND s.executor_id != '__deferred__'`,
+  ).all() as { id: string }[];
+  observeChannels(executors.map((e) => e.id), hasActiveSocket);
 
   const live = new Set(runs.map((r) => r.id));
   // A run that finished, or that is no longer blocked, must forget its key — otherwise

@@ -27,6 +27,7 @@ import db from '../src/db.js';
 import { installStubIO } from './helpers/stub-io.js';
 import {
   workflowNeedsAttention, ATTENTION_REASONS, STALE_AFTER_MS, DISPATCH_SILENT_FLOOR_MS,
+  observeChannels, __resetChannelStateForTest, CHANNEL_GRACE_MS,
   type Attention, type AttentionReason,
 } from '../src/lib/workflow-attention.ts';
 
@@ -94,6 +95,17 @@ const FIXTURES: Record<AttentionReason, () => { workflowId: string; stepName: st
               executor: agent({ status: 'waiting', question: 'Which database?' }) });
     return { workflowId: w, stepName: 'Asking Step' };
   },
+  'channel-lost': () => {
+    const w = wf();
+    const a = agent({ status: 'working', lastSeenMsAgo: 5_000 });
+    step(w, { name: 'Unreachable Step', status: 'running', prompt: 'do the thing', executor: a,
+              startedMsAgo: 60_000 });
+    // Two observations spanning the grace window — the sweep's job, not the detector's.
+    __resetChannelStateForTest();
+    observeChannels([a], () => false, Date.now() - CHANNEL_GRACE_MS * 2);
+    observeChannels([a], () => false, Date.now());
+    return { workflowId: w, stepName: 'Unreachable Step' };
+  },
   'agent-idle': () => {
     const w = wf();
     step(w, {
@@ -130,6 +142,8 @@ const GOLDEN_DETAIL: Record<AttentionReason, string> = {
   interrupted: '"Lost Step" was interrupted and needs recovery.',
   decision: 'Which approach?',
   'agent-waiting': 'The cartridge running "Asking Step" is waiting for your input.',
+  'channel-lost': 'The cartridge running "Unreachable Step" has had no command channel for over '
+    + '90 seconds — the next dispatch will bounce. Relaunch its relay.',
   'agent-idle': '"Quiet Step" was dispatched but the cartridge went quiet without reporting.',
   'agent-silent': '"Busy Step" was dispatched over 90 minutes ago and the cartridge is still '
     + 'working, but nothing has been reported — it may have lost the completion contract '
