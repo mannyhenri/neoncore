@@ -273,7 +273,7 @@ export function WorkflowPanel({ agents }: Props) {
                     <span className="text-[11px] text-amber-300/90">waiting — cartridge busy</span>
                   </div>
                   <p className="text-[13px] text-gray-300 line-clamp-2">
-                    {(q.payload?.task as string) || (q.payload?.workflowId as string) || q.kind}
+                    {q.description || (q.payload?.task as string) || q.kind}
                   </p>
                   <p className="text-[10px] text-gray-600 mt-1 font-mono truncate">{q.lane}</p>
                 </div>

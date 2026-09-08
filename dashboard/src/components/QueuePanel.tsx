@@ -32,11 +32,14 @@ const STATUS_STYLE: Record<string, string> = {
 /**
  * What to call a queued item. The server derives `description` from the kind's own describer on
  * every read — "Epic: Task by Task #11 · GRD-3665" rather than the repo path this used to print,
- * which named the machine and not the work. The old expression stays as the fallback so an item
- * fetched by a response that returns a bare row still reads as something.
+ * which named the machine and not the work.
+ *
+ * The fallback is for a FEDERATED dashboard pointed at an older server that predates
+ * `description`. It ends at the kind, never at the id: a uuid is not a degraded label, it is an
+ * unreadable one, and an id fallback firing is exactly the bug this replaced.
  */
 function itemTitle(i: QueueItem): string {
-  return i.description || String(i.payload?.text ?? i.payload?.repoPath ?? i.id.slice(0, 8));
+  return i.description || String(i.payload?.text ?? i.payload?.repoPath ?? i.kind);
 }
 
 export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}) {
