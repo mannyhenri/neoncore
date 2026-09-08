@@ -116,6 +116,14 @@ export function silentThresholdMs(workflowId: string): number {
 export const CHANNEL_GRACE_MS = 90 * 1000;
 
 /**
+ * How long before an autonomy grant lapses to say so.
+ *
+ * Long enough to act on from a phone, short enough that it is not a countdown. The warning
+ * fires once — `keyOf` dedupes on reason plus step — so this is a threshold, not a cadence.
+ */
+export const AUTONOMY_WARN_WINDOW_MS = 30 * 60 * 1000;
+
+/**
  * When each agent's channel was FIRST seen absent. Cleared the moment it comes back.
  *
  * ── WHY THIS IS FILLED BY THE SWEEP AND READ BY THE DETECTOR, NEVER BOTH ───────────────
@@ -169,6 +177,7 @@ export const ATTENTION_REASONS = [
   'agent-idle',     // dispatched, the cartridge went quiet, and nothing was ever reported
   'agent-silent',   // dispatched, the cartridge is still WORKING, and nothing was ever reported
   'budget-exhaustion', // the loop will run out of dispatches with work still to do
+  'autonomy-expiring', // the grant lapses soon and the run is still going
 ] as const;
 
 export type AttentionReason = (typeof ATTENTION_REASONS)[number];
@@ -513,9 +522,62 @@ export const REASONS: readonly ReasonDef[] = [
     },
   },
   {
+    // THE GRANT IS ABOUT TO LAPSE, AND THE RUN IS STILL GOING.
+    //
+    // When autonomy expires the level falls back to `manual` and every reason holds instead of
+    // auto-resolving. So a person IS told — at the instant work stops, which for an overnight
+    // epic is 3am. Saying it while the grant is still in force costs one message and is
+    // actionable in exactly one way.
+    //
+    // NO FORECAST, ON PURPOSE. The clever version compares an estimated finish (median cadence
+    // x loops remaining) against the deadline and warns only when the run cannot make it. That
+    // multiplies two numbers which were both wrong on live runs: a 19-task epic reported
+    // `TASKS: 1`, and observed cadence on one run ranged 4 to 65 minutes. Worse, its failure
+    // mode is SILENCE — an optimistic forecast means no warning at all. This reads one column
+    // and states a fact; the cost is a harmless warning for a run that would have finished.
+    //
+    // WHY NOT effectiveAutonomy(). That is the authority, and asking the authority is this
+    // codebase's rule — but autonomy.ts imports REASONS at module top level to derive
+    // AUTO_RESOLVABLE, so importing it back would let module init order decide whether REASONS
+    // is in its temporal dead zone. A cycle that breaks on load, not at runtime. The narrower
+    // question asked here has no fallback semantics: a project default never expires, so only a
+    // workflow-level grant can lapse. A test pins the two in agreement.
+    name: 'autonomy-expiring',
+    order: 9,
+    // NOT auto-resolvable, and this one is close to definitional: auto-extending a grant is a
+    // level extending its own authority. autonomy.test.ts already states the principle — "a
+    // time-box that keeps granting is decorative".
+    autoAt: [],
+    detect: ({ workflowId, steps }) => {
+      const wf = db.prepare(
+        'SELECT autonomy, autonomy_expires_at FROM workflows WHERE id = ?',
+      ).get(workflowId) as { autonomy?: string; autonomy_expires_at?: string } | undefined;
+      if (!wf?.autonomy || wf.autonomy === 'manual' || !wf.autonomy_expires_at) return null;
+
+      const msLeft = Date.parse(wf.autonomy_expires_at) - Date.now();
+      // Already lapsed is not a warning: the run has fallen back to manual and every reason now
+      // holds on its own. Announcing a deadline that has passed is noise about a settled fact.
+      if (!Number.isFinite(msLeft) || msLeft <= 0 || msLeft > AUTONOMY_WARN_WINDOW_MS) return null;
+
+      // Name the step the run is actually on, so the notice points somewhere. A run between
+      // dispatches has no running step; the first unfinished one still locates it.
+      const s = steps.find((x) => x.status === 'running')
+        ?? steps.find((x) => x.status === 'pending');
+      if (!s) return null;
+
+      const mins = Math.max(1, Math.round(msLeft / 60000));
+      return {
+        step: s,
+        detail: `This run's \`${wf.autonomy}\` autonomy grant expires in ${mins} minutes, and it is `
+          + 'still working. When it lapses the run falls back to manual and will hold at the next '
+          + 'thing it would have settled itself — extend the grant to let it finish unattended.',
+      };
+    },
+  },
+  {
     // Finished, but held. Only meaningful while there is still something left to advance to.
     name: 'manual-advance',
-    order: 9,
+    order: 10,
     autoAt: ['advance', 'full'],
     detect: ({ steps }) => {
       const anyPending = steps.some((x) => x.status === 'pending');

@@ -124,6 +124,12 @@ function hint(attention: Attention, cartridge: string | null): string | null {
       ? `The cartridge went quiet without reporting. Nudge it: \`!prompt ${cartridge} finish the step and report\``
       : 'The cartridge went quiet without reporting. Re-dispatch the step from the dashboard.';
   }
+  if (attention.reason === 'autonomy-expiring') {
+    // The one repair is a grant extension, and it is a decision only a person may make — a
+    // level that extends its own time-box makes the time-box decorative.
+    return 'Extend the run\'s autonomy grant from the run view, or let it fall back to manual '
+      + 'and hold at the next gate.';
+  }
   if (attention.reason === 'budget-exhaustion') {
     // No button: the repair is a template edit, a bound lifted, or an agent chased for a count,
     // and which one depends on the cause the detail already names.

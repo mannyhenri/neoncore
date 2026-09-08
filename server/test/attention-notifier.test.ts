@@ -86,6 +86,8 @@ const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   // The repair is a template edit or a lifted bound — neither is a button, and which one it is
   // depends on the cause the detail names.
   'budget-exhaustion': 'told-how',
+  // Extending a grant is a human decision by definition, so no button offers to take it.
+  'autonomy-expiring': 'told-how',
 };
 
 test('every reason either offers a control or says how to resolve it — none is a dead end', () => {
