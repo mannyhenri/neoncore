@@ -23,13 +23,14 @@
  */
 import { randomUUID } from 'crypto';
 import db from '../db.js';
-import type { AttentionReason } from './workflow-attention.js';
+import { REASONS, type AttentionReason } from './workflow-attention.js';
 
 export const AUTONOMY_LEVELS = ['manual', 'advance', 'full'] as const;
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
 
 /** Breakage. Never auto-resolved, at any level, ever. */
-export const NEVER_AUTO: AttentionReason[] = ['failed', 'interrupted'];
+export const NEVER_AUTO: AttentionReason[] =
+  REASONS.filter((r) => r.autoAt.length === 0).map((r) => r.name);
 
 /**
  * What each level may settle without you. THE registry — the test iterates it against every
@@ -38,25 +39,12 @@ export const NEVER_AUTO: AttentionReason[] = ['failed', 'interrupted'];
 export const AUTO_RESOLVABLE: Record<AutonomyLevel, AttentionReason[]> = {
   // Nothing. The default, and what an expired grant falls back to.
   manual: [],
-  // Reason 5 only: releasing a finished step decides nothing. It is the one gate where the
-  // work is already done and the only question is whether the next step may begin.
-  // `manual-advance` releases finished work. `agent-idle` NUDGES a cartridge that was told to
-  // do something and went quiet without reporting — it decides nothing either, it asks the
-  // agent to finish the instruction it was already given. Both belong at the level whose whole
-  // definition is "decides nothing on your behalf".
-  // `agent-silent` sits beside `agent-idle` for the same reason: nudging a cartridge to finish
-  // the instruction it already holds decides nothing on anyone's behalf. It differs only in
-  // which symptom exposed the stall — a quiet cartridge or a busy one that stopped reporting.
-  advance: ['manual-advance', 'agent-idle', 'agent-silent'],
-  // Decision gates and agent questions, TAKEN BY THEIR CONFIGURED DEFAULT.
-  //
-  // GRANTING IS NOT THE SAME AS ALWAYS RESOLVING. A grant says the level MAY settle this
-  // reason; whether it can depends on there being a default to take. A decision gate carries
-  // `recommendation` in its executor_config (15 of 15 live gates have one); an agent question
-  // has no default-answer field anywhere in the schema, so `full` grants it and then holds
-  // every time, by the same rule. Inventing an answer to a question a cartridge asked you is
-  // the one thing worse than waiting for you to answer it.
-  full: ['manual-advance', 'agent-idle', 'agent-silent', 'decision', 'agent-waiting'],
+  // DERIVED from the registry's `autoAt`, not restated here. Restating it is what let a reason
+  // ship granted at the wrong level with nothing to catch it: of the five places a reason used
+  // to be defined, this was one of the three with no tripwire test. Registry order is preserved,
+  // so these arrays read in precedence order rather than the order someone typed them.
+  advance: REASONS.filter((r) => r.autoAt.includes('advance')).map((r) => r.name),
+  full: REASONS.filter((r) => r.autoAt.includes('full')).map((r) => r.name),
 };
 
 /**
