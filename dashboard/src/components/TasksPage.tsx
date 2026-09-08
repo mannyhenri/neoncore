@@ -572,10 +572,15 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
     : 'failed';
   const meta = STATUS_META[asTask];
 
+  // The server names every queued item from the kind's own describer — "Epic: Task by Task #11
+  // · GRD-3665", not the raw `workflowId` this used to print in full. A federated dashboard can
+  // be talking to an older server that predates `description`, so a fallback stays, but it falls
+  // back to the payload's human TEXT and then to the kind. Never to an id: a uuid in a title is
+  // not a degraded label, it is an unreadable one.
   const full =
-    (item.payload?.text as string)
+    item.description
+    || (item.payload?.text as string)
     || (item.payload?.task as string)
-    || (item.payload?.workflowId as string)
     || item.kind;
 
   const act = async (fn: () => Promise<unknown>) => {

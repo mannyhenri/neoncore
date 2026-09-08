@@ -74,10 +74,13 @@ export function queueItemAsTask(q: QueueItem): TaskRow {
 
   // Queue items carry their instruction in the payload rather than a title field. Falling back
   // to the id keeps a row identifiable instead of rendering a blank line.
-  const text = (q.payload as { text?: string } | undefined)?.text?.trim() || '';
+  // `description` is what the server calls this item — the same words the queue panel and the
+  // server log use. The payload text is the fallback for a server that predates it.
+  const text = (q.description || '').trim()
+    || (q.payload as { text?: string } | undefined)?.text?.trim() || '';
   return {
     id: q.id,
-    title: text ? text.split('\n')[0].slice(0, 120) : `${q.kind} ${q.id.slice(0, 8)}`,
+    title: text ? text.split('\n')[0].slice(0, 120) : q.kind,
     prompt: text,
     status,
     priority: 0,

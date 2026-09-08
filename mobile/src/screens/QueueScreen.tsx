@@ -146,7 +146,10 @@ export function QueueScreen() {
                 activeOpacity={0.7}
               >
                 <Text style={s.body} numberOfLines={expanded[item.id] ? undefined : 2}>
-                  {String(item.payload?.text ?? item.payload?.task ?? item.payload?.repoPath ?? item.id.slice(0, 8))}
+                  {/* Named by the server from the kind's own describer; the payload text is
+                      the fallback for an older server, and the kind is the last resort — an id
+                      fragment never was a label. */}
+                  {String(item.description || item.payload?.text || item.payload?.task || item.kind)}
                 </Text>
               </TouchableOpacity>
 
