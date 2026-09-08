@@ -660,7 +660,7 @@ export function createClient(config: ClientConfig = {}) {
       bucket: string; days: number; from: string; to: string;
       series: { t: string; tokens: number; costUsd: number; samples: number }[];
       total: { tokens: number; costUsd: number; samples: number };
-      byCartridge: { agentId: string; name: string; tokens: number; samples: number }[];
+      byCartridge: { agentId: string; name: string; project: string; tokens: number; samples: number }[];
       /** Grouped by repo. Several cartridges can share one project, and often do. */
       byProject: { project: string; tokens: number; samples: number; cartridges: number }[];
     }>(`/activity/usage-series?days=${days}&bucket=${bucket}`),

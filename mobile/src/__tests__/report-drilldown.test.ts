@@ -70,11 +70,34 @@ describe('the metrics report is drillable', () => {
     const src = code(TOKENS);
     expect(src, 'no state holding the row the user opened').toMatch(/setDrill\(/);
     expect(src, 'no sheet renders the opened row').toMatch(/<BreakdownSheet\b/);
-    // Both breakdowns must lead somewhere, not just the one that happened to get wired.
-    for (const dim of ['byProject', 'byCartridge']) {
-      const block = src.slice(src.indexOf(dim));
-      expect(block.slice(0, 900), `${dim} rows have no onPress`).toMatch(/onPress=\{\(\) => setDrill/);
-    }
+    const block = src.slice(src.indexOf('byProject'));
+    expect(block.slice(0, 900), 'byProject rows have no onPress').toMatch(/onPress=\{\(\) => setDrill/);
+  });
+
+  /**
+   * REPORTED: "in the token reporting we only need stats by project not by cartridge below,
+   * it's the same thing." It was — on live data every project held exactly one cartridge, so
+   * the two cards listed the same rows in the same order, differing only in a `<machine>/`
+   * prefix. The per-cartridge numbers did not go away; they moved BEHIND the project row they
+   * explain, which is where the drill-down already put them.
+   *
+   * This used to assert both cards were tappable. Removing that assertion without replacing it
+   * would leave the drill-down — now the only path to a per-cartridge number — unguarded, so
+   * what it guards moves to the split being CORRECT rather than merely present.
+   */
+  it('splits a project by the project the server assigned, not by name matching', () => {
+    const src = code(TOKENS);
+    expect(src, 'the standalone cartridge card is back — it is the project list again')
+      .not.toMatch(/By cartridge/);
+    expect(src, 'the project drill-down no longer lists its cartridges')
+      .toMatch(/cartridges:\s*data!\.byCartridge\.filter/);
+    // `name.includes(project)` put gridlight-work and gridlight-manager inside gridlight, under
+    // a heading that correctly said "1 cartridge". An equality on the server's own grouping
+    // cannot do that.
+    expect(src, 'cartridges are still matched by NAME, which over-matches prefixed repo names')
+      .not.toMatch(/c\.name\.includes\(/);
+    expect(src, 'the split must compare the project the server assigned')
+      .toMatch(/c\.project === row\.project/);
   });
 });
 

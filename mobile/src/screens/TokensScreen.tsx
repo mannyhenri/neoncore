@@ -24,6 +24,16 @@ import { Modal, Pressable } from 'react-native';
  * that fits it, and the bucket can still be overridden afterwards — the pairing is a default,
  * not a restriction, and mirrors dashboard/src/components/TokensPage.tsx exactly so the two
  * surfaces cannot drift into disagreeing about what "last month" means.
+ *
+ * ── ONE BREAKDOWN, NOT TWO ────────────────────────────────────────────────────────────
+ * There was a per-CARTRIDGE card under the per-project one. On a fleet where each repo runs a
+ * single cartridge — which is every fleet observed — they are the same list twice, in the same
+ * order, differing only in that cartridge names carry a `<machine>/` prefix.
+ *
+ * The per-cartridge numbers are NOT gone: tapping a project opens its cartridges, which is
+ * where that detail belongs — behind the row it explains, rather than beside it. `byCartridge`
+ * is still read from the response for exactly that, so the drill-down keeps working and the
+ * dimension stays rendered.
  */
 const RANGES = [
   { key: 'week', label: 'Week', days: 7, bucket: 'hour' as UsageBucket },
@@ -46,9 +56,12 @@ function short(n: number): string {
   return String(Math.round(n));
 }
 
-/** What a tapped row opens. `cartridges` is empty for a cartridge row — it IS one. */
+/**
+ * What a tapped row opens. Only project rows are tappable — the per-cartridge card that used to
+ * sit beside them was the same list twice — so a drill is always a project and its `cartridges`
+ * are the split behind it.
+ */
 interface Drill {
-  kind: 'project' | 'cartridge';
   title: string;
   tokens: number;
   samples: number;
@@ -216,13 +229,13 @@ export function TokensScreen() {
               value={short(row.tokens)}
               fraction={row.tokens / Math.max(1, data!.byProject[0].tokens)}
               onPress={() => setDrill({
-                kind: 'project',
                 title: row.project,
                 tokens: row.tokens,
                 samples: row.samples,
-                // Only a project row can name its cartridges; the server counted them because
-                // the phone cannot without the whole agent roster.
-                cartridges: data!.byCartridge.filter((c) => c.name.includes(row.project)),
+                // Matched on the project the SERVER assigned each cartridge, not on its name.
+                // `c.name.includes(row.project)` was wrong whenever one repo name contains
+                // another: `gridlight` also collected `gridlight-work` and `gridlight-manager`.
+                cartridges: data!.byCartridge.filter((c) => c.project === row.project),
                 subCount: row.cartridges,
                 windowTokens: data!.total.tokens,
               })}
@@ -231,27 +244,6 @@ export function TokensScreen() {
         </Card>
       )}
 
-      {(data?.byCartridge?.length ?? 0) > 0 && (
-        <Card>
-          <Text style={styles.section}>By cartridge</Text>
-          {data!.byCartridge.slice(0, 12).map((row) => (
-            <BreakdownRow
-              key={row.agentId}
-              label={row.name || row.agentId.slice(0, 8)}
-              value={short(row.tokens)}
-              fraction={row.tokens / Math.max(1, data!.byCartridge[0].tokens)}
-              onPress={() => setDrill({
-                kind: 'cartridge',
-                title: row.name || row.agentId,
-                tokens: row.tokens,
-                samples: row.samples,
-                cartridges: [],
-                windowTokens: data!.total.tokens,
-              })}
-            />
-          ))}
-        </Card>
-      )}
 
       <BreakdownSheet drill={drill} onClose={() => setDrill(null)} metricLabel={data?.bucket ?? bucket} />
 
@@ -375,9 +367,7 @@ function BreakdownSheet({
       <View style={styles.sheet}>
         <View style={styles.grabber} />
         <Text style={styles.sheetTitle} numberOfLines={2}>{drill.title}</Text>
-        <Text style={styles.sheetSub}>
-          {drill.kind === 'project' ? 'Project' : 'Cartridge'} · per {metricLabel}
-        </Text>
+        <Text style={styles.sheetSub}>Project · per {metricLabel}</Text>
 
         <View style={styles.rateRow}>
           <View style={styles.rateCell}>
@@ -394,15 +384,15 @@ function BreakdownSheet({
           </View>
         </View>
 
-        {drill.kind === 'project' && (
+        {(
           <>
             <Text style={styles.section}>
               {drill.subCount ?? 0} cartridge{(drill.subCount ?? 0) === 1 ? '' : 's'} in this project
             </Text>
             {drill.cartridges.length === 0 ? (
-              // The server counted them; naming them needs a match this screen cannot always
-              // make. Saying so beats an empty list that reads as "none".
-              <Text style={styles.empty}>Open By cartridge for the per-cartridge split.</Text>
+              // Reachable only if the server counted cartridges it then did not return — the
+              // match itself can no longer fail. Saying so beats a blank that reads as "none".
+              <Text style={styles.empty}>No per-cartridge rows came back for this project.</Text>
             ) : drill.cartridges.map((c) => (
               <View key={c.agentId} style={styles.row}>
                 <Text style={styles.rowName} numberOfLines={1}>{c.name}</Text>

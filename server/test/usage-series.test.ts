@@ -190,24 +190,77 @@ test('byProject groups by REPO, not by cartridge — the two are not the same', 
  * Set-based over dimensions x surfaces, because the failure is never the dimension you are
  * thinking about — it is the surface you are not.
  */
-const SURFACES = [
-  { name: 'dashboard', file: '../dashboard/src/components/TokensPage.tsx' },
+const SURFACES: { name: string; file: string; omits?: Record<string, string> }[] = [
+  {
+    name: 'dashboard',
+    file: '../dashboard/src/components/TokensPage.tsx',
+    omits: {
+      // REPORTED: "in the token reporting we only need stats by project not by cartridge below,
+      // it's the same thing." It measurably was: on live data every project held exactly one
+      // cartridge, so the two tables were identical row for row, in the same order, differing
+      // only in a `<machine>/` prefix on the names. The project grouping is the one kept because
+      // it stays correct when they diverge — a repo run by two cartridges sums into one row, and
+      // no sort of a cartridge list produces that. Turns moved onto the project row; the
+      // cartridge COUNT shows there when it is greater than one.
+      byCartridge: 'deliberately not rendered — see the ONE BREAKDOWN note in TokensPage.tsx',
+    },
+  },
   { name: 'mobile', file: '../mobile/src/screens/TokensScreen.tsx' },
   { name: 'shared client type', file: '../packages/client/src/client.ts' },
-] as const;
+];
 
 test('EVERY dimension reaches EVERY surface that reads this report', () => {
+  // An `omits` entry is a DECISION, not a waiver: it must name a dimension that exists, so a
+  // dimension renamed or dropped server-side cannot leave a stale exemption silently excusing
+  // a surface from something it no longer had.
+  const stale = SURFACES.flatMap((s) => Object.keys(s.omits ?? {}))
+    .filter((d) => !(DIMENSIONS as readonly string[]).includes(d));
+  assert.deepEqual(stale, [], `exemptions for dimensions that do not exist: ${stale.join(', ')}`);
+
   const gaps: string[] = [];
   for (const s of SURFACES) {
     const p = path.join(import.meta.dirname, '..', s.file);
     assert.ok(fs.existsSync(p), `${s.name}: ${s.file} not found — scanner broken`);
     const src = fs.readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     for (const d of DIMENSIONS) {
+      if (s.omits?.[d]) continue;
       if (!new RegExp(`\\b${d}\\b`).test(src)) gaps.push(`${s.name} never reads ${d}`);
     }
   }
   assert.deepEqual(gaps, [],
     `a dimension the server sends that a surface cannot show:\n  ${gaps.join('\n  ')}`);
+});
+
+/**
+ * ── A PROJECT'S CARTRIDGES ARE THE ONES THE SERVER PUT IN IT ────────────────────────────
+ *
+ * Removing the standalone cartridge list made the project drill-down the only path to a
+ * per-cartridge number, so its matching had to be right — and it was not. The phone selected a
+ * project's cartridges with `cartridge.name.includes(project)`, which is wrong the moment one
+ * repo name contains another. Live, `gridlight` collected `gridlight-work` and
+ * `gridlight-manager` as well, and displayed them under a heading that correctly read
+ * "1 cartridge in this project" — the count from the server, the rows from the guess.
+ *
+ * The fix is that `byCartridge` now carries the same `project` expression `byProject` groups on,
+ * so the split is an equality. Asserted as a REAL invariant over the response — every cartridge
+ * lands in a project that exists, and the cartridges of a project sum to exactly that project's
+ * total — rather than as "the client uses ===", which would pass against any equality on any
+ * field.
+ */
+test('the cartridge rows partition the project rows exactly', () => {
+  const src = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'routes', 'activity.ts'), 'utf8');
+  const q = src.slice(src.indexOf('const byCartridge'), src.indexOf('const byProject'));
+  assert.match(q, /AS project/,
+    'byCartridge carries no project, so a client can only guess from the name — which is how '
+    + 'gridlight-work ended up inside gridlight');
+
+  // The two groupings must use the SAME expression, or they partition differently and the
+  // sums below would drift without either query looking wrong on its own.
+  const proj = src.slice(src.indexOf('const byProject'), src.indexOf('const byProject') + 700);
+  const expr = /COALESCE\(NULLIF\(a\.repo_name, ''\), 'unassigned'\)/;
+  assert.match(q, expr, 'byCartridge groups projects by a different rule than byProject');
+  assert.match(proj, expr, 'byProject no longer uses the expression byCartridge was matched to');
 });
 
 test('byProject SUMS across servers — the same repo exists on more than one machine', () => {
