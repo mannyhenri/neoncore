@@ -70,6 +70,12 @@ export function mergeSeries(
     },
     // Cartridges are per-server entities; concatenating is the merge. Sorted so the heaviest
     // spender is first regardless of which machine it lives on.
+    //
+    // KEPT even though TokensPage no longer renders a cartridge breakdown. This function's job
+    // is to be a faithful federated view of the response, and the type it returns is the
+    // response's own; dropping a field here because today's only reader ignores it would make
+    // the merged shape a subset of what a server actually sends, which the next reader would
+    // have to discover the hard way.
     byCartridge: ok.flatMap((s) => s.byCartridge ?? []).sort((a, b) => b.tokens - a.tokens),
     // Projects SUM, cartridges concatenate — the one place copying the line above is wrong.
     // A cartridge belongs to one server; a repo does not. film-engine runs on both machines,
