@@ -99,12 +99,70 @@ export function silentThresholdMs(workflowId: string): number {
   return Math.max(DISPATCH_SILENT_FLOOR_MS, median * STALL_MULTIPLE);
 }
 
+/**
+ * How long a cartridge's command channel must be CONTINUOUSLY absent before that counts.
+ *
+ * `hasActiveSocket` goes false for every relay the instant the server restarts, and they
+ * reconnect a second or two later — four restarts happened in one evening of development, and
+ * without this each would have fired `channel-lost` for every running workflow. A detector that
+ * cries wolf on every deploy is one you mute, taking its true positives with it.
+ *
+ * Matches the `DEFAULT_GRACE_MS` idiom `detectInterruptedSteps` already uses for the same
+ * reason; two sweeps of the 60-second notifier clear it.
+ */
+export const CHANNEL_GRACE_MS = 90 * 1000;
+
+/**
+ * When each agent's channel was FIRST seen absent. Cleared the moment it comes back.
+ *
+ * ── WHY THIS IS FILLED BY THE SWEEP AND READ BY THE DETECTOR, NEVER BOTH ───────────────
+ * `workflowNeedsAttention` is called from four places, including `routes/workflows.ts` on every
+ * dashboard list request, and its own header promises it is DERIVED — computed from the rows
+ * every time it is asked. If asking advanced this clock, polling the dashboard would manufacture
+ * a stall. So `observeChannels` mutates and the detector only reads.
+ *
+ * In-memory on purpose. After a restart the map is empty and every socket is briefly absent;
+ * "no record" therefore means "start the clock", never "absent forever". The cost is that the
+ * first `CHANNEL_GRACE_MS` after a boot is blind, which is the correct direction to be wrong.
+ */
+const channelAbsentSince = new Map<string, number>();
+
+/**
+ * Record which agents currently have a command channel. Call from the periodic sweep ONLY.
+ *
+ * `isAlive` is injected rather than imported so this module stays free of the socket layer —
+ * the same shape `detectInterruptedSteps(db, { isAlive })` already uses, and what makes the
+ * restart and reconnect cases testable without a real server.
+ */
+export function observeChannels(
+  agentIds: string[],
+  isAlive: (agentId: string) => boolean,
+  now: number = Date.now(),
+): void {
+  for (const id of agentIds) {
+    if (!id) continue;
+    if (isAlive(id)) channelAbsentSince.delete(id);
+    else if (!channelAbsentSince.has(id)) channelAbsentSince.set(id, now);
+  }
+}
+
+/** How long this agent's channel has been continuously absent, or null if it is present. */
+function channelAbsentFor(agentId: string, now: number = Date.now()): number | null {
+  const since = channelAbsentSince.get(agentId);
+  return since === undefined ? null : now - since;
+}
+
+export function __resetChannelStateForTest(): void {
+  channelAbsentSince.clear();
+}
+
 export const ATTENTION_REASONS = [
   'failed',         // the run cannot continue at all
   'interrupted',    // a step's executor died mid-work; needs recovery
   'decision',       // a decision gate is waiting for a choice
   'agent-waiting',  // the executing cartridge stopped to ask a question
   'manual-advance', // a step finished but is held for a human to advance
+  'channel-lost',   // alive, but no command channel — the next dispatch will bounce
   'agent-idle',     // dispatched, the cartridge went quiet, and nothing was ever reported
   'agent-silent',   // dispatched, the cartridge is still WORKING, and nothing was ever reported
 ] as const;
@@ -263,6 +321,44 @@ export const REASONS: readonly ReasonDef[] = [
   },
 
   {
+    // ALIVE, BUT UNREACHABLE — the hole between "the agent died" and "the agent went quiet".
+    //
+    // SEEN LIVE, 2026-09-06. A cartridge was restored without a relay. It was working perfectly
+    // — hooks reporting, tools running — and nothing could dispatch to it. The next dispatch
+    // bounced with "Command not delivered: no command channel", the step went `failed`, and
+    // `failed` is NEVER_AUTO, so the run stopped until a person looked.
+    //
+    // `detectInterruptedSteps` cannot see this: it needs the agent DEAD by activity staleness
+    // first (`if (!dead) continue;`) and treats a live socket only as a veto. An agent that is
+    // busy and merely unreachable never qualifies.
+    //
+    // Ranked ABOVE the symptoms it causes. Such a cartridge will also look idle once it stops
+    // reporting; naming the cause is what lets someone relaunch the relay, where "went quiet"
+    // sends them to inspect a cartridge that is working fine.
+    name: 'channel-lost',
+    order: 5,
+    // NOT auto-resolvable at any level, and not because it is breakage in the usual sense: the
+    // auto-resolution for a stalled cartridge is a NUDGE, and a nudge is a dispatch. There is
+    // no channel to deliver it down. Granting this would queue a message into the void and
+    // record it as handled.
+    autoAt: [],
+    detect: ({ steps }) => {
+      const s = steps.find((x) => {
+        if (x.status !== 'running' || !x.executor_id) return false;
+        const absentFor = channelAbsentFor(x.executor_id);
+        return absentFor !== null && absentFor > CHANNEL_GRACE_MS;
+      });
+      return s
+        ? {
+          step: s,
+          detail: `The cartridge running "${s.name}" has had no command channel for over `
+            + `${Math.round(CHANNEL_GRACE_MS / 1000)} seconds — the next dispatch will bounce. `
+            + 'Relaunch its relay.',
+        }
+        : null;
+    },
+  },
+  {
     // DISPATCHED AND ABANDONED — the failure that looks most like health.
   //
   // A step sits `running`, its cartridge went idle, and no result was ever reported. It is not
@@ -279,7 +375,7 @@ export const REASONS: readonly ReasonDef[] = [
   //   · dispatched_prompt must be non-empty — nothing was sent, nothing can be owed
   //   · the agent must have been quiet for STALE_AFTER_MS, not merely idle this instant
     name: 'agent-idle',
-    order: 5,
+    order: 6,
     autoAt: ['advance', 'full'],
     detect: ({ steps }) => {
       const s = steps.find((x) => {
@@ -324,7 +420,7 @@ export const REASONS: readonly ReasonDef[] = [
   // a stall that ran nearly three hours. The remedy is a nudge, not a re-dispatch, so the cost
   // of being wrong is one interrupting message rather than duplicated side effects.
     name: 'agent-silent',
-    order: 6,
+    order: 7,
     autoAt: ['advance', 'full'],
     detect: ({ workflowId, steps }) => {
       // Computed ONCE per sweep, not per step: it is a property of the run, and the query
@@ -358,7 +454,7 @@ export const REASONS: readonly ReasonDef[] = [
   {
     // Finished, but held. Only meaningful while there is still something left to advance to.
     name: 'manual-advance',
-    order: 7,
+    order: 8,
     autoAt: ['advance', 'full'],
     detect: ({ steps }) => {
       const anyPending = steps.some((x) => x.status === 'pending');
