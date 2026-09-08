@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import db from '../src/db.js';
 import { installStubIO } from './helpers/stub-io.js';
 import {
-  workflowNeedsAttention, ATTENTION_REASONS, STALE_AFTER_MS, DISPATCH_SILENT_AFTER_MS,
+  workflowNeedsAttention, ATTENTION_REASONS, STALE_AFTER_MS, DISPATCH_SILENT_FLOOR_MS,
   type Attention, type AttentionReason,
 } from '../src/lib/workflow-attention.ts';
 
@@ -108,7 +108,7 @@ const FIXTURES: Record<AttentionReason, () => { workflowId: string; stepName: st
     step(w, {
       name: 'Busy Step', status: 'running', prompt: 'do the thing',
       executor: agent({ status: 'working', lastSeenMsAgo: 5_000 }),
-      startedMsAgo: DISPATCH_SILENT_AFTER_MS + 60_000,
+      startedMsAgo: DISPATCH_SILENT_FLOOR_MS + 60_000,
     });
     return { workflowId: w, stepName: 'Busy Step' };
   },

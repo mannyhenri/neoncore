@@ -46,7 +46,7 @@ import {
   RELAY_LAUNCH_TYPES, relayLaunchEnv, RELAY_INSTALL_FILES, RELAY_INSTALL_SIBLINGS,
 } from '../src/lib/open-directory.ts';
 import {
-  workflowNeedsAttention, ATTENTION_REASONS, DISPATCH_SILENT_AFTER_MS, STALE_AFTER_MS,
+  workflowNeedsAttention, ATTENTION_REASONS, DISPATCH_SILENT_FLOOR_MS, STALE_AFTER_MS,
 } from '../src/lib/workflow-attention.ts';
 
 installStubIO();
@@ -229,7 +229,7 @@ test('EVERY liveness shape of an unreported dispatch is flagged', () => {
         const wf = run();
         step(wf, {
           executor: agent('working', 5_000),
-          startedMsAgo: DISPATCH_SILENT_AFTER_MS + 60_000,
+          startedMsAgo: DISPATCH_SILENT_FLOOR_MS + 60_000,
         });
         return wf;
       },
@@ -248,7 +248,7 @@ test('a busy cartridge inside the normal dispatch window is never accused', () =
   // The false positive that would make this useless: a long but legitimate task. One loop of a
   // live epic ran 65 minutes and completed normally; nudging it would have been noise.
   const wf = run();
-  step(wf, { executor: agent('working', 5_000), startedMsAgo: DISPATCH_SILENT_AFTER_MS - 60_000 });
+  step(wf, { executor: agent('working', 5_000), startedMsAgo: DISPATCH_SILENT_FLOOR_MS - 60_000 });
   assert.equal(workflowNeedsAttention(wf), null);
 });
 
@@ -256,7 +256,7 @@ test('a dispatch that already reported a result is never a stall, however old', 
   const wf = run();
   step(wf, {
     executor: agent('working', 5_000),
-    startedMsAgo: DISPATCH_SILENT_AFTER_MS * 10,
+    startedMsAgo: DISPATCH_SILENT_FLOOR_MS * 10,
     result: 'DONE GLW-022 · commit 941fd84 · 25 remaining',
   });
   assert.equal(workflowNeedsAttention(wf), null);
