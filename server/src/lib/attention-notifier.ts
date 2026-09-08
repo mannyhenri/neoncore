@@ -124,6 +124,12 @@ function hint(attention: Attention, cartridge: string | null): string | null {
       ? `The cartridge went quiet without reporting. Nudge it: \`!prompt ${cartridge} finish the step and report\``
       : 'The cartridge went quiet without reporting. Re-dispatch the step from the dashboard.';
   }
+  if (attention.reason === 'budget-exhaustion') {
+    // No button: the repair is a template edit, a bound lifted, or an agent chased for a count,
+    // and which one depends on the cause the detail already names.
+    return 'The loop will end with work outstanding. Raise the step\'s loop count, or check why '
+      + 'the last dispatch reported no remaining count.';
+  }
   if (attention.reason === 'channel-lost') {
     // The fix is a relaunch, not a message — and a message is exactly what cannot be delivered.
     // Naming the resume form matters: relaunching WITHOUT it starts a cold session and loses

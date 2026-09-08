@@ -124,6 +124,20 @@ const FIXTURES: Record<AttentionReason, () => { workflowId: string; stepName: st
     });
     return { workflowId: w, stepName: 'Busy Step' };
   },
+  'budget-exhaustion': () => {
+    const w = wf();
+    const a = agent({ status: 'working', lastSeenMsAgo: 5_000 });
+    // A static count with work left: the shape extension refuses by design.
+    db.prepare(
+      `INSERT INTO workflow_steps
+         (id,workflow_id,name,description,position_x,position_y,status,executor_type,executor_id,
+          executor_config,auto_advance,created_at,recovery_status,dispatched_prompt,result,started_at)
+       VALUES (?,?,'Work Every Task','',0,1,'running','claude-code',?,?,1,?,'','do it',?,?)`,
+    ).run(`st-reg-${++n}`, w, a,
+          JSON.stringify({ loopUntil: 'ALL TASKS COMPLETE', loopCount: 5, _currentLoop: 5, _resolvedLoopCount: 5 }),
+          iso(), 'DONE T-005 · commit abc · 7 remaining', iso(60_000));
+    return { workflowId: w, stepName: 'Work Every Task' };
+  },
   'manual-advance': () => {
     const w = wf();
     step(w, { name: 'Held Step', status: 'completed', auto: 0 });
@@ -148,6 +162,9 @@ const GOLDEN_DETAIL: Record<AttentionReason, string> = {
   'agent-silent': '"Busy Step" was dispatched over 90 minutes ago and the cartridge is still '
     + 'working, but nothing has been reported — it may have lost the completion contract '
     + '(a context compaction drops it).',
+  'budget-exhaustion': '"Work Every Task" is on its last dispatch (5/5) with 7 task(s) still '
+    + 'outstanding, and its budget is a fixed number in the template, which the engine may not '
+    + 'revise. Work will be silently dropped when it ends.',
   'manual-advance': '"Held Step" finished and is waiting for you to advance.',
 };
 

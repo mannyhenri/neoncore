@@ -83,6 +83,9 @@ const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   // A button cannot relaunch a relay on another machine, and the thing that would carry the
   // instruction is the very channel that is gone. Words, with the resume form spelled out.
   'channel-lost': 'told-how',
+  // The repair is a template edit or a lifted bound — neither is a button, and which one it is
+  // depends on the cause the detail names.
+  'budget-exhaustion': 'told-how',
 };
 
 test('every reason either offers a control or says how to resolve it — none is a dead end', () => {
