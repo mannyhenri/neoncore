@@ -138,6 +138,16 @@ const FIXTURES: Record<AttentionReason, () => { workflowId: string; stepName: st
           iso(), 'DONE T-005 · commit abc · 7 remaining', iso(60_000));
     return { workflowId: w, stepName: 'Work Every Task' };
   },
+  'autonomy-expiring': () => {
+    const w = `wf-reg-${++n}`;
+    db.prepare(
+      `INSERT INTO workflows (id,name,status,created_at,template_id,run_number,autonomy,autonomy_expires_at)
+       VALUES (?,?,'running',?, 'tpl',1,'full',?)`,
+    ).run(w, `run ${w}`, iso(), new Date(Date.now() + 12 * 60_000).toISOString());
+    step(w, { name: 'Working Step', status: 'running', prompt: 'do it',
+              executor: agent({ status: 'working', lastSeenMsAgo: 5_000 }), startedMsAgo: 60_000 });
+    return { workflowId: w, stepName: 'Working Step' };
+  },
   'manual-advance': () => {
     const w = wf();
     step(w, { name: 'Held Step', status: 'completed', auto: 0 });
@@ -165,6 +175,9 @@ const GOLDEN_DETAIL: Record<AttentionReason, string> = {
   'budget-exhaustion': '"Work Every Task" is on its last dispatch (5/5) with 7 task(s) still '
     + 'outstanding, and its budget is a fixed number in the template, which the engine may not '
     + 'revise. Work will be silently dropped when it ends.',
+  'autonomy-expiring': "This run's `full` autonomy grant expires in 12 minutes, and it is still "
+    + 'working. When it lapses the run falls back to manual and will hold at the next thing it '
+    + 'would have settled itself — extend the grant to let it finish unattended.',
   'manual-advance': '"Held Step" finished and is waiting for you to advance.',
 };
 
