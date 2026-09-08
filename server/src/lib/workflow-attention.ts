@@ -21,6 +21,9 @@
  * already broken, so the list is ordered most-urgent first and the first match wins.
  */
 import db from '../db.js';
+import {
+  shouldExtendLoop, shouldStopLooping, remainingFrom, MAX_LOOP_EXTENSIONS, type LoopConfig,
+} from './workflow-loop.js';
 
 /**
  * How long a cartridge must be quiet before a dispatched step counts as abandoned.
@@ -165,6 +168,7 @@ export const ATTENTION_REASONS = [
   'channel-lost',   // alive, but no command channel — the next dispatch will bounce
   'agent-idle',     // dispatched, the cartridge went quiet, and nothing was ever reported
   'agent-silent',   // dispatched, the cartridge is still WORKING, and nothing was ever reported
+  'budget-exhaustion', // the loop will run out of dispatches with work still to do
 ] as const;
 
 export type AttentionReason = (typeof ATTENTION_REASONS)[number];
@@ -452,9 +456,66 @@ export const REASONS: readonly ReasonDef[] = [
     },
   },
   {
+    // ABOUT TO FALL SHORT — the loop budget guarantees ATTEMPTS, not completions.
+    //
+    // When the budget runs out with work left, the step completes, the run advances, and the
+    // coverage report says "9 of 12" — a useful result, discovered at the end. This says it
+    // while there is still a dispatch in hand.
+    //
+    // It ASKS `shouldExtendLoop` rather than restating its rules. That function has six clauses
+    // and a comment recording a live incident behind one of them; a second copy here would
+    // drift, which is the exact failure the reason registry was built to end. The engine
+    // already auto-extends one dispatch at a time on any positive `k remaining`, so what is
+    // left is only the shapes extension refuses: a STATIC count (an author's decision, not an
+    // estimate), an exhausted extension allowance or dispatch ceiling, and — the likeliest —
+    // an agent that simply did not report a count, where silence ends the run quietly.
+    name: 'budget-exhaustion',
+    order: 8,
+    // NOT auto-resolvable. The engine already grows the budget wherever growing it is safe;
+    // everything reaching here is a bound that exists to stop a runaway loop. Overriding those
+    // without a person is the one thing the bounds are for.
+    autoAt: [],
+    detect: ({ steps }) => {
+      for (const x of steps) {
+        if (x.status !== 'running') continue;
+        let cfg: LoopConfig & Record<string, unknown>;
+        try { cfg = JSON.parse(x.executor_config || '{}'); } catch { continue; }
+        if (!cfg.loopUntil) continue;                       // not a looped step
+
+        const loopCount = Number(cfg._resolvedLoopCount ?? cfg.loopCount ?? 0);
+        const currentLoop = Number(cfg._currentLoop ?? 0);
+        if (!loopCount || currentLoop < loopCount) continue; // budget still has room
+
+        const result = x.result || '';
+        if (shouldStopLooping(result, cfg)) continue;        // the agent says the work ran out
+
+        const extensions = Number(cfg._loopExtensions ?? 0);
+        if (shouldExtendLoop({ result, config: cfg, currentLoop, loopCount, extensions })) continue;
+
+        // Name the CAUSE: the repairs differ. Raising a static count, lifting an exhausted
+        // allowance and chasing a missing report are three different actions.
+        const remaining = remainingFrom(result);
+        const why = !cfg.loopCountFrom
+          ? 'its budget is a fixed number in the template, which the engine may not revise'
+          : extensions >= MAX_LOOP_EXTENSIONS
+            ? `it has already been extended ${extensions} times, the maximum`
+            : remaining === null
+              ? 'the last dispatch did not say how many tasks remain, and silence cannot extend it'
+              : 'it has reached the dispatch ceiling';
+        const count = remaining === null ? 'an unknown number of' : `${remaining}`;
+        return {
+          step: x,
+          detail: `"${x.name}" is on its last dispatch (${currentLoop}/${loopCount}) with ${count} `
+            + `task(s) still outstanding, and ${why}. Work will be silently dropped when it ends.`,
+        };
+      }
+      return null;
+    },
+  },
+  {
     // Finished, but held. Only meaningful while there is still something left to advance to.
     name: 'manual-advance',
-    order: 8,
+    order: 9,
     autoAt: ['advance', 'full'],
     detect: ({ steps }) => {
       const anyPending = steps.some((x) => x.status === 'pending');
