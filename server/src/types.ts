@@ -34,6 +34,8 @@ export interface ConferSession {
   repoName: string;
   repoPath: string;
   task: string;
+  /** Short human subject, derived from `task` — what a list row shows instead of an id. */
+  taskLabel: string;
   participantIds: string[];
   status: ConferStatus;
   currentMilestone: number;
@@ -317,6 +319,8 @@ export interface Workflow {
   id: string;
   name: string;
   jiraTaskId: string;
+  /** Short human subject for the run, derived from `initialContext` at write time. */
+  contextLabel: string;
   description: string;
   players: WorkflowPlayer[];
   phases: WorkflowPhaseState[];

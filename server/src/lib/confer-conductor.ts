@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import db from '../db.js';
+import { libelleContexte } from './context-label.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent } from './send-command.js';
 import { deliverToAgent, fetchPeerAgent } from './peer-forward.js';
@@ -365,6 +366,10 @@ function hydrateSession(row: Record<string, unknown>): ConferSession {
     repoName: (row.repo_name as string) || '',
     repoPath: (row.repo_path as string) || '',
     task: (row.task as string) || '',
+    // A confer's `task` is the whole prompt — sometimes a paragraph. `taskLabel` is the short
+    // subject a list row can actually show, derived the same way a workflow run's is so the two
+    // surfaces name the same work identically.
+    taskLabel: libelleContexte((row.task as string) || ''),
     participantIds: JSON.parse((row.participant_ids as string) || '[]'),
     status: (row.status as ConferSession['status']) || 'running',
     currentMilestone: (row.current_milestone as number) || 0,

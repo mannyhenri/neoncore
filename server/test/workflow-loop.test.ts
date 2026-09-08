@@ -178,7 +178,15 @@ const EXTEND: { label: string; over?: Partial<Parameters<typeof shouldExtendLoop
   { label: 'budget not yet spent — ordinary re-dispatch handles it', over: { currentLoop: 5 }, want: false },
   { label: 'the result says nothing about what remains', over: { result: 'finished the task' }, want: false },
   { label: 'a static count is a decision, not an estimate', over: { config: { loopCount: 10, loopUntil: 'ALL TASKS COMPLETE' } }, want: false },
-  { label: 'a single-dispatch step is not a loop', over: { currentLoop: 1, loopCount: 1 }, want: false },
+  // WAS `want: false`, labelled "a single-dispatch step is not a loop". That reasoning holds for
+  // a step whose AUTHOR wrote one dispatch — and that case is the row above, which has no
+  // `loopCountFrom` and is still refused. This row is the other thing the old guard caught: a
+  // step that reads its count from data, whose read FAILED, leaving the fallback budget of 1.
+  // Live (GRD-3502): `Load Epic` was force-completed, the 53-task epic fell back to 1, the one
+  // dispatch reported `52 remaining`, and the rescue was refused because the budget it wanted to
+  // grow was 1. A budget known to be unreliable is the case that most needs extending.
+  { label: 'a data-driven count that fell back to 1 is an estimate, and is rescuable', over: { currentLoop: 1, loopCount: 1 }, want: true },
+  { label: 'a static single-dispatch step is still not a loop', over: { currentLoop: 1, loopCount: 1, config: { loopCount: 1, loopUntil: 'ALL TASKS COMPLETE' } }, want: false },
   { label: 'extensions are exhausted', over: { extensions: MAX_LOOP_EXTENSIONS }, want: false },
   { label: 'the hard ceiling is never crossed', over: { currentLoop: MAX_LOOP_CEILING, loopCount: MAX_LOOP_CEILING }, want: false },
   { label: 'the agent shouts it', over: { result: 'DONE t · commit abc · 4 REMAINING' }, want: true },

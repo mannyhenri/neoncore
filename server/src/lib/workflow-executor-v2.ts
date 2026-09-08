@@ -19,7 +19,7 @@ import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
 import { startConfer, getConfer } from './confer-conductor.js';
 import type { ConferSession } from '../types.js';
 import {
-  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom,
+  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop,
   MAX_LOOP_EXTENSIONS, type LoopConfig,
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
@@ -218,6 +218,9 @@ function emitWorkflowUpdate(workflowId: string) {
     maxIterations: (row.max_iterations ?? 3) as number,
     sharedContext: (row.shared_context ?? '') as string,
     initialContext: (row.initial_context ?? '') as string,
+    // The executor has its OWN normalizer; a field added to only one of the two makes the same
+    // run read differently depending on which surface asked. TypeScript caught this one.
+    contextLabel: (row.context_label ?? '') as string,
     createdAt: (row.created_at ?? '') as string,
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
@@ -1607,8 +1610,12 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
       `Stopped at loop ${currentLoop}/${loopCount} — the work is done`, 'info');
   } else if (loopCount > 1 && currentLoop < loopCount) {
     const nextLoop = currentLoop + 1;
+    // `configForNextLoop` clears the per-dispatch keys — see lib/workflow-loop.ts. The nudge
+    // counter lives on the step, so without this the six nudges `full` autonomy allows are a
+    // budget for the whole epic rather than for one task, and a 63-task run dies silently at
+    // task six with every surface still reporting health.
     db.prepare('UPDATE workflow_steps SET executor_config = ?, started_at = ? WHERE id = ?')
-      .run(JSON.stringify({ ...step.executorConfig, _currentLoop: nextLoop }), now, step.id);
+      .run(JSON.stringify(configForNextLoop(step.executorConfig, nextLoop)), now, step.id);
     emitStepLog(workflowId, step.id, step.name, `Loop ${nextLoop}/${loopCount} — re-dispatching`, 'info');
 
     const freshStep = normalizeStep(

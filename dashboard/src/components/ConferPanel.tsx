@@ -44,7 +44,7 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
         <span className="text-[11px] text-gray-500">{c.repoName || '—'}</span>
         <span className="text-[11px] text-gray-600">·</span>
         <span className="text-[11px] text-gray-500">{c.participantIds.map(typeOf).join(' + ')}</span>
-        <span className="text-[11px] text-gray-600 truncate flex-1" title={c.task}>— {c.task}</span>
+        <span className="text-[11px] text-gray-600 truncate flex-1" title={c.task}>— {c.taskLabel || c.task}</span>
         {c.status === 'running' && (
           cancelPhase === 'cancelling' ? (
             <span className="text-[11px] text-gray-500 shrink-0">Cancelling…</span>

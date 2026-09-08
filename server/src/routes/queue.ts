@@ -7,13 +7,27 @@
  */
 import { Router } from 'express';
 import db from '../db.js';
-import { KIND_IDS, type QueueKind } from '../lib/queue-kinds.js';
+import { KIND_IDS, getKind, type QueueKind, type QueueItem } from '../lib/queue-kinds.js';
 import { enqueue, listQueue, cancelItem, retryItem, removeItem, haltLane, resumeLane, tickQueue, startNow, moveItem, pauseItem, resumeItem } from '../lib/queue-runner.js';
 
 const router = Router();
 
+/**
+ * The wire form of a queue item: the row plus what it IS, in words.
+ *
+ * `description` is DERIVED on every read rather than stored at enqueue, because a queued workflow
+ * names the run it points at and that run can be renamed while the item waits its turn — which
+ * for a queue is most of its life. Each kind's own `describe` is the single authority, the same
+ * one `[queue] started …` prints, so the panel and the log say the same words about the same item.
+ *
+ * Applied by EVERY response that returns an item, not just the list: an item that arrives from
+ * enqueue without a description renders as a uuid until the next poll replaces it, which reads
+ * as a bug in the queue rather than in the serializer.
+ */
+const toWire = (i: QueueItem) => ({ ...i, description: getKind(i.kind).describe(i) });
+
 router.get('/', (_req, res) => {
-  const items = listQueue();
+  const items = listQueue().map(toWire);
   const lanes = db.prepare('SELECT lane, paused, halted_reason FROM queue_lanes').all() as
     { lane: string; paused: number; halted_reason: string }[];
   res.json({
@@ -36,7 +50,7 @@ router.post('/', (req, res) => {
   });
   // A rejected item is a 400 the user sees NOW, rather than an item that fails at 3am.
   if (!out.ok) return res.status(400).json({ error: out.error });
-  return res.status(201).json(out.item);
+  return res.status(201).json(toWire(out.item));
 });
 
 /** Cancel a queued or running item. Cancelling unstamps its agents, so a late completion

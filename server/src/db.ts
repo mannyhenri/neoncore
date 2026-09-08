@@ -2387,6 +2387,11 @@ db.exec(`
  */
 for (const [table, column, decl] of [
   ['tasks', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
+  // A SHORT human subject for a run, so a list can name it without a uuid. The column existed on
+  // one developer machine and in NO migration — added by code since removed, so a fresh install
+  // (a teammate, CI, a new box) lacked it entirely. Building the label feature on it would have
+  // worked here and broken everywhere else; the set-based test caught that before it shipped.
+  ['workflows', 'context_label', "TEXT NOT NULL DEFAULT ''"],
   // Which cartridge SESSION a step's prompt was dispatched into. `delivered` only means the
   // relay socket accepted the emit; if the engine had not attached yet, the prompt is lost and
   // every last_seen-based check still reads the cartridge as healthy. Comparing this against

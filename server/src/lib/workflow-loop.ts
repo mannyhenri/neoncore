@@ -21,8 +21,22 @@
  * wild.
  */
 
-/** Nothing legitimately needs more dispatches than this, and a runaway count is expensive. */
-export const MAX_LOOP_CEILING = 40;
+/**
+ * Nothing legitimately needs more dispatches than this, and a runaway count is expensive.
+ *
+ * RAISED FROM 40. The ceiling is a guard against a nonsense number — a regex that caught a
+ * version string, an agent that wrote a total instead of a remainder. It was never a statement
+ * about how large an epic may legitimately be, but because `clamp` applies it to counts that
+ * came from DATA, that is what it silently became: a 53-task Jira epic (GRD-3502) resolved to
+ * 40 dispatches, and the 13 tasks past the cut were never dispatched at all. The run reported
+ * 40 clean dispatches; only `Verify Coverage` could have noticed, and only if it ran.
+ *
+ * A real epic is bigger than a template author's intuition, so the ceiling has to sit above
+ * the largest plausible one rather than in the middle of the range. The cost of a wrong count
+ * is still bounded — every dispatch past the first requires the previous one to have COMPLETED
+ * and reported outstanding work — so the ceiling can be generous without being unbounded.
+ */
+export const MAX_LOOP_CEILING = 250;
 
 export interface LoopConfig {
   loopCount?: number;
@@ -143,7 +157,7 @@ export function shouldStopLooping(result: string, config: LoopConfig): boolean {
  *   · never more than MAX_LOOP_EXTENSIONS times
  *   · never past MAX_LOOP_CEILING, which no extension may cross
  */
-export const MAX_LOOP_EXTENSIONS = 10;
+export const MAX_LOOP_EXTENSIONS = 100;
 
 /**
  * How many tasks the last dispatch said were left, or null if it did not say.
@@ -176,11 +190,62 @@ export function shouldExtendLoop(i: ExtendInput): boolean {
   if (!i.config.loopCountFrom?.step || !i.config.loopCountFrom?.pattern) return false;
   // The agent said the work is finished. That claim outranks any count.
   if (shouldStopLooping(i.result, i.config)) return false;
-  // A one-dispatch step is not a loop, and an unspent budget needs no help.
-  if (i.loopCount <= 1 || i.currentLoop < i.loopCount) return false;
+  // An unspent budget needs no help — it will re-dispatch on its own.
+  //
+  // `loopCount <= 1` USED TO BE REJECTED HERE TOO, on the reasoning that a one-dispatch step is
+  // not a loop. That is true of a step whose author wrote `loopCount: 1`, and this function
+  // already refuses those on the line above: a static count has no `loopCountFrom` and never
+  // reaches here. What it also caught, unintentionally, was the far more dangerous case — a
+  // step that DOES read its count from data, whose read FAILED, and which therefore fell back
+  // to 1. That is not an author's decision to dispatch once; it is a budget known to be
+  // unreliable, and it is the state most in need of the rescue this function exists to provide.
+  //
+  // Live: `Load Epic` was force-completed by hand, so `TASKS:\s*(\d+)` matched nothing and the
+  // 53-task epic fell back to a budget of 1. The single dispatch finished a task and reported
+  // `52 remaining` — the exact positive signal that extends a loop — and was refused, because
+  // the budget it was trying to grow was 1. One task of 53, reported as a clean run.
+  if (i.currentLoop < i.loopCount) return false;
   if (i.extensions >= MAX_LOOP_EXTENSIONS) return false;
   if (i.currentLoop >= MAX_LOOP_CEILING || i.loopCount >= MAX_LOOP_CEILING) return false;
 
   const remaining = remainingFrom(i.result);
   return remaining !== null && remaining > 0;
+}
+
+/**
+ * ── STATE THAT MUST NOT SURVIVE INTO THE NEXT DISPATCH ──────────────────────────────────
+ *
+ * LIVE FAILURE (GRD-3502). The stall nudge counter `_nudges` is stored on the STEP, and
+ * `Work Every Task` is ONE step re-dispatched 63 times. Nothing reset it between dispatches,
+ * so the six nudges `full` autonomy is allowed (lib/autonomy.ts NUDGE_POLICY) were a budget
+ * for the whole EPIC rather than for one task.
+ *
+ * That matters because a cartridge without the completion tool finishes a task, commits, and
+ * stops silently — the nudge is what wakes it to report. One nudge per task against a budget
+ * of six means the run advances six times and then stalls forever, with the step still
+ * `running`, the workflow still `running`, and every surface reporting health. The epic dies
+ * at task 6 of 63 and says nothing.
+ *
+ * The nudge budget is meant to bound "how many times do we poke a cartridge that will not
+ * finish THIS task" — a per-dispatch question. Carrying it across dispatches silently
+ * redefines it as "how many stalls may this entire run survive", which is not a limit anyone
+ * chose. Advancing the loop is the boundary, so advancing the loop clears it.
+ *
+ * Kept as a NAMED SET rather than an inline `delete`, so a future per-dispatch counter is
+ * added in one place and the test that guards this notices it.
+ */
+export const PER_DISPATCH_KEYS = ['_nudges', '_lastNudgeAt'] as const;
+
+/**
+ * The executor config for the next dispatch of a looped step: the loop counter advanced, and
+ * every per-dispatch key cleared. Everything else — the resolved budget, the extension count,
+ * the prompt, the author's settings — belongs to the STEP and is carried through untouched.
+ */
+export function configForNextLoop(
+  cfg: Record<string, unknown>,
+  nextLoop: number,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...cfg, _currentLoop: nextLoop };
+  for (const key of PER_DISPATCH_KEYS) delete next[key];
+  return next;
 }

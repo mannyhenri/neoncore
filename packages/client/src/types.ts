@@ -249,6 +249,8 @@ export interface Workflow {
   id: string;
   name: string;
   jiraTaskId: string;
+  /** Short human subject for the run, derived from `initialContext` at write time. */
+  contextLabel: string;
   description: string;
   players: WorkflowPlayer[];
   phases: WorkflowPhaseState[];
@@ -613,6 +615,8 @@ export interface ConferSession {
   repoName: string;
   repoPath: string;
   task: string;
+  /** Short human subject for the confer, derived from `task`. Same rule as a run's label. */
+  taskLabel: string;
   participantIds: string[];
   status: ConferStatus;
   currentMilestone: number;
@@ -747,6 +751,19 @@ export interface QueueItem {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Consecutive dispatch failures. A blip is retried; an exhausted budget halts the lane. */
+  attempts: number;
+  /** Consecutive ticks a running item's target has been unreachable. */
+  stallTicks: number;
+  /** The persisted row could not be deserialized — quarantined, never silently skipped. */
+  corrupt: boolean;
+  /**
+   * What this item IS, in words — "Epic: Task by Task #11 · GRD-3665", not a uuid fragment.
+   * Derived by the server on every read from the kind's own describer, so it stays true when the
+   * thing it points at is renamed while the item waits in the lane. Absent on the responses that
+   * return a bare row (enqueue, cancel), hence optional.
+   */
+  description?: string;
 }
 
 /** A lane can be paused by a human or halted by the runner, and the reason must be visible. */

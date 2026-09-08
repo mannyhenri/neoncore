@@ -847,9 +847,15 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     document.body,
   );
 
-  const displayName = wf.runNumber > 0
+  // "Epic: Task by Task — Run #11" says which template and which run, and nothing about WHAT.
+  // The subject is what a person scanning the list is actually looking for, so it goes on the row
+  // rather than only in the detail view.
+  const runTitle = wf.runNumber > 0
     ? `${templateName || wf.name} — Run #${wf.runNumber}`
     : wf.name || 'Untitled';
+  const displayName = wf.contextLabel
+    ? `${runTitle} · ${wf.contextLabel}`
+    : runTitle;
 
   if (compact) {
     return (

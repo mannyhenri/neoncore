@@ -12,6 +12,7 @@
  * are "things the agent should know before step one", so they belong in the same field.
  */
 import db from '../db.js';
+import { libelleContexte } from './context-label.js';
 import { randomUUID } from 'crypto';
 
 /** Recent learnings for a project, as the scheduler has always injected them. */
@@ -72,7 +73,11 @@ export function cloneTemplateAsRun(
   // most likely to survive a long prompt.
   const parts = [extraContext.trim(), projectId ? learningsContext(projectId) : ''].filter(Boolean);
   if (parts.length) {
-    db.prepare('UPDATE workflows SET initial_context = ? WHERE id = ?').run(parts.join('\n\n'), runId);
+    // The label is derived from what the PERSON typed, not from the assembled context: the
+    // learnings appended after it are the same for every run in a project, so a label taken from
+    // the whole string would make every run in a project read alike.
+    db.prepare('UPDATE workflows SET initial_context = ?, context_label = ? WHERE id = ?')
+      .run(parts.join('\n\n'), libelleContexte(extraContext), runId);
   }
 
   // Clone the steps, remapping depends_on to the NEW ids. Getting this wrong produces a run

@@ -29,6 +29,8 @@
  * honest failure never propagates — only a confident lie does.
  */
 import db from '../db.js';
+import { libelleContexte } from './context-label.js';
+import { workflowName, taskName, cartridgeNames } from './queue-item-name.js';
 
 export const KIND_IDS = ['prompt', 'workflow', 'confer', 'task'] as const;
 export type QueueKind = (typeof KIND_IDS)[number];
@@ -177,7 +179,7 @@ export const QUEUE_KINDS: QueueKindDef[] = [
       if (!Array.isArray(p.targets) || p.targets.length === 0) return 'a prompt needs at least one target cartridge';
       return null;
     },
-    describe: (i) => `prompt -> ${i.targets.length} cartridge(s)`,
+    describe: (i) => `"${libelleContexte(str(i.payload, 'text'))}" -> ${cartridgeNames(i.targets)}`,
     dispatch: async (item) => {
       const { sendCommandToAgent } = await import('./send-command.js');
       const text = str(item.payload, 'text');
@@ -201,7 +203,7 @@ export const QUEUE_KINDS: QueueKindDef[] = [
   {
     kind: 'workflow',
     validate: (p) => (str(p, 'workflowId') ? null : 'a workflow needs `workflowId` (a template or run id)'),
-    describe: (i) => `workflow ${str(i.payload, 'workflowId').slice(0, 8)}`,
+    describe: (i) => workflowName(str(i.payload, 'workflowId')),
     dispatch: async (item) => {
       // DELIBERATE, AND A KNOWN WART: the v2 start logic is a ~320-line express handler
       // (routes/workflows.ts:596-917) doing template cloning, deferred assignment, attachments
@@ -242,7 +244,8 @@ export const QUEUE_KINDS: QueueKindDef[] = [
       if (!Array.isArray(p.participantIds) || p.participantIds.length < 2) return 'a confer needs at least 2 participants';
       return null;
     },
-    describe: (i) => `confer with ${(i.payload.participantIds as unknown[] | undefined)?.length ?? 0} participants`,
+    describe: (i) => `confer "${libelleContexte(str(i.payload, 'task'))}" with `
+      + cartridgeNames((i.payload.participantIds as string[] | undefined) ?? []),
     dispatch: async (item) => {
       const { startConfer } = await import('./confer-conductor.js');
       const session = startConfer(item.payload as Parameters<typeof startConfer>[0]);
@@ -262,7 +265,7 @@ export const QUEUE_KINDS: QueueKindDef[] = [
       if (!str(p, 'agentId')) return 'a task needs `agentId` — the cartridge it was aimed at';
       return null;
     },
-    describe: (i) => `task ${str(i.payload, 'taskId').slice(0, 8)}`,
+    describe: (i) => taskName(str(i.payload, 'taskId')),
     dispatch: async (item) => {
       // Dynamic import: the dispatcher lives with the route that owns the tasks table, and a
       // static import from lib/ into routes/ would be a cycle. Same shape as the workflow
