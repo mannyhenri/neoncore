@@ -32,11 +32,72 @@ import db from '../db.js';
 export const STALE_AFTER_MS = 10 * 60 * 1000;
 
 /**
- * How long a dispatch may run with NOTHING reported before a still-working cartridge counts as
- * silent rather than busy. Calibrated against observed reality, not a guess: the longest
- * legitimate loop on a live epic took 65 minutes and completed; the stall this caught ran 2h53m.
+ * The FLOOR under which a still-working cartridge is never called silent.
+ *
+ * MEASURED, not guessed — and the measurement corrected the reasoning that asked for it. Across
+ * three real epic runs (74 loop gaps):
+ *
+ *   gl-dev GRD-3412       median 13.9  p90 39.9  max  51.8   ← the 52m loop COMPLETED normally
+ *   gridlight-work 3502   median  9.9  p90 17.8  max 173.1   ← 65m legit; 146m+173m = the stall
+ *   film-engine   3598    median 11.3  p90 21.2  max  32.2
+ *
+ * Longest VERIFIED-LEGITIMATE gap ~65 min; shortest GENUINE stall ~146 min. 90 sits between
+ * them, which is why the original guess held. Firing sooner is not available at any multiplier:
+ * `median x 3` accuses gl-dev's benchmark loop, which finished fine.
  */
-export const DISPATCH_SILENT_AFTER_MS = 90 * 60 * 1000;
+export const DISPATCH_SILENT_FLOOR_MS = 90 * 60 * 1000;
+
+/**
+ * How many median loop times a dispatch may take before it is silent, when that exceeds the
+ * floor. Set above the worst legitimate variance actually observed (3.7x median, gl-dev) so the
+ * adaptive term cannot become a false-positive generator.
+ *
+ * This raises the threshold for a SLOW run; it never lowers it for a fast one. A workload whose
+ * median loop is 40 minutes legitimately produces 150-minute gaps, and a fixed 90 would accuse
+ * it every cycle. On every run measured so far the floor governs and this term is inert — a
+ * guard for a case that has not happened yet, not dead code.
+ */
+export const STALL_MULTIPLE = 6;
+
+/**
+ * The median gap between this run's loop dispatches, or null when there is not one yet.
+ *
+ * Median, not mean: the stall itself is in the sample. gridlight-work's 173-minute stall sits in
+ * the same series as its 5-minute loops, and a mean would let the anomaly raise the threshold
+ * that is supposed to catch it.
+ *
+ * Null on fewer than two rows (no gap exists) and on unparseable timestamps, so a caller that
+ * treats null as zero cannot accidentally set a zero threshold — see `silentThresholdMs`.
+ */
+export function medianLoopMs(workflowId: string): number | null {
+  const rows = db.prepare(
+    `SELECT created_at FROM workflow_journal
+      WHERE workflow_id = ? AND message LIKE 'Loop %/%'
+      ORDER BY created_at`,
+  ).all(workflowId) as { created_at: string }[];
+  if (rows.length < 2) return null;
+
+  const gaps: number[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const a = Date.parse(rows[i - 1].created_at);
+    const b = Date.parse(rows[i].created_at);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+    const gap = b - a;
+    if (gap > 0) gaps.push(gap);
+  }
+  if (gaps.length === 0) return null;
+  gaps.sort((x, y) => x - y);
+  // Lower middle on an even count. Averaging the two middles would invent a duration that never
+  // occurred, and this number is compared against real elapsed time.
+  return gaps[Math.floor((gaps.length - 1) / 2)];
+}
+
+/** The silence threshold for this run: the floor, raised if the run's own cadence is slower. */
+export function silentThresholdMs(workflowId: string): number {
+  const median = medianLoopMs(workflowId);
+  if (median === null) return DISPATCH_SILENT_FLOOR_MS;
+  return Math.max(DISPATCH_SILENT_FLOOR_MS, median * STALL_MULTIPLE);
+}
 
 export const ATTENTION_REASONS = [
   'failed',         // the run cannot continue at all
@@ -100,6 +161,14 @@ function question(cfg: string): string {
 interface Hit { step: StepRow; detail: string }
 
 /**
+ * What every detector is handed. `steps` is fetched once per sweep and shared; `workflowId` is
+ * there because some reasons are properties of the RUN rather than of a step — the silence
+ * threshold reads the run's own loop cadence, and the reasons still to come read its autonomy
+ * deadline and loop budget.
+ */
+interface DetectCtx { workflowId: string; steps: StepRow[] }
+
+/**
  * ONE DEFINITION PER REASON. Everything else reads this.
  *
  * A reason used to be spread across five sites — this array, its detector clause, the
@@ -127,7 +196,7 @@ interface ReasonDef {
    * `autonomy.ts` derives AUTO_RESOLVABLE and NEVER_AUTO from this rather than restating them.
    */
   autoAt: readonly ('advance' | 'full')[];
-  detect: (steps: StepRow[]) => Hit | null;
+  detect: (ctx: DetectCtx) => Hit | null;
 }
 
 export const REASONS: readonly ReasonDef[] = [
@@ -135,7 +204,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'failed',
     order: 1,
     autoAt: [],                       // breakage — never auto-resolved, at any level
-    detect: (steps) => {
+    detect: ({ steps }) => {
       const s = steps.find((x) => x.status === 'failed');
       return s ? { step: s, detail: `"${s.name}" failed — the run cannot continue.` } : null;
     },
@@ -144,7 +213,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'interrupted',
     order: 2,
     autoAt: [],                       // breakage — recovery is a decision, not a default
-    detect: (steps) => {
+    detect: ({ steps }) => {
       const s = steps.find((x) => x.status === 'running' && x.recovery_status === 'interrupted');
       return s ? { step: s, detail: `"${s.name}" was interrupted and needs recovery.` } : null;
     },
@@ -154,7 +223,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'decision',
     order: 3,
     autoAt: ['full'],
-    detect: (steps) => {
+    detect: ({ steps }) => {
       const s = steps.find((x) => x.status === 'running' && x.executor_type === 'decision');
       if (!s) return null;
       const q = question(s.executor_config);
@@ -179,7 +248,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'agent-waiting',
     order: 4,
     autoAt: ['full'],
-    detect: (steps) => {
+    detect: ({ steps }) => {
       const s = steps.find((x) => {
         if (x.status !== 'running' || !x.executor_id) return false;
         const a = db.prepare('SELECT status, pending_question FROM agents WHERE id = ?').get(x.executor_id) as
@@ -212,7 +281,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'agent-idle',
     order: 5,
     autoAt: ['advance', 'full'],
-    detect: (steps) => {
+    detect: ({ steps }) => {
       const s = steps.find((x) => {
         if (x.status !== 'running' || !x.executor_id) return false;
         if (!(x.dispatched_prompt || '').trim()) return false;
@@ -257,14 +326,17 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'agent-silent',
     order: 6,
     autoAt: ['advance', 'full'],
-    detect: (steps) => {
+    detect: ({ workflowId, steps }) => {
+      // Computed ONCE per sweep, not per step: it is a property of the run, and the query
+      // behind it costs 0.06ms against an index that already exists.
+      const threshold = silentThresholdMs(workflowId);
       const s = steps.find((x) => {
         if (x.status !== 'running' || !x.executor_id) return false;
         if (!(x.dispatched_prompt || '').trim()) return false;
         if ((x.result || '').trim()) return false;
         if (!x.started_at) return false;
         const dispatchedFor = Date.now() - Date.parse(x.started_at);
-        if (!Number.isFinite(dispatchedFor) || dispatchedFor <= DISPATCH_SILENT_AFTER_MS) return false;
+        if (!Number.isFinite(dispatchedFor) || dispatchedFor <= threshold) return false;
         const a = db.prepare('SELECT status, last_seen FROM agents WHERE id = ?').get(x.executor_id) as
           { status?: string; last_seen?: string } | undefined;
         if (!a) return false;
@@ -277,7 +349,7 @@ export const REASONS: readonly ReasonDef[] = [
       if (!s) return null;
       return {
         step: s,
-        detail: `"${s.name}" was dispatched over ${Math.round(DISPATCH_SILENT_AFTER_MS / 60000)} minutes `
+        detail: `"${s.name}" was dispatched over ${Math.round(threshold / 60000)} minutes `
           + 'ago and the cartridge is still working, but nothing has been reported — it may have lost '
           + 'the completion contract (a context compaction drops it).',
       };
@@ -288,7 +360,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'manual-advance',
     order: 7,
     autoAt: ['advance', 'full'],
-    detect: (steps) => {
+    detect: ({ steps }) => {
       const anyPending = steps.some((x) => x.status === 'pending');
       const s = steps.find((x) => x.status === 'completed' && x.auto_advance === 0);
       return s && anyPending
@@ -325,7 +397,7 @@ export function workflowNeedsAttention(workflowId: string): Attention | null {
   if (steps.length === 0) return null;
 
   for (const def of ORDERED_REASONS) {
-    const hit = def.detect(steps);
+    const hit = def.detect({ workflowId, steps });
     if (hit) return { reason: def.name, stepId: hit.step.id, stepName: hit.step.name, detail: hit.detail };
   }
   return null;
