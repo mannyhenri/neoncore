@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO, getPrimarySocket } from '../ws.js';
-import type { Activity, Agent, Command, CommandAttachmentInput } from '../types.js';
+import type { Activity, Agent, Command, CommandAttachmentInput, DeliveryTransport } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
 import { postToInbox } from './inbox-client.js';
@@ -289,6 +289,17 @@ export function sendCommandToAgent(
 
   // Emit to the primary socket (most recently registered window) to avoid sending to
   // multiple VS Code windows that may share the same agent room.
+  /*
+   * ONE place sets the transport, because a branch that sets the field and
+   * forgets the row — or the reverse — is exactly the drift this task exists to
+   * remove. Every conclusion below goes through here.
+   */
+  const conclude = (t: DeliveryTransport, delivered: boolean) => {
+    command.delivered = delivered;
+    command.transport = t;
+    db.prepare('UPDATE commands SET transport = ? WHERE id = ?').run(t, id);
+  };
+
   const agentRoom = `agent:${agentId}`;
   const primarySocketId = getPrimarySocket(agentId);
   const primarySocket = primarySocketId ? getIO().sockets.sockets.get(primarySocketId) : undefined;
@@ -296,20 +307,20 @@ export function sendCommandToAgent(
   if (primarySocket) {
     console.log(`[cmd] Emitting command_send to primary socket ${primarySocketId} for agent ${agentId}`);
     primarySocket.emit('command_send', command);
-    command.delivered = true;
+    conclude('primary-socket', true);
   } else {
     const agentRoomSize = getIO().sockets.adapter.rooms.get(agentRoom)?.size ?? 0;
     if (agentRoomSize > 0) {
       console.log(`[cmd] No primary socket — falling back to room ${agentRoom} (${agentRoomSize} socket(s))`);
       getIO().to(agentRoom).emit('command_send', command);
-      command.delivered = true;
+      conclude('agent-room', true);
     } else if ((agentCheck.agent_type === 'claude' || agentCheck.agent_type === 'codex') && typeIntoTerminal(finalText)) {
       // No relay/extension socket for this claude/codex agent — it's in a bare terminal with
       // no relay attached. Fall back to typing into the FRONTMOST terminal. NB: this is
       // unaddressed — it cannot target a specific window, so it lands wherever focus happens
       // to be. The socket path above is preferred whenever a relay is connected.
       console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
-      command.delivered = true;
+      conclude('terminal-fallback', true);
     } else if (agentCheck.inbox_pid > 0) {
       /**
        * ADX-005 — THE ADDRESSED INBOX, tried where the only alternative is giving up.
@@ -332,7 +343,7 @@ export function sendCommandToAgent(
        * not proof anyone saw them. The ROW is updated when the post actually resolves, which is
        * the first moment anything true is known.
        */
-      command.delivered = false;
+      conclude('inbox-socket', false);
       const cmdId = command.id;
       void postToInbox({
         pid: agentCheck.inbox_pid,
@@ -354,7 +365,7 @@ export function sendCommandToAgent(
       // reconnects — but nothing guarantees that, and callers must be able to tell the
       // difference between "delivered" and "queued into the void".
       console.error(`[cmd] NO COMMAND CHANNEL for agent ${agentId} (${agentCheck.repo_name}) — command queued as pending, nothing is listening. Start a relay for this cartridge.`);
-      command.delivered = false;
+      conclude('no-channel', false);
     }
   }
 

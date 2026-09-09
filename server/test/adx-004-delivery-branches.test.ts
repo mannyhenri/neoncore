@@ -56,7 +56,15 @@ function branchesInSource(): string[] {
   const start = SRC.indexOf('if (primarySocket)');
   assert.notEqual(start, -1, 'could not find the delivery block — this scanner is broken');
   const block = SRC.slice(start, SRC.indexOf('\n  /**', start));
-  return [...block.matchAll(/command\.delivered = (true|false)/g)].map((m, i) => `branch-${i}:${m[1]}`);
+  /*
+   * ADX-006 routed every branch through one `conclude(transport, delivered)`
+   * helper, so the per-branch `command.delivered = true|false` assignments this
+   * used to count no longer exist — there is exactly one, inside the helper.
+   * The CALL SITES are now the branches, and they carry more information than
+   * before: each names its transport as well as its outcome.
+   */
+  return [...block.matchAll(/conclude\('([a-z-]+)',\s*(true|false)\)/g)]
+    .map((m, i) => `branch-${i}:${m[1]}:${m[2]}`);
 }
 
 let n = 0;
@@ -125,10 +133,11 @@ test('an unknown agent is refused, not delivered', () => {
 });
 
 // ── SET 3: the ADX-005/006 gate ────────────────────────────────────────────
-test('every branch reports WHICH transport fired', { todo: 'ADX-006 records the transport' }, () => {
-  // Demonstrated failing before ADX-005 — see this file's header for the recorded output.
-  // `delivered` is a bare boolean, so a caller cannot tell an addressed socket emit from a
-  // room-wide spray from a keystroke into whatever window had focus.
+test('every branch reports WHICH transport fired', () => {
+  // Was a todo until ADX-006. `delivered` alone is a bare boolean, so a caller cannot tell an
+  // addressed socket emit from a room-wide spray from a keystroke into whatever window had
+  // focus — the todo marker is removed rather than left standing over work that has landed,
+  // because a todo nobody retires reads as coverage that does not exist.
   const id = agent();
   io.connect(id);
   io.connectSocket(`sock-${id}`);
