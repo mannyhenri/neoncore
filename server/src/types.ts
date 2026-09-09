@@ -170,6 +170,24 @@ export interface PermissionRequest {
   response: string; // JSON string — answers for AskUserQuestion, feedback for ExitPlanMode
 }
 
+/**
+ * Every way a dispatch can leave this server.
+ *
+ * Named rather than boolean because `delivered` cannot distinguish a relay
+ * websocket from an addressed inbox socket from a keystroke typed into whatever
+ * window happened to be frontmost — three things with very different
+ * reliability. It matters most for `inbox-socket`, which resolves
+ * ASYNCHRONOUSLY: there, `delivered: false` means "handed over, answer pending"
+ * rather than "nothing was listening", and without a transport name nothing can
+ * tell those apart.
+ */
+export type DeliveryTransport =
+  | 'primary-socket'
+  | 'agent-room'
+  | 'terminal-fallback'
+  | 'inbox-socket'
+  | 'no-channel';
+
 export interface Command {
   id: string;
   agentId: string;
@@ -185,6 +203,13 @@ export interface Command {
    * it, or a workflow step will sit `running` forever waiting on a command nobody received.
    */
   delivered?: boolean;
+  /**
+   * WHICH transport carried it. Persisted on the row, because the returned
+   * object answers the question only for the caller who already knew — the
+   * dashboard, a retry and an operator asking why a dispatch vanished all read
+   * the row instead.
+   */
+  transport?: DeliveryTransport;
 }
 
 export interface CommandAttachmentInput {

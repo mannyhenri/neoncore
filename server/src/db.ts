@@ -738,6 +738,23 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN inbox_pid INTEGER NOT NULL DEFAULT 0`);
   db.exec(`ALTER TABLE agents ADD COLUMN inbox_token TEXT NOT NULL DEFAULT ''`);
 }
+
+// ADX-006 — WHICH transport carried a dispatch, not merely whether one did.
+//
+// On the row rather than only on the returned Command: that object is handed to
+// one caller once, while the row is what everything later reads. It matters most
+// for the inbox socket, which resolves asynchronously — there `delivered = 0`
+// means "handed over, answer pending" rather than "nothing was listening", and
+// only the transport name separates them.
+//
+// Empty default: rows written before this column existed have no honest answer,
+// and '' says so rather than inventing one.
+try {
+  db.prepare('SELECT transport FROM commands LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE commands ADD COLUMN transport TEXT NOT NULL DEFAULT ''`);
+}
+
 }
 
 // Migration: add token tracking columns to workflow_steps

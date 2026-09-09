@@ -96,6 +96,20 @@ export interface PermissionRequest {
   response: string; // JSON string — answers for AskUserQuestion, feedback for ExitPlanMode
 }
 
+/**
+ * Every way a dispatch can leave the server. `delivered` alone cannot tell a
+ * relay websocket from an addressed inbox socket from a keystroke into whatever
+ * window was frontmost — and for `inbox-socket`, which resolves asynchronously,
+ * `delivered: false` means "handed over, answer pending" rather than "nothing
+ * was listening". Only the transport name separates those.
+ */
+export type DeliveryTransport =
+  | 'primary-socket'
+  | 'agent-room'
+  | 'terminal-fallback'
+  | 'inbox-socket'
+  | 'no-channel';
+
 export interface Command {
   id: string;
   agentId: string;
@@ -104,6 +118,15 @@ export interface Command {
   status: 'pending' | 'delivered' | 'failed';
   createdAt: string;
   deliveredAt: string | null;
+  /**
+   * Whether it reached a live channel at dispatch time. Not persisted — the
+   * server answers it once, in the send response. `false` alongside
+   * `transport: 'inbox-socket'` means "handed over, answer pending", which is a
+   * different thing from `false` alongside `'no-channel'`.
+   */
+  delivered?: boolean;
+  /** Which transport carried it, when the server reports one. */
+  transport?: DeliveryTransport;
 }
 
 export interface CommandAttachmentInput {

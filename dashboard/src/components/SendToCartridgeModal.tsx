@@ -15,6 +15,37 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * What to tell the operator, from what the server actually reported.
+ *
+ * Three outcomes that used to look identical:
+ *   · a live transport took it            → say which one
+ *   · the inbox took it, answer pending   → say pending, NOT delivered; ADX-001
+ *     measured a session that accepts the bytes and does nothing, so the socket
+ *     cannot prove receipt
+ *   · nothing was listening               → say so, and do not call it Sent
+ *
+ * An absent transport still renders — an older server, or a forwarded dispatch,
+ * must not print "undefined".
+ */
+export function outcomeLabel(o: { delivered?: boolean; transport?: string } | null): string {
+  if (!o) return 'Sent!';
+  if (o.transport === 'no-channel' || (o.delivered === false && !o.transport)) {
+    return 'Not delivered — nothing was listening';
+  }
+  if (o.transport === 'inbox-socket') return 'Handed to the inbox socket — delivery pending';
+  if (!o.transport) return 'Sent!';
+  return `Sent via ${o.transport}`;
+}
+
+export function outcomeTone(o: { delivered?: boolean; transport?: string } | null): string {
+  if (o && (o.transport === 'no-channel' || (o.delivered === false && !o.transport))) {
+    return 'text-red-400';
+  }
+  if (o && o.transport === 'inbox-socket') return 'text-amber-400';
+  return 'text-emerald-400';
+}
+
 export default function SendToCartridgeModal({
   initialText,
   sourceLabel,
@@ -27,6 +58,14 @@ export default function SendToCartridgeModal({
   const [includeMemory, setIncludeMemory] = useState(true);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  /*
+   * ADX-006 — WHAT the send actually did. This modal used to `await
+   * api.sendCommand(...)` with nothing on the left and then setSent(true)
+   * unconditionally, so a prompt aimed at a cartridge with nothing listening
+   * reported "Sent!" in green and the operator found out only when the work
+   * never happened.
+   */
+  const [outcome, setOutcome] = useState<{ delivered?: boolean; transport?: string } | null>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -54,9 +93,16 @@ export default function SendToCartridgeModal({
     if (!targetAgentId || !text.trim()) return;
     setSending(true);
     try {
-      await api.sendCommand(targetAgentId, text.trim(), includeMemory);
+      const result = await api.sendCommand(targetAgentId, text.trim(), includeMemory);
+      setOutcome({ delivered: result?.delivered, transport: result?.transport });
       setSent(true);
-      setTimeout(onClose, 1200);
+      /*
+       * A dispatch that went nowhere is left on screen. Auto-closing on success
+       * is fine; auto-closing on "nothing was listening" hides the one outcome
+       * the operator has to act on.
+       */
+      if (result?.delivered !== false) setTimeout(onClose, 1200);
+      else setSending(false);
     } catch {
       setSending(false);
     }
@@ -147,7 +193,7 @@ export default function SendToCartridgeModal({
         {/* Footer */}
         <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
           {sent ? (
-            <span className="text-sm text-emerald-400 font-medium">Sent!</span>
+            <span className={`text-sm font-medium ${outcomeTone(outcome)}`}>{outcomeLabel(outcome)}</span>
           ) : (
             <button
               onClick={handleSend}
