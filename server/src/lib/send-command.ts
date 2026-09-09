@@ -5,6 +5,7 @@ import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command, CommandAttachmentInput } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
+import { postToInbox } from './inbox-client.js';
 import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
 import { goalBriefForAgent } from './goal-brief.js';
@@ -94,8 +95,8 @@ export function sendCommandToAgent(
   attachments?: CommandAttachmentInput[],
   opts: { trackObjective?: boolean; standard?: boolean } = {},
 ): Command | null {
-  const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id, machine FROM agents WHERE id = ?')
-    .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string; machine: string } | undefined;
+  const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id, machine, inbox_pid, inbox_token FROM agents WHERE id = ?')
+    .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string; machine: string; inbox_pid: number; inbox_token: string } | undefined;
   if (!agentCheck) return null;
 
   // Driving an agent un-dismisses it. Sending it a prompt (from the dashboard, the phone, or
@@ -309,6 +310,45 @@ export function sendCommandToAgent(
       // to be. The socket path above is preferred whenever a relay is connected.
       console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
       command.delivered = true;
+    } else if (agentCheck.inbox_pid > 0) {
+      /**
+       * ADX-005 — THE ADDRESSED INBOX, tried where the only alternative is giving up.
+       *
+       * No relay socket is connected, so today this cartridge would be written off with
+       * NO COMMAND CHANNEL. It is very likely still alive: the relay's websocket and the
+       * cartridge's own inbox socket fail independently, and the inbox is bound by the Claude
+       * process itself rather than by our relay.
+       *
+       * WHY THIS POSITION AND NOWHERE EARLIER. `postToInbox` is async and this function is
+       * synchronous with 22 call sites depending on that. A branch in the middle of the chain
+       * would need the socket's answer before deciding whether to fall through — impossible
+       * without changing the signature. Here, nothing follows: success rescues a dispatch that
+       * would have been lost, failure lands exactly where the code already ended up. The
+       * asynchrony costs nothing because there is no next branch to reach.
+       *
+       * `delivered` STAYS FALSE on the synchronous return. ADX-001 measured that a session
+       * parked on the trust-this-folder prompt accepts the connection, takes the write, and
+       * delivers nothing, with no error either side — so a socket that swallowed our bytes is
+       * not proof anyone saw them. The ROW is updated when the post actually resolves, which is
+       * the first moment anything true is known.
+       */
+      command.delivered = false;
+      const cmdId = command.id;
+      void postToInbox({
+        pid: agentCheck.inbox_pid,
+        token: agentCheck.inbox_token || null,
+        text: finalText,
+      }).then((res) => {
+        if (res.ok) {
+          db.prepare(`UPDATE commands SET status = 'delivered', delivered_at = ? WHERE id = ?`)
+            .run(new Date().toISOString(), cmdId);
+          console.log(`[cmd] Delivered to ${agentCheck.repo_name} over its addressed inbox (pid ${agentCheck.inbox_pid})`);
+        } else {
+          // Named, not swallowed: 'no-socket' means the session exited, 'stale-pid' means the
+          // pid was recycled and we refused to write to a stranger. Those are different repairs.
+          console.error(`[cmd] Inbox delivery failed for ${agentCheck.repo_name} (${res.kind}): ${res.detail}`);
+        }
+      });
     } else {
       // Nothing is listening. The command row stays 'pending' and will drain if a socket
       // reconnects — but nothing guarantees that, and callers must be able to tell the

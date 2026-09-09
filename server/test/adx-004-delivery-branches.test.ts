@@ -81,8 +81,10 @@ test('EVERY delivery branch in the registry is exercised by this file', () => {
   // The count is the contract: when ADX-005 adds the inbox-socket branch, this fails until the
   // new branch is driven below. That is the whole point of parsing rather than listing.
   const parsed = branchesInSource().length;
-  const DRIVEN = 3;   // primary socket, room fallback, no-channel. Terminal typing is disabled
-                      // by policy (no-keystroke-injection.test.ts) and cannot be driven here.
+  const DRIVEN = 4;   // primary socket, room fallback, inbox socket (ADX-005), no-channel.
+                      // Terminal typing is disabled by policy (no-keystroke-injection.test.ts)
+                      // and cannot be driven here. The inbox branch is driven in full by
+                      // adx-005-wire-inbox-branch.test.ts against a real socket.
   assert.equal(parsed, DRIVEN + 1,
     `send-command.ts has ${parsed} delivery branches; this test drives ${DRIVEN} and accounts for `
     + `1 (terminal typing, disabled by policy). A new branch must be driven here before it ships.`);
@@ -137,7 +139,7 @@ test('every branch reports WHICH transport fired', { todo: 'ADX-006 records the 
     `transport must name the branch that fired, got ${JSON.stringify(cmd.transport)}`);
 });
 
-test('the inbox-socket branch exists and is preferred for a busy cartridge', { todo: 'ADX-005 wires it' }, () => {
+test('the inbox-socket branch exists and is preferred for a busy cartridge', () => {
   assert.match(SRC, /postToInbox/,
     'send-command.ts does not reference the inbox client — ADX-005 has not wired the branch');
 });
