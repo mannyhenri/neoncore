@@ -158,13 +158,35 @@ test('a branch CANNOT conclude delivery without naming its transport', () => {
     'the funnel sets the field but never writes the row — everything later reads the row');
 });
 
-test('the registry covers every branch in the source', () => {
-  /* Counted from the funnel's CALL SITES, since the assignments now live in one place. */
-  const concludes = [...SRC.matchAll(/^\s*conclude\(/gm)].length;
-  assert.ok(concludes >= 5, `only ${concludes} conclude() call sites found — the scan is broken`);
-  assert.equal(BRANCHES.length, concludes,
-    `source concludes delivery in ${concludes} places; this registry covers ${BRANCHES.length}. `
-    + 'A new branch is unexercised — add it to BRANCHES with how to drive it.');
+/**
+ * A transport may legitimately be concluded from MORE THAN ONE call site, and
+ * each duplication has to justify itself here.
+ *
+ * `inbox-socket` has two: the ADX-005 last-resort branch, reached when nothing
+ * else is listening, and the ADX-007 `deliverNow` preference, reached ahead of
+ * the relay when an operator asks for "now". Same transport, different reasons
+ * to choose it — so a raw count of call sites against registry entries is the
+ * wrong invariant, while "every transport in the source is covered" stays right.
+ */
+const EXTRA_CALL_SITES: Record<string, string> = {
+  'inbox-socket': 'ADX-005 reaches it as a last resort; ADX-007 prefers it for deliverNow',
+};
+
+test('the registry covers every transport concluded in the source', () => {
+  const sites = [...SRC.matchAll(/^\s*conclude\('([a-z-]+)'/gm)].map((m) => m[1]);
+  assert.ok(sites.length >= 5, `only ${sites.length} conclude() call sites found — the scan is broken`);
+
+  const inSource = [...new Set(sites)].sort();
+  const covered = BRANCHES.map((b) => b.transport).sort();
+  assert.deepEqual(inSource, covered,
+    'the transports concluded in send-command.ts and the ones this registry drives have '
+    + 'diverged — a new branch is unexercised until it is added to BRANCHES.');
+
+  /* And every duplicate call site is accounted for, rather than silently tolerated. */
+  const dupes = inSource.filter((t) => sites.filter((x) => x === t).length > 1);
+  const unexplained = dupes.filter((t) => !EXTRA_CALL_SITES[t]);
+  assert.deepEqual(unexplained, [],
+    `these transports are concluded from several places with no stated reason: ${unexplained.join(', ')}`);
 });
 
 test('no two branches report the same transport', () => {
