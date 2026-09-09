@@ -102,6 +102,16 @@ const INTERNAL_AGENT_COLUMNS: Record<string, string> = {
     'the queue binding stamp — read by queue-kinds.recordQueueCompletion to bind a completion ' +
     'report to the item that caused it, never by a client. Revisit when a queue UI needs to show ' +
     'which item a cartridge is on.',
+  inbox_token:
+    'a CREDENTIAL, and the one column here that must never be surfaced. It authenticates a ' +
+    'message posted to the cartridge\'s inbox socket, so serving it to a dashboard hands every ' +
+    'viewer the ability to speak as that cartridge. ADX-002 acceptance criterion 4 is exactly ' +
+    'this line. Not "forgotten" — refused.',
+  inbox_pid:
+    'the PTY child that names /tmp/cc-socks/<pid>.sock. Plumbing rather than state a client ' +
+    'acts on: a pid tells a viewer nothing they can use, and it changes with every relaunch. ' +
+    'Revisit at ADX-006, which surfaces WHICH TRANSPORT delivered a command — that is the ' +
+    'client-meaningful form of this, and it is a name, not a pid.',
 };
 
 const CASES = [

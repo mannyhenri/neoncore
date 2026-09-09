@@ -37,6 +37,7 @@
  */
 
 import { io } from 'socket.io-client';
+import { randomBytes } from 'node:crypto';
 import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
 import { resumeArgsFor, canVerifyTranscript, transcriptExists } from './resume-args.mjs';
@@ -120,6 +121,25 @@ const PASTE_END = '\x1b[201~';
 // gap lost that race for large prompts — the paste landed but the Enter got
 // swallowed, so nothing sent. We now scale the first Enter to the payload size and
 // fire a backstop Enter afterward. Overridable via env for tuning.
+// ADX-002 — the messaging token for our PTY child's addressed inbox.
+//
+// MINTED HERE, NOT READ FROM THE CHILD. ADX-001 proved the obvious approach is
+// impossible: `ps eww` does expose a same-uid process's environment on macOS, so
+// reading it out of the child LOOKS viable, but what ps shows is the EXEC-TIME
+// environment and claude generates its token after exec. Measured on a live
+// relay-owned session: 47 vars visible, MESSAGING_TOKEN absent — while a child
+// OF claude sees it, because claude adds it for processes it spawns. The
+// direction is the trap.
+//
+// So we choose the value and inject it below at pty.spawn, which is an
+// environment this process already controls. The relay then knows the token by
+// construction rather than by discovery.
+//
+// An operator-supplied value wins, so a session launched inside an existing
+// messaging context is not silently re-keyed.
+const INBOX_TOKEN = process.env.CLAUDE_CODE_MESSAGING_TOKEN
+  || randomBytes(32).toString('hex');
+
 const ENTER_BASE_MS = Number(process.env.NEONCORE_RELAY_ENTER_MS) || 150;
 const ENTER_CHARS_PER_MS = 8;   // +1ms of pre-Enter wait per 8 chars pasted
 const ENTER_MAX_MS = 1500;      // cap on the scaled first-Enter delay
@@ -179,6 +199,34 @@ async function registerAgent(identity) {
   return agent.id;
 }
 
+// Tell the server which socket addresses this cartridge: /tmp/cc-socks/<pid>.sock,
+// plus the token that names us on platforms that require one. The token is never
+// logged — it is a credential with the lifetime of this session, and a log file is
+// plain text that outlives it and gets quoted into bug reports.
+async function reportInbox(pid) {
+  if (!pid) return;
+  try {
+    const res = await fetch(`${URL}/api/agents/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        name: `${identityForInbox.machine}/${identityForInbox.repoName}`,
+        machine: identityForInbox.machine,
+        repoPath: identityForInbox.repoPath,
+        repoName: identityForInbox.repoName,
+        branch: identityForInbox.branch,
+        agentType: AGENT_TYPE,
+        inboxPid: pid,
+        inboxToken: INBOX_TOKEN,
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    log(`Reported inbox pid ${pid}`);
+  } catch (err) {
+    log(`reportInbox failed: ${err}`);
+  }
+}
+
 function markDelivered(commandId) {
   fetch(`${URL}/api/commands/delivered/${commandId}`, { method: 'POST' })
     .catch((err) => log(`markDelivered failed: ${err}`));
@@ -198,8 +246,12 @@ async function drainPending(agentId, inject) {
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
+// reportInbox runs after spawn and needs the same identity the registration used.
+let identityForInbox = { machine: '', repoPath: '', repoName: '', branch: '' };
+
 async function main() {
   const identity = getIdentity();
+  identityForInbox = identity;
   log(`Starting relay: url=${URL} type=${AGENT_TYPE} cmd=${AGENT_CMD} repo=${identity.repoPath}`);
 
   // 1. Register first so the agent row + id exist before we join its socket room.
@@ -232,8 +284,20 @@ async function main() {
     cols: process.stdout.columns || 80,
     rows: process.stdout.rows || 30,
     cwd: process.cwd(),
-    env: process.env,
+    // The injection ADX-001 established as the only workable direction.
+    env: { ...process.env, CLAUDE_CODE_MESSAGING_TOKEN: INBOX_TOKEN },
   });
+
+  // Report the addressed inbox now that a child — and therefore a pid — exists.
+  //
+  // This cannot ride on the first registration above: that runs BEFORE spawn, on
+  // purpose, so the agent row and id exist before we join the socket room. There
+  // is no child at that moment, so a pid in that payload could only be undefined.
+  //
+  // Fire-and-forget: the relay's job is to run the agent. A server that is down
+  // must not stop a cartridge from starting, and the next hook-driven register
+  // re-reports the same values.
+  reportInbox(ptyProc.pid);
 
   ptyProc.onData((data) => process.stdout.write(data));
   if (process.stdin.isTTY) process.stdin.setRawMode(true);

@@ -46,10 +46,16 @@ the token; the relay is claude's **parent** and does not.
 
 ### But the relay can inject one
 
-The relay already controls the environment it spawns with —
-`agent/relay/index.js:235` passes `env: process.env` into `pty.spawn`. Setting
-`CLAUDE_CODE_MESSAGING_TOKEN` there means the relay knows the token *by
-construction* rather than by discovery.
+The relay already controls the environment it spawns with — it passes an env
+object into `pty.spawn`. Setting `CLAUDE_CODE_MESSAGING_TOKEN` there means the
+relay knows the token *by construction* rather than by discovery.
+
+**Built by ADX-002.** At the time this was measured the relay passed
+`env: process.env` straight through; it now mints a token and spawns with
+`env: { ...process.env, CLAUDE_CODE_MESSAGING_TOKEN: INBOX_TOKEN }`. This
+paragraph records what was recommended AND what was then built, rather than
+freezing the pre-change state — a finding that describes a gap as permanent
+fails the day somebody closes it.
 
 Proven: a session spawned with an injected token showed that exact token in
 `ps eww` output (`injected_token_visible_in_ps: true`), because an injected

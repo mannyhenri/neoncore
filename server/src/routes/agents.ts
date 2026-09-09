@@ -112,10 +112,29 @@ function normalizeRepoPath(p: string): string {
 // Register or update an agent
 // Deduplicates on machine + repoPath (with cross-platform path normalization)
 router.post('/register', (req, res) => {
-  const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion, trustMode, model } = req.body;
+  const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion, trustMode, model, inboxPid, inboxToken } = req.body;
   const resolvedType = agentType || 'claude';
   // Gridlight sends its model id; persisting it is what lets the router find a profile.
   const reportedModel = typeof model === 'string' ? model : '';
+
+  /*
+   * ADX-002 — the addressed inbox (pid + messaging token).
+   *
+   * A pid NAMES A FILESYSTEM PATH (/tmp/cc-socks/<pid>.sock), so a bad one is not
+   * a cosmetic problem: 0 or a negative resolves to a path that either does not
+   * exist or belongs to somebody else. Refused here, where it is cheap and
+   * unambiguous, rather than at delivery time where it reads as a dead cartridge.
+   * Non-integers are refused for the same reason — `1.5` would build `1.5.sock`.
+   *
+   * NULL, NOT 0, when absent. Every hook fires register(), and those payloads
+   * carry no inbox at all — they outnumber the relay's single report enormously,
+   * so writing 0 would blank the inbox milliseconds after the relay set it and
+   * delivery would fail for a reason nothing reports. COALESCE below preserves.
+   */
+  const reportedInboxPid = Number.isSafeInteger(inboxPid) && (inboxPid as number) > 0
+    ? (inboxPid as number)
+    : null;
+  const reportedInboxToken = typeof inboxToken === 'string' && inboxToken !== '' ? inboxToken : null;
 
   const now = new Date().toISOString();
 
@@ -172,7 +191,9 @@ router.post('/register', (req, res) => {
     db.prepare(`
       UPDATE agents SET name = ?, machine = ?, repo_path = ?, repo_name = ?,
         branch = ?, current_task = ?, status = ?, pending_question = ?, last_seen = ?, session_id = ?,
-        agent_type = ?, model = COALESCE(NULLIF(?, ''), model), dismissed_at = NULL
+        agent_type = ?, model = COALESCE(NULLIF(?, ''), model),
+        inbox_pid = COALESCE(?, inbox_pid), inbox_token = COALESCE(?, inbox_token),
+        dismissed_at = NULL
       WHERE id = ?
     `).run(
       name || existing.name, machine || existing.machine,
@@ -181,6 +202,7 @@ router.post('/register', (req, res) => {
       statusToSet, questionToSet,
       now, sessionId || existing.session_id,
       typeToSet, reportedModel,
+      reportedInboxPid, reportedInboxToken,
       existing.id
     );
 
@@ -229,8 +251,8 @@ router.post('/register', (req, res) => {
   const initialMode = initialTrust ? 'trust' : 'manual';
 
   db.prepare(`
-    INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, pending_question, trust_mode, agent_mode, last_seen, session_id, agent_type, model)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task, status, pending_question, trust_mode, agent_mode, last_seen, session_id, agent_type, model, inbox_pid, inbox_token)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     agentName,
@@ -248,7 +270,9 @@ router.post('/register', (req, res) => {
     resolvedType,
     // First registration is the common case; omitting model here left every new cartridge
     // with model='' and therefore permanently UNMEASURED.
-    reportedModel
+    reportedModel,
+    reportedInboxPid ?? 0,
+    reportedInboxToken ?? ''
   );
 
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;

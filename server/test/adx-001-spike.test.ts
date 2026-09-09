@@ -88,12 +88,22 @@ test('the claims about the relay are still true of the relay', () => {
   const relay = fs.readFileSync(path.join(ROOT, 'agent', 'relay', 'index.js'), 'utf8');
   const d = doc();
 
-  /* The finding rests on the relay controlling the env it spawns with. */
-  assert.match(relay, /env:\s*process\.env/,
-    'the relay no longer spawns with env: process.env — the injection finding is stale');
+  /*
+   * The finding rests on the relay CONTROLLING the environment it spawns with —
+   * not on any particular spelling of that. The first version of this assertion
+   * matched the literal `env: process.env`, which was the pre-ADX-002 form, so
+   * ADX-002 doing exactly what the finding recommended made this fail. A pin
+   * that breaks when the thing it describes is BUILT is a pin that punishes
+   * success, so it now asserts the durable property: the spawn env is derived
+   * from process.env, whether passed through or extended.
+   */
+  const spawnAt = relay.indexOf('pty.spawn(');
+  assert.ok(spawnAt !== -1, 'the relay no longer spawns a PTY child');
+  const spawnCall = relay.slice(spawnAt, relay.indexOf('});', spawnAt));
+  assert.match(spawnCall, /env:\s*(process\.env|\{[^}]*\.\.\.process\.env)/,
+    'the relay no longer derives its spawn env from process.env — the injection finding is stale');
 
   /* And on it owning the child, so it knows the pid the socket is named for. */
-  assert.match(relay, /pty\.spawn\(/, 'the relay no longer spawns a PTY child');
 
   if (/index\.js:(\d+)/.test(d)) {
     const line = Number(/index\.js:(\d+)/.exec(d)![1]);
