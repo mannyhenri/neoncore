@@ -89,45 +89,48 @@ test('EVERY delivery branch in the registry is exercised by this file', () => {
 });
 
 // ── SET 2: each reachable branch actually delivers ─────────────────────────
-test('primary socket: delivers, and emits to that socket alone', async () => {
+test('primary socket: delivers, and emits to that socket alone', () => {
   const id = agent();
   io.connect(id);
   io.connectSocket(`sock-${id}`);
   const before = io.emissions.length;
-  const cmd = await sendCommandToAgent(id, 'via primary socket');
+  const cmd = sendCommandToAgent(id, 'via primary socket');
   assert.equal(cmd.delivered, true, 'the happy path must report delivered');
   assert.ok(io.emissions.length > before, 'nothing was emitted');
 });
 
-test('room fallback: delivers when no primary socket is registered', async () => {
+test('room fallback: delivers when no primary socket is registered', () => {
   const id = agent();
   io.connect(id);                       // room exists, but no socket registered as primary
-  const cmd = await sendCommandToAgent(id, 'via room');
+  const cmd = sendCommandToAgent(id, 'via room');
   assert.equal(cmd.delivered, true);
 });
 
-test('no channel: reports NOT delivered rather than silently succeeding', async () => {
+test('no channel: reports NOT delivered rather than silently succeeding', () => {
   const id = agent();                   // no room, no socket, terminal typing disabled in tests
-  const cmd = await sendCommandToAgent(id, 'into the void');
+  const cmd = sendCommandToAgent(id, 'into the void');
   assert.equal(cmd.delivered, false,
     'a command nothing is listening for must not report delivered — that is the failure that '
     + 'stalled a 50-task workflow');
 });
 
-test('an unknown agent is refused, not delivered', async () => {
-  const cmd = await sendCommandToAgent('no-such-agent-id', 'x').catch(() => null);
-  if (cmd) assert.notEqual(cmd.delivered, true, 'a command to a nonexistent agent cannot be delivered');
+test('an unknown agent is refused, not delivered', () => {
+  // `sendCommandToAgent` is SYNCHRONOUS and returns `Command | null`; it does not throw and does
+  // not return a promise. Null is the refusal — asserted here so a future change that starts
+  // returning a delivered-looking command for an agent that does not exist fails loudly.
+  const cmd = sendCommandToAgent('no-such-agent-id', 'x');
+  assert.equal(cmd, null, 'an unknown agent must be refused with null, never a command object');
 });
 
 // ── SET 3: the ADX-005/006 gate ────────────────────────────────────────────
-test('every branch reports WHICH transport fired', { todo: 'ADX-006 records the transport' }, async () => {
+test('every branch reports WHICH transport fired', { todo: 'ADX-006 records the transport' }, () => {
   // Demonstrated failing before ADX-005 — see this file's header for the recorded output.
   // `delivered` is a bare boolean, so a caller cannot tell an addressed socket emit from a
   // room-wide spray from a keystroke into whatever window had focus.
   const id = agent();
   io.connect(id);
   io.connectSocket(`sock-${id}`);
-  const cmd = await sendCommandToAgent(id, 'which transport?') as Record<string, unknown>;
+  const cmd = sendCommandToAgent(id, 'which transport?') as unknown as Record<string, unknown>;
   assert.ok('transport' in cmd,
     'no branch records a transport: delivered is a bare boolean');
   assert.ok(typeof cmd.transport === 'string' && cmd.transport.length > 0,
