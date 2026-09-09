@@ -43,7 +43,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { postToInbox, INBOX_DEADLINE_MS, type InboxResult } from '../src/lib/inbox-client.ts';
+import { postToInbox, inboxPathFor, INBOX_DEADLINE_MS, type InboxResult } from '../src/lib/inbox-client.ts';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'adx003-'));
 const sockPath = (name: string) => path.join(TMP, `${name}.sock`);
@@ -198,4 +198,69 @@ test('every declared failure kind is reachable — no dead variants in the union
   for (const k of ['no-socket', 'refused', 'timeout', 'auth', 'stale-pid']) {
     assert.ok(unique.includes(k), `the union is missing the '${k}' kind`);
   }
+});
+
+// ── FOLDED IN from adx-003-post-to-inbox.test.ts ───────────────────────────
+//
+// Two cartridges implemented ADX-003 simultaneously in one working tree, and both
+// modules were committed: this one, which send-command actually imports, and an
+// orphan that nothing imported. The orphan was deleted; these are the two cases it
+// covered that this file did not, ported to the module that ships.
+//
+// Everything else it tested was already covered here under different names — the
+// complete-line write, the auth-line ordering, the build-before-connect rule, and
+// the distinguishable-failure set — so porting it verbatim would have added seven
+// tests and no coverage.
+
+test('a pid we do NOT own is refused before any write', async () => {
+  /*
+   * `pidIsOurs` treats ESRCH (the process is gone) and EPERM (it exists and belongs
+   * to somebody else) as the same answer, and its comment says so — but only the
+   * ESRCH path was exercised. They are different hazards: a dead pid is a session
+   * that ended, while a live one owned by another user is somebody else's socket,
+   * and writing to it would speak as them.
+   *
+   * pid 1 drives EPERM portably — it is always alive and never ours.
+   */
+  const res = await postToInbox({ pid: 1, token: null, text: 'must not reach init' });
+  assert.equal(res.ok, false, 'a process owned by another user was accepted as our peer');
+  assert.equal((res as { kind: string }).kind, 'stale-pid',
+    `expected the endpoint check to refuse pid 1, got ${JSON.stringify(res)}`);
+});
+
+test('the socket path is not hardcoded to macOS', () => {
+  /*
+   * The epic's constraints say plainly: "Do not design a macOS-only interface" —
+   * Unix domain sockets here, named pipes on native Windows. `inboxPathFor` has a
+   * win32 branch and nothing exercised it, so a change that collapsed the two would
+   * have gone unnoticed until somebody ran this on Windows.
+   *
+   * The pipe NAME itself is unverified — ADX-001 was measured on macOS and the name
+   * could not be recovered from the CLI bundle — so this asserts the SHAPE and that
+   * the two platforms differ, which is what a test on this machine can honestly claim.
+   */
+  const posix = inboxPathFor(4242);
+  assert.match(posix, /^\/tmp\/cc-socks\/4242\.sock$/, `unexpected posix path: ${posix}`);
+
+  /*
+   * Bound to inboxPathFor's OWN BODY, by brace depth. The first version of this
+   * scanned the whole file for /win32/ — which still appears in postToInbox's
+   * platform guards — so collapsing inboxPathFor to the POSIX path alone left it
+   * passing. A mutation proved it: the branch was gone and the test was green.
+   * A scan wider than the thing it describes is a scan that cannot fail for it.
+   */
+  const src = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'lib', 'inbox-client.ts'), 'utf8');
+  const at = src.indexOf('export function inboxPathFor');
+  assert.notEqual(at, -1, 'inboxPathFor is gone');
+  let i = src.indexOf('{', at); let depth = 0; let end = i;
+  for (; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  const body = src.slice(at, end + 1);
+  assert.match(body, /win32/,
+    'inboxPathFor no longer branches on platform — this is now a macOS-only interface');
+  assert.match(body, /pipe/,
+    'the win32 branch no longer produces a named pipe');
 });
