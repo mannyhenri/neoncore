@@ -10,6 +10,7 @@ import { resolveAgentId } from '../lib/resolve-agent.js';
 import { deleteAgentCascade } from '../lib/agent-cleanup.js';
 import { handleAgentInterrupted } from '../lib/recovery.js';
 import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
+import { currentFleetDelta } from '../lib/fleet-reconcile.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
 import { evaluateStop } from '../lib/work-standard.js';
 import { detectTrailingQuestion } from '../lib/trailing-question.js';
@@ -296,6 +297,20 @@ router.post('/register', (req, res) => {
 router.get('/', (_req, res) => {
   const agents = db.prepare('SELECT * FROM agents ORDER BY last_seen DESC').all() as Record<string, unknown>[];
   res.json(agents.map(normalizeAgent));
+});
+
+/**
+ * ADX-009 — what this machine is running that NeonCore does NOT manage.
+ *
+ * MUST stay above `/:id`, or express matches "fleet-delta" as an agent id and this returns a
+ * 404 for an agent nobody asked for. Same rule the usage-series route already follows.
+ *
+ * Shelling out to the CLI is not free, so this is its own endpoint rather than a field on the
+ * agent list, which the dashboard polls continuously. The cost is paid when someone asks
+ * "is this everything?", which is the only moment the answer matters.
+ */
+router.get('/fleet-delta', (_req, res) => {
+  res.json(currentFleetDelta());
 });
 
 // Get a single agent
