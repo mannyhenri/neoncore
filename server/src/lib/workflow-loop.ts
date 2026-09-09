@@ -128,7 +128,32 @@ function clamp(n: number, max = MAX_LOOP_CEILING): number {
 export function shouldStopLooping(result: string, config: LoopConfig): boolean {
   const sentinel = (config.loopUntil || '').trim();
   if (!sentinel) return false;
-  return (result || '').toLowerCase().includes(sentinel.toLowerCase());
+
+  /**
+   * THE MARKER MUST BEGIN A LINE (LOOP-002). This was a substring match over the whole body,
+   * which made every MENTION of the marker a signal. Two real runs in this database ended
+   * because an agent wrote, in plain words, that it was REFUSING to signal:
+   *
+   *     "I am not outputting <marker>, because one task genuinely remains"
+   *     "I have not emitted <marker>, because it would be false — two tasks genuinely remain"
+   *
+   * A third quoted its own instructions; a fourth used the phrase while explaining this bug
+   * and cut its run from fifteen dispatches to six. A signal a report cannot discuss without
+   * firing is not a signal.
+   *
+   * Begins-a-line rather than is-the-whole-line, because the template asks for the marker
+   * "with a one-line tally" and agents really do write `<marker> — 17 of 22 done`. Requiring
+   * exact equality would reject genuine signals and the loop would never stop early.
+   *
+   * The cost, deliberately taken: `DONE X · 0 remaining — <marker>.` no longer stops, because
+   * the marker does not lead the line. That spends ONE extra dispatch, which finds nothing to
+   * do and signals properly. A wasted dispatch is recoverable; ending a run nine tasks early
+   * is not, and that asymmetry chooses the rule.
+   */
+  const marker = sentinel.toLowerCase();
+  return (result || '')
+    .split(/\r?\n/)
+    .some((line) => line.trim().toLowerCase().startsWith(marker));
 }
 
 /**
