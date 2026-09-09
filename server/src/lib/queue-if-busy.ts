@@ -29,6 +29,26 @@ import db from '../db.js';
 import { enqueue, isCartridgeBusy } from './queue-runner.js';
 import type { QueueKind, QueueItem } from './queue-kinds.js';
 import { cartridgeExists } from './cartridge-exists.js';
+import { inboxReachable } from './inbox-client.js';
+
+/**
+ * Can this cartridge take a message while it is mid-turn? Only an addressed inbox can — the
+ * relay's PTY paste lands in the input buffer behind the current turn, which is the wait
+ * `deliverNow` exists to skip.
+ */
+function hasAddressedInbox(agentId: string): boolean {
+  const row = db.prepare('SELECT inbox_pid FROM agents WHERE id = ?').get(agentId) as
+    { inbox_pid?: number } | undefined;
+  /*
+   * REACHABLE, not merely recorded. `inbox_pid` is written once when the relay
+   * starts and is never cleared when the session exits, so a stored pid is
+   * evidence that a cartridge ONCE had an inbox — not that it has one now.
+   * Skipping the queue on a stale pid drops the dispatch exactly the way this
+   * comment above says must not happen, so the check asks the transport whether
+   * it can actually be reached.
+   */
+  return inboxReachable(row?.inbox_pid ?? 0);
+}
 
 export interface BusyGuardSpec {
   kind: QueueKind;
@@ -41,6 +61,18 @@ export interface BusyGuardSpec {
    * on a NOT NULL constraint and halt its lane).
    */
   payload: Record<string, unknown>;
+  /**
+   * ADX-007 — "start it now", on a cartridge that is already working.
+   *
+   * OPT-IN ONLY. Seven call sites across five routes rely on "busy means queue", and that stays
+   * the default; this is a per-dispatch override a human asks for.
+   *
+   * It bypasses the queue ONLY when the target can actually receive a mid-turn message — i.e.
+   * it has an addressed inbox. Skipping the queue without a transport would DROP the work,
+   * which is worse than making it wait, so a cartridge with no inbox queues as usual even when
+   * this is set. The flag asks for "now"; it cannot manufacture a road.
+   */
+  deliverNow?: boolean;
 }
 
 export type BusyGuardResult =
@@ -58,6 +90,12 @@ export function guardBusy(spec: BusyGuardSpec): BusyGuardResult {
   const targets = [...new Set(spec.targets.filter(Boolean))];
   const busy = targets.filter(isCartridgeBusy);
   if (busy.length === 0) return { queued: false };
+
+  // ADX-007: an explicit "now" skips the wait, but only where every busy target can actually be
+  // reached mid-turn. One target without an inbox is enough to queue the whole item: a dispatch
+  // that reached two cartridges out of three and silently dropped the third would be worse than
+  // one that waited for all of them.
+  if (spec.deliverNow && busy.every(hasAddressedInbox)) return { queued: false };
 
   const out = enqueue({ kind: spec.kind, payload: spec.payload, targets });
   if (!out.ok) return { error: out.error };

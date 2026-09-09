@@ -9,7 +9,7 @@ const router = Router();
 
 // Send a command to an agent (from dashboard)
 router.post('/send', async (req, res) => {
-  const { agentId, text, includeMemory, attachments, queueIfBusy } = req.body;
+  const { agentId, text, includeMemory, attachments, queueIfBusy, deliverNow} = req.body;
 
   if (!agentId || !text) {
     return res.status(400).json({ error: 'agentId and text required' });
@@ -39,7 +39,15 @@ router.post('/send', async (req, res) => {
   // very confer it belongs to and the session would never advance. User surfaces ask for it;
   // system delivery does not.
   if (queueIfBusy === true) {
-    const guard = guardBusy({ kind: 'prompt', targets: [agentId], payload: { text } });
+    const guard = guardBusy({
+      kind: 'prompt', targets: [agentId], payload: { text },
+      /*
+       * ADX-007 — the operator asked for "now". guardBusy honours it only where
+       * every busy target has a REACHABLE inbox, so this cannot become "drop the
+       * work"; a cartridge with no mid-turn road still queues.
+       */
+      deliverNow: deliverNow === true,
+    });
     if ('error' in guard) return res.status(400).json({ error: guard.error });
     if (guard.queued) return res.status(202).json({
       queued: true,
@@ -52,7 +60,7 @@ router.post('/send', async (req, res) => {
 
   let command: Command | null;
   try {
-    command = sendCommandToAgent(agentId, text, includeMemory !== false, validAttachments);
+    command = sendCommandToAgent(agentId, text, includeMemory !== false, validAttachments, { deliverNow: deliverNow === true });
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }

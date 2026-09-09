@@ -5,7 +5,7 @@ import { getIO, getPrimarySocket } from '../ws.js';
 import type { Activity, Agent, Command, CommandAttachmentInput, DeliveryTransport } from '../types.js';
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
-import { postToInbox } from './inbox-client.js';
+import { postToInbox, inboxReachable } from './inbox-client.js';
 import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
 import { goalBriefForAgent } from './goal-brief.js';
@@ -93,7 +93,7 @@ export function sendCommandToAgent(
   text: string,
   includeMemory = false,
   attachments?: CommandAttachmentInput[],
-  opts: { trackObjective?: boolean; standard?: boolean } = {},
+  opts: { trackObjective?: boolean; standard?: boolean; deliverNow?: boolean } = {},
 ): Command | null {
   const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id, machine, inbox_pid, inbox_token FROM agents WHERE id = ?')
     .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string; machine: string; inbox_pid: number; inbox_token: string } | undefined;
@@ -299,6 +299,47 @@ export function sendCommandToAgent(
     command.transport = t;
     db.prepare('UPDATE commands SET transport = ? WHERE id = ?').run(t, id);
   };
+
+  /**
+   * ADX-007 — `deliverNow` takes the inbox socket AHEAD of the relay, and only here.
+   *
+   * The relay is the better transport in every ordinary case and remains the default below.
+   * But it writes into the PTY as a bracketed paste, so it lands in the input buffer BEHIND
+   * whatever the session is doing — it arrives when the current turn ends, which is exactly
+   * what "now" is not. The inbox socket is delivered between tool calls during an active turn.
+   *
+   * So this is not an optimisation and not a preference: it is the only transport that
+   * satisfies the request. A deliverNow that used the relay would report success while doing
+   * nothing a queue would not have done.
+   *
+   * With no inbox there is no mid-turn road, and this falls through to the ordinary chain
+   * rather than claiming a delivery it cannot make.
+   */
+  /*
+   * REACHABLE, not merely recorded — `inbox_pid` is written once at relay start
+   * and never cleared when the session exits. Measured: with a stale pid this
+   * branch claimed 'inbox-socket', skipped a relay that WAS connected and could
+   * have carried it, and the dispatch was silently lost. That is the exact
+   * failure the epic exists to remove, reintroduced by the new option.
+   */
+  if (opts.deliverNow && inboxReachable(agentCheck.inbox_pid)) {
+    conclude('inbox-socket', false);
+    const cmdId = command.id;
+    void postToInbox({
+      pid: agentCheck.inbox_pid,
+      token: agentCheck.inbox_token || null,
+      text: finalText,
+    }).then((res) => {
+      if (res.ok) {
+        db.prepare(`UPDATE commands SET status = 'delivered', delivered_at = ? WHERE id = ?`)
+          .run(new Date().toISOString(), cmdId);
+        console.log(`[cmd] deliverNow reached ${agentCheck.repo_name} mid-turn over its inbox (pid ${agentCheck.inbox_pid})`);
+      } else {
+        console.error(`[cmd] deliverNow failed for ${agentCheck.repo_name} (${res.kind}): ${res.detail}`);
+      }
+    });
+    return command;
+  }
 
   const agentRoom = `agent:${agentId}`;
   const primarySocketId = getPrimarySocket(agentId);

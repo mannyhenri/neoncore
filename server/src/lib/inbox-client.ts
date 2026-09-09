@@ -49,6 +49,24 @@ export function inboxPathFor(pid: number): string {
     : `/tmp/cc-socks/${pid}.sock`;
 }
 
+/**
+ * Is there an inbox for this pid we could write to RIGHT NOW?
+ *
+ * The SAME two preflight rules postToInbox applies before connecting — the pid
+ * is a live process we own, and the socket is there — stated once and consulted
+ * by both. A caller that decided on a different rule than the writer uses would
+ * hand work to a transport that then refuses it.
+ *
+ * Synchronous because the callers that need it are: `sendCommandToAgent`, which
+ * returns a Command rather than a Promise, and the send route, which must decide
+ * whether to queue BEFORE it dispatches. Neither can await.
+ */
+export function inboxReachable(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  if (process.platform === 'win32') return true;   // the pid check is meaningless for a named pipe
+  return pidIsOurs(pid) && fs.existsSync(inboxPathFor(pid));
+}
+
 export type InboxFailureKind =
   /** No socket at that path — the session exited. The spike measured that exit removes it. */
   | 'no-socket'
