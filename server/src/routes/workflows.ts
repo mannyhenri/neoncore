@@ -17,6 +17,7 @@ import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
+import { loopCountRequirements, validateUpstreamCount, type LoopConfig } from '../lib/workflow-loop.js';
 import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
@@ -1308,6 +1309,33 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   const tokensOut = Math.round(finalResult.length / 4);
   db.prepare('UPDATE workflow_steps SET tokens_in = ?, tokens_out = ? WHERE id = ?')
     .run(tokensIn, tokensOut, step.id);
+
+  // ── UPSTREAM COUNT GATE (LOOP-001) ──────────────────────────────────────────────────
+  //
+  // If a sibling step sizes its loop by reading a number out of THIS step's result, that
+  // number is a condition of completion. Without it `explainLoopCount` falls back to a budget
+  // of 1 and the dependent loop works one task and reports a clean finish — 10 of the 27 epic
+  // loops dispatched on this machine died exactly that way. The engine logged a warning each
+  // time, which nobody read until after the run it should have stopped.
+  //
+  // Validated against `finalResult` rather than the raw body: that is what gets STORED, and
+  // therefore precisely what the reader will later parse. Gating on a different string than
+  // the parser sees is how a gate lets through the very thing it exists to catch.
+  const siblings = (db.prepare(
+    'SELECT name, executor_config FROM workflow_steps WHERE workflow_id = ? AND id != ?'
+  ).all(row.workflow_id as string, step.id) as { name: string; executor_config: string }[])
+    .map((r) => {
+      let config: LoopConfig = {};
+      try { config = JSON.parse(r.executor_config || '{}'); } catch { /* unreadable config owes nothing */ }
+      return { name: r.name, config };
+    });
+
+  const owed = validateUpstreamCount(finalResult, loopCountRequirements(step.name, siblings));
+  if (!owed.ok) {
+    // 400 leaves the step RUNNING, same as the work-standard gate: the agent comes back with
+    // the count rather than the workflow advancing on a budget it knows is wrong.
+    return res.status(400).json({ error: owed.reason });
+  }
 
   if (!completeStepFromSignal(step.id, finalResult)) {
     return res.status(409).json({ error: 'Step could not be completed (no longer running)' });

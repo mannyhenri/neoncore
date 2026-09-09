@@ -249,3 +249,74 @@ export function configForNextLoop(
   for (const key of PER_DISPATCH_KEYS) delete next[key];
   return next;
 }
+
+/**
+ * ── THE UPSTREAM COUNT GATE (LOOP-001) ─────────────────────────────────────────────────
+ *
+ * `explainLoopCount` above falls back to the static count when it cannot read a real one,
+ * and documents why that is the right choice: a wrong count is worse than a small one. But
+ * the fallback is only safe if somebody NOTICES. Nobody did. Ten of the twenty-seven epic
+ * loops dispatched on this machine ran with a budget of 1 because their upstream step wrote
+ * its counts as prose, and each reported a clean finish after one task.
+ *
+ * The engine already emits a `warn` on that path. A warning in a journal is not a control:
+ * it is read after the run it should have stopped. So the count becomes a CONDITION OF
+ * COMPLETION for the step that owes it — the same shape as the work standard refusing a
+ * "done" with no verification, and for the same reason. A malformed upstream step becomes a
+ * blocked step somebody fixes, instead of a silent one-of-forty.
+ *
+ * The obligation is derived, never hardcoded. It is not a property of a step called
+ * "Load Epic"; it is a property of BEING READ FROM. `Epic: Two Repos` has two loops reading
+ * TASKS_A and TASKS_B off a single upstream step, and both must be satisfied — starving one
+ * loop while feeding the other is a half-fix that looks complete.
+ */
+export interface UpstreamCountRequirement {
+  /** The step whose loop is waiting on this number — named in the error so it is actionable. */
+  readerStep: string;
+  pattern: string;
+}
+
+/** Every count `stepName` owes, derived from the siblings that read from it. */
+export function loopCountRequirements(
+  stepName: string,
+  siblings: { name: string; config: LoopConfig }[],
+): UpstreamCountRequirement[] {
+  return siblings
+    .filter((s) => s.config?.loopCountFrom?.step === stepName && !!s.config.loopCountFrom?.pattern)
+    .map((s) => ({ readerStep: s.name, pattern: s.config.loopCountFrom!.pattern }));
+}
+
+/**
+ * Does `result` satisfy every count owed?
+ *
+ * Matching is done with the SAME construction `explainLoopCount` uses — `new RegExp(pattern)`
+ * against the raw result — so the gate accepts exactly what the reader accepts. A stricter
+ * gate blocks work that would have run; a looser one passes a result that still falls back to
+ * 1, which is the original defect wearing a badge saying it was checked.
+ *
+ * An unparseable pattern is an AUTHORING error and resolves to no requirement. `explainLoopCount`
+ * already treats it that way, and wedging an agent behind a gate it has no way to satisfy would
+ * turn a template typo into a stuck run.
+ */
+export function validateUpstreamCount(
+  result: string,
+  requirements: UpstreamCountRequirement[],
+): { ok: true } | { ok: false; reason: string } {
+  const missing = requirements.filter((r) => {
+    try {
+      return !new RegExp(r.pattern).test(result || '');
+    } catch {
+      return false;                       // authoring error, not the agent's problem
+    }
+  });
+  if (missing.length === 0) return { ok: true };
+
+  const lines = missing.map((m) => `  /${m.pattern}/ — read by "${m.readerStep}"`);
+  return {
+    ok: false,
+    reason:
+      'This step\'s output is read for a loop count and does not contain one, so the loop that ' +
+      'depends on it would silently run ONCE instead of covering the work. Add the count to your ' +
+      'result, in the exact shape below, then report done again:\n' + lines.join('\n'),
+  };
+}
