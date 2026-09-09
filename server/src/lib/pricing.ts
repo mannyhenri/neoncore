@@ -4,6 +4,14 @@
  * Matched by case-insensitive substring on the model id (e.g. "claude-opus-4-8"
  * matches "opus"). Cache-read is ~0.1x input; cache-write (5m TTL) ~1.25x input.
  * Keep this in sync with platform.claude.com/pricing as new tiers ship.
+ *
+ * SPECIFICITY: THE LONGEST MATCHING PATTERN WINS (GAS-002). A family can split — Sonnet 5 is
+ * $2/$10 while Sonnet 4.6 is $3/$15 — and a single `sonnet` entry then misprices whichever
+ * sibling it does not describe by ~50%. First-match-wins made that silent and order-dependent.
+ * Longest-match keeps the substring ergonomics (an unprefixed `opus`, or a version this table
+ * has never seen, still resolves to its family) while letting a more specific entry override
+ * a broader one. To split a family, add the narrower pattern; order in the array is no longer
+ * load-bearing.
  */
 interface Rate {
   match: string;
@@ -16,16 +24,42 @@ interface Rate {
 const RATES: Rate[] = [
   { match: 'fable', input: 10, output: 50, cacheRead: 1.0, cacheWrite: 12.5 },
   { match: 'opus', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  // `sonnet-5` must stay NARROWER than `sonnet`: both match "claude-sonnet-5" and the longer
+  // pattern is what distinguishes it from Sonnet 4.6, which keeps the broader entry.
+  { match: 'sonnet-5', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   { match: 'sonnet', input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   { match: 'haiku', input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
 ];
 
-// Unknown/blank models fall back to Opus-tier rates (the common default).
-const DEFAULT_RATE: Omit<Rate, 'match'> = { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 };
+/**
+ * An unrecognised model prices at NO LESS than every known one (GAS-002, epic Open Question 4).
+ *
+ * These rates divide a declared budget to answer "how long until 100%". Pricing an unknown
+ * model cheaply makes the tank look fuller than it is — the gauge says three days and the work
+ * stops in one. Pricing it dearly costs some unused headroom and nothing else. A budget gauge
+ * should take the headroom. The previous default was Opus-tier, which UNDER-prices a
+ * Fable-tier model by 2x: the dangerous direction.
+ *
+ * Derived from the table rather than written down, so adding a pricier tier cannot leave the
+ * fallback quietly below it. GAS-003 asserts no model actually present in `session_usage`
+ * reaches this, making it an alarm rather than a silent mispricing.
+ */
+const DEFAULT_RATE: Omit<Rate, 'match'> = {
+  input: Math.max(...RATES.map((r) => r.input)),
+  output: Math.max(...RATES.map((r) => r.output)),
+  cacheRead: Math.max(...RATES.map((r) => r.cacheRead)),
+  cacheWrite: Math.max(...RATES.map((r) => r.cacheWrite)),
+};
 
 function rateFor(model: string): Omit<Rate, 'match'> {
   const m = (model || '').toLowerCase();
-  return RATES.find((r) => m.includes(r.match)) ?? DEFAULT_RATE;
+  // Longest match wins — see SPECIFICITY above. `find` would return whichever entry happened
+  // to sit first, making a family split depend on array order.
+  let best: Rate | undefined;
+  for (const r of RATES) {
+    if (m.includes(r.match) && (!best || r.match.length > best.match.length)) best = r;
+  }
+  return best ?? DEFAULT_RATE;
 }
 
 export interface UsageRow {

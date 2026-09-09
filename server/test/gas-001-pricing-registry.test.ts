@@ -12,8 +12,8 @@
  * current model against every token class and reports EVERY mismatch in one failure, so a
  * fix that corrects input but forgets cacheRead cannot read as done.
  *
- * ── THIS TEST IS `todo`, DELIBERATELY, AND HERE IS WHY ────────────────────────────────
- * GAS-001's acceptance is that this test FAILS before GAS-002 fixes the registry. It does —
+ * ── WAS A `todo` UNTIL GAS-002 ────────────────────────────────────────────────────────
+ * GAS-001's acceptance was that this test FAIL before GAS-002 fixed the registry. It did —
  * measured, not assumed:
  *
  *     ✖ every current model prices at its published rate
@@ -26,13 +26,12 @@
  * Exactly one model, all four of its classes — the `sonnet` entry holds Sonnet 4.6's rate,
  * so Sonnet 5 is overpriced by 50% on every class.
  *
- * But the epic's loop rule is that a red suite means commit nothing, because every later task
- * builds on the breakage. Committing a deliberately-failing test would wedge GAS-002 through
- * GAS-015 behind a failure that is doing its job. So the failure is DEMONSTRATED and recorded
- * above, and committed under `todo` — which runs the assertion and reports it without failing
- * the suite. GAS-002 deletes the `todo` marker; this file then guards the property for real.
- * A todo nobody retires reads as coverage that does not exist, so removing it is part of
- * GAS-002, not optional cleanup.
+ * The epic's loop rule is that a red suite means commit nothing, so the failure was recorded
+ * above and committed under `todo` — running the assertion and reporting it without wedging
+ * GAS-002 through GAS-015 behind a failure that was doing its job. GAS-002 split the registry
+ * (`sonnet-5` narrower than `sonnet`, longest match wins) and REMOVED the marker, which is why
+ * this now guards the property for real. A todo nobody retires reads as coverage that does not
+ * exist, so retiring it was part of GAS-002 rather than optional cleanup.
  *
  * HOW A RATE IS RECOVERED. `RATES` and `rateFor` are module-private; only `rowCostUsd` is
  * exported. Pricing a row of exactly 1,000,000 tokens of ONE class and zero of the others
@@ -63,7 +62,7 @@ function observedRate(model: string, cls: keyof typeof PUBLISHED[string]): numbe
   return rowCostUsd({ ...row, [col]: MTOK });
 }
 
-test('every current model prices at its published rate', { todo: 'GAS-002 fixes the registry; delete this marker there' }, () => {
+test('every current model prices at its published rate', () => {
   const mismatches: string[] = [];
   for (const [model, want] of Object.entries(PUBLISHED)) {
     for (const cls of ['input', 'output', 'cacheRead', 'cacheWrite'] as const) {
