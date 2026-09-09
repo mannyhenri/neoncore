@@ -716,6 +716,28 @@ try {
   db.prepare('SELECT model FROM agents LIMIT 1').get();
 } catch {
   db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`);
+
+// ADX-002 — the addressed inbox. Claude Code binds a per-session Unix socket at
+// /tmp/cc-socks/<pid>.sock, and a message posted there is delivered BETWEEN tool
+// calls without interrupting the running one. `inbox_pid` is the relay's PTY
+// child, which is what names that path.
+//
+// `inbox_token` is the messaging token. ADX-001 proved the relay cannot READ it
+// out of the child — `ps` shows the exec-time environment and claude mints the
+// token after exec — so the relay mints one and INJECTS it at spawn, and this is
+// where the value it chose is recorded. It is not required for delivery on macOS
+// (the 0600 socket and uid ownership are the authentication) and IS required by
+// Windows named pipes, so it is stored for parity rather than for today.
+//
+// INTEGER with a 0 default: 0 means "no inbox known", which is a different and
+// honest state from a pid that happens to be free. Nothing may build a socket
+// path from 0.
+try {
+  db.prepare('SELECT inbox_pid FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN inbox_pid INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE agents ADD COLUMN inbox_token TEXT NOT NULL DEFAULT ''`);
+}
 }
 
 // Migration: add token tracking columns to workflow_steps
