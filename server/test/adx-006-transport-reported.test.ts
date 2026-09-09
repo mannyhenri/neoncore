@@ -110,12 +110,6 @@ const BRANCHES: Branch[] = [
     drive: () => { const id = cartridge(); io.connect(id); return sendCommandToAgent(id, 'x'); },
   },
   {
-    transport: 'terminal-fallback',
-    why: 'AppleScript into the frontmost window — gated off and must stay unreachable',
-    drive: null,
-    delegatedTo: 'no-keystroke-injection.test.ts',
-  },
-  {
     transport: 'inbox-socket',
     why: 'the addressed per-session socket, where the alternative is the dead end',
     drive: () => sendCommandToAgent(cartridge({ inboxPid: process.pid }), 'x'),
@@ -195,6 +189,13 @@ test('no two branches report the same transport', () => {
 });
 
 test('a branch that cannot be driven names what covers it instead', () => {
+  /*
+   * ADX-008 deleted the terminal-fallback branch, which was the only undriveable
+   * one — so this set is empty today and the test passes vacuously. It is kept
+   * rather than deleted because the RULE still matters: the next branch that
+   * cannot be driven must say what covers it instead, or "not driven" and
+   * "forgotten" become indistinguishable again.
+   */
   for (const b of BRANCHES.filter((x) => !x.drive)) {
     assert.ok(b.delegatedTo, `${b.transport} cannot be driven and names no covering test`);
     assert.ok(fs.existsSync(path.join(import.meta.dirname, b.delegatedTo)),

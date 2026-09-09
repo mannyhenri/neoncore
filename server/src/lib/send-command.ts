@@ -1,4 +1,3 @@
-import { execSync } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO, getPrimarySocket } from '../ws.js';
@@ -28,65 +27,24 @@ import { noteBudgetOnDispatch } from './goal-budget.js';
  * fallback for `claude` agents running in a bare terminal with no VS Code extension
  * connected to receive the command_send socket event.
  */
-/**
- * Is the unaddressed terminal fallback allowed to run?
+/*
+ * ADX-008 — the terminal fallback is DELETED, not disabled.
  *
- * OFF unless explicitly enabled. This path runs AppleScript that types into the FRONTMOST
- * window — it cannot target a cartridge, so it lands wherever focus happens to be. For two
- * days that meant dispatches to socket-less cartridges typing into whatever the user was
- * reading, which looked like phantom messages arriving from nowhere.
+ * It ran AppleScript that wrote a dispatch into the FRONTMOST terminal window,
+ * and its own comment admitted the flaw: it could not target a specific window,
+ * so it landed wherever focus happened to be. That put mystery text in the
+ * user's session for two days, and hit test suites hardest — they use a stub io
+ * with no sockets, so every prompt they dispatched typed into a real terminal.
  *
- * The test-process check is separate and unconditional on purpose. A suite uses a stub io with
- * no sockets, so EVERY prompt it dispatches takes this path; an isolated database does not
- * isolate a child process, and `osascript` is a child process — which is also why an egress
- * guard watching fetch/TCP/listen measured "zero egress" while this was firing.
+ * It survived until now only because there was no ADDRESSED fallback. There is
+ * one: the inbox socket below reaches the same cartridge precisely, so an
+ * unaddressed one has no remaining justification.
+ *
+ * `no-keystroke-injection.test.ts` now asserts its ABSENCE across the whole
+ * server source rather than asserting a gate inside it — a guard that needs the
+ * hazard to exist in order to test it is a guard that keeps the hazard alive.
  */
-function terminalFallbackEnabled(): boolean {
-  if (process.env.NODE_ENV === 'test' || process.env.NEONCORE_TEST === '1') return false;
-  return process.env.NEONCORE_TERMINAL_FALLBACK === '1';
-}
 
-function typeIntoTerminal(text: string): boolean {
-  if (!terminalFallbackEnabled()) return false;
-  if (process.platform !== 'darwin') return false;
-
-  // Escape for AppleScript string: backslash and double-quote
-  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-
-  // Try iTerm2 first
-  try {
-    execSync(
-      `osascript` +
-      ` -e 'tell application "iTerm2"'` +
-      ` -e 'tell current session of current window'` +
-      ` -e 'write text "${escaped}"'` +
-      ` -e 'end tell'` +
-      ` -e 'end tell'`,
-      { timeout: 5000 }
-    );
-    return true;
-  } catch (err) {
-    // Do NOT swallow this. A silently-failed dispatch is how commands vanish into the void
-    // while the workflow still reports the step as "running".
-    console.warn(`[send-command] iTerm2 delivery failed, trying Terminal.app: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // Try Terminal.app
-  try {
-    execSync(
-      `osascript` +
-      ` -e 'tell application "Terminal"'` +
-      ` -e 'do script "${escaped}" in front window'` +
-      ` -e 'end tell'`,
-      { timeout: 5000 }
-    );
-    return true;
-  } catch (err) {
-    console.error(`[send-command] Terminal.app delivery failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  return false;
-}
 
 export function sendCommandToAgent(
   agentId: string,
@@ -355,13 +313,6 @@ export function sendCommandToAgent(
       console.log(`[cmd] No primary socket — falling back to room ${agentRoom} (${agentRoomSize} socket(s))`);
       getIO().to(agentRoom).emit('command_send', command);
       conclude('agent-room', true);
-    } else if ((agentCheck.agent_type === 'claude' || agentCheck.agent_type === 'codex') && typeIntoTerminal(finalText)) {
-      // No relay/extension socket for this claude/codex agent — it's in a bare terminal with
-      // no relay attached. Fall back to typing into the FRONTMOST terminal. NB: this is
-      // unaddressed — it cannot target a specific window, so it lands wherever focus happens
-      // to be. The socket path above is preferred whenever a relay is connected.
-      console.log(`[cmd] Agent room ${agentRoom} empty — typed command into terminal for ${agentCheck.agent_type}: ${finalText.slice(0, 80)}`);
-      conclude('terminal-fallback', true);
     } else if (agentCheck.inbox_pid > 0) {
       /**
        * ADX-005 — THE ADDRESSED INBOX, tried where the only alternative is giving up.
@@ -445,5 +396,3 @@ export function sendCommandToAgent(
   return command;
 }
 
-/** TEST ONLY — lets the suite prove the gate blocks injection from inside a test process. */
-export const __typeIntoTerminalForTests = typeIntoTerminal;

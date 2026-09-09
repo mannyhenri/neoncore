@@ -14,7 +14,7 @@
  *
  * ── WHY "WHICH TRANSPORT" IS A SEPARATE ASSERTION FROM "DELIVERED" ────────────────────
  * `delivered` is a boolean. Three different branches set it true — the primary socket, the room
- * fallback, and (when enabled) typing into a terminal — and they are not interchangeable: one is
+ * fallback, and the addressed inbox — and they are not interchangeable: one is
  * addressed to a specific window, one sprays a room, one lands wherever focus happens to be.
  * A caller choosing whether to retry, and a person reading the dashboard, both need to know which
  * one happened. ADX-006 is the task that records it.
@@ -90,12 +90,17 @@ test('EVERY delivery branch in the registry is exercised by this file', () => {
   // new branch is driven below. That is the whole point of parsing rather than listing.
   const parsed = branchesInSource().length;
   const DRIVEN = 4;   // primary socket, room fallback, inbox socket (ADX-005), no-channel.
-                      // Terminal typing is disabled by policy (no-keystroke-injection.test.ts)
-                      // and cannot be driven here. The inbox branch is driven in full by
+                      // The inbox branch is driven in full by
                       // adx-005-wire-inbox-branch.test.ts against a real socket.
-  assert.equal(parsed, DRIVEN + 1,
-    `send-command.ts has ${parsed} delivery branches; this test drives ${DRIVEN} and accounts for `
-    + `1 (terminal typing, disabled by policy). A new branch must be driven here before it ships.`);
+  //
+  // This used to read `DRIVEN + 1`, the +1 accounting for terminal typing — a branch that
+  // could not be driven here because doing so meant enabling keystroke injection into
+  // whatever window had focus. ADX-008 DELETED that branch, so there is no longer anything
+  // to account for, and every branch in the chain is now driven. An allowance kept after the
+  // thing it allowed for is gone is a free slot a new branch slides into unexercised.
+  assert.equal(parsed, DRIVEN,
+    `send-command.ts has ${parsed} delivery branches and this test drives ${DRIVEN}. `
+    + 'Every branch must be driven here before it ships.');
 });
 
 // ── SET 2: each reachable branch actually delivers ─────────────────────────
