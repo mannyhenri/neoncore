@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { resetFirstLaunchSentinel, runFirstLaunchSetup } from '../lib/first-launch.js';
 import { SECRET_SETTING_KEYS } from '../lib/auth.js';
+import { validateBudgetValue } from '../lib/budget.js';
 
 const router = Router();
 
@@ -44,6 +45,17 @@ router.put('/', (req, res) => {
   const upsert = db.prepare(
     'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
   );
+  // Validate BEFORE writing anything, so a rejected budget cannot land half of a two-key
+  // update. This store is a generic string upsert — fine for `projects_dir`, not fine for a
+  // number the gauge divides by, where "banana" would store cleanly and surface as NaN days.
+  const errors: string[] = [];
+  for (const [key, value] of Object.entries(req.body)) {
+    if (typeof value !== 'string') continue;
+    const err = validateBudgetValue(key, value);
+    if (err) errors.push(err);
+  }
+  if (errors.length) return res.status(400).json({ error: errors.join('; ') });
+
   for (const [key, value] of Object.entries(req.body)) {
     if (typeof value !== 'string') continue;
     // A client that GETs settings, edits one field and PUTs the whole object back would
