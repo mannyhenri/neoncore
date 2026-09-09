@@ -184,7 +184,6 @@ export interface PermissionRequest {
 export type DeliveryTransport =
   | 'primary-socket'
   | 'agent-room'
-  | 'terminal-fallback'
   | 'inbox-socket'
   | 'no-channel';
 
