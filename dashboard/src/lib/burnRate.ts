@@ -129,6 +129,15 @@ export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: nu
   const budgetProblems: Problem[] = conflict
     ? reported.map((_r, i) => ({ label: answers[i]?.label ?? `server ${i + 1}`, reason: 'budget-conflict' as const }))
     : [];
+  const subscriptionProblems: Problem[] = answers.flatMap((answer) =>
+    answer.result != null
+      && usableRate(answer.result)
+      && !Array.isArray(answer.result.subscriptionUsage)
+      ? [{ label: answer.label, reason: 'outdated' as const }]
+      : []);
+  const subscriptionReports = ok
+    .filter((row) => Array.isArray(row.subscriptionUsage))
+    .map((row) => row.subscriptionUsage!);
 
   return {
     ...(merged as unknown as ServerBurnRate),
@@ -142,12 +151,12 @@ export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: nu
     windowStart: windowStart ?? undefined,
     serversReporting: ok.length,
     serversAsked: answers.length,
-    problems: [...problemsIn(answers, usableRate), ...budgetProblems],
-    // Mixed builds are normal during deployment. A server without this field owns an unknown
-    // share of both the ceiling and current usage, so showing a partial gauge would be false.
-    subscriptionUsage: ok.length === answers.length
-      && ok.every((row) => Array.isArray(row.subscriptionUsage))
-      ? mergeSubscriptionUsage(ok.map((row) => row.subscriptionUsage!))
+    problems: [...problemsIn(answers, usableRate), ...subscriptionProblems, ...budgetProblems],
+    // Keep the measured portion visible when a peer is offline or on an older build. The
+    // problem marker travels with it, so the pill says it is partial instead of replacing a
+    // useful token estimate with the unrelated USD-budget prompt.
+    subscriptionUsage: subscriptionReports.length
+      ? mergeSubscriptionUsage(subscriptionReports)
       : [],
   };
 }
