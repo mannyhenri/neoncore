@@ -8,7 +8,7 @@ import type { ServerEntry } from '@neoncore/client';
 import { subscriptionPillLabel } from '../lib/subscriptionUsage';
 
 /**
- * Fleet burn rate in the header: tokens/day and tokens/hour, with the spend beside them.
+ * Fleet burn rate in the header: tokens/day, tokens/hour, and time to the subscription limit.
  *
  * WHY THE NUMBER HERE IS BIGGER THAN THE ONE ON A CARTRIDGE CARD. The card prints
  * `input + output` and leaves cache out (routes/activity.ts, `total:`), which for a busy
@@ -115,9 +115,6 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       <span className="text-white/10">·</span>
       <span className="text-gl-pink/80">{compact(rate.tokensPerHour)}</span>
       <span className="text-gray-600">tok/hr</span>
-      <span className="text-white/10">·</span>
-      <span className="text-emerald-500/80">{money(rate.costPerDay)}</span>
-      <span className="text-gray-600">/day</span>
       {subscription && (
         <>
           <span className="text-white/10">·</span>
