@@ -243,19 +243,18 @@ test('the relay never writes the token to its log', () => {
   assert.deepEqual(leaking, [], `these relay log lines carry the token: ${leaking.join(' | ')}`);
 });
 
-test('the pid cannot go stale inside one relay: the relay dies with its child', () => {
+test('the pid cannot go stale when the relay replaces its child', () => {
   const src = relaySrc();
   /*
-   * "Values refresh when the PTY child is replaced" is satisfied TODAY by
-   * construction rather than by a watcher: onExit tears the relay down, so a new
-   * child means a new relay and a fresh registration. That is only true while
-   * onExit still exits. If someone later makes the relay respawn its child in
-   * place, this fails and forces them to re-report the pid — which is exactly
-   * the epic's open question 2.
+   * Normal child exit tears down the relay. A deliberate mode change replaces
+   * the child in place, so spawnAgent must report every newly spawned child pid.
    */
-  const at = src.indexOf('ptyProc.onExit(');
-  assert.ok(at !== -1, 'the relay no longer handles child exit');
-  const body = src.slice(at, src.indexOf('});', at));
-  assert.match(body, /process\.exit\(/,
-    'the relay no longer exits with its child, so a replaced child would leave a stale inbox pid');
+  const spawnAt = src.indexOf('const spawnAgent =');
+  const spawnBody = src.slice(spawnAt, src.indexOf('\n  };', spawnAt));
+  assert.match(spawnBody, /reportInbox\(proc\.pid\)/,
+    'a replacement child would leave a stale inbox pid');
+  assert.match(spawnBody, /if \(proc !== ptyProc\) return;/,
+    'an intentionally replaced child must not terminate the relay');
+  assert.match(spawnBody, /process\.exit\(/,
+    'the active child must still terminate the relay');
 });

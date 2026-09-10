@@ -264,7 +264,7 @@ function relayInstallDir(): string {
  * own `import` statements and fails if it imports something this list does not carry.
  */
 export const RELAY_INSTALL_FILES = [
-  'launch.js', 'index.js', 'resume-args.mjs', 'package.json', 'package-lock.json',
+  'launch.js', 'index.js', 'resume-args.mjs', 'codex-mode.mjs', 'package.json', 'package-lock.json',
 ];
 
 /** Relay imports that live outside the relay directory, copied relative to it. */
