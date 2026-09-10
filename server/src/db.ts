@@ -756,6 +756,27 @@ try {
   db.exec(`ALTER TABLE commands ADD COLUMN transport TEXT NOT NULL DEFAULT ''`);
 }
 
+/**
+ * GAS-012 — where the usage wall was, and what had been spent when we hit it.
+ *
+ * Nothing else records this. The badge divides a budget the user typed, and Anthropic
+ * publishes no remaining-quota API, so the only way to learn a plan's real ceiling is to
+ * notice where it stood each time it was reached. `tokens_at_event` and `cost_usd_at_event`
+ * are snapshots taken AT DETECTION and never recomputed: session_usage keeps growing, so the
+ * number is unrecoverable a minute later. GAS-013 reads these rows.
+ */
+try {
+  db.prepare('SELECT id FROM limit_events LIMIT 1').get();
+} catch {
+  db.exec(`CREATE TABLE IF NOT EXISTS limit_events (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    marker TEXT NOT NULL,
+    detected_at TEXT NOT NULL,
+    tokens_at_event INTEGER NOT NULL DEFAULT 0,
+    cost_usd_at_event REAL NOT NULL DEFAULT 0
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_limit_events_at ON limit_events(detected_at)');
 }
 
 // Migration: add token tracking columns to workflow_steps
