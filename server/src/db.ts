@@ -791,6 +791,20 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_limit_events_at ON limit_events(detected_at)');
 }
 
+// Manual subscription calibration: a user says "this provider reached 100% here".
+// `weekly_tokens` snapshots the preceding seven days so later usage can be expressed as a
+// percentage of a real observed wall rather than a guessed dollar budget.
+db.exec(`CREATE TABLE IF NOT EXISTS token_limit_calibrations (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  hit_at TEXT NOT NULL,
+  weekly_tokens INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_token_limit_calibrations_provider_at
+  ON token_limit_calibrations(provider, hit_at);`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_session_usage_agent_recorded ON session_usage(agent_id, recorded_at)');
+
 // Migration: add token tracking columns to workflow_steps
 try {
   db.prepare('SELECT tokens_in FROM workflow_steps LIMIT 1').get();

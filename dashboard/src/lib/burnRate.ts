@@ -26,6 +26,7 @@ export interface ServerProjection {
 }
 
 export interface ServerBurnRate {
+  subscriptionUsage?: import('./subscriptionUsage').ProviderUsage[];
   budget?: ServerBudget;
   projection?: ServerProjection;
   /** Epoch ms the budget window began — Monday 00:00 UTC, identical on every server. */
@@ -42,6 +43,7 @@ export interface ServerBurnRate {
 }
 
 export interface FleetBurnRate extends ServerBurnRate {
+  subscriptionUsage: import('./subscriptionUsage').ProviderUsage[];
   /** Always present on a merged result, even when no server reported one. */
   budget: ServerBudget;
   projection: ServerProjection;
@@ -54,6 +56,7 @@ export interface FleetBurnRate extends ServerBurnRate {
 
 /** Quantities that ADD when two servers are combined. */
 import { problemsIn, type ServerAnswer, type Problem } from './serverAnswer';
+import { mergeSubscriptionUsage } from './subscriptionUsage';
 
 export const SUMMED_KEYS = [
   'tokens', 'tokensPerHour', 'tokensPerDay', 'costUsd', 'costPerDay', 'samples', 'activeCartridges',
@@ -68,6 +71,8 @@ export const WINDOW_KEYS = ['windowHours', 'days'] as const;
  * would triple the ceiling and report headroom that does not exist.
  */
 export const ACCOUNT_KEYS = ['budget', 'projection', 'windowStart'] as const;
+/** Values recomputed from every server rather than summed or selected from one server. */
+export const DERIVED_KEYS = ['subscriptionUsage'] as const;
 
 /**
  * `answers` holds one labelled entry per server asked. A server that failed contributes
@@ -138,6 +143,12 @@ export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: nu
     serversReporting: ok.length,
     serversAsked: answers.length,
     problems: [...problemsIn(answers, usableRate), ...budgetProblems],
+    // Mixed builds are normal during deployment. A server without this field owns an unknown
+    // share of both the ceiling and current usage, so showing a partial gauge would be false.
+    subscriptionUsage: ok.length === answers.length
+      && ok.every((row) => Array.isArray(row.subscriptionUsage))
+      ? mergeSubscriptionUsage(ok.map((row) => row.subscriptionUsage!))
+      : [],
   };
 }
 

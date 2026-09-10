@@ -17,8 +17,79 @@ import { detectLimitSignal, recordLimitEvent } from '../lib/limit-events.js';
 import { computeBurnRate, type UsageSample } from '../lib/burn-rate.js';
 import { buildSeries, BUCKETS, type Bucket } from '../lib/usage-series.js';
 import { totalCostUsd as seriesCostUsd } from '../lib/pricing.js';
+import {
+  SUBSCRIPTION_PROVIDERS, learnTokenCeiling, projectTokenCeiling,
+  type SubscriptionProvider,
+} from '../lib/token-ceiling.js';
 
 const router = Router();
+const WEEK_MS = 7 * 86_400_000;
+
+type TokenTotal = { tokens: number };
+type CalibrationRow = { provider: SubscriptionProvider; hit_at: string; weekly_tokens: number };
+type TokenUsage = TokenTotal & { first_at: string | null };
+
+function providerTokens(provider: SubscriptionProvider, from: string, to: string): number {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens), 0) AS tokens
+    FROM session_usage u JOIN agents a ON a.id = u.agent_id
+    WHERE a.agent_type = ? AND u.recorded_at >= ? AND u.recorded_at <= ?
+  `).get(provider, from, to) as TokenTotal;
+  return Number(row?.tokens) || 0;
+}
+
+function providerUsageSince(provider: SubscriptionProvider, from: string, to: string): TokenUsage {
+  return db.prepare(`
+    SELECT COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens), 0) AS tokens,
+      MIN(u.recorded_at) AS first_at
+    FROM session_usage u JOIN agents a ON a.id = u.agent_id
+    WHERE a.agent_type = ? AND u.recorded_at > ? AND u.recorded_at <= ?
+  `).get(provider, from, to) as TokenUsage;
+}
+
+function subscriptionUsage(now = Date.now()) {
+  return SUBSCRIPTION_PROVIDERS.flatMap((provider) => {
+    const rows = db.prepare(`SELECT provider, hit_at, weekly_tokens FROM token_limit_calibrations
+      WHERE provider = ? ORDER BY hit_at DESC LIMIT 52`).all(provider) as CalibrationRow[];
+    if (!rows.length) return [];
+    const learned = learnTokenCeiling(rows.map((row) => row.weekly_tokens));
+    const lastHitAt = rows[0].hit_at;
+    const usage = providerUsageSince(provider, lastHitAt, new Date(now).toISOString());
+    const cycleStart = usage.first_at ? Date.parse(usage.first_at) : now;
+    const elapsedDays = Math.max((now - cycleStart) / 86_400_000, 1 / 24);
+    const tokensPerDay = usage.tokens / elapsedDays;
+    return [projectTokenCeiling({
+      provider, ceilingTokens: learned?.tokensWeekly ?? 0, tokensUsed: usage.tokens, tokensPerDay,
+      samples: learned?.samples ?? 0, confidence: learned?.confidence ?? 0, lastHitAt,
+    })];
+  });
+}
+
+router.post('/token-limit-calibrations', (req, res) => {
+  const provider = String(req.body?.provider || '').toLowerCase() as SubscriptionProvider;
+  if (!SUBSCRIPTION_PROVIDERS.includes(provider)) {
+    return res.status(400).json({ error: `provider must be one of ${SUBSCRIPTION_PROVIDERS.join(', ')}` });
+  }
+  const hit = Date.parse(String(req.body?.hitAt || ''));
+  if (!Number.isFinite(hit) || hit > Date.now() + 60_000 || hit < Date.now() - 370 * 86_400_000) {
+    return res.status(400).json({ error: 'hitAt must be a valid time within the past year and not in the future' });
+  }
+  const hitAt = new Date(hit).toISOString();
+  const duplicate = db.prepare(`SELECT id, weekly_tokens FROM token_limit_calibrations
+    WHERE provider = ? AND hit_at BETWEEN ? AND ? LIMIT 1`).get(
+      provider,
+      new Date(hit - 60_000).toISOString(),
+      new Date(hit + 60_000).toISOString(),
+    ) as { id: string; weekly_tokens: number } | undefined;
+  if (duplicate) {
+    return res.status(200).json({ id: duplicate.id, provider, hitAt, weeklyTokens: duplicate.weekly_tokens });
+  }
+  const weeklyTokens = providerTokens(provider, new Date(hit - WEEK_MS).toISOString(), hitAt);
+  const id = uuid();
+  db.prepare(`INSERT INTO token_limit_calibrations (id, provider, hit_at, weekly_tokens, created_at)
+    VALUES (?, ?, ?, ?, ?)`).run(id, provider, hitAt, weeklyTokens, new Date().toISOString());
+  res.status(201).json({ id, provider, hitAt, weeklyTokens });
+});
 
 // Log an activity event (called by hooks)
 router.post('/', (req, res) => {
@@ -151,20 +222,24 @@ router.get('/burn-rate', (req, res) => {
     (db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[])
       .map((r) => [r.key, r.value]),
   );
+  const accountProjection = budgetProjection({
+    costPerDay: burn.costPerDay,
+    settings,
+    learned: learnedCeiling(limitEventsSince(new Date(Date.now() - 90 * 86_400_000).toISOString())),
+  });
 
   res.json({
     ...burn,
     days,
     since,
     activeCartridges: active?.n || 0,
+    subscriptionUsage: subscriptionUsage(),
     // A ceiling learned from real limit events outranks the declared budget (GAS-013).
     // learnedCeiling() returns null until it has enough consistent observations, which today
     // it does not — so this changes nothing yet and is correct that it changes nothing.
-    ...budgetProjection({
-      costPerDay: burn.costPerDay,
-      settings,
-      learned: learnedCeiling(limitEventsSince(new Date(Date.now() - 90 * 86_400_000).toISOString())),
-    }),
+    budget: accountProjection.budget,
+    projection: accountProjection.projection,
+    windowStart: accountProjection.windowStart,
   });
 });
 
