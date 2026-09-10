@@ -52,6 +52,8 @@ export interface ProjectionInput {
   windowStart: number;
   now?: number;
   basis?: BudgetBasis;
+  /** Measured agreement between local pricing and billed cost (GAS-015). Never invented. */
+  confidence?: number | null;
 }
 
 const UNPROJECTABLE: Projection = {
@@ -76,7 +78,7 @@ export function project(input: ProjectionInput): Projection {
   // Not spending anything means there is no exhaustion date — null, not Infinity.
   const daysRemaining = rate === 0 ? null : Math.max(0, remainingUsd / rate);
 
-  return { daysRemaining, pctConsumed, basis, confidence: null };
+  return { daysRemaining, pctConsumed, basis, confidence: input.confidence ?? null };
 }
 
 /**
@@ -113,6 +115,12 @@ export function budgetProjection(input: {
   now?: number;
   /** A ceiling learned from real limit events (GAS-013). Overrides the declared budget. */
   learned?: { usdWeekly: number; confidence: number; samples: number } | null;
+  /**
+   * Measured agreement between what we priced and what was billed (GAS-015). Passed through
+   * untouched and defaulting to null — a reassuring default here would be exactly the
+   * fabricated confidence this epic has refused at every step.
+   */
+  confidence?: number | null;
 }): BudgetProjection {
   const now = input.now ?? Date.now();
   const windowStart = bucketStart(now, 'week');
@@ -130,7 +138,10 @@ export function budgetProjection(input: {
 
   return {
     budget: { usd: usdWeekly, basis },
-    projection: project({ costPerDay: input.costPerDay, budgetUsd: usdWeekly, windowStart, now, basis }),
+    projection: project({
+      costPerDay: input.costPerDay, budgetUsd: usdWeekly, windowStart, now, basis,
+      confidence: input.confidence ?? null,
+    }),
     windowStart,
   };
 }
