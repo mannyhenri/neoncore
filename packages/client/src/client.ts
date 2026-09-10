@@ -652,7 +652,18 @@ export function createClient(config: ClientConfig = {}) {
       windowHours: number; tokens: number; tokensPerHour: number; tokensPerDay: number;
       costUsd: number; costPerDay: number; samples: number;
       days: number; since: string; activeCartridges: number;
+      subscriptionUsage?: Array<{
+        provider: 'claude' | 'codex'; ceilingTokens: number; tokensUsed: number;
+        tokensPerDay: number; pctUsed: number; daysRemaining: number | null;
+        samples: number; confidence: number; lastHitAt: string;
+      }>;
     }>(`/activity/burn-rate${days ? `?days=${days}` : ''}`),
+
+  markTokenLimit: (provider: 'claude' | 'codex', hitAt: string) =>
+    request<{ id: string; provider: string; hitAt: string; weeklyTokens: number }>(
+      '/activity/token-limit-calibrations',
+      { method: 'POST', body: JSON.stringify({ provider, hitAt }) },
+    ),
 
   // Token burn over time — the reporting page. `bucket` is the granularity of each point.
   getUsageSeries: (days: number, bucket: 'hour' | 'day' | 'week') =>

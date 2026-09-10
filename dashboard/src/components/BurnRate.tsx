@@ -5,6 +5,7 @@ import { mergeBurnRates, projectionSlot, type ServerBurnRate, type FleetBurnRate
 import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
+import { subscriptionPillLabel } from '../lib/subscriptionUsage';
 
 /**
  * Fleet burn rate in the header: tokens/day and tokens/hour, with the spend beside them.
@@ -78,6 +79,8 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
   // unset, and silence when the fleet is partial — a rate missing a server is an undercount,
   // and a projection built on it would promise headroom that does not exist.
   const slot = projectionSlot(rate);
+  const subscription = rate.subscriptionUsage.find((row) => row.provider === 'claude')
+    ?? rate.subscriptionUsage[0];
 
   return (
     <button
@@ -115,7 +118,13 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       <span className="text-white/10">·</span>
       <span className="text-emerald-500/80">{money(rate.costPerDay)}</span>
       <span className="text-gray-600">/day</span>
-      {slot?.kind === 'projection' && (
+      {subscription && (
+        <>
+          <span className="text-white/10">·</span>
+          <span className="text-amber-400/90">{subscriptionPillLabel(subscription)}</span>
+        </>
+      )}
+      {!subscription && slot?.kind === 'projection' && (
         <>
           <span className="text-white/10">·</span>
           {/* Split only for colour: the label is one string, and the basis travels with it. */}
@@ -123,7 +132,7 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
           <span className="text-gray-600">· {slot.text.split(' · ')[1]}</span>
         </>
       )}
-      {slot?.kind === 'prompt' && (
+      {!subscription && slot?.kind === 'prompt' && (
         <>
           <span className="text-white/10">·</span>
           <span className="text-gray-600 italic">{slot.text}</span>

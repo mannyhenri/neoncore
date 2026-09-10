@@ -19,6 +19,7 @@
  * whatever spend happened to be on the clock during a burst. Only plan-limit markers count.
  */
 import type { LimitEvent } from './limit-events.js';
+import { median } from './statistics.js';
 
 /** Markers that describe a PLAN ceiling. Throttles are deliberately excluded. */
 export const CEILING_MARKERS = ['usage-limit-reached', 'reached-your-limit', 'approaching-usage-limit'] as const;
@@ -35,12 +36,6 @@ export interface LearnedCeiling {
   confidence: number;
   samples: number;
 }
-
-const median = (xs: number[]): number => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
 
 export function learnedCeiling(events: LimitEvent[]): LearnedCeiling | null {
   const ceilingMarkers = new Set<string>(CEILING_MARKERS);

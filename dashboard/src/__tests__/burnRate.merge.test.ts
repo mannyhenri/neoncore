@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
-  mergeBurnRates, SUMMED_KEYS, WINDOW_KEYS, ACCOUNT_KEYS,
+  mergeBurnRates, SUMMED_KEYS, WINDOW_KEYS, ACCOUNT_KEYS, DERIVED_KEYS,
   type ServerBurnRate,
 } from '../lib/burnRate';
 import type { ServerAnswer } from '../lib/serverAnswer';
@@ -71,7 +71,7 @@ describe('federated burn rate', () => {
   it('classifies every numeric field the endpoint returns', () => {
     // The guard against a forgotten field: an unclassified key is one that would be
     // dropped or double-counted the moment a second server appears.
-    const classified = new Set<string>([...SUMMED_KEYS, ...WINDOW_KEYS, ...ACCOUNT_KEYS]);
+    const classified = new Set<string>([...SUMMED_KEYS, ...WINDOW_KEYS, ...ACCOUNT_KEYS, ...DERIVED_KEYS]);
     const unclassified = RESPONSE_FIELDS.filter((f) => !classified.has(f));
 
     expect(unclassified, `unclassified burn-rate fields: ${unclassified.join(', ')}`).toEqual([]);
@@ -96,10 +96,16 @@ describe('federated burn rate', () => {
   });
 
   it('a server that fails contributes nothing but is still counted as asked', () => {
-    const merged = mergeBurnRates([from('alpha', sample()), from('beta', null)], 7);
+    const subscriptionUsage = [{
+      provider: 'claude' as const, ceilingTokens: 100, tokensUsed: 20, tokensPerDay: 10,
+      pctUsed: 0.2, daysRemaining: 8, samples: 1, confidence: 0.3,
+      lastHitAt: '2026-09-10T12:00:00.000Z',
+    }];
+    const merged = mergeBurnRates([from('alpha', sample({ subscriptionUsage })), from('beta', null)], 7);
     expect(merged.tokensPerDay).toBe(240);
     expect(merged.serversReporting).toBe(1);
     expect(merged.serversAsked).toBe(2);
+    expect(merged.subscriptionUsage).toEqual([]);
   });
 
   it('a server running older code answers [] — that is a non-report, not a zero', () => {

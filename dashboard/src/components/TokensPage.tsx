@@ -6,6 +6,9 @@ import { mergeBurnRates, budgetStats, type ServerBurnRate, type FleetBurnRate } 
 import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
+import {
+  SUBSCRIPTION_PROVIDERS, subscriptionPillLabel, type SubscriptionProvider,
+} from '../lib/subscriptionUsage';
 
 /**
  * Token reporting: burn over time, so a change in how you work can be seen in what it costs.
@@ -77,6 +80,14 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   const [loading, setLoading] = useState(true);
   const [hover, setHover] = useState<number | null>(null);
   const [rate, setRate] = useState<FleetBurnRate | null>(null);
+  const [limitProvider, setLimitProvider] = useState<SubscriptionProvider>('claude');
+  const [limitAt, setLimitAt] = useState(() => {
+    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000);
+    return d.toISOString().slice(0, 16);
+  });
+  const [limitMessage, setLimitMessage] = useState('');
+  const [markingLimit, setMarkingLimit] = useState(false);
+  const [limitRefresh, setLimitRefresh] = useState(0);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
   const fleetKey = activeServers(servers).map((s) => s.url).join('|');
@@ -127,9 +138,34 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
     const t = setInterval(load, 5 * 60_000);
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fleetKey]);
+  }, [fleetKey, limitRefresh]);
 
   const stats = useMemo(() => (rate ? budgetStats(rate) : null), [rate]);
+
+  const markLimit = async () => {
+    setMarkingLimit(true);
+    setLimitMessage('');
+    try {
+      const hit = new Date(limitAt);
+      if (!limitAt || !Number.isFinite(hit.getTime())) {
+        setLimitMessage('Choose a valid date and time.');
+        return;
+      }
+      const targets = activeServers(servers);
+      const settled = await Promise.allSettled(targets.map((s) =>
+        (s.url ? apiFor(s.url, s.token) : api).markTokenLimit(limitProvider, hit.toISOString())));
+      const failures = settled.filter((r) => r.status === 'rejected');
+      if (failures.length) {
+        setLimitMessage(`Could not calibrate ${failures.length} of ${targets.length} server(s).`);
+        setLimitRefresh((n) => n + 1);
+        return;
+      }
+      setLimitMessage(`${limitProvider === 'claude' ? 'Claude' : 'Codex'} 100% recorded.`);
+      setLimitRefresh((n) => n + 1);
+    } finally {
+      setMarkingLimit(false);
+    }
+  };
 
   const points = useMemo(() => {
     const raw = data?.series ?? [];
@@ -168,6 +204,48 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
           The figures below are lower than reality — {describeProblems(problems)}.
         </div>
       )}
+
+      <section className="rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-4 space-y-3">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-amber-300">Subscription usage gauges</h3>
+            <p className="text-xs text-gray-500 mt-1 max-w-2xl">
+              When a provider reaches 100%, record the time. NeonCore snapshots the preceding seven days
+              as that subscription's observed token ceiling and improves the estimate after each mark.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
+              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
+              {SUBSCRIPTION_PROVIDERS.map((provider) => (
+                <option key={provider} value={provider}>{provider === 'claude' ? 'Claude' : 'Codex'}</option>
+              ))}
+            </select>
+            <input type="datetime-local" value={limitAt} onChange={(e) => setLimitAt(e.target.value)}
+              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300" />
+            <button onClick={markLimit} disabled={markingLimit}
+              className="rounded bg-amber-500/20 border border-amber-400/30 px-3 py-1.5 text-sm text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">
+              {markingLimit ? 'Recording…' : 'Mark 100%'}
+            </button>
+          </div>
+        </div>
+        {limitMessage && <p className="text-xs text-amber-200">{limitMessage}</p>}
+        {rate?.subscriptionUsage?.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {rate.subscriptionUsage.map((row) => (
+              <div key={row.provider} className="rounded border border-white/10 p-3 font-mono text-sm">
+                <div className="text-amber-300">{subscriptionPillLabel(row)}</div>
+                <div className="text-gray-500 mt-1">
+                  100% ≈ {compact(row.ceilingTokens)} tokens/week · {row.samples} observation{row.samples === 1 ? '' : 's'} · {Math.round(row.confidence * 100)}% confidence
+                </div>
+                <div className="mt-2 h-2 rounded bg-white/5 overflow-hidden">
+                  <div className="h-full bg-amber-400/70" style={{ width: `${Math.min(100, Math.max(0, row.pctUsed * 100))}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-xs text-gray-600">No 100% observations recorded yet.</p>}
+      </section>
 
       {/* Controls. Range and granularity are separate questions: "how far back" and "how fine". */}
       <div className="flex items-center gap-3 flex-wrap text-sm">
