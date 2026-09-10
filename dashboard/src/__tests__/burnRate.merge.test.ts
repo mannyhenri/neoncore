@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
-  mergeBurnRates, SUMMED_KEYS, WINDOW_KEYS,
+  mergeBurnRates, SUMMED_KEYS, WINDOW_KEYS, ACCOUNT_KEYS,
   type ServerBurnRate,
 } from '../lib/burnRate';
 import type { ServerAnswer } from '../lib/serverAnswer';
@@ -43,8 +43,11 @@ function responseFieldsFromServerSource(): string[] {
   const fields = new Set([...iface.matchAll(/^\s*(\w+):\s*number;/gm)].map((m) => m[1]));
 
   // ...plus whatever the route spreads in alongside it.
-  const resAt = route.indexOf('res.json({ ...computeBurnRate(');
-  expect(resAt, 'burn-rate route no longer spreads computeBurnRate').toBeGreaterThan(-1);
+  // Anchored on the response itself rather than on how the rate happens to be spread in:
+  // GAS-007 bound it to a const so the projection could read costPerDay, and an anchor tied to
+  // the old inline spread failed on a change that altered nothing about the payload.
+  const resAt = route.indexOf('res.json({');
+  expect(resAt, 'burn-rate route no longer returns a JSON object').toBeGreaterThan(-1);
   const call = route.slice(resAt, route.indexOf('});', resAt));
   for (const m of call.matchAll(/,\s*(\w+)(?:[,:}])/g)) fields.add(m[1]);
   fields.delete('since'); // a timestamp string, not a quantity
@@ -68,7 +71,7 @@ describe('federated burn rate', () => {
   it('classifies every numeric field the endpoint returns', () => {
     // The guard against a forgotten field: an unclassified key is one that would be
     // dropped or double-counted the moment a second server appears.
-    const classified = new Set<string>([...SUMMED_KEYS, ...WINDOW_KEYS]);
+    const classified = new Set<string>([...SUMMED_KEYS, ...WINDOW_KEYS, ...ACCOUNT_KEYS]);
     const unclassified = RESPONSE_FIELDS.filter((f) => !classified.has(f));
 
     expect(unclassified, `unclassified burn-rate fields: ${unclassified.join(', ')}`).toEqual([]);

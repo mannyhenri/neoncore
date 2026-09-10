@@ -19,7 +19,7 @@ export interface ServerAnswer<T> {
   result: T | null;
 }
 
-export type Outcome = 'ok' | 'unreachable' | 'outdated';
+export type Outcome = 'ok' | 'unreachable' | 'outdated' | 'budget-conflict';
 
 export interface Problem {
   label: string;
@@ -30,6 +30,11 @@ export interface Problem {
 export const REASON_TEXT: Record<Exclude<Outcome, 'ok'>, string> = {
   unreachable: 'did not respond',
   outdated: 'is running an older build without this endpoint — deploy and restart it',
+  // A budget is a property of the ACCOUNT, not of a machine, so two servers holding different
+  // values is a misconfiguration rather than data. Named instead of silently picking one,
+  // because a confident projection built on inconsistent inputs is the thing this feature
+  // exists to avoid.
+  'budget-conflict': 'reports a different weekly budget — set one value for the account',
 };
 
 /**
