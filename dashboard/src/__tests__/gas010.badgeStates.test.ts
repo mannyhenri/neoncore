@@ -99,4 +99,12 @@ describe('GAS-010 badge states', () => {
     const inMarkup = RAW_FIELDS.filter((needle) => markup.includes(needle));
     expect(inMarkup, `these bypass projectionSlot and can render a number without its basis: ${inMarkup.join(', ')}`).toEqual([]);
   });
+
+  it('the header pill contains only token rates and subscription time, not cost per day', () => {
+    const src = readFileSync(resolve(HERE, '../components/BurnRate.tsx'), 'utf8');
+    expect(src).toContain('tok/day');
+    expect(src).toContain('tok/hr');
+    expect(src).toContain('subscriptionPillLabel(subscription)');
+    expect(src).not.toContain('{money(rate.costPerDay)}');
+  });
 });
