@@ -6,6 +6,8 @@ import { getIO } from '../ws.js';
 import type { Activity } from '../types.js';
 import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
 import { budgetProjection } from '../lib/projection.js';
+import { limitEventsSince } from '../lib/limit-events.js';
+import { learnedCeiling } from '../lib/learned-ceiling.js';
 import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
@@ -155,7 +157,14 @@ router.get('/burn-rate', (req, res) => {
     days,
     since,
     activeCartridges: active?.n || 0,
-    ...budgetProjection({ costPerDay: burn.costPerDay, settings }),
+    // A ceiling learned from real limit events outranks the declared budget (GAS-013).
+    // learnedCeiling() returns null until it has enough consistent observations, which today
+    // it does not — so this changes nothing yet and is correct that it changes nothing.
+    ...budgetProjection({
+      costPerDay: burn.costPerDay,
+      settings,
+      learned: learnedCeiling(limitEventsSince(new Date(Date.now() - 90 * 86_400_000).toISOString())),
+    }),
   });
 });
 
