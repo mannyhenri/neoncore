@@ -93,7 +93,7 @@ export function recordLimitEvent(agentId: string, marker: string, atIso: string)
 
   // Everything this agent has spent, priced by the same table the badge uses.
   const rows = db.prepare(
-    'SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model FROM session_usage WHERE agent_id = ?',
+    'SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, speed FROM session_usage WHERE agent_id = ?',
   ).all(agentId) as UsageRow[];
   const tokens = rows.reduce(
     (n, r) => n + (r.input_tokens || 0) + (r.output_tokens || 0)

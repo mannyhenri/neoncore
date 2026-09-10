@@ -428,6 +428,8 @@ router.post('/transcript', (req, res) => {
         output_tokens?: number;
         cache_read_input_tokens?: number;
         cache_creation_input_tokens?: number;
+        /** 'fast' when the turn ran in fast mode; absent means standard (GAS-014). */
+        speed?: string;
       };
     }>;
   };
@@ -452,8 +454,8 @@ router.post('/transcript', (req, res) => {
   `);
   const insertUsage = db.prepare(`
     INSERT INTO session_usage
-      (id, session_id, agent_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, session_id, agent_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at, speed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const io = getIO();
@@ -471,6 +473,8 @@ router.post('/transcript', (req, res) => {
       const cacheRead = Number(u.cache_read_input_tokens) || 0;
       const cacheCreate = Number(u.cache_creation_input_tokens) || 0;
       const model = ev.model || '';
+      // '' means standard — the value every row predating GAS-014 carries.
+      const speed = (u.speed || '').trim();
       const id = uuid();
 
       const info = insertMessage.run(
@@ -484,7 +488,7 @@ router.post('/transcript', (req, res) => {
       // Mirror token usage into session_usage so existing cost endpoints keep working.
       // This is now the authoritative token source (the stdin-usage path was unreliable).
       if (inTok > 0 || outTok > 0 || cacheRead > 0 || cacheCreate > 0) {
-        insertUsage.run(uuid(), sessionId || '', agentId, inTok, outTok, cacheRead, cacheCreate, model, now);
+        insertUsage.run(uuid(), sessionId || '', agentId, inTok, outTok, cacheRead, cacheCreate, model, now, speed);
         turnUsage.inputTokens += inTok;
         turnUsage.outputTokens += outTok;
         turnUsage.cacheReadTokens += cacheRead;

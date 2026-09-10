@@ -17,6 +17,10 @@ import { totalCostUsd } from './pricing.js';
 
 /** One `session_usage` row. Mirrors the schema's four token columns. */
 export interface UsageSample {
+  /** 'fast' when the turn ran in fast mode (GAS-014); '' or absent means standard. Declared
+   *  here because the burn rate is priced from these rows and a missing speed halves the cost
+   *  of every fast turn. */
+  speed?: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
