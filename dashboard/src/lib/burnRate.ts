@@ -171,3 +171,36 @@ export function projectionLabel(rate: FleetBurnRate): string | null {
 
   return `${time} left · ${p.basis}`;
 }
+
+/**
+ * What the badge puts in the projection slot — including when it cannot put a number there
+ * (GAS-010).
+ *
+ * Three ways to have no figure, with three different right answers:
+ *
+ *   NO BUDGET      unknowable, but the user can fix it — so prompt, rather than stay blank.
+ *   PARTIAL FLEET  a rate summed from only some servers is LOWER than the truth, so a
+ *                  projection built on it reports MORE headroom than exists. That is the
+ *                  failure direction that hurts: the gauge says four days and the work stops
+ *                  in one. Suppressed rather than shown with a caveat, because a caveat under
+ *                  a confident number gets read as decoration. The badge's existing `*` and
+ *                  tooltip already say the rate itself is partial.
+ *   CONFLICT       servers disagree on the budget. One exists, so "set a budget" is the wrong
+ *                  advice; the projection is unsound, so a figure would be a lie. Silence, plus
+ *                  the problem the merge already reports.
+ */
+export type ProjectionSlot = { kind: 'projection' | 'prompt'; text: string } | null;
+
+export function projectionSlot(rate: FleetBurnRate): ProjectionSlot {
+  // Any unanswered or outdated server makes the rate an undercount, and an undercount is
+  // exactly what must not be turned into a reassuring number.
+  if (rate?.problems?.length) return null;
+
+  const label = projectionLabel(rate);
+  if (label) return { kind: 'projection', text: label };
+
+  // No ceiling and nothing wrong with the fleet: the one case the user can act on.
+  if (rate?.budget && rate.budget.usd == null) return { kind: 'prompt', text: 'set a budget' };
+
+  return null;
+}
