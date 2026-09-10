@@ -140,3 +140,34 @@ export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: nu
     problems: [...problemsIn(answers, usableRate), ...budgetProblems],
   };
 }
+
+/**
+ * The projection pill's text — ONE string with the basis already inside it (GAS-009).
+ *
+ * The epic's non-negotiable is that the badge says what its number rests on: "2.9d left" from
+ * a budget the user typed and the same figure from a measured ceiling are different claims,
+ * and an unlabelled one is worse than none at all. Returning the number and the suffix
+ * separately would let a later edit render just the number; returning them fused makes that
+ * impossible, and a test asserts the property over a grid rather than at one point.
+ *
+ * Null means "nothing to say here" — no budget, an unusable rate, or a server too old to carry
+ * a projection. The badge then shows the bare rate it has always shown. GAS-010 owns turning
+ * that silence into a "set a budget" affordance.
+ */
+export function projectionLabel(rate: FleetBurnRate): string | null {
+  const p = rate?.projection;
+  const days = p?.daysRemaining;
+  if (typeof days !== 'number' || !Number.isFinite(days) || days < 0) return null;
+  if (!p?.basis || p.basis === 'unknown') return null;
+
+  // Under a day, days are the wrong unit — "0.4d left" is not something anyone reads as time.
+  // At a year or more the decimal is noise. Neither branch can emit a sign, so the label
+  // cannot render a countdown running backwards even if a future caller hands one over.
+  const time = days < 1
+    ? `${Math.round(days * 24)}h`
+    : days >= 100
+      ? `${Math.round(days)}d`
+      : `${days.toFixed(1)}d`;
+
+  return `${time} left · ${p.basis}`;
+}
