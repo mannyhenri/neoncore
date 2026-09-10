@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
-import { mergeBurnRates, projectionLabel, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
+import { mergeBurnRates, projectionSlot, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
 import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
@@ -73,10 +73,11 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
   if (!rate || typeof rate.tokensPerDay !== 'number' || !Number.isFinite(rate.tokensPerDay)) return null;
   if (rate.samples === 0) return null;
 
-  // One pre-fused string, so the number cannot reach the badge without the basis it rests on.
-  // Null when there is no budget or no usable rate — the badge then reads exactly as it always
-  // has. GAS-010 turns that silence into a "set a budget" affordance.
-  const projection = projectionLabel(rate);
+  // One pre-fused string, so a number cannot reach the badge without the basis it rests on.
+  // The slot also decides the cases where there is NO number: prompt when a budget is simply
+  // unset, and silence when the fleet is partial — a rate missing a server is an undercount,
+  // and a projection built on it would promise headroom that does not exist.
+  const slot = projectionSlot(rate);
 
   return (
     <button
@@ -92,11 +93,17 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
           : '') +
         'Counts input + output + cache read + cache creation, so it is larger than the ' +
         'per-cartridge figure on a card (which shows input + output only).\n' +
-        (projection
+        (slot?.kind === 'projection'
           ? `\nTime to empty is a PROJECTION at the current rate against a ${rate.projection?.basis} ` +
             `ceiling of ${money(rate.budget?.usd ?? 0)}/week — not a reading from Anthropic, which ` +
             `publishes no remaining-quota API. It moves as the rate moves.\n`
-          : '') +
+          : slot?.kind === 'prompt'
+            ? '\nNo weekly budget is set, so there is nothing to project against. Set one in ' +
+              'Settings and this badge will show time to empty.\n'
+            : rate.problems.length
+              ? '\nNo projection while a server is missing: this rate is an undercount, and a ' +
+                'projection built on it would promise headroom that does not exist.\n'
+              : '') +
         '\nClick for the full report.'
       }
     >
@@ -108,12 +115,18 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       <span className="text-white/10">·</span>
       <span className="text-emerald-500/80">{money(rate.costPerDay)}</span>
       <span className="text-gray-600">/day</span>
-      {projection && (
+      {slot?.kind === 'projection' && (
         <>
           <span className="text-white/10">·</span>
           {/* Split only for colour: the label is one string, and the basis travels with it. */}
-          <span className="text-amber-400/80">{projection.split(' · ')[0]}</span>
-          <span className="text-gray-600">· {projection.split(' · ')[1]}</span>
+          <span className="text-amber-400/80">{slot.text.split(' · ')[0]}</span>
+          <span className="text-gray-600">· {slot.text.split(' · ')[1]}</span>
+        </>
+      )}
+      {slot?.kind === 'prompt' && (
+        <>
+          <span className="text-white/10">·</span>
+          <span className="text-gray-600 italic">{slot.text}</span>
         </>
       )}
       {rate.problems.length > 0 && (
