@@ -11,6 +11,7 @@ import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { statusFromActivity } from '../lib/activity-status.js';
+import { detectLimitSignal, recordLimitEvent } from '../lib/limit-events.js';
 import { computeBurnRate, type UsageSample } from '../lib/burn-rate.js';
 import { buildSeries, BUCKETS, type Bucket } from '../lib/usage-series.js';
 import { totalCostUsd as seriesCostUsd } from '../lib/pricing.js';
@@ -57,6 +58,22 @@ router.post('/', (req, res) => {
   // was indistinguishable from an idle one. null means "this event says nothing about
   // availability" — leave whatever is there rather than guessing.
   const implied = statusFromActivity(String(eventType || ''), toolInputStr);
+
+  // GAS-012 — where the usage wall was, and what had been spent when we hit it. Gated on the
+  // event TYPE before any text is read: an agent writing "we hit the usage limit yesterday"
+  // must not record a ceiling observation. Recording is best-effort and must never fail an
+  // activity report, which is a heartbeat as much as a log.
+  const limitMarker = detectLimitSignal(String(eventType || ''), toolInputStr);
+  // resolvedAgentId, NOT the raw agentId off the body: a payload without an explicit id is
+  // the normal case that resolveAgentId exists to handle, and attributing to the raw value
+  // would silently drop every limit event from exactly those reports.
+  if (limitMarker && resolvedAgentId) {
+    try {
+      recordLimitEvent(String(resolvedAgentId), limitMarker, new Date().toISOString());
+    } catch (err) {
+      console.error(`[limit-events] could not record ${limitMarker}: ${err}`);
+    }
+  }
   if (implied) {
     db.prepare('UPDATE agents SET last_seen = ?, status = ? WHERE id = ?')
       .run(now, implied, resolvedAgentId);
