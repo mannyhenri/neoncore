@@ -5,6 +5,7 @@ import { consumeActivityEvent } from '../lib/engine-store.js';
 import { getIO } from '../ws.js';
 import type { Activity } from '../types.js';
 import { totalCostUsd, type UsageRow } from '../lib/pricing.js';
+import { budgetProjection } from '../lib/projection.js';
 import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
@@ -120,7 +121,25 @@ router.get('/burn-rate', (req, res) => {
     'SELECT COUNT(DISTINCT agent_id) AS n FROM session_usage WHERE recorded_at >= ?'
   ).get(since) as { n: number };
 
-  res.json({ ...computeBurnRate(rows, windowHours), days, since, activeCartridges: active?.n || 0 });
+  const burn = computeBurnRate(rows, windowHours);
+
+  // The declared ceiling and the projection, ADDITIVELY (GAS-007). BurnRate.tsx fans out
+  // across every server in `activeServers` and merges, and those servers can be on different
+  // builds — so an older one that has never heard of `budget` must not break the badge. Every
+  // existing field keeps its name and meaning; the new data arrives under keys an old client
+  // simply ignores.
+  const settings = Object.fromEntries(
+    (db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[])
+      .map((r) => [r.key, r.value]),
+  );
+
+  res.json({
+    ...burn,
+    days,
+    since,
+    activeCartridges: active?.n || 0,
+    ...budgetProjection({ costPerDay: burn.costPerDay, settings }),
+  });
 });
 
 // Token burn over time — the reporting page. Same window/ordering rules as /burn-rate above,
