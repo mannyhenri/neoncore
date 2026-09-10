@@ -204,3 +204,56 @@ export function projectionSlot(rate: FleetBurnRate): ProjectionSlot {
 
   return null;
 }
+
+/**
+ * The budget block on the token report (GAS-011) — where the week actually stands.
+ *
+ * The badge answers "how long left" in four characters. This is what you open when that number
+ * surprises you: the ceiling, how much is gone, the DATE the week runs out, and whether the
+ * current rate is above or below the pace the budget allows.
+ *
+ * PACE is the figure the pill cannot give you. "2.9d left" says where you are; it does not say
+ * whether that is normal. A weekly budget allows budget/7 per day, so spending measured against
+ * that allowance is the honest answer — 100% is exactly on plan, 210% means the week ends on
+ * Thursday. It is the number a person can act on.
+ *
+ * Suppressed on a partial fleet for the same reason GAS-010 suppresses the pill, and with more
+ * force: an undercounted rate makes every figure here overstate headroom, and a stats table
+ * reads as a ledger, which is believed harder than a pill.
+ */
+export interface BudgetStats {
+  budgetUsd: number;
+  consumedUsd: number;
+  /** Floored at zero: an overspent week has nothing left, not a negative amount. */
+  remainingUsd: number;
+  /** Epoch ms the budget runs out at the current rate, or null when nothing is being spent. */
+  exhaustionAt: number | null;
+  /** Actual daily spend over what the budget allows per day. 1 is exactly on plan. */
+  pacePct: number;
+  basis: 'budget' | 'measured';
+}
+
+export function budgetStats(rate: FleetBurnRate, now = Date.now()): BudgetStats | null {
+  if (rate?.problems?.length) return null;              // an undercount must not become a ledger
+
+  const usd = rate?.budget?.usd;
+  const p = rate?.projection;
+  if (typeof usd !== 'number' || !Number.isFinite(usd) || usd <= 0) return null;
+  if (!p || p.basis === 'unknown') return null;
+
+  const pct = Number.isFinite(p.pctConsumed as number) ? Math.max(0, p.pctConsumed as number) : 0;
+  const consumedUsd = usd * pct;
+  const perDayAllowed = usd / 7;
+  const spend = Number.isFinite(rate.costPerDay) && rate.costPerDay > 0 ? rate.costPerDay : 0;
+
+  return {
+    budgetUsd: usd,
+    consumedUsd,
+    remainingUsd: Math.max(0, usd - consumedUsd),
+    exhaustionAt: typeof p.daysRemaining === 'number' && Number.isFinite(p.daysRemaining)
+      ? now + p.daysRemaining * 86_400_000
+      : null,
+    pacePct: perDayAllowed > 0 ? spend / perDayAllowed : 0,
+    basis: p.basis,
+  };
+}

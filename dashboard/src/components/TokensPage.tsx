@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeSeries, type UsageSeries, type FleetSeries } from '../lib/usageSeries';
+import { mergeBurnRates, budgetStats, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
 import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
@@ -75,6 +76,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   const [data, setData] = useState<FleetSeries | null>(null);
   const [loading, setLoading] = useState(true);
   const [hover, setHover] = useState<number | null>(null);
+  const [rate, setRate] = useState<FleetBurnRate | null>(null);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
   const fleetKey = activeServers(servers).map((s) => s.url).join('|');
@@ -109,6 +111,25 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fleetKey, range.days, bucket]);
+
+  // The budget block needs the RATE, which this page does not otherwise fetch. Same fan-out
+  // and same merge as the header badge, so the two cannot disagree about the fleet.
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fanOut<ServerBurnRate>(
+        activeServers(servers),
+        (s) => (s.url ? apiFor(s.url, s.token) : api).getBurnRate(7).then((r) => r as ServerBurnRate),
+        (answers) => { if (alive) setRate(mergeBurnRates(answers, 7)); },
+      );
+    };
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fleetKey]);
+
+  const stats = useMemo(() => (rate ? budgetStats(rate) : null), [rate]);
 
   const points = useMemo(() => {
     const raw = data?.series ?? [];
@@ -174,9 +195,31 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         loading={loading} hover={hover} setHover={setHover}
       />
 
+      {stats && (
+        <section className="mb-6">
+          <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
+            Weekly budget
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm font-mono">
+            <Stat label="budget" value={money(stats.budgetUsd)} note={stats.basis} />
+            <Stat label="spent" value={money(stats.consumedUsd)}
+                  note={`${Math.round((stats.consumedUsd / stats.budgetUsd) * 100)}% of the week`} />
+            <Stat label="left" value={money(stats.remainingUsd)}
+                  note={stats.exhaustionAt
+                    ? `runs out ${new Date(stats.exhaustionAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+                    : 'nothing is being spent'} />
+            {/* Pace is the one figure the badge cannot show: 100% is exactly on plan. */}
+            <Stat label="pace" value={`${Math.round(stats.pacePct * 100)}%`}
+                  accent={stats.pacePct > 1 ? 'text-amber-400/90' : 'text-emerald-500/80'}
+                  note={stats.pacePct > 1 ? 'above what the budget allows' : 'within the budget'} />
+          </div>
+        </section>
+      )}
+
       {/* "What did this project cost me" is the question you arrive with. See the header for
           why this is the only breakdown. */}
       {data && data.byProject.length > 0 && (
+
         <section className="mb-6">
           <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
             By project — {range.label.toLowerCase()}
@@ -209,6 +252,18 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         </section>
       )}
 
+    </div>
+  );
+}
+
+function Stat({ label, value, note, accent = 'text-gray-300' }: {
+  label: string; value: string; note?: string; accent?: string;
+}) {
+  return (
+    <div className="border border-white/10 rounded-md px-3 py-2">
+      <div className="text-gray-600 text-[11px] uppercase tracking-wide">{label}</div>
+      <div className={`${accent} text-lg`}>{value}</div>
+      {note && <div className="text-gray-600 text-[11px]">{note}</div>}
     </div>
   );
 }
