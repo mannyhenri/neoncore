@@ -78,3 +78,52 @@ export function project(input: ProjectionInput): Projection {
 
   return { daysRemaining, pctConsumed, basis, confidence: null };
 }
+
+/**
+ * ── COMPOSITION FOR THE API (GAS-007) ─────────────────────────────────────────────────
+ *
+ * The two halves that exist but had never met in a response: the declared ceiling from
+ * lib/budget.ts and the arithmetic above. Pure — settings are passed in, not read — so the
+ * route stays a thin shell and this is testable without an HTTP harness.
+ *
+ * THE WINDOW ANCHOR. `project()` needs a windowStart and the epic's Open Question 1 — whether
+ * the badge leads with the 5-hour meter or the weekly one — is unresolved. The setting is
+ * `usage_budget_usd_weekly`, so this assumes the WEEKLY meter and anchors on the convention
+ * already in this codebase: `bucketStart(now, 'week')`, which floors to Monday UTC. Reusing it
+ * rather than inventing an anchor keeps the badge and the tokens chart agreeing on what "this
+ * week" means; two views of the same spend that disagreed on the window would be worse than
+ * either alone. If the 5-hour meter wins later, only this line changes.
+ *
+ * `windowStart` is returned rather than kept private so a client can render "resets in 3 days"
+ * without recomputing an anchor it would have to keep in sync.
+ */
+import { budgetFrom } from './budget.js';
+import { bucketStart } from './usage-series.js';
+
+export interface BudgetProjection {
+  budget: { usd: number | null; basis: BudgetBasis };
+  projection: Projection;
+  /** Epoch ms the current budget window began — Monday 00:00 UTC. */
+  windowStart: number;
+}
+
+export function budgetProjection(input: {
+  costPerDay: number;
+  settings: Record<string, string | undefined>;
+  now?: number;
+}): BudgetProjection {
+  const now = input.now ?? Date.now();
+  const windowStart = bucketStart(now, 'week');
+  const budget = budgetFrom(input.settings);
+  return {
+    budget: { usd: budget.usdWeekly, basis: budget.basis },
+    projection: project({
+      costPerDay: input.costPerDay,
+      budgetUsd: budget.usdWeekly,
+      windowStart,
+      now,
+      basis: budget.basis,
+    }),
+    windowStart,
+  };
+}
