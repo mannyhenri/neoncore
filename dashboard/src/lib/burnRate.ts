@@ -16,7 +16,20 @@
  */
 
 /** One server's answer to GET /activity/burn-rate. */
+/** The account ceiling and the projection, added by GAS-007. Optional: an older server has neither. */
+export interface ServerBudget { usd: number | null; basis: 'budget' | 'measured' }
+export interface ServerProjection {
+  daysRemaining: number | null;
+  pctConsumed: number | null;
+  basis: 'budget' | 'measured' | 'unknown';
+  confidence: number | null;
+}
+
 export interface ServerBurnRate {
+  budget?: ServerBudget;
+  projection?: ServerProjection;
+  /** Epoch ms the budget window began — Monday 00:00 UTC, identical on every server. */
+  windowStart?: number;
   windowHours: number;
   tokens: number;
   tokensPerHour: number;
@@ -29,6 +42,9 @@ export interface ServerBurnRate {
 }
 
 export interface FleetBurnRate extends ServerBurnRate {
+  /** Always present on a merged result, even when no server reported one. */
+  budget: ServerBudget;
+  projection: ServerProjection;
   /** How many servers actually answered, and how many were asked. */
   serversReporting: number;
   serversAsked: number;
@@ -47,6 +63,13 @@ export const SUMMED_KEYS = [
 export const WINDOW_KEYS = ['windowHours', 'days'] as const;
 
 /**
+ * Properties of the ACCOUNT, not of a machine (GAS-008). Identical on every server by
+ * definition, so they are taken ONCE and never summed — summing a budget across three servers
+ * would triple the ceiling and report headroom that does not exist.
+ */
+export const ACCOUNT_KEYS = ['budget', 'projection', 'windowStart'] as const;
+
+/**
  * `answers` holds one labelled entry per server asked. A server that failed contributes
  * nothing but is still counted and NAMED, with the reason, so a partial total can say which
  * machine is missing and what to do about it rather than only that one is.
@@ -54,7 +77,7 @@ export const WINDOW_KEYS = ['windowHours', 'days'] as const;
 /** A well-formed answer. The old build's `[]` is truthy and fails this, which is the point. */
 const usableRate = (r: ServerBurnRate) => Number.isFinite(r?.tokensPerDay);
 
-export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: number): FleetBurnRate {
+export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: number, now = Date.now()): FleetBurnRate {
   const ok = answers.map((a) => a.result).filter((r): r is ServerBurnRate => r != null && usableRate(r));
 
   const merged = {} as Record<string, number>;
@@ -63,10 +86,57 @@ export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: nu
   merged.days = ok[0]?.days ?? days;
   merged.windowHours = ok[0]?.windowHours ?? days * 24;
 
+  /**
+   * THE BUDGET IS A THIRD CLASS OF KEY (GAS-008), and the bug this file's header predicted.
+   *
+   * It is neither extensive nor a description of the question: it is a property of the
+   * Anthropic ACCOUNT. Summing three servers' budgets would yield a fleet ceiling three times
+   * the real one and the projection would report MORE headroom than exists — the failure
+   * direction that actually hurts, because the gauge says four days and the work stops in one.
+   * So it is taken ONCE.
+   */
+  const reported = ok.filter((r) => typeof r.budget?.usd === 'number') as (ServerBurnRate & { budget: ServerBudget })[];
+  const distinct = [...new Set(reported.map((r) => r.budget.usd as number))];
+  const conflict = distinct.length > 1;
+  const accountBudget = conflict ? null : (distinct[0] ?? null);
+  const windowStart = ok.find((r) => typeof r.windowStart === 'number')?.windowStart ?? null;
+
+  /**
+   * pctConsumed is DERIVED from the merged rate, not summed from the servers.
+   *
+   * Summing is arithmetically identical while every server reports one — each is
+   * (its rate × the same elapsed) / the same budget. But a server on an older build
+   * contributes its RATE to the total and has no projection to contribute, so summing would
+   * count its spend in costPerDay and omit it from pctConsumed. Deriving keeps the two
+   * consistent whatever mix of builds answered.
+   *
+   * daysRemaining cannot be merged at all: it is budget × (1 − pct) / rate, and rates that add
+   * do not make quotients that add. Recomputed from the merged rate.
+   */
+  const rate = merged.costPerDay;
+  const elapsedDays = windowStart == null ? 0 : Math.max(0, (now - windowStart) / 86_400_000);
+  const usable = accountBudget != null && accountBudget > 0;
+  const pctConsumed = usable ? (rate * elapsedDays) / (accountBudget as number) : null;
+  const daysRemaining = usable && rate > 0
+    ? Math.max(0, ((accountBudget as number) * (1 - (pctConsumed as number))) / rate)
+    : null;
+
+  const budgetProblems: Problem[] = conflict
+    ? reported.map((_r, i) => ({ label: answers[i]?.label ?? `server ${i + 1}`, reason: 'budget-conflict' as const }))
+    : [];
+
   return {
     ...(merged as unknown as ServerBurnRate),
+    budget: { usd: accountBudget, basis: (accountBudget != null && !conflict ? reported[0]?.budget.basis : 'budget') ?? 'budget' },
+    projection: {
+      daysRemaining,
+      pctConsumed,
+      basis: usable ? ((reported[0]?.budget.basis ?? 'budget') as 'budget' | 'measured') : 'unknown',
+      confidence: null,
+    },
+    windowStart: windowStart ?? undefined,
     serversReporting: ok.length,
     serversAsked: answers.length,
-    problems: problemsIn(answers, usableRate),
+    problems: [...problemsIn(answers, usableRate), ...budgetProblems],
   };
 }
