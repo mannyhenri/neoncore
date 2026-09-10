@@ -132,7 +132,7 @@ router.get('/burn-rate', (req, res) => {
   // Bounded by `since` and nothing else — every agent, so the header answers "the fleet",
   // which is the question a global chrome element is asking.
   const rows = db.prepare(`
-    SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at
+    SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, speed, recorded_at
     FROM session_usage WHERE recorded_at >= ?
   `).all(since) as UsageSample[];
 
@@ -192,7 +192,7 @@ router.get('/usage-series', (req, res) => {
   const sinceIso = new Date(from).toISOString();
 
   const rows = db.prepare(`
-    SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at
+    SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, speed, recorded_at
     FROM session_usage WHERE recorded_at >= ?
   `).all(sinceIso) as UsageSample[];
 
@@ -312,7 +312,7 @@ router.get('/usage/:agentId', (req, res) => {
 
   // No LIMIT — the card shows lifetime "total tokens consumed", so sum every row
   // (optionally bounded by `since`). Cache tokens are summed for accurate cost.
-  const cols = 'input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, recorded_at';
+  const cols = 'input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, speed, recorded_at';
   const rows = since
     ? db.prepare(`SELECT ${cols} FROM session_usage WHERE agent_id = ? AND recorded_at >= ? ORDER BY recorded_at DESC`).all(agentId, since) as (UsageRow & { recorded_at: string })[]
     : db.prepare(`SELECT ${cols} FROM session_usage WHERE agent_id = ? ORDER BY recorded_at DESC`).all(agentId) as (UsageRow & { recorded_at: string })[];

@@ -757,6 +757,18 @@ try {
 }
 
 /**
+ * GAS-014 — which SPEED a turn ran at. Opus fast mode bills $10/$50 per MTok against a
+ * standard $5/$25, so without this every fast turn was priced at half its true cost — and an
+ * understated burn overstates headroom, which is the direction the usage gauge must never err
+ * in. Empty means standard, which is what every row written before this column existed was.
+ */
+try {
+  db.prepare('SELECT speed FROM session_usage LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE session_usage ADD COLUMN speed TEXT NOT NULL DEFAULT ''`);
+}
+
+/**
  * GAS-012 — where the usage wall was, and what had been spent when we hit it.
  *
  * Nothing else records this. The badge divides a budget the user typed, and Anthropic

@@ -13,17 +13,31 @@
  * a broader one. To split a family, add the narrower pattern; order in the array is no longer
  * load-bearing.
  */
-interface Rate {
-  match: string;
+interface Tier {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
 }
 
+interface Rate extends Tier {
+  match: string;
+  /**
+   * Fast mode, where the model has it (GAS-014). Opus fast bills $10/$50 per MTok against a
+   * standard $5/$25, so a fast turn priced as standard is HALF its true cost — and understated
+   * burn overstates headroom, which is the failure direction this gauge exists to avoid.
+   *
+   * Input and output are published. The cache multipliers are NOT, so they are derived on the
+   * same 0.1x / 1.25x convention this table uses everywhere else — an inference, recorded as
+   * one. Fast mode exists on Opus only; no other family gets an invented fast rate.
+   */
+  fast?: Tier;
+}
+
 const RATES: Rate[] = [
   { match: 'fable', input: 10, output: 50, cacheRead: 1.0, cacheWrite: 12.5 },
-  { match: 'opus', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  { match: 'opus', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25,
+    fast: { input: 10, output: 50, cacheRead: 1.0, cacheWrite: 12.5 } },
   // `sonnet-5` must stay NARROWER than `sonnet`: both match "claude-sonnet-5" and the longer
   // pattern is what distinguishes it from Sonnet 4.6, which keeps the broader entry.
   { match: 'sonnet-5', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
@@ -51,7 +65,10 @@ const DEFAULT_RATE: Omit<Rate, 'match'> = {
   cacheWrite: Math.max(...RATES.map((r) => r.cacheWrite)),
 };
 
-function rateFor(model: string): Omit<Rate, 'match'> {
+/** The documented marker. Anything else is standard — an unknown value must not double a bill. */
+const FAST = 'fast';
+
+function rateFor(model: string, speed?: string): Tier {
   const m = (model || '').toLowerCase();
   // Longest match wins — see SPECIFICITY above. `find` would return whichever entry happened
   // to sit first, making a family split depend on array order.
@@ -59,10 +76,14 @@ function rateFor(model: string): Omit<Rate, 'match'> {
   for (const r of RATES) {
     if (m.includes(r.match) && (!best || r.match.length > best.match.length)) best = r;
   }
-  return best ?? DEFAULT_RATE;
+  if (!best) return DEFAULT_RATE;
+  return (speed || '').trim() === FAST && best.fast ? best.fast : best;
 }
 
 export interface UsageRow {
+  /** 'fast' selects the fast-mode tier where one exists. Absent means standard, which is what
+   *  every caller predating GAS-014 passes — those rows must price exactly as they always did. */
+  speed?: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens?: number;
@@ -72,7 +93,7 @@ export interface UsageRow {
 
 /** USD cost of a single session_usage row, priced by its model. */
 export function rowCostUsd(r: UsageRow): number {
-  const p = rateFor(r.model);
+  const p = rateFor(r.model, r.speed);
   return (
     ((r.input_tokens || 0) * p.input +
       (r.output_tokens || 0) * p.output +

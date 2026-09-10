@@ -15,7 +15,7 @@ function costForAgentIds(agentIds: string[]): number {
   const placeholders = agentIds.map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model
+      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, speed
          FROM session_usage WHERE agent_id IN (${placeholders})`,
     )
     .all(...agentIds) as UsageRow[];
