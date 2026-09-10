@@ -716,6 +716,7 @@ try {
   db.prepare('SELECT model FROM agents LIMIT 1').get();
 } catch {
   db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`);
+}
 
 // ADX-002 — the addressed inbox. Claude Code binds a per-session Unix socket at
 // /tmp/cc-socks/<pid>.sock, and a message posted there is delivered BETWEEN tool
