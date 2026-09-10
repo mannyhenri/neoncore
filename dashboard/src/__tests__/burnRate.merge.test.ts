@@ -63,6 +63,7 @@ function sample(overrides: Partial<ServerBurnRate> = {}): ServerBurnRate {
     windowHours: 168, days: 7,
     tokens: 1000, tokensPerHour: 10, tokensPerDay: 240,
     costUsd: 50, costPerDay: 7, samples: 100, activeCartridges: 3,
+    subscriptionUsage: [],
     ...overrides,
   };
 }
@@ -95,7 +96,7 @@ describe('federated burn rate', () => {
     }
   });
 
-  it('a server that fails contributes nothing but is still counted as asked', () => {
+  it('a server that fails contributes nothing but preserves the known subscription estimate', () => {
     const subscriptionUsage = [{
       provider: 'claude' as const, ceilingTokens: 100, tokensUsed: 20, tokensPerDay: 10,
       pctUsed: 0.2, daysRemaining: 8, samples: 1, confidence: 0.3,
@@ -105,7 +106,29 @@ describe('federated burn rate', () => {
     expect(merged.tokensPerDay).toBe(240);
     expect(merged.serversReporting).toBe(1);
     expect(merged.serversAsked).toBe(2);
-    expect(merged.subscriptionUsage).toEqual([]);
+    expect(merged.subscriptionUsage).toEqual(subscriptionUsage);
+  });
+
+  it('EVERY mixed-version ordering keeps the known subscription estimate and flags the missing share', () => {
+    const subscriptionUsage = [{
+      provider: 'claude' as const, ceilingTokens: 100, tokensUsed: 20, tokensPerDay: 10,
+      pctUsed: 0.2, daysRemaining: 8, samples: 1, confidence: 0.3,
+      lastHitAt: '2026-09-10T12:00:00.000Z',
+    }];
+    const current = from('current', sample({ subscriptionUsage }));
+    const missingKinds = [
+      from('offline', null),
+      from('old-build', sample({ subscriptionUsage: undefined })),
+    ];
+
+    for (const missing of missingKinds) {
+      for (const answers of [[current, missing], [missing, current]]) {
+        const merged = mergeBurnRates(answers, 7);
+        expect(merged.subscriptionUsage, `${missing.label}, ordering ${answers[0].label} first`)
+          .toEqual(subscriptionUsage);
+        expect(merged.problems.some((problem) => problem.label === missing.label), missing.label).toBe(true);
+      }
+    }
   });
 
   it('a server running older code answers [] — that is a non-report, not a zero', () => {
