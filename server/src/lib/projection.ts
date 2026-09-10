@@ -111,19 +111,26 @@ export function budgetProjection(input: {
   costPerDay: number;
   settings: Record<string, string | undefined>;
   now?: number;
+  /** A ceiling learned from real limit events (GAS-013). Overrides the declared budget. */
+  learned?: { usdWeekly: number; confidence: number; samples: number } | null;
 }): BudgetProjection {
   const now = input.now ?? Date.now();
   const windowStart = bucketStart(now, 'week');
-  const budget = budgetFrom(input.settings);
+  const declared = budgetFrom(input.settings);
+
+  /**
+   * A MEASURED ceiling outranks a declared one (GAS-013). The user's number is a guess about
+   * a limit Anthropic does not publish; a learned one is where the wall actually was. The
+   * basis changes with it, because a badge reading "budget" over a figure the user never typed
+   * is the same lie as an unlabelled number — and learnedCeiling() already refuses to return
+   * anything below its confidence threshold, so reaching here means it was earned.
+   */
+  const usdWeekly = input.learned ? input.learned.usdWeekly : declared.usdWeekly;
+  const basis: BudgetBasis = input.learned ? 'measured' : declared.basis;
+
   return {
-    budget: { usd: budget.usdWeekly, basis: budget.basis },
-    projection: project({
-      costPerDay: input.costPerDay,
-      budgetUsd: budget.usdWeekly,
-      windowStart,
-      now,
-      basis: budget.basis,
-    }),
+    budget: { usd: usdWeekly, basis },
+    projection: project({ costPerDay: input.costPerDay, budgetUsd: usdWeekly, windowStart, now, basis }),
     windowStart,
   };
 }
