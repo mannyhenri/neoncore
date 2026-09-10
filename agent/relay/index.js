@@ -41,6 +41,7 @@ import { randomBytes } from 'node:crypto';
 import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
 import { resumeArgsFor, canVerifyTranscript, transcriptExists } from './resume-args.mjs';
+import { codexArgsForMode } from './codex-mode.mjs';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -104,7 +105,7 @@ const transcriptMissing = Boolean(RESUME_SESSION_ID)
 const resumeArgs = (alreadyResuming || transcriptMissing)
   ? null
   : resumeArgsFor(AGENT_TYPE, RESUME_SESSION_ID);
-const AGENT_ARGS = resumeArgs ? [...resumeArgs, ...EXPLICIT_ARGS] : EXPLICIT_ARGS;
+const BASE_AGENT_ARGS = resumeArgs ? [...resumeArgs, ...EXPLICIT_ARGS] : EXPLICIT_ARGS;
 
 // Reported at spawn time, not here: `log()` writes to LOG_FILE, which is a `const` declared
 // further down this module — calling it now is a temporal-dead-zone crash.
@@ -195,8 +196,7 @@ async function registerAgent(identity) {
     }),
   });
   if (!res.ok) throw new Error(`register failed: HTTP ${res.status}`);
-  const agent = await res.json();
-  return agent.id;
+  return await res.json();
 }
 
 // Tell the server which socket addresses this cartridge: /tmp/cc-socks/<pid>.sock,
@@ -256,8 +256,11 @@ async function main() {
 
   // 1. Register first so the agent row + id exist before we join its socket room.
   let agentId;
+  let initialMode = 'manual';
   try {
-    agentId = await registerAgent(identity);
+    const registered = await registerAgent(identity);
+    agentId = registered.id;
+    initialMode = registered.mode || 'manual';
     log(`Registered agent ${agentId}`);
   } catch (err) {
     process.stderr.write(`NeonCore relay: could not reach orchestrator at ${URL} — launching agent anyway.\n`);
@@ -279,14 +282,32 @@ async function main() {
   }
 
   // 2. Spawn the agent CLI inside a PTY we own, and bridge it to this terminal.
-  const ptyProc = pty.spawn(AGENT_CMD, AGENT_ARGS, {
-    name: process.env.TERM || 'xterm-256color',
-    cols: process.stdout.columns || 80,
-    rows: process.stdout.rows || 30,
-    cwd: process.cwd(),
-    // The injection ADX-001 established as the only workable direction.
-    env: { ...process.env, CLAUDE_CODE_MESSAGING_TOKEN: INBOX_TOKEN },
-  });
+  let ptyProc;
+  let pendingCodexRestart;
+  const spawnAgent = (mode, sessionId = '') => {
+    const args = AGENT_TYPE === 'codex'
+      ? codexArgsForMode(BASE_AGENT_ARGS, mode, sessionId)
+      : BASE_AGENT_ARGS;
+    const proc = pty.spawn(AGENT_CMD, args, {
+      name: process.env.TERM || 'xterm-256color',
+      cols: process.stdout.columns || 80,
+      rows: process.stdout.rows || 30,
+      cwd: process.cwd(),
+      env: { ...process.env, CLAUDE_CODE_MESSAGING_TOKEN: INBOX_TOKEN },
+    });
+    ptyProc = proc;
+    proc.onData((data) => process.stdout.write(data));
+    proc.onExit(({ exitCode }) => {
+      if (proc !== ptyProc) return;
+      log(`Agent exited with code ${exitCode}`);
+      cleanup();
+      process.exit(exitCode || 0);
+    });
+    reportInbox(proc.pid);
+    return proc;
+  };
+
+  spawnAgent(initialMode, resumeArgs ? RESUME_SESSION_ID : '');
 
   // Report the addressed inbox now that a child — and therefore a pid — exists.
   //
@@ -297,13 +318,10 @@ async function main() {
   // Fire-and-forget: the relay's job is to run the agent. A server that is down
   // must not stop a cartridge from starting, and the next hook-driven register
   // re-reports the same values.
-  reportInbox(ptyProc.pid);
-
-  ptyProc.onData((data) => process.stdout.write(data));
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.resume();
-  process.stdin.on('data', (data) => ptyProc.write(data.toString('utf-8')));
-  process.stdout.on('resize', () => ptyProc.resize(process.stdout.columns || 80, process.stdout.rows || 30));
+  process.stdin.on('data', (data) => ptyProc?.write(data.toString('utf-8')));
+  process.stdout.on('resize', () => ptyProc?.resize(process.stdout.columns || 80, process.stdout.rows || 30));
 
   // Inject a dispatched command into the PTY as a bracketed paste, then submit.
   // The submit is a scaled-delay Enter plus a backstop Enter: a plain Enter on an
@@ -348,17 +366,31 @@ async function main() {
       inject(command);
     });
 
+    socket.on('agent_mode_changed', ({ agentId: changedId, mode, sessionId }) => {
+      if (AGENT_TYPE !== 'codex' || changedId !== agentId) return;
+      log(`Applying Codex ${mode} permissions by restarting and resuming the session`);
+      pendingCodexRestart = { mode, sessionId: sessionId || '' };
+      const previous = ptyProc;
+      if (!previous) return;
+      ptyProc = undefined;
+      previous.onExit(() => {
+        const next = pendingCodexRestart;
+        pendingCodexRestart = undefined;
+        if (next) spawnAgent(next.mode, next.sessionId);
+      });
+      try {
+        previous.kill();
+      } catch {
+        const next = pendingCodexRestart;
+        pendingCodexRestart = undefined;
+        if (next) spawnAgent(next.mode, next.sessionId);
+      }
+    });
+
     socket.on('connect_error', (err) => log(`Socket connect_error: ${err.message}`));
 
     process.on('exit', () => { try { socket.close(); } catch { /* ignore */ } });
   }
-
-  // 4. Lifecycle: when the agent exits, tear the relay down with it.
-  ptyProc.onExit(({ exitCode }) => {
-    log(`Agent exited with code ${exitCode}`);
-    cleanup();
-    process.exit(exitCode || 0);
-  });
 
   function cleanup() {
     try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch { /* ignore */ }

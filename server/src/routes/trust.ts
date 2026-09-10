@@ -32,6 +32,11 @@ router.put('/:agentId/mode', (req, res) => {
   const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
   const normalized = normalizeAgent(updated);
   getIO().emit('agent_updated', normalized);
+  getIO().to(`agent:${agentId}`).emit('agent_mode_changed', {
+    agentId,
+    mode,
+    sessionId: normalized.sessionId,
+  });
   res.json(normalized);
 });
 
@@ -58,6 +63,11 @@ router.put('/:agentId', (req, res) => {
   const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown>;
   const normalized = normalizeAgent(updated);
   getIO().emit('agent_updated', normalized);
+  getIO().to(`agent:${agentId}`).emit('agent_mode_changed', {
+    agentId,
+    mode: normalized.mode,
+    sessionId: normalized.sessionId,
+  });
   res.json(normalized);
 });
 
