@@ -805,6 +805,23 @@ CREATE INDEX IF NOT EXISTS idx_token_limit_calibrations_provider_at
   ON token_limit_calibrations(provider, hit_at);`);
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_usage_agent_recorded ON session_usage(agent_id, recorded_at)');
 
+// Usage checkpoints: the percentage and reset time the PROVIDER displayed, logged by the person
+// who saw it. Ground truth from the other side of the meter — see lib/usage-checkpoint.ts.
+// `local_tokens` snapshots what the fleet had counted for that provider from the window's start
+// to the reading, so two readings measure how many of our tokens make one of their percent.
+db.exec(`CREATE TABLE IF NOT EXISTS usage_checkpoints (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  window TEXT NOT NULL DEFAULT 'weekly',
+  pct_used REAL NOT NULL,
+  resets_at TEXT NOT NULL,
+  observed_at TEXT NOT NULL,
+  local_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_checkpoints_provider_observed
+  ON usage_checkpoints(provider, window, observed_at);`);
+
 // Migration: add token tracking columns to workflow_steps
 try {
   db.prepare('SELECT tokens_in FROM workflow_steps LIMIT 1').get();

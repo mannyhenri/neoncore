@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity,
+  View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity, TextInput,
 } from 'react-native';
 import { theme } from '../theme';
-import { api, type BurnRate, type UsageSeries, type UsageBucket } from '../api';
+import { api, type BurnRate, type UsageSeries, type UsageBucket, type UsageAnchor, type UsageWindow } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { Card, ScreenTitle, Adaptive } from '../components/ui';
+import { Card, ScreenTitle, Adaptive, Chip, ActionButton } from '../components/ui';
 import { Modal, Pressable } from 'react-native';
 
 /**
@@ -72,6 +72,17 @@ interface Drill {
 
 const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
+const hoursLabel = (h: number) => (h < 48 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)}d`);
+/** Same words as the desk pill: "Claude 62% · wall in 31h" or "· resets in 2.1d". */
+function anchorLabel(a: UsageAnchor): string {
+  const provider = a.provider === 'claude' ? 'Claude' : a.provider === 'codex' ? 'Codex' : a.provider;
+  const pct = `${Math.round(Math.max(0, a.pctUsed) * 100)}%`;
+  const when = a.pctUsed < 1 && a.hitsWallBeforeReset && a.hoursToWall !== null
+    ? `wall in ${hoursLabel(a.hoursToWall)}`
+    : `resets in ${hoursLabel(a.hoursToReset)}`;
+  return `${provider} ${pct} · ${when}`;
+}
+
 function tickLabel(iso: string, bucket: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -94,6 +105,13 @@ export function TokensScreen() {
   const [drill, setDrill] = useState<Drill | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // A reading of the provider's own meter, typed in — server/src/lib/usage-checkpoint.ts.
+  const [cpProvider, setCpProvider] = useState<'claude' | 'codex'>('claude');
+  const [cpWindow, setCpWindow] = useState<UsageWindow>('weekly');
+  const [cpPct, setCpPct] = useState('');
+  const [cpResetIn, setCpResetIn] = useState('');
+  const [cpMessage, setCpMessage] = useState('');
+  const [cpBusy, setCpBusy] = useState(false);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
 
@@ -123,6 +141,35 @@ export function TokensScreen() {
   }, [baseUrl, range.days, bucket]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
+
+  const logCheckpoint = async () => {
+    if (!baseUrl) return;
+    const pct = Number(cpPct);
+    const resetIn = Number(cpResetIn);
+    if (cpPct.trim() === '' || !Number.isFinite(pct) || pct < 0 || pct > 100) {
+      setCpMessage('Enter the percentage as the provider shows it, 0 to 100.');
+      return;
+    }
+    if (!Number.isFinite(resetIn) || resetIn <= 0) {
+      setCpMessage(cpWindow === 'weekly' ? 'Enter how many hours until it resets.' : 'Enter how many minutes until it resets.');
+      return;
+    }
+    const ms = cpWindow === 'weekly' ? resetIn * 3_600_000 : resetIn * 60_000;
+    setCpBusy(true);
+    setCpMessage('');
+    try {
+      const out = await api.logUsageCheckpoint(baseUrl, {
+        provider: cpProvider, window: cpWindow, pctUsed: pct, resetsAt: new Date(Date.now() + ms).toISOString(),
+      });
+      setCpMessage(out.anchor ? out.anchor.recommendation : `Recorded ${pct}%.`);
+      setCpPct('');
+      await load();
+    } catch (e) {
+      setCpMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCpBusy(false);
+    }
+  };
 
   const series = data?.series ?? [];
   const values = series.map((p) => (metric === 'tokens' ? p.tokens : p.costUsd));
@@ -157,6 +204,42 @@ export function TokensScreen() {
         <Text style={styles.sub}>
           {burn ? `${burn.activeCartridges} active over the last ${burn.days}d` : '—'}
         </Text>
+      </Card>
+
+      <Card>
+        <Text style={styles.section}>USAGE READING — WHAT THE PROVIDER SHOWS</Text>
+        <View style={styles.cpRow}>
+          {(['claude', 'codex'] as const).map((p) => (
+            <Chip key={p} label={p} on={cpProvider === p} onPress={() => setCpProvider(p)} />
+          ))}
+          {(['weekly', 'session'] as const).map((w) => (
+            <Chip key={w} label={w === 'weekly' ? 'weekly' : '5 hour'} on={cpWindow === w} onPress={() => setCpWindow(w)} />
+          ))}
+        </View>
+        <View style={styles.cpRow}>
+          <TextInput
+            style={styles.cpInput} keyboardType="numeric" placeholder="% used" placeholderTextColor={theme.textFaint}
+            value={cpPct} onChangeText={setCpPct} accessibilityLabel="percent used"
+          />
+          <TextInput
+            style={styles.cpInput} keyboardType="numeric"
+            placeholder={cpWindow === 'weekly' ? 'resets in (hours)' : 'resets in (minutes)'}
+            placeholderTextColor={theme.textFaint} value={cpResetIn} onChangeText={setCpResetIn} accessibilityLabel="resets in"
+          />
+          <ActionButton label={cpBusy ? 'Logging…' : 'Log'} tone="accent" disabled={cpBusy} onPress={() => void logCheckpoint()} />
+        </View>
+        {cpMessage ? <Text style={styles.cpMessage}>{cpMessage}</Text> : null}
+        {(burn?.usageAnchor ?? []).map((a) => (
+          <View key={`${a.provider}-${a.window}`} style={styles.cpAnchor}>
+            <Text style={[styles.cpAnchorTitle, { color: a.pace === 'hold' ? theme.danger : a.pace === 'watch' ? theme.accent : theme.teal }]}>
+              {anchorLabel(a)} · {a.window === 'weekly' ? 'weekly' : '5 hour'}
+            </Text>
+            <Text style={styles.cpAnchorBody}>{a.recommendation}</Text>
+          </View>
+        ))}
+        {!burn?.usageAnchor?.length ? (
+          <Text style={styles.rateLabel}>No reading yet. Log what the provider's usage page shows.</Text>
+        ) : null}
       </Card>
 
       <Segmented options={RANGES.map((r) => ({ key: r.key, label: r.label }))} value={rangeKey} onChange={selectRange} />
@@ -288,6 +371,15 @@ const styles = StyleSheet.create({
   rateValue: { color: theme.text, fontSize: 20, fontWeight: '700' },
   totalValue: { color: theme.text, fontSize: 22, fontWeight: '700' },
   rateLabel: { color: theme.textFaint, fontSize: 10, marginTop: 2 },
+  cpRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 },
+  cpInput: {
+    flexGrow: 1, minWidth: 110, color: theme.text, fontSize: 14, paddingHorizontal: 10, paddingVertical: 8,
+    borderWidth: 1, borderColor: theme.border, borderRadius: 8,
+  },
+  cpMessage: { color: theme.textDim, fontSize: 12, marginBottom: 8 },
+  cpAnchor: { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 8, marginTop: 4 },
+  cpAnchorTitle: { fontSize: 14, fontWeight: '700' },
+  cpAnchorBody: { color: theme.textDim, fontSize: 12, marginTop: 4 },
   sub: { color: theme.textFaint, fontSize: 10, textAlign: 'center', marginTop: 8 },
   section: { color: theme.textDim, fontSize: 11, fontWeight: '700', marginBottom: 8 },
   segmented: {

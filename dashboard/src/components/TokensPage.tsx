@@ -7,7 +7,8 @@ import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
 import {
-  SUBSCRIPTION_PROVIDERS, subscriptionPillLabel, type SubscriptionProvider,
+  SUBSCRIPTION_PROVIDERS, subscriptionPillLabel, usageAnchorLabel, hoursLabel,
+  type SubscriptionProvider, type UsageWindow,
 } from '../lib/subscriptionUsage';
 
 /**
@@ -88,6 +89,15 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   const [limitMessage, setLimitMessage] = useState('');
   const [markingLimit, setMarkingLimit] = useState(false);
   const [limitRefresh, setLimitRefresh] = useState(0);
+  // A reading of the provider's own meter — see server/src/lib/usage-checkpoint.ts.
+  const [cpWindow, setCpWindow] = useState<UsageWindow>('weekly');
+  const [cpPct, setCpPct] = useState('');
+  const [cpResetsAt, setCpResetsAt] = useState(() => {
+    const d = new Date(Date.now() + 3 * 86_400_000 - new Date().getTimezoneOffset() * 60_000);
+    return d.toISOString().slice(0, 16);
+  });
+  const [cpMessage, setCpMessage] = useState('');
+  const [loggingCp, setLoggingCp] = useState(false);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
   const fleetKey = activeServers(servers).map((s) => s.url).join('|');
@@ -167,6 +177,42 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
     }
   };
 
+  const logCheckpoint = async () => {
+    setLoggingCp(true);
+    setCpMessage('');
+    try {
+      const pct = Number(cpPct);
+      const resets = new Date(cpResetsAt);
+      if (cpPct.trim() === '' || !Number.isFinite(pct) || pct < 0 || pct > 100) {
+        setCpMessage('Enter the percentage as the provider shows it, 0 to 100.');
+        return;
+      }
+      if (!cpResetsAt || !Number.isFinite(resets.getTime())) {
+        setCpMessage('Choose the reset time the provider shows next to the percentage.');
+        return;
+      }
+      // Every server, like the calibration above: the meter is one account, and each server
+      // keeps its own gauge, so each needs the reading to anchor on.
+      const targets = activeServers(servers);
+      const settled = await Promise.allSettled(targets.map((s) =>
+        (s.url ? apiFor(s.url, s.token) : api).logUsageCheckpoint({
+          provider: limitProvider, window: cpWindow, pctUsed: pct, resetsAt: resets.toISOString(),
+        })));
+      const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failures.length) {
+        const why = failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason);
+        setCpMessage(`Could not log on ${failures.length} of ${targets.length} server(s): ${why}`);
+        setLimitRefresh((n) => n + 1);
+        return;
+      }
+      setCpMessage(`${limitProvider === 'claude' ? 'Claude' : 'Codex'} ${cpWindow === 'weekly' ? 'weekly' : '5-hour'} reading recorded: ${pct}%.`);
+      setCpPct('');
+      setLimitRefresh((n) => n + 1);
+    } finally {
+      setLoggingCp(false);
+    }
+  };
+
   const points = useMemo(() => {
     const raw = data?.series ?? [];
     if (!cumulative) return raw.map((p) => ({ ...p, v: p[metric] }));
@@ -205,6 +251,65 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         </div>
       )}
 
+      <section className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.04] p-4 space-y-3">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-emerald-300">Usage reading — what the provider shows</h3>
+            <p className="text-xs text-gray-500 mt-1 max-w-2xl">
+              Type in the percentage and reset time from the provider's own usage meter. One reading pins the
+              gauge to reality; two in the same window measure your pace and let the gauge keep moving between readings.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
+              aria-label="reading provider"
+              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
+              {SUBSCRIPTION_PROVIDERS.map((provider) => (
+                <option key={provider} value={provider}>{provider === 'claude' ? 'Claude' : 'Codex'}</option>
+              ))}
+            </select>
+            <select value={cpWindow} onChange={(e) => setCpWindow(e.target.value as UsageWindow)}
+              aria-label="reading window"
+              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
+              <option value="weekly">Weekly limit</option>
+              <option value="session">5-hour limit</option>
+            </select>
+            <input type="number" min={0} max={100} step={1} placeholder="% used" value={cpPct}
+              onChange={(e) => setCpPct(e.target.value)} aria-label="percent used"
+              className="w-24 bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300" />
+            <input type="datetime-local" value={cpResetsAt} onChange={(e) => setCpResetsAt(e.target.value)}
+              title="When the provider says this window resets" aria-label="resets at"
+              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300" />
+            <button onClick={logCheckpoint} disabled={loggingCp}
+              className="rounded bg-emerald-500/20 border border-emerald-400/30 px-3 py-1.5 text-sm text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50">
+              {loggingCp ? 'Logging…' : 'Log reading'}
+            </button>
+          </div>
+        </div>
+        {cpMessage && <p className="text-xs text-emerald-200">{cpMessage}</p>}
+        {rate?.usageAnchor?.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {rate.usageAnchor.map((a) => (
+              <div key={`${a.provider}-${a.window}`} className="rounded border border-white/10 p-3 font-mono text-sm">
+                <div className={a.pace === 'hold' ? 'text-red-300' : a.pace === 'watch' ? 'text-amber-300' : 'text-emerald-300'}>
+                  {usageAnchorLabel(a)} <span className="text-gray-500">· {a.window === 'weekly' ? 'weekly' : '5-hour'} · {a.pace}</span>
+                </div>
+                <div className="text-gray-400 mt-1 whitespace-normal">{a.recommendation}</div>
+                <div className="text-gray-600 mt-1">
+                  read {Math.round(a.pctAtCheckpoint * 100)}% · pace {(a.pctPerDay * 100).toFixed(1)}%/day · resets in {hoursLabel(a.hoursToReset)}
+                  {a.tokensPerPct
+                    ? ` · 1% ≈ ${compact(a.tokensPerPct)} tokens (${a.samples} readings)`
+                    : ' · log a second reading in this window to measure tokens per %'}
+                  {a.basis === 'rollover' ? ' · projected from local tokens since the reset' : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-600">No reading yet. Open the provider's usage page and log what it shows.</p>
+        )}
+      </section>
+
       <section className="rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-4 space-y-3">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -216,6 +321,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
+              aria-label="provider that reached 100%"
               className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
               {SUBSCRIPTION_PROVIDERS.map((provider) => (
                 <option key={provider} value={provider}>{provider === 'claude' ? 'Claude' : 'Codex'}</option>

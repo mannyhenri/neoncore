@@ -21,6 +21,7 @@ import {
   SUBSCRIPTION_PROVIDERS, learnTokenCeiling, projectTokenCeiling,
   type SubscriptionProvider,
 } from '../lib/token-ceiling.js';
+import { validateCheckpoint, anchorFromCheckpoints, windowStartOf, USAGE_WINDOWS, type UsageCheckpoint, type UsageAnchor } from '../lib/usage-checkpoint.js';
 
 const router = Router();
 const WEEK_MS = 7 * 86_400_000;
@@ -64,6 +65,66 @@ function subscriptionUsage(now = Date.now()) {
     })];
   });
 }
+
+// ── Usage checkpoints — what the provider itself displayed (lib/usage-checkpoint.ts) ────────
+interface CheckpointRow {
+  id: string; provider: string; window: string; pct_used: number;
+  resets_at: string; observed_at: string; local_tokens: number;
+}
+const rowToCheckpoint = (r: CheckpointRow): UsageCheckpoint => ({
+  id: r.id, provider: r.provider, window: r.window as UsageCheckpoint['window'], pctUsed: r.pct_used,
+  resetsAt: r.resets_at, observedAt: r.observed_at, localTokens: r.local_tokens,
+});
+function checkpointsFor(provider: string): UsageCheckpoint[] {
+  return (db.prepare(`SELECT id, provider, window, pct_used, resets_at, observed_at, local_tokens
+    FROM usage_checkpoints WHERE provider = ? ORDER BY observed_at DESC LIMIT 60`).all(provider) as CheckpointRow[])
+    .map(rowToCheckpoint);
+}
+/** One anchor per provider and window that has a usable checkpoint. */
+function usageAnchors(now = Date.now()): UsageAnchor[] {
+  const nowIso = new Date(now).toISOString();
+  return SUBSCRIPTION_PROVIDERS.flatMap((provider) => {
+    const all = checkpointsFor(provider);
+    return USAGE_WINDOWS.flatMap((window) => {
+      const mine = all.filter((c) => c.window === window);
+      if (!mine.length) return [];
+      const latest = mine[0];
+      const anchor = anchorFromCheckpoints({
+        checkpoints: mine, window, now,
+        localTokensSinceLatest: providerTokens(provider, latest.observedAt, nowIso),
+        localTokensSinceReset: providerTokens(provider, latest.resetsAt, nowIso),
+      });
+      return anchor ? [anchor] : [];
+    });
+  });
+}
+
+router.get('/usage-checkpoints', (req, res) => {
+  const provider = String(req.query.provider || '').toLowerCase();
+  const rows = provider
+    ? checkpointsFor(provider)
+    : SUBSCRIPTION_PROVIDERS.flatMap((p) => checkpointsFor(p));
+  // status(200) rather than the bare form: the dashboard's merge test locates the burn-rate
+  // response by scanning this file for the first bare json-object call, and this sits above it.
+  res.status(200).json({ checkpoints: rows, anchors: usageAnchors() });
+});
+
+router.post('/usage-checkpoints', (req, res) => {
+  const v = validateCheckpoint(req.body ?? {}, SUBSCRIPTION_PROVIDERS);
+  if (!v.ok) return res.status(400).json({ error: v.error });
+  const { provider, window, pctUsed, resetsAt, observedAt } = v.value;
+  const localTokens = providerTokens(
+    provider as SubscriptionProvider,
+    new Date(windowStartOf({ window, resetsAt })).toISOString(),
+    observedAt,
+  );
+  const id = uuid();
+  db.prepare(`INSERT INTO usage_checkpoints (id, provider, window, pct_used, resets_at, observed_at, local_tokens, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, provider, window, pctUsed, resetsAt, observedAt, localTokens, new Date().toISOString());
+  const checkpoint: UsageCheckpoint = { id, provider, window, pctUsed, resetsAt, observedAt, localTokens };
+  const anchor = usageAnchors().find((a) => a.provider === provider && a.window === window) ?? null;
+  res.status(201).json({ checkpoint, anchor });
+});
 
 router.post('/token-limit-calibrations', (req, res) => {
   const provider = String(req.body?.provider || '').toLowerCase() as SubscriptionProvider;
@@ -234,6 +295,9 @@ router.get('/burn-rate', (req, res) => {
     since,
     activeCartridges: active?.n || 0,
     subscriptionUsage: subscriptionUsage(),
+    // What the provider itself said, extrapolated to now — see lib/usage-checkpoint.ts. Empty
+    // until someone logs a reading; an older client simply ignores the key.
+    usageAnchor: usageAnchors(),
     // A ceiling learned from real limit events outranks the declared budget (GAS-013).
     // learnedCeiling() returns null until it has enough consistent observations, which today
     // it does not — so this changes nothing yet and is correct that it changes nothing.
