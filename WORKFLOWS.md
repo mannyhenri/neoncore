@@ -39,7 +39,7 @@ The dashboard is the source of truth for each template's exact steps. Current se
 
 **Jira**
 - **Jira Tasks Validation** — validate Jira issues against acceptance criteria.
-- **Epic: Task by Task** — load an epic (markdown file or tracker key) and work every task to the end. Step 1 counts the outstanding tasks and the engine repeats the work step that many times, so coverage is guaranteed by the runner rather than by an agent remembering to continue; one task and one commit per dispatch, stopping early when the work runs out. A final sweep reports done/skipped/blocked/outstanding and re-runs the suite.
+- **Epic: Task by Task** — load an epic (markdown file or tracker key) and work every task to the end. Step 1 counts the outstanding tasks and the engine repeats the work step that many times, so coverage is guaranteed by the runner rather than by an agent remembering to continue; one task and one commit per dispatch, stopping early when the work runs out. Every re-dispatch after the first carries a loop header (which dispatch this is, what the previous one reported, and that the NEXT task is wanted), so a cartridge never receives a byte-identical prompt it could mistake for a duplicate; a dispatch that merely repeats the previous report ends the loop instead of advancing it. A final sweep reports done/skipped/blocked/outstanding and re-runs the suite.
 
 **Compound Engineering (CE) delivery pipeline**
 - **CE: Phase 1 — Interrogate**, **Phase 2 — Plan**, **Phase 3 — Implement**,

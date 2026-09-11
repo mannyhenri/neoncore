@@ -262,17 +262,125 @@ export function shouldExtendLoop(i: ExtendInput): boolean {
 export const PER_DISPATCH_KEYS = ['_nudges', '_lastNudgeAt'] as const;
 
 /**
- * The executor config for the next dispatch of a looped step: the loop counter advanced, and
- * every per-dispatch key cleared. Everything else — the resolved budget, the extension count,
- * the prompt, the author's settings — belongs to the STEP and is carried through untouched.
+ * Every key a loop RUN writes onto a step's config. A re-run of the workflow must clear all of
+ * them: `_resolvedLoopCount` is read from a step that is about to run again and may well count
+ * differently, and a stale count silently overrides the fresh one. Contains the per-dispatch
+ * set, since a key cleared between dispatches is certainly cleared between runs.
+ */
+export const LOOP_RUN_KEYS = [
+  '_currentLoop', '_resolvedLoopCount', '_loopExtensions', '_lastLoopResult', ...PER_DISPATCH_KEYS,
+] as const;
+
+/**
+ * The executor config for the next dispatch of a looped step: the loop counter advanced, the
+ * previous dispatch's report carried along (see `loopDispatchHeader` for why), and every
+ * per-dispatch key cleared. Everything else — the resolved budget, the extension count, the
+ * prompt, the author's settings — belongs to the STEP and is carried through untouched.
  */
 export function configForNextLoop(
   cfg: Record<string, unknown>,
   nextLoop: number,
+  lastResult?: string,
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...cfg, _currentLoop: nextLoop };
+  if (lastResult !== undefined) next._lastLoopResult = loopResultSummary(lastResult);
   for (const key of PER_DISPATCH_KEYS) delete next[key];
   return next;
+}
+
+/** The config with no trace of any previous run's loop, for a workflow being re-run. */
+export function configForRerun(cfg: Record<string, unknown>): Record<string, unknown> {
+  const fresh: Record<string, unknown> = { ...cfg };
+  for (const key of LOOP_RUN_KEYS) delete fresh[key];
+  return fresh;
+}
+
+/**
+ * ── A RE-DISPATCH MUST NOT LOOK LIKE A DUPLICATE (LOOP-003) ───────────────────────────
+ *
+ * LIVE FAILURE, four runs on 2026-09-10/11. The engine re-dispatches a looped step by
+ * composing its prompt again, and the composition knew nothing about the loop — dispatch 1
+ * and dispatch 2 of run e2dce42a were compared byte for byte and were IDENTICAL. So a
+ * cartridge, in the same session, receives the exact message it just finished answering, one
+ * second after its completion call returned. It read that the only way it could:
+ *
+ *   · "Duplicate dispatch confirmed" — re-reported `BLOCKED LFC-001 · 29 remaining` every ten
+ *     seconds, and the "29 remaining" extended the budget a hundred times (run 42a34028).
+ *   · Went quiet. The stall nudge eleven minutes later produced a re-report of the task it had
+ *     ALREADY finished, which advanced the loop, which re-sent the same prompt, which went
+ *     quiet. Eleven dispatches, no new work, "nudged 1/6" forever (run 0949fba6).
+ *   · Worked all nine tasks (run 1a299cbd). The model got lucky; the engine had told it nothing.
+ *
+ * From the user's chair every one of these is "I started an epic and it is not continuing".
+ *
+ * The header states three things a duplicate never would: which dispatch this is, what the
+ * previous one reported (so the cartridge can see its own last report acknowledged), and
+ * that the NEXT task is wanted. Dispatch 1 gets nothing — there is nothing to distinguish it
+ * from yet, and the count is not resolved until the first completion.
+ */
+export function loopDispatchHeader(i: {
+  stepName: string;
+  currentLoop: number;
+  loopCount: number;
+  previousResult?: string;
+  loopUntil?: string;
+}): string {
+  if (!(i.currentLoop > 1)) return '';
+  const prev = loopResultSummary(i.previousResult || '');
+  const lines = [
+    `[Workflow loop — dispatch ${i.currentLoop} of ${i.loopCount} for step "${i.stepName}"]`,
+    `This is a NEW dispatch, not a repeat of the last one. Dispatch ${i.currentLoop - 1} has already been received and recorded`
+      + (prev ? `; it reported:\n  ${prev}` : '.'),
+    'Do NOT redo or re-report that work. Re-read the state of the tasks and take the NEXT outstanding one.'
+      + (i.loopUntil ? ` If nothing is left, output exactly \`${i.loopUntil}\` and stop.` : ''),
+  ];
+  return lines.join('\n') + '\n\n';
+}
+
+/** The first non-empty line of a report, bounded — the claim, not the essay. */
+export function loopResultSummary(result: string): string {
+  const line = (result || '').split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0) || '';
+  return line.length > 240 ? line.slice(0, 237) + '...' : line;
+}
+
+/**
+ * What a dispatch CLAIMED, in the shape the epic templates ask for:
+ * `DONE [id] · commit [hash] · [k] remaining`, `BLOCKED [id] · [k] remaining`, `SKIPPED [id] · …`.
+ * The verdict must lead its line; a sentence that merely mentions a task is not a claim.
+ */
+export interface LoopClaim {
+  verdict: 'DONE' | 'BLOCKED' | 'SKIPPED';
+  taskId: string;
+  remaining: number | null;
+}
+
+export function loopClaim(result: string): LoopClaim | null {
+  for (const raw of (result || '').split(/\r?\n/)) {
+    const m = raw.trim().match(/^(DONE|BLOCKED|SKIPPED)\b[\s:·—-]*([A-Za-z0-9][A-Za-z0-9._\/-]*)/i);
+    if (!m) continue;
+    return { verdict: m[1].toUpperCase() as LoopClaim['verdict'], taskId: m[2], remaining: remainingFrom(result) };
+  }
+  return null;
+}
+
+/**
+ * Is this dispatch's report the previous dispatch's report said again? Same verdict, same task,
+ * same remaining count is a cartridge that did nothing new — either it treated the dispatch as
+ * a duplicate, or it is stuck on a task it cannot move. Either way another identical dispatch
+ * cannot help, and with `[k] remaining` in the text it would EXTEND the budget instead of
+ * spending it (run 42a34028: 100 extensions, ten seconds apart).
+ *
+ * A changed count with the same id is NOT a repeat: something happened, even if the id did not
+ * move. Prose without a claim is never judged — silence about the shape is not evidence.
+ */
+export function isRepeatedClaim(previousResult: string | undefined, result: string): boolean {
+  if (!previousResult) return false;
+  const prev = loopClaim(previousResult);
+  const cur = loopClaim(result);
+  if (!prev || !cur) return false;
+  return prev.verdict === cur.verdict
+    && prev.taskId.toLowerCase() === cur.taskId.toLowerCase()
+    && prev.remaining === cur.remaining;
 }
 
 /**

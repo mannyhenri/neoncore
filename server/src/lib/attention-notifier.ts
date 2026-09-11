@@ -22,6 +22,7 @@
  * times costs you the afternoon.
  */
 import db from '../db.js';
+import { loopResultSummary } from './workflow-loop.js';
 import { hasActiveSocket } from '../ws.js';
 import { notifyAll, type Notice } from './channels.js';
 import {
@@ -402,7 +403,18 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
           + 'asked for and POST it to the completion webhook in that prompt. Do not ask anything — '
           + 'decide from what you already have and proceed.';
 
-      const sent = sendCommandToAgent(row.executor_id, nudge, false);
+      // A looped step that was just re-dispatched: without this the nudge says "finish it and
+      // report", and the cartridge obliges by re-reporting the task it ALREADY finished, which
+      // advances the loop with no new work (run 0949fba6, eleven loops that way). Name the
+      // dispatch and the previous report so "finish it" means the NEXT task.
+      const currentLoop = Number(stepCfg._currentLoop) || 1;
+      const loopNote = currentLoop > 1
+        ? ` This is dispatch ${currentLoop} of ${Number(stepCfg._resolvedLoopCount) || currentLoop} of a looped step: dispatch `
+          + `${currentLoop - 1} already reported "${loopResultSummary(String(stepCfg._lastLoopResult || '')).slice(0, 160)}" `
+          + 'and is recorded — do not re-report it. Take the NEXT outstanding task and report that.'
+        : '';
+
+      const sent = sendCommandToAgent(row.executor_id, nudge + loopNote, false);
       if (!sent) return null;
 
       chose = `nudged (${sentSoFar + 1}/${NUDGE_POLICY[level].maxAttempts})`;

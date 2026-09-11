@@ -19,8 +19,7 @@ import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
 import { startConfer, getConfer } from './confer-conductor.js';
 import type { ConferSession } from '../types.js';
 import {
-  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop,
-  MAX_LOOP_EXTENSIONS, type LoopConfig,
+  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
 // Re-exported for the modules that already import it from here. The DEFINITION lives in
@@ -446,13 +445,26 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   // idle-detection backstop any more — see buildCompletionSuffix.
   const webhookSuffix = buildCompletionSuffix(step.id);
 
-  const finalPrompt = initialCtxPrefix + workflowCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
+  // A looped step's second and later dispatches must not be byte-identical to the first —
+  // see loopDispatchHeader in lib/workflow-loop.ts (LOOP-003). Without this the cartridge
+  // received the exact message it had just answered and treated it as a duplicate delivery.
+  const loopCfg = step.executorConfig as LoopConfig & Record<string, unknown>;
+  const loopHeader = loopDispatchHeader({
+    stepName: step.name,
+    currentLoop: Number(loopCfg._currentLoop) || 1,
+    loopCount: Number(loopCfg._resolvedLoopCount) || Number(loopCfg.loopCount) || 1,
+    previousResult: typeof loopCfg._lastLoopResult === 'string' ? loopCfg._lastLoopResult : undefined,
+    loopUntil: loopCfg.loopUntil,
+  });
+
+  const finalPrompt = initialCtxPrefix + workflowCtx + loopHeader + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching [${roleLabel}] command to agent "${agentName}" (${step.executorId.slice(0, 8)})`, 'info');
 
   const parts: string[] = [];
+  if (loopHeader) parts.push(`loop header (dispatch ${loopCfg._currentLoop})`);
   if (context) parts.push('dependency context');
   if (rolePrefix) parts.push(`${roleLabel} role prefix`);
   parts.push(step.executorConfig.useIntent ? 'structured intent' : 'prompt');
@@ -1589,12 +1601,35 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
   const currentLoop = (step.executorConfig._currentLoop as number) || 1;
   const extensions = (step.executorConfig._loopExtensions as number) || 0;
 
+  // ── A dispatch that repeats the previous dispatch's report ends the loop (LOOP-003) ──
+  //
+  // Same verdict, same task, same remaining count is a cartridge that did nothing new — it
+  // took the re-dispatch for a duplicate, or it is stuck on a task it cannot move. Another
+  // identical dispatch cannot help, and because the text carries `[k] remaining` it would
+  // EXTEND the budget rather than spend it: run 42a34028 re-reported `BLOCKED LFC-001 · 29
+  // remaining` every ten seconds for 100 extensions. Checked BEFORE the extension below for
+  // exactly that reason. The step completes with this result, so the coverage sweep runs and
+  // reports what is still outstanding instead of the run pretending to progress.
+  const previousResult = typeof step.executorConfig._lastLoopResult === 'string'
+    ? (step.executorConfig._lastLoopResult as string) : undefined;
+  const repeated = loopCount > 1 && isRepeatedClaim(previousResult, result);
+  if (repeated) {
+    emitStepLog(workflowId, step.id, step.name,
+      `Stopped at loop ${currentLoop}/${loopCount} — dispatch ${currentLoop} repeated dispatch ${currentLoop - 1}'s report `
+      + `("${loopResultSummary(result)}"), so the cartridge is not advancing and further dispatches would only repeat it. `
+      + 'Ending the loop so the coverage sweep can report what is outstanding.', 'warn');
+    notifyNeedsAttention(step, 'Epic loop stalled',
+      `"${step.name}" reported the same thing twice in a row (${loopResultSummary(result).slice(0, 120)}). `
+      + `The loop ended at ${currentLoop}/${loopCount}; the coverage sweep will list what is still outstanding.`,
+      'workflow_loop_stalled');
+  }
+
   // The budget was spent and the last dispatch said work is still outstanding. See
   // lib/workflow-loop.ts: an epic that GREW after it was counted (its own first step found an
   // eleventh task) spent ten dispatches on eleven tasks and dropped the last one, reporting a
   // clean finish. The count stays frozen; the budget may be extended one dispatch at a time,
   // bounded, and only on a positive statement that work remains.
-  if (shouldExtendLoop({ result, config: cfg, currentLoop, loopCount, extensions })) {
+  if (!repeated && shouldExtendLoop({ result, config: cfg, currentLoop, loopCount, extensions })) {
     loopCount += 1;
     const nextExtensions = extensions + 1;
     step.executorConfig = { ...step.executorConfig, _resolvedLoopCount: loopCount, _loopExtensions: nextExtensions };
@@ -1605,7 +1640,9 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
 
   // Stop early when the work ran out. A guaranteed count guarantees coverage, not that there is
   // that much work — dispatching an agent to do nothing is worse than stopping short.
-  if (shouldStopLooping(result, cfg) && loopCount > 1 && currentLoop < loopCount) {
+  if (repeated) {
+    // Logged above; fall through to completion.
+  } else if (shouldStopLooping(result, cfg) && loopCount > 1 && currentLoop < loopCount) {
     emitStepLog(workflowId, step.id, step.name,
       `Stopped at loop ${currentLoop}/${loopCount} — the work is done`, 'info');
   } else if (loopCount > 1 && currentLoop < loopCount) {
@@ -1613,9 +1650,10 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
     // `configForNextLoop` clears the per-dispatch keys — see lib/workflow-loop.ts. The nudge
     // counter lives on the step, so without this the six nudges `full` autonomy allows are a
     // budget for the whole epic rather than for one task, and a 63-task run dies silently at
-    // task six with every surface still reporting health.
+    // task six with every surface still reporting health. It also carries THIS dispatch's
+    // report into the next one, which is what lets the next prompt differ from this one.
     db.prepare('UPDATE workflow_steps SET executor_config = ?, started_at = ? WHERE id = ?')
-      .run(JSON.stringify(configForNextLoop(step.executorConfig, nextLoop)), now, step.id);
+      .run(JSON.stringify(configForNextLoop(step.executorConfig, nextLoop, result)), now, step.id);
     emitStepLog(workflowId, step.id, step.name, `Loop ${nextLoop}/${loopCount} — re-dispatching`, 'info');
 
     const freshStep = normalizeStep(
