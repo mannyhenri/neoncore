@@ -128,13 +128,103 @@ function findCli(binName: string): string | null {
 }
 
 const CODEX_TOML_PATH = path.join(os.homedir(), '.codex', 'config.toml');
+const TOML_TABLE_HEADER = /^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/;
+
+/** Enable Codex hooks while migrating configs written by the retired feature name. */
+export function enableCodexHooksFeature(toml: string): string {
+  const hadTrailingNewline = toml.endsWith('\n');
+  const lines = toml.length > 0 ? toml.replace(/\n$/, '').split('\n') : [];
+  const featuresStart = lines.findIndex((line) => /^\s*\[features\]\s*(?:#.*)?$/.test(line));
+
+  if (featuresStart === -1) {
+    const firstTable = lines.findIndex((line) => TOML_TABLE_HEADER.test(line));
+    let rootEnd = firstTable === -1 ? lines.length : firstTable;
+    const dottedFeatureLines: number[] = [];
+    let dottedHookLine = -1;
+    for (let index = 0; index < rootEnd; index += 1) {
+      if (/^\s*features\./.test(lines[index])) dottedFeatureLines.push(index);
+      if (/^\s*features\.(?:hooks|codex_hooks)\s*=/.test(lines[index])) {
+        if (dottedHookLine === -1) {
+          dottedHookLine = index;
+          lines[index] = 'features.hooks = true';
+        } else {
+          lines.splice(index, 1);
+          index -= 1;
+          rootEnd -= 1;
+        }
+      }
+    }
+    if (dottedHookLine !== -1) {
+      return lines.join('\n') + (hadTrailingNewline ? '\n' : '');
+    }
+    if (dottedFeatureLines.length > 0) {
+      lines.splice(dottedFeatureLines.at(-1)! + 1, 0, 'features.hooks = true');
+      return lines.join('\n') + (hadTrailingNewline ? '\n' : '');
+    }
+    const prefix = toml.length === 0 ? '' : toml + (hadTrailingNewline ? '\n' : '\n\n');
+    return `${prefix}[features]\nhooks = true\n`;
+  }
+
+  let featuresEnd = lines.findIndex(
+    (line, index) => index > featuresStart && TOML_TABLE_HEADER.test(line),
+  );
+  if (featuresEnd === -1) featuresEnd = lines.length;
+
+  let hookLine = -1;
+  for (let index = featuresStart + 1; index < featuresEnd; index += 1) {
+    if (/^\s*hooks\s*=/.test(lines[index])) {
+      if (hookLine === -1) {
+        hookLine = index;
+        lines[index] = 'hooks = true';
+      } else {
+        lines.splice(index, 1);
+        index -= 1;
+        featuresEnd -= 1;
+      }
+    } else if (/^\s*codex_hooks\s*=/.test(lines[index])) {
+      if (hookLine === -1) {
+        hookLine = index;
+        lines[index] = 'hooks = true';
+      } else {
+        lines.splice(index, 1);
+        index -= 1;
+        featuresEnd -= 1;
+      }
+    }
+  }
+
+  if (hookLine === -1) {
+    let insertAt = featuresEnd;
+    while (insertAt > featuresStart + 1 && lines[insertAt - 1].trim() === '') insertAt -= 1;
+    lines.splice(insertAt, 0, 'hooks = true');
+  }
+
+  return lines.join('\n') + (hadTrailingNewline || toml.length === 0 ? '\n' : '');
+}
+
+export function isCodexHooksFeatureEnabled(toml: string): boolean {
+  const lines = toml.split('\n');
+  const firstTable = lines.findIndex((line) => TOML_TABLE_HEADER.test(line));
+  const root = lines.slice(0, firstTable === -1 ? undefined : firstTable);
+  if (root.some((line) => /^\s*features\.hooks\s*=\s*true\s*(?:#.*)?$/.test(line))) return true;
+  const featuresStart = lines.findIndex((line) => /^\s*\[features\]\s*(?:#.*)?$/.test(line));
+  if (featuresStart === -1) return false;
+
+  const featuresEnd = lines.findIndex(
+    (line, index) => index > featuresStart && TOML_TABLE_HEADER.test(line),
+  );
+  const section = lines.slice(featuresStart + 1, featuresEnd === -1 ? undefined : featuresEnd);
+  return section.some((line) => /^\s*hooks\s*=\s*true\s*(?:#.*)?$/.test(line));
+}
 
 /** Check if a config file already contains our hook scripts */
 function isInstalled(tool: ToolKey): boolean {
   const cfg = TOOL_CONFIGS[tool];
   try {
     const content = fs.readFileSync(cfg.configFile, 'utf-8');
-    return content.includes(cfg.proxyScript) || content.includes('neoncore');
+    const hooksConfigured = content.includes(cfg.proxyScript) || content.includes('neoncore');
+    if (!hooksConfigured || tool !== 'codex') return hooksConfigured;
+    return isCodexHooksFeatureEnabled(fs.readFileSync(CODEX_TOML_PATH, 'utf-8'));
   } catch {
     return false;
   }
@@ -279,8 +369,9 @@ router.post('/install/:tool', (req, res) => {
       fs.mkdirSync(path.dirname(CODEX_TOML_PATH), { recursive: true });
       let toml = '';
       try { toml = fs.readFileSync(CODEX_TOML_PATH, 'utf-8'); } catch { /* new file */ }
-      if (!toml.includes('codex_hooks')) {
-        toml += (toml && !toml.endsWith('\n') ? '\n' : '') + '\n[features]\ncodex_hooks = true\n';
+      const enabledToml = enableCodexHooksFeature(toml);
+      if (enabledToml !== toml) {
+        toml = enabledToml;
         fs.writeFileSync(CODEX_TOML_PATH, toml, 'utf-8');
       }
 
