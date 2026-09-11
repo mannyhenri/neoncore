@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity, TextInput,
 } from 'react-native';
 import { theme } from '../theme';
-import { api, type BurnRate, type UsageSeries, type UsageBucket, type UsageAnchor, type UsageWindow } from '../api';
+import { api, type BurnRate, type UsageSeries, type UsageBucket, type UsageAnchor, type UsageWindow, type UsageCheckpoint } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { Card, ScreenTitle, Adaptive, Chip, ActionButton } from '../components/ui';
 import { Modal, Pressable } from 'react-native';
@@ -112,6 +112,9 @@ export function TokensScreen() {
   const [cpResetIn, setCpResetIn] = useState('');
   const [cpMessage, setCpMessage] = useState('');
   const [cpBusy, setCpBusy] = useState(false);
+  const [readings, setReadings] = useState<UsageCheckpoint[]>([]);
+  // Two taps to remove: the first arms the row, the second deletes. A reading anchors the gauge.
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
 
@@ -127,12 +130,15 @@ export function TokensScreen() {
       setError('');
       // Both together. The burn readout and the series answer the same question at two
       // resolutions, and rendering one without the other is a half-answered page.
-      const [b, s] = await Promise.all([
+      const [b, s, cps] = await Promise.all([
         api.burnRate(baseUrl, range.days),
         api.usageSeries(baseUrl, range.days, bucket),
+        // An older server has no readings route; that must not cost the rest of the page.
+        api.getUsageCheckpoints(baseUrl).catch(() => null),
       ]);
       setBurn(b);
       setData(s);
+      setReadings(cps?.checkpoints ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -141,6 +147,20 @@ export function TokensScreen() {
   }, [baseUrl, range.days, bucket]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
+
+  const removeReading = async (id: string) => {
+    if (!baseUrl) return;
+    if (confirmId !== id) { setConfirmId(id); return; }
+    setConfirmId(null);
+    try {
+      await api.removeUsageCheckpoint(baseUrl, id);
+      setCpMessage('Reading removed.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCpMessage(/404|no such reading/i.test(msg) ? 'Reading removed.' : msg);
+    }
+    await load();
+  };
 
   const logCheckpoint = async () => {
     if (!baseUrl) return;
@@ -240,6 +260,17 @@ export function TokensScreen() {
         {!burn?.usageAnchor?.length ? (
           <Text style={styles.rateLabel}>No reading yet. Log what the provider's usage page shows.</Text>
         ) : null}
+        {readings.slice(0, 6).map((r) => (
+          <View key={r.id} style={styles.cpReading}>
+            <Text style={styles.cpReadingText}>
+              {r.provider === 'claude' ? 'Claude' : r.provider === 'codex' ? 'Codex' : r.provider} · {r.window === 'weekly' ? 'weekly' : '5 hour'} · {Math.round(r.pctUsed * 100)}% · read {new Date(r.observedAt).toLocaleString()}
+            </Text>
+            <ActionButton
+              label={confirmId === r.id ? 'Confirm' : 'Remove'} tone="danger"
+              onPress={() => void removeReading(r.id)}
+            />
+          </View>
+        ))}
       </Card>
 
       <Segmented options={RANGES.map((r) => ({ key: r.key, label: r.label }))} value={rangeKey} onChange={selectRange} />
@@ -380,6 +411,11 @@ const styles = StyleSheet.create({
   cpAnchor: { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 8, marginTop: 4 },
   cpAnchorTitle: { fontSize: 14, fontWeight: '700' },
   cpAnchorBody: { color: theme.textDim, fontSize: 12, marginTop: 4 },
+  cpReading: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 8,
+    borderTopWidth: 1, borderTopColor: theme.border,
+  },
+  cpReadingText: { flex: 1, color: theme.textFaint, fontSize: 11 },
   sub: { color: theme.textFaint, fontSize: 10, textAlign: 'center', marginTop: 8 },
   section: { color: theme.textDim, fontSize: 11, fontWeight: '700', marginBottom: 8 },
   segmented: {

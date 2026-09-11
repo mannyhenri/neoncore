@@ -86,3 +86,22 @@ test('a bad reading is refused with the reason, and nothing is stored', async ()
   }
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM usage_checkpoints').get() as { n: number }).n, 0);
 });
+
+test('a mistaken reading can be removed, the anchor built on it goes with it, and an unknown id is a 404', async () => {
+  db.exec('DELETE FROM usage_checkpoints;');
+  const resetsAt = new Date(Date.now() + 2 * 86_400_000).toISOString();
+  const made = await (await post({ provider: 'claude', window: 'weekly', pctUsed: 32, resetsAt })).json() as { checkpoint: { id: string } };
+  const kept = await (await post({ provider: 'codex', window: 'weekly', pctUsed: 10, resetsAt })).json() as { checkpoint: { id: string } };
+
+  const del = await fetch(`${baseUrl}/api/activity/usage-checkpoints/${made.checkpoint.id}`, { method: 'DELETE' });
+  assert.equal(del.status, 200, await del.clone().text());
+  const body = await del.json() as { ok: boolean; anchors: { provider: string }[] };
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.anchors.map((a) => a.provider), ['codex'], 'the removed reading still anchors a gauge, or the other one was lost');
+
+  const left = (db.prepare('SELECT id FROM usage_checkpoints').all() as { id: string }[]).map((r) => r.id);
+  assert.deepEqual(left, [kept.checkpoint.id], 'delete removed the wrong rows');
+
+  const again = await fetch(`${baseUrl}/api/activity/usage-checkpoints/${made.checkpoint.id}`, { method: 'DELETE' });
+  assert.equal(again.status, 404, 'deleting twice must say the reading is gone, not pretend to succeed');
+});

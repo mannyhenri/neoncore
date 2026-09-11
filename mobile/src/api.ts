@@ -165,6 +165,8 @@ export const api = {
     }),
   getUsageCheckpoints: (base: string, provider?: 'claude' | 'codex') =>
     req<{ checkpoints: UsageCheckpoint[]; anchors: UsageAnchor[] }>(base, `/api/activity/usage-checkpoints${provider ? `?provider=${provider}` : ''}`),
+  removeUsageCheckpoint: (base: string, id: string) =>
+    req<{ ok: boolean; anchors: UsageAnchor[] }>(base, `/api/activity/usage-checkpoints/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   /** This server's identity plus every peer it knows — how the phone finds the fleet. */
   getPeers: (base: string) =>

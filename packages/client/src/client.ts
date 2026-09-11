@@ -685,6 +685,8 @@ export function createClient(config: ClientConfig = {}) {
     request<{ checkpoints: UsageCheckpoint[]; anchors: UsageAnchor[] }>(
       `/activity/usage-checkpoints${provider ? `?provider=${provider}` : ''}`,
     ),
+  removeUsageCheckpoint: (id: string) =>
+    request<{ ok: boolean; anchors: UsageAnchor[] }>(`/activity/usage-checkpoints/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   markTokenLimit: (provider: 'claude' | 'codex', hitAt: string) =>
     request<{ id: string; provider: string; hitAt: string; weeklyTokens: number }>(
