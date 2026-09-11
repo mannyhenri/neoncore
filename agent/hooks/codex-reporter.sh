@@ -5,7 +5,7 @@
 # a hard dependency of the hooks). Always exits 0.
 #
 # Wired by the dashboard "install hooks" flow into ~/.codex/hooks.json, with the
-# codex_hooks feature flag enabled in ~/.codex/config.toml.
+# hooks feature flag enabled in ~/.codex/config.toml.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec /usr/bin/env python3 "$DIR/codex-reporter.py"

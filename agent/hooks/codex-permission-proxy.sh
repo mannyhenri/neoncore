@@ -5,7 +5,7 @@
 # SETUP:
 # 1. Enable hooks feature flag in ~/.codex/config.toml:
 #      [features]
-#      codex_hooks = true
+#      hooks = true
 #
 # 2. Add to ~/.codex/hooks.json or {project}/.codex/hooks.json:
 #      {
