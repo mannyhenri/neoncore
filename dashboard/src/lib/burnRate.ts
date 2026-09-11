@@ -27,6 +27,8 @@ export interface ServerProjection {
 
 export interface ServerBurnRate {
   subscriptionUsage?: import('./subscriptionUsage').ProviderUsage[];
+  /** Anchored on what the provider displayed — absent on an older server. */
+  usageAnchor?: import('./subscriptionUsage').UsageAnchor[];
   budget?: ServerBudget;
   projection?: ServerProjection;
   /** Epoch ms the budget window began — Monday 00:00 UTC, identical on every server. */
@@ -44,6 +46,7 @@ export interface ServerBurnRate {
 
 export interface FleetBurnRate extends ServerBurnRate {
   subscriptionUsage: import('./subscriptionUsage').ProviderUsage[];
+  usageAnchor?: import('./subscriptionUsage').UsageAnchor[];
   /** Always present on a merged result, even when no server reported one. */
   budget: ServerBudget;
   projection: ServerProjection;
@@ -72,7 +75,7 @@ export const WINDOW_KEYS = ['windowHours', 'days'] as const;
  */
 export const ACCOUNT_KEYS = ['budget', 'projection', 'windowStart'] as const;
 /** Values recomputed from every server rather than summed or selected from one server. */
-export const DERIVED_KEYS = ['subscriptionUsage'] as const;
+export const DERIVED_KEYS = ['subscriptionUsage', 'usageAnchor'] as const;
 
 /**
  * `answers` holds one labelled entry per server asked. A server that failed contributes
@@ -158,6 +161,9 @@ export function mergeBurnRates(answers: ServerAnswer<ServerBurnRate>[], days: nu
     subscriptionUsage: subscriptionReports.length
       ? mergeSubscriptionUsage(subscriptionReports)
       : [],
+    // The provider's meter is ONE account, so anchors are never summed: the first server that
+    // has any speaks for it. (Every server that received the same reading agrees anyway.)
+    usageAnchor: ok.find((r) => Array.isArray(r.usageAnchor) && r.usageAnchor.length)?.usageAnchor ?? [],
   };
 }
 

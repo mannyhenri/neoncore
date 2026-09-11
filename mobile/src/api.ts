@@ -114,10 +114,24 @@ async function req<T>(base: string, path: string, init?: RequestInit): Promise<T
 
 export type UsageBucket = 'hour' | 'day' | 'week';
 
+export type UsageWindow = 'weekly' | 'session';
+export interface UsageCheckpoint {
+  id: string; provider: string; window: UsageWindow; pctUsed: number;
+  resetsAt: string; observedAt: string; localTokens: number;
+}
+export interface UsageAnchor {
+  provider: string; window: UsageWindow; basis: 'checkpoint' | 'rollover';
+  pctUsed: number; pctAtCheckpoint: number; observedAt: string; resetsAt: string;
+  pctPerDay: number; hoursToReset: number; hoursToWall: number | null; hitsWallBeforeReset: boolean;
+  tokensPerPct: number | null; samples: number; pace: 'ok' | 'watch' | 'hold'; recommendation: string;
+}
+
 export interface BurnRate {
   windowHours: number; tokens: number; tokensPerHour: number; tokensPerDay: number;
   costUsd: number; costPerDay: number; samples: number;
   days: number; since: string; activeCartridges: number;
+  /** Anchored on what the provider displayed — absent on an older server. */
+  usageAnchor?: UsageAnchor[];
 }
 
 export interface UsageSeries {
@@ -143,6 +157,14 @@ export const api = {
 
   usageSeries: (base: string, days: number, bucket: UsageBucket) =>
     req<UsageSeries>(base, `/api/activity/usage-series?days=${days}&bucket=${bucket}`),
+
+  // A reading of the provider's own meter, typed in from the phone. `pctUsed` is 0..100.
+  logUsageCheckpoint: (base: string, input: { provider: 'claude' | 'codex'; window?: UsageWindow; pctUsed: number; resetsAt: string }) =>
+    req<{ checkpoint: UsageCheckpoint; anchor: UsageAnchor | null }>(base, '/api/activity/usage-checkpoints', {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+  getUsageCheckpoints: (base: string, provider?: 'claude' | 'codex') =>
+    req<{ checkpoints: UsageCheckpoint[]; anchors: UsageAnchor[] }>(base, `/api/activity/usage-checkpoints${provider ? `?provider=${provider}` : ''}`),
 
   /** This server's identity plus every peer it knows — how the phone finds the fleet. */
   getPeers: (base: string) =>

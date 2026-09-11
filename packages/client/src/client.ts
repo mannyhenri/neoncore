@@ -12,6 +12,20 @@
 
 import { ApiError, asUnreachable, classifyStatus } from './errors.js';
 
+/** The provider's own meter windows: the weekly limit and the rolling five-hour one. */
+export type UsageWindow = 'weekly' | 'session';
+export interface UsageCheckpoint {
+  id: string; provider: string; window: UsageWindow; pctUsed: number;
+  resetsAt: string; observedAt: string; localTokens: number;
+}
+/** The gauge anchored on a checkpoint — see server/src/lib/usage-checkpoint.ts. */
+export interface UsageAnchor {
+  provider: string; window: UsageWindow; basis: 'checkpoint' | 'rollover';
+  pctUsed: number; pctAtCheckpoint: number; observedAt: string; resetsAt: string;
+  pctPerDay: number; hoursToReset: number; hoursToWall: number | null; hitsWallBeforeReset: boolean;
+  tokensPerPct: number | null; samples: number; pace: 'ok' | 'watch' | 'hold'; recommendation: string;
+}
+
 export interface ClientConfig {
   /**
    * Origin of the server, e.g. "http://studio.local:4040". Empty string means same-origin,
@@ -657,7 +671,20 @@ export function createClient(config: ClientConfig = {}) {
         tokensPerDay: number; pctUsed: number; daysRemaining: number | null;
         samples: number; confidence: number; lastHitAt: string;
       }>;
+      /** Anchored on what the provider displayed — absent on an older server. */
+      usageAnchor?: UsageAnchor[];
     }>(`/activity/burn-rate${days ? `?days=${days}` : ''}`),
+
+  // A reading of the provider's own meter: "62%, resets Sunday 14:00". `pctUsed` is 0..100.
+  logUsageCheckpoint: (input: { provider: 'claude' | 'codex'; window?: UsageWindow; pctUsed: number; resetsAt: string; observedAt?: string }) =>
+    request<{ checkpoint: UsageCheckpoint; anchor: UsageAnchor | null }>(
+      '/activity/usage-checkpoints',
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  getUsageCheckpoints: (provider?: 'claude' | 'codex') =>
+    request<{ checkpoints: UsageCheckpoint[]; anchors: UsageAnchor[] }>(
+      `/activity/usage-checkpoints${provider ? `?provider=${provider}` : ''}`,
+    ),
 
   markTokenLimit: (provider: 'claude' | 'codex', hitAt: string) =>
     request<{ id: string; provider: string; hitAt: string; weeklyTokens: number }>(

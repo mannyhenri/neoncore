@@ -5,7 +5,7 @@ import { mergeBurnRates, projectionSlot, type ServerBurnRate, type FleetBurnRate
 import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
-import { subscriptionPillLabel } from '../lib/subscriptionUsage';
+import { subscriptionPillLabel, usageAnchorLabel } from '../lib/subscriptionUsage';
 
 /**
  * Fleet burn rate in the header: tokens/day, tokens/hour, and time to the subscription limit.
@@ -81,6 +81,10 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
   const slot = projectionSlot(rate);
   const subscription = rate.subscriptionUsage.find((row) => row.provider === 'claude')
     ?? rate.subscriptionUsage[0];
+  // A reading of the provider's own meter outranks anything inferred locally.
+  const anchor = rate.usageAnchor?.find((a) => a.provider === 'claude' && a.window === 'weekly')
+    ?? rate.usageAnchor?.[0];
+  const anchorTone = anchor?.pace === 'hold' ? 'text-red-400/90' : anchor?.pace === 'watch' ? 'text-amber-400/90' : 'text-emerald-400/80';
 
   return (
     <button
@@ -115,13 +119,19 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       <span className="text-white/10">·</span>
       <span className="text-gl-pink/80">{compact(rate.tokensPerHour)}</span>
       <span className="text-gray-600">tok/hr</span>
-      {subscription && (
+      {anchor && (
+        <>
+          <span className="text-white/10">·</span>
+          <span className={anchorTone} title={anchor.recommendation}>{usageAnchorLabel(anchor)}</span>
+        </>
+      )}
+      {!anchor && subscription && (
         <>
           <span className="text-white/10">·</span>
           <span className="text-amber-400/90">{subscriptionPillLabel(subscription)}</span>
         </>
       )}
-      {!subscription && slot?.kind === 'projection' && (
+      {!anchor && !subscription && slot?.kind === 'projection' && (
         <>
           <span className="text-white/10">·</span>
           {/* Split only for colour: the label is one string, and the basis travels with it. */}
@@ -129,7 +139,7 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
           <span className="text-gray-600">· {slot.text.split(' · ')[1]}</span>
         </>
       )}
-      {!subscription && slot?.kind === 'prompt' && (
+      {!anchor && !subscription && slot?.kind === 'prompt' && (
         <>
           <span className="text-white/10">·</span>
           <span className="text-gray-600 italic">{slot.text}</span>

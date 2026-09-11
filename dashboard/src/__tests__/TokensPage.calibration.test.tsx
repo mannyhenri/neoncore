@@ -36,7 +36,8 @@ describe('subscription calibration control', () => {
 
   it('submits every registered provider to every active server and refreshes reporting', async () => {
     render(<TokensPage servers={servers} />);
-    const select = screen.getByRole('combobox');
+    // The page now also carries the usage-reading form's selects; this one is the calibration's.
+    const select = screen.getByRole('combobox', { name: 'provider that reached 100%' });
     const date = document.querySelector('input[type="datetime-local"]') as HTMLInputElement;
     const button = screen.getByRole('button', { name: 'Mark 100%' });
 
