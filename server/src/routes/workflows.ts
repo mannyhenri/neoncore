@@ -17,7 +17,7 @@ import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
-import { loopCountRequirements, validateUpstreamCount, type LoopConfig } from '../lib/workflow-loop.js';
+import { loopCountRequirements, validateUpstreamCount, configForRerun, LOOP_RUN_KEYS, type LoopConfig } from '../lib/workflow-loop.js';
 import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
@@ -776,14 +776,16 @@ router.post('/v2/:id/start', (req, res) => {
       WHERE workflow_id = ?
     `).run(runId);
 
-    // Reset loop counters
+    // Reset loop state. Every key a loop run writes, not just the counter: the resolved count
+    // is read from a step that is about to run again and may count differently, and the last
+    // report would otherwise be shown to the first dispatch of the new run as its own.
     const loopSteps = db.prepare(
-      "SELECT id, executor_config, executor_type FROM workflow_steps WHERE workflow_id = ? AND executor_config LIKE '%_currentLoop%'"
-    ).all(runId) as { id: string; executor_config: string; executor_type: string }[];
+      "SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ?"
+    ).all(runId) as { id: string; executor_config: string }[];
     for (const ls of loopSteps) {
-      const config = JSON.parse(ls.executor_config);
-      delete config._currentLoop;
-      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(config), ls.id);
+      const config = parseExecutorConfig(ls.executor_config, ls.id);
+      if (!LOOP_RUN_KEYS.some((k) => k in config)) continue;
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(configForRerun(config)), ls.id);
     }
   }
 
