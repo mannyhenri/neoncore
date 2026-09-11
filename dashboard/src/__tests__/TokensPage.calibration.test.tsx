@@ -17,6 +17,7 @@ vi.mock('../lib/api', () => {
     getUsageSeries: mocks.getUsageSeries,
     getBurnRate: mocks.getBurnRate,
     markTokenLimit: mocks.mark,
+    getUsageCheckpoints: vi.fn(async () => ({ checkpoints: [], anchors: [] })),
   };
   return { api: client, apiFor: () => client };
 });

@@ -86,3 +86,49 @@ export function usageAnchorLabel(a: UsageAnchor): string {
       : `resets in ${hoursLabel(a.hoursToReset)}`;
   return `${provider} ${pct} · ${when}`;
 }
+
+/** One reading as a server stores it. */
+export interface UsageCheckpoint {
+  id: string; provider: string; window: UsageWindow; pctUsed: number;
+  resetsAt: string; observedAt: string; localTokens: number;
+}
+
+/** A reading as the PERSON logged it: one row, stored once per server it reached. */
+export interface FleetReading {
+  key: string;
+  provider: string;
+  window: UsageWindow;
+  pctUsed: number;
+  resetsAt: string;
+  observedAt: string;
+  /** Where to delete it — one entry per server that holds a copy. */
+  copies: { serverIndex: number; id: string }[];
+}
+
+/**
+ * The desk logs a reading to EVERY server, so each holds its own row with its own id. Listed
+ * raw, one reading would appear once per machine, and removing it from one would leave the
+ * gauge on the others still anchored on the typo. Grouped here by what the person typed —
+ * provider, window, percent, and the moment it was read (shared by the desk, to the minute for
+ * readings from anywhere else) — so one row removes every copy.
+ *
+ * `answers[i]` is server i's list, or null when it did not answer; newest reading first.
+ */
+export function groupFleetReadings(answers: (UsageCheckpoint[] | null)[]): FleetReading[] {
+  const byKey = new Map<string, FleetReading>();
+  answers.forEach((list, serverIndex) => {
+    for (const c of list ?? []) {
+      const key = `${c.provider}|${c.window}|${Math.round(c.pctUsed * 1000)}|${c.observedAt.slice(0, 16)}`;
+      const row = byKey.get(key);
+      if (row) {
+        if (!row.copies.some((x) => x.serverIndex === serverIndex && x.id === c.id)) row.copies.push({ serverIndex, id: c.id });
+      } else {
+        byKey.set(key, {
+          key, provider: c.provider, window: c.window, pctUsed: c.pctUsed,
+          resetsAt: c.resetsAt, observedAt: c.observedAt, copies: [{ serverIndex, id: c.id }],
+        });
+      }
+    }
+  });
+  return [...byKey.values()].sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt));
+}

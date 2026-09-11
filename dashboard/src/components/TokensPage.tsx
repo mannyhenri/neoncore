@@ -7,8 +7,8 @@ import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
 import {
-  SUBSCRIPTION_PROVIDERS, subscriptionPillLabel, usageAnchorLabel, hoursLabel,
-  type SubscriptionProvider, type UsageWindow,
+  SUBSCRIPTION_PROVIDERS, subscriptionPillLabel, usageAnchorLabel, hoursLabel, groupFleetReadings,
+  type SubscriptionProvider, type UsageWindow, type UsageCheckpoint, type FleetReading,
 } from '../lib/subscriptionUsage';
 
 /**
@@ -98,6 +98,11 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   });
   const [cpMessage, setCpMessage] = useState('');
   const [loggingCp, setLoggingCp] = useState(false);
+  const [readings, setReadings] = useState<FleetReading[]>([]);
+  // Removing is two clicks: the first arms this row, the second deletes. A reading is the
+  // gauge's anchor, and one stray click should not throw it away.
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const [removingKey, setRemovingKey] = useState<string | null>(null);
 
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
   const fleetKey = activeServers(servers).map((s) => s.url).join('|');
@@ -150,6 +155,44 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fleetKey, limitRefresh]);
 
+  // Every server's readings, grouped into what the person actually logged — see groupFleetReadings.
+  useEffect(() => {
+    let alive = true;
+    const targets = activeServers(servers);
+    Promise.allSettled(targets.map((s) =>
+      (s.url ? apiFor(s.url, s.token) : api).getUsageCheckpoints()))
+      .then((settled) => {
+        if (!alive) return;
+        setReadings(groupFleetReadings(settled.map((r) =>
+          r.status === 'fulfilled' && Array.isArray(r.value?.checkpoints) ? r.value.checkpoints as UsageCheckpoint[] : null)));
+      });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fleetKey, limitRefresh]);
+
+  const removeReading = async (reading: FleetReading) => {
+    if (confirmingKey !== reading.key) { setConfirmingKey(reading.key); return; }
+    setConfirmingKey(null);
+    setRemovingKey(reading.key);
+    setCpMessage('');
+    try {
+      const targets = activeServers(servers);
+      const settled = await Promise.allSettled(reading.copies.map(({ serverIndex, id }) => {
+        const s = targets[serverIndex];
+        return (s?.url ? apiFor(s.url, s.token) : api).removeUsageCheckpoint(id);
+      }));
+      // A 404 means that copy was already gone, which is the outcome asked for.
+      const failed = settled.filter((r): r is PromiseRejectedResult =>
+        r.status === 'rejected' && !/404|no such reading/i.test(String((r.reason as Error)?.message ?? r.reason)));
+      setCpMessage(failed.length
+        ? `Removed from ${reading.copies.length - failed.length} of ${reading.copies.length} server(s); the rest did not answer.`
+        : `Removed the ${Math.round(reading.pctUsed * 100)}% reading.`);
+    } finally {
+      setRemovingKey(null);
+      setLimitRefresh((n) => n + 1);
+    }
+  };
+
   const stats = useMemo(() => (rate ? budgetStats(rate) : null), [rate]);
 
   const markLimit = async () => {
@@ -194,9 +237,12 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
       // Every server, like the calibration above: the meter is one account, and each server
       // keeps its own gauge, so each needs the reading to anchor on.
       const targets = activeServers(servers);
+      const observedAt = new Date().toISOString();
       const settled = await Promise.allSettled(targets.map((s) =>
         (s.url ? apiFor(s.url, s.token) : api).logUsageCheckpoint({
           provider: limitProvider, window: cpWindow, pctUsed: pct, resetsAt: resets.toISOString(),
+          // Shared, so every server's copy of this reading can be found and removed as one.
+          observedAt,
         })));
       const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       if (failures.length) {
@@ -307,6 +353,27 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
           </div>
         ) : (
           <p className="text-xs text-gray-600">No reading yet. Open the provider's usage page and log what it shows.</p>
+        )}
+        {readings.length > 0 && (
+          <ul className="text-xs font-mono space-y-1" aria-label="logged readings">
+            {readings.slice(0, 8).map((r) => (
+              <li key={r.key} className="flex items-center gap-3 text-gray-400">
+                <span className="text-gray-300">{r.provider === 'claude' ? 'Claude' : r.provider === 'codex' ? 'Codex' : r.provider}</span>
+                <span>{r.window === 'weekly' ? 'weekly' : '5-hour'}</span>
+                <span className="text-emerald-300">{Math.round(r.pctUsed * 100)}%</span>
+                <span className="text-gray-600">read {new Date(r.observedAt).toLocaleString()}</span>
+                <span className="text-gray-600">· resets {new Date(r.resetsAt).toLocaleString()}</span>
+                <button
+                  onClick={() => void removeReading(r)}
+                  onBlur={() => setConfirmingKey((k) => (k === r.key ? null : k))}
+                  disabled={removingKey === r.key}
+                  className={`ml-auto shrink-0 disabled:opacity-40 ${confirmingKey === r.key ? 'text-red-300 hover:text-red-200' : 'text-gray-500 hover:text-red-400'}`}
+                >
+                  {removingKey === r.key ? 'removing…' : confirmingKey === r.key ? 'confirm remove' : 'remove'}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

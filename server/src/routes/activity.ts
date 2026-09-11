@@ -126,6 +126,16 @@ router.post('/usage-checkpoints', (req, res) => {
   res.status(201).json({ checkpoint, anchor });
 });
 
+// Undo a mistaken reading. A typo in the percentage or the reset time anchors the whole gauge
+// on a wrong number until the next reading, so it must be removable without a database shell.
+// 404 on an unknown id rather than a quiet success: the desk removes a reading on every server
+// it was logged to, and "already gone" is information it reports, not something to hide.
+router.delete('/usage-checkpoints/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM usage_checkpoints WHERE id = ?').run(req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'no such reading — it may already be removed' });
+  res.status(200).json({ ok: true, anchors: usageAnchors() });
+});
+
 router.post('/token-limit-calibrations', (req, res) => {
   const provider = String(req.body?.provider || '').toLowerCase() as SubscriptionProvider;
   if (!SUBSCRIPTION_PROVIDERS.includes(provider)) {
