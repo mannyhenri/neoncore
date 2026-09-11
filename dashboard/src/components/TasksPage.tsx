@@ -587,7 +587,9 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
     setBusy(true);
     try { await fn(); onChanged(); } finally { setBusy(false); }
   };
-  const retryable = item.status === 'failed' || item.status === 'cancelled';
+  // `done` is retryable too: it records what the cartridge REPORTED, and a finished item that
+  // turns out not to have done the work must be re-runnable without retyping it.
+  const retryable = item.status === 'done' || item.status === 'failed' || item.status === 'cancelled';
   // A waiting item has no way to run until its cartridge frees, and if that cartridge is
   // wedged it never does. `blocked` is included because a halted lane is one of the ways an
   // item ends up sitting there — the same button has to reach all of them.
@@ -661,9 +663,10 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
             <button
               onClick={() => void act(() => api.retryQueueItem(item.id))}
               disabled={busy}
+              title={item.status === 'done' ? 'Put this back in the queue and run it again' : 'Run this again'}
               className="px-2 py-1 text-xs rounded transition-colors border bg-violet-900/40 hover:bg-violet-900/70 text-violet-300 border-violet-800/50 disabled:opacity-40"
             >
-              Retry
+              {item.status === 'done' ? 'Redo' : 'Retry'}
             </button>
           )}
           {stoppable && (
