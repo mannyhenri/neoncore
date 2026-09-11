@@ -255,16 +255,27 @@ export function removeItem(id: string): boolean {
   return info.changes > 0;
 }
 
+/** What a retry may act on: every finished state. A live item is never retried — see below. */
+export const RETRYABLE: QueueStatus[] = ['done', 'failed', 'cancelled'];
+
 export function retryItem(id: string): boolean {
   const row = db.prepare('SELECT id, lane, status FROM queue_items WHERE id = ?').get(id) as
     { id: string; lane: string; status: QueueStatus } | undefined;
   if (!row) return false;
   // Only terminal states. Retrying a running item would double-dispatch it.
-  if (!['failed', 'cancelled'].includes(row.status)) return false;
+  //
+  // `done` IS retryable. REPORTED: a confer the queue recorded as done had, on inspection, not
+  // done the work — and the only way to run it again was to retype the whole request. "Done"
+  // is what the cartridge REPORTED, not what a person verified, so putting a finished item
+  // back is the same act as retrying a failed one: the queue's record was wrong.
+  if (!RETRYABLE.includes(row.status)) return false;
 
+  // The handle and result belong to the PREVIOUS run. Dispatch writes a fresh handle, but a
+  // queued row still carrying "confer completed" as its result would read as done while it
+  // waited, and a stale handle would be re-observed if the server restarted mid-queue.
   db.prepare(`UPDATE queue_items
               SET status = 'queued', attempts = 0, stall_ticks = 0, error = '',
-                  started_at = NULL, finished_at = NULL
+                  started_at = NULL, finished_at = NULL, handle = '', result = ''
               WHERE id = ?`).run(id);
 
   const lane = db.prepare('SELECT paused, halted_by FROM queue_lanes WHERE lane = ?')

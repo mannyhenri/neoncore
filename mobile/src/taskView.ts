@@ -142,7 +142,8 @@ export type QueueAction = 'start' | 'retry' | 'cancel' | 'clear';
  * Which verbs a queue row gets, read off the desk's own gates (TasksPage `QueueRow`):
  *  - start   `queued` | `blocked` — blocked is included because a halted lane is one of the
  *            ways a row ends up stuck, and the same button has to reach all of them
- *  - retry   `failed` | `cancelled`
+ *  - retry   `done` | `failed` | `cancelled` — done included: it is what the cartridge
+ *            REPORTED, and a finished row that did not do the work must be re-runnable
  *  - cancel  `queued` | `running` — live work
  *  - clear   terminal only; live work is never clearable
  *
@@ -152,7 +153,7 @@ export type QueueAction = 'start' | 'retry' | 'cancel' | 'clear';
 export function queueRowActions(status: QueueStatus): QueueAction[] {
   const out: QueueAction[] = [];
   if (status === 'queued' || status === 'blocked') out.push('start');
-  if (status === 'failed' || status === 'cancelled') out.push('retry');
+  if (status === 'done' || status === 'failed' || status === 'cancelled') out.push('retry');
   if (status === 'queued' || status === 'running') out.push('cancel');
   if (status === 'done' || status === 'failed' || status === 'cancelled') out.push('clear');
   return out;

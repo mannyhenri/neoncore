@@ -106,7 +106,7 @@ router.post('/:id/resume', (req, res) => {
 
 router.post('/:id/retry', (req, res) => {
   if (!retryItem(req.params.id)) {
-    return res.status(409).json({ error: 'only a failed or cancelled item can be retried' });
+    return res.status(409).json({ error: 'only a finished item (done, failed or cancelled) can be retried' });
   }
   res.json({ ok: true });
 });

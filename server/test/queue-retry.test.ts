@@ -74,13 +74,27 @@ test('retrying does NOT resume a lane halted for an unrelated reason', () => {
     'the lane was halted by a DIFFERENT item — retrying this one must not resume it');
 });
 
-test('only terminal items can be retried', () => {
-  const RETRYABLE = ['failed', 'cancelled'];
-  const NOT = ['queued', 'running', 'done'];
+test('every finished item can be retried, and nothing live can', () => {
+  // `done` is in the set. REPORTED: a confer the queue recorded as done had not done the
+  // work, and the only way to run it again was to retype it. Done is what the cartridge
+  // reported, not what a person verified.
+  const RETRYABLE = ['done', 'failed', 'cancelled'];
+  const NOT = ['queued', 'running', 'blocked'];
   const wrong: string[] = [];
   for (const s of RETRYABLE) if (!retryItem(item(s))) wrong.push(`${s} should be retryable`);
   for (const s of NOT) if (retryItem(item(s))) wrong.push(`${s} must NOT be retryable — it is not finished`);
   assert.deepEqual(wrong, [], wrong.join('\n  '));
+});
+
+test('a retried DONE item carries nothing of its previous run into the queue', () => {
+  // The handle and result are the old run's. Left in place, a queued row reads "confer
+  // completed" while it waits, and a stale handle is what reconcile re-observes after a restart.
+  const id = item('done', 'agent:redo');
+  db.prepare("UPDATE queue_items SET handle = 'old-confer-session', result = 'confer completed' WHERE id = ?").run(id);
+  assert.equal(retryItem(id), true);
+  const row = db.prepare('SELECT status, handle, result FROM queue_items WHERE id = ?').get(id) as Record<string, string>;
+  assert.deepEqual(row, { status: 'queued', handle: '', result: '' },
+    'the previous run leaked into the re-queued item');
 });
 
 test('retrying something that does not exist is false, not a crash', () => {

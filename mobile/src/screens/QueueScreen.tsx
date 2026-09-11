@@ -179,8 +179,8 @@ export function QueueScreen() {
                     </>
                   )}
                   {live && <ActionButton label="Cancel" tone="danger" onPress={() => void cancel(item.id)} />}
-                  {(item.status === 'failed' || item.status === 'cancelled') && (
-                    <ActionButton label="Retry" tone="accent" onPress={() => void retry(item.id)} />
+                  {finished && (
+                    <ActionButton label={item.status === 'done' ? 'Redo' : 'Retry'} tone="accent" onPress={() => void retry(item.id)} />
                   )}
                   {finished && <ActionButton label="Clear" onPress={() => void clear(item.id)} />}
                 </View>

@@ -131,7 +131,7 @@ describe('mobile task parity: acting on QUEUE rows', () => {
     running: ['cancel'],
     failed: ['retry', 'clear'],
     cancelled: ['retry', 'clear'],
-    done: ['clear'],
+    done: ['retry', 'clear'],   // a reported-done row that did not do the work must be re-runnable
   };
 
   it('EVERY queue status offers the same verbs the desk offers', () => {
