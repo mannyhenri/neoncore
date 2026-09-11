@@ -572,7 +572,71 @@ function armForQueue(agentIds: string[]): void {
   for (const a of agentIds) arm.run(a);
 }
 
-async function startItem(item: QueueItem): Promise<void> {
+/**
+ * ── A CARTRIDGE IS NAMED BY ITS NAME; THE ID BELONGS TO ONE LAUNCH ─────────────────────
+ *
+ * REPORTED: a redone confer failed with `could not reach 2 participant(s) — is that
+ * cartridge running?` while both cartridges were visibly running. Relaunching a cartridge
+ * registers a NEW agent row with a new id and leaves the old one `offline`; the item still
+ * carried the old ids, so it dispatched to rows nothing was listening on. The error blamed
+ * the user for a cartridge that was up.
+ *
+ * So at dispatch, every id that points at a dead row is moved to the live row of the same
+ * name (newest heartbeat wins; a dismissed row is never a candidate). Applied to `targets`
+ * AND to every string inside the payload: each kind keeps its ids in a different field
+ * (`participantIds`, `startOptions.agentId`, `agentId`), and fixing only `targets` would have
+ * left the confer failing exactly as before. Walking the payload for values that match an
+ * agent row is kind-agnostic, so a kind added later is covered without remembering to.
+ *
+ * An id with no live row of the same name is left alone: the item then fails with the
+ * unreachable-target message, which is true.
+ */
+export function remapStaleTargets(item: QueueItem): { item: QueueItem; remapped: Record<string, string> } {
+  const candidates = new Set<string>(item.targets);
+  const walk = (v: unknown): void => {
+    if (typeof v === 'string') { if (v.length <= 64) candidates.add(v); return; }
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(walk);
+  };
+  walk(item.payload);
+  if (candidates.size === 0) return { item, remapped: {} };
+
+  const ids = [...candidates];
+  const rows = db.prepare(
+    `SELECT id, name, status, dismissed_at FROM agents WHERE id IN (${ids.map(() => '?').join(',')})`,
+  ).all(...ids) as { id: string; name: string; status: string; dismissed_at: string | null }[];
+
+  const replacement = db.prepare(
+    `SELECT id FROM agents
+      WHERE name = ? AND id != ? AND status != 'offline' AND dismissed_at IS NULL
+      ORDER BY last_seen DESC LIMIT 1`,
+  );
+  const remapped: Record<string, string> = {};
+  for (const r of rows) {
+    if (r.status !== 'offline' && !r.dismissed_at) continue;          // alive: leave it
+    const live = replacement.get(r.name, r.id) as { id: string } | undefined;
+    if (live) remapped[r.id] = live.id;
+  }
+  if (Object.keys(remapped).length === 0) return { item, remapped };
+
+  const swap = (v: unknown): unknown => {
+    if (typeof v === 'string') return remapped[v] ?? v;
+    if (Array.isArray(v)) return v.map(swap);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, swap(x)]));
+    return v;
+  };
+  const targets = item.targets.map((t) => remapped[t] ?? t);
+  const payload = swap(item.payload) as Record<string, unknown>;
+  db.prepare('UPDATE queue_items SET targets_json = ?, payload_json = ? WHERE id = ?')
+    .run(JSON.stringify(targets), JSON.stringify(payload), item.id);
+  for (const [from, to] of Object.entries(remapped)) {
+    console.log(`[queue] ${item.kind} ${item.id.slice(0, 8)}: cartridge ${from.slice(0, 8)} was relaunched as ${to.slice(0, 8)} — retargeted`);
+  }
+  return { item: { ...item, targets, payload }, remapped };
+}
+
+async function startItem(queued: QueueItem): Promise<void> {
+  const { item } = remapStaleTargets(queued);
   db.prepare("UPDATE queue_items SET status = 'running', started_at = ?, stall_ticks = 0 WHERE id = ?").run(nowIso(), item.id);
   stamp(item.targets, item.id);
 
