@@ -1772,7 +1772,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               <button
                 onClick={handleDeferredRun}
                 disabled={
-                  !deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId]) ||
+                  // Mirrors handleDeferredRun's own `confering ||` check. It had the exemption
+                  // and the button did not, so the run this handler would have accepted was
+                  // unreachable.
+                  !(conferAgents.length >= 2
+                    || deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])) ||
                   !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim())
                 }
                 className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
