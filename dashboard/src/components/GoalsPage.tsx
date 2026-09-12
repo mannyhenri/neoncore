@@ -862,7 +862,9 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
       <div className="flex gap-2 pt-1">
         <button
           onClick={handleLaunch}
-          disabled={!templateId || !agentId || launching}
+          // The cartridge above is ignored while conferring — this said so in the hint
+          // and then went on requiring it, so the Launch button stayed grey.
+          disabled={!templateId || (!agentId && conferAgents.length < 2) || launching}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm rounded-md transition-colors"
         >
           {launching ? 'Launching…' : 'Launch'}

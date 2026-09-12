@@ -827,6 +827,10 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               !selectedProjectId ||
               !(
                 deferredPopup.agentSteps.length === 0 ||
+                // Confer supplies the cartridges. The single-cartridge select is not even
+                // RENDERED in this mode, so demanding one left a fully-specified confer with
+                // no way to satisfy the gate and no message saying why.
+                conferAgents.length >= 2 ||
                 (perStepAgents
                   ? deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])
                   : !!runAgentId)
