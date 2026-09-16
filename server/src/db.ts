@@ -1183,7 +1183,7 @@ if (orphanNotes.length > 0) {
  * The standard templates, by name. Exported so the id-stability test iterates the real
  * registry rather than a copy that can drift from it.
  */
-export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
 
 /**
  * Re-seed the standard templates, PRESERVING each one's id.
@@ -1596,6 +1596,165 @@ export function seedDefaultTemplates() {
       300, 770, 'connector',
       { connectorType: 'system-notify', title: 'Epic: Task by Task \u2014 Done', message: '{{workflowName}} finished.\n{{result}}' },
       [s3]);
+  }
+
+  // ── 9a. CE Develop and Optimize ─────────────────────────────────────────
+  //
+  // A task loop for work whose implementation is not yet complete AND whose final shape is
+  // chosen by a measured target. Ordinary epic execution stops at "the tests pass"; an
+  // optimization-only loop assumes there is already something correct to measure. This
+  // template joins the two without letting performance experiments weaken correctness.
+  {
+    const wfId = stableId('CE Develop and Optimize');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'CE Develop and Optimize',
+      'Works a task list one item at a time: build a correct runnable slice with TDD, optimize it against a fixed metric when needed, preserve correctness for every experiment, append durable evidence, and stop for discussion on bugs or unmet goals.', now);
+
+    step(wfId, s1, 'Load Work and Goals',
+      'Resolves the task source, success metric, target, measurement command, state file and durable running document; counts unfinished tasks without changing code.',
+      300, 80, 'claude-code',
+      {
+        ...cc('researcher'), workflowContext: true,
+        prompt: `The launch context names a Jira epic/task list or a markdown plan and the metric goal for this run.
+
+Resolve the work before changing code:
+1. Load every task and its dependency/status. A local plan is preferred; use a configured tracker when the launch context supplies a tracker key.
+2. Identify the repository root and exact correctness test command.
+3. Extract the named primary metric, target comparison, measurement command, fixed workload, and constraints. A metric is usable only when its direction, units, workload and target are unambiguous.
+4. Locate the task state source. Choose a durable running document under docs/ when none is supplied; it must be separate from transient agent context and append across every task and experiment.
+5. Count tasks not done or explicitly skipped. Do not count parent headings or completed tasks.
+
+If the metric contract cannot be made reproducible from the supplied work, ask one focused question and do not report the step complete.
+
+OUTPUT — exactly these lines:
+
+WORK: [plan path or tracker key]
+STATE: [task state path or tracker]
+RUNLOG: [durable running markdown document]
+ROOT: [repository root]
+TESTS: [exact correctness/full-suite command]
+TASKS: [count of unfinished tasks]
+METRIC: [name, direction and units]
+OVERALL_TARGET: [numeric/ordinal final run target and comparison]
+MEASURE: [exact repeatable measurement command and fixed workload]`,
+      }, []);
+
+    step(wfId, s2, 'Develop and Optimize Every Task',
+      'Handles exactly one dependency-ready task per dispatch: TDD vertical slice, correctness verification, measured optimization if needed, evidence append, commit and next task.',
+      300, 310, 'claude-code',
+      {
+        ...cc('backend'), includeDepOutput: true,
+        loopCount: 1,
+        loopCountFrom: { step: 'Load Work and Goals', pattern: 'TASKS:\\s*(\\d+)' },
+        loopUntil: 'ALL TASKS COMPLETE',
+        prompt: `The prior step supplied WORK, STATE, RUNLOG, ROOT, TESTS, METRIC, OVERALL_TARGET and MEASURE.
+
+YOU HANDLE EXACTLY ONE TASK IN THIS DISPATCH.
+
+### 0 — PICK — DEPENDENCIES FIRST
+- Read the complete task section and its tracker links. A markdown table commonly stores bare task ids or comma-separated ids in a Dependencies column; None, -, or an empty cell means no prerequisite. Prose such as depends on, blocked by, after, and requires also declares prerequisites.
+- Start with the first unfinished task, then follow its dependency chain. If a prerequisite is unfinished, work that prerequisite first—switch to the prerequisite even when it appears later in the document. Say \`SWITCHED to [id] — [blocked-id] depends on it\`. Do not skip past it and do not start the blocked task.
+- If the prerequisite is not yours to work because it belongs to another repo, cartridge or person, mark this task WAITING ON [id] and choose the next task that is both unfinished and unblocked. Do not edit another owner's scope.
+- If a prerequisite is BLOCKED or FAILED, keep every dependent waiting. If the dependency graph cycles, stop for discussion rather than inventing an order.
+- If none remain, output ALL TASKS COMPLETE with the final tally.
+
+At the end of every successful dispatch, re-count from STATE and report [k] remaining; the engine uses that claim to extend a stale initial task count.
+
+### 1 — BEGIN THE DURABLE RECORD
+Append the task id, title, starting commit, requirements, task acceptance, metric relevance and timestamp to the running document. Classify it as a development task, an optimization task, or both. Extract TASK_TARGET only when this task explicitly declares one; OVERALL_TARGET belongs to the final run and must not be imposed on every intermediate task. The running document is the authoritative experiment journal; never keep a result only in chat. Record commands and actual output, not predictions.
+
+### 2 — BUILD THE CORRECT RUNNABLE VERTICAL SLICE
+Determine whether the task's feature is missing, incomplete or already runnable.
+- For missing/incomplete behavior, enumerate the complete requirement set and write a failing test first. Confirm the expected red result.
+- Implement the smallest runnable vertical slice that covers that whole set, including integration boundaries needed for the real workload.
+- Run focused tests and then TESTS. Do not optimize code that is not correct and runnable.
+- Capture the correctness commands and actual results in RUNLOG.
+
+### 3 — MEASURE BEFORE CHANGING PERFORMANCE
+Run MEASURE on the correct slice using the fixed workload. Record raw samples, aggregation, environment/hardware identity and baseline in RUNLOG.
+- For a development task without TASK_TARGET, the measurement is a baseline/regression signal; it need not already meet OVERALL_TARGET. Continue when task acceptance passes and the metric has no forbidden regression.
+- For an optimization task or a task with an explicit TASK_TARGET, optimize only when its own target is missed.
+- If measurement is invalid, irreproducible or too noisy to distinguish changes, STOP FOR DISCUSSION as described below. Do not guess.
+
+### 4 — CE MEASURED OPTIMIZATION LOOP
+When an optimization task is correct and runnable but misses TASK_TARGET, use the CE Optimize protocol:
+1. Attribute the shortfall before editing; take the cheapest locating measurement that would change what gets implemented.
+2. Write a ranked hypothesis backlog with expected benefit, confidence, measurement cost and correctness risk.
+3. Test one attributable hypothesis at a time in an isolated experiment worktree. Never combine unrelated changes before their individual effect is known.
+4. Run the same MEASURE command. Keep a candidate only when it improves the current best by more than the declared noise/acceptance threshold; otherwise revert it completely.
+5. EVERY optimization experiment must run the correctness gates before it is eligible to become best. A faster incorrect result is a failed experiment.
+6. Append hypothesis, diff/commit identity, raw measurements, comparison, correctness result and keep/revert decision to RUNLOG immediately.
+7. Integrate the winning experiment into ROOT (cherry-pick or an equivalently traceable apply), then rerun TESTS and MEASURE in ROOT. Only this integrated and remeasured state may be committed as the task result. Remove or explicitly record abandoned experiment worktrees.
+8. Continue until TASK_TARGET is met, the evidence reaches a plateau/stopping limit supplied at launch, or no runnable hypothesis remains.
+
+### 5 — PER-TASK GOAL AND CORRECTNESS GATE
+The task can finish only when all of these are true:
+- the complete task requirement set passes its tests;
+- TESTS is green;
+- the feature is runnable on the real measurement path;
+- TASK_TARGET is met when this task declares one; otherwise the task's acceptance criteria pass and the metric shows no forbidden regression;
+- RUNLOG contains the baseline, final value, retained changes and rejected experiments.
+
+If all pass: update STATE, append the final task verdict to RUNLOG, stage only this task's implementation/tests/state/log, and commit \`[task-id] [title] — develop and optimize\`. Re-count STATE and output:
+DONE [task-id] · baseline [value] · final [value] · task target [MET/NOT APPLICABLE] · commit [hash] · [k] remaining
+
+### STOP FOR DISCUSSION — DO NOT SILENTLY CONTINUE
+If you discover a bug outside the task, a red correctness gate after three focused attempts, an invalid metric, an unsafe change, a missing external dependency, a plateau below target, or no credible hypothesis remains:
+1. Revert unproven experiment changes; preserve the last correct measured state.
+2. Append the evidence, blocker and available choices to RUNLOG. Do not mark the task done and do not commit a failing state.
+3. Use AskUserQuestion with the concrete evidence and 2–3 actionable choices.
+4. Do not report this workflow step complete while the issue is unresolved. Continue in the same task after the answer.
+
+Never work two tasks in one dispatch. Never weaken or edit correctness tests merely to keep a faster result. Never move to the next task unless this task's target and correctness gates pass.`,
+      }, [s1]);
+
+    step(wfId, s3, 'Verify Coverage and Evidence',
+      'Audits every task, the durable running document, commits, correctness suite and comparable metric evidence without implementing anything.',
+      300, 540, 'claude-code',
+      {
+        ...cc('reviewer'), includeDepOutput: true,
+        prompt: `Do not implement or optimize anything. Audit the completed run from WORK, STATE and RUNLOG. RUNLOG is the authoritative running document.
+
+1. Classify every task: done, skipped, blocked or outstanding. Confirm one scoped commit per done task.
+2. Run TESTS and record the actual result.
+3. For every metric-bearing task, verify RUNLOG has a comparable baseline and final measurement using MEASURE, environment identity, raw samples, correctness result and keep/revert decisions.
+4. Confirm the final retained tree—not an abandoned experiment—produces the reported final values.
+5. Append this audit to RUNLOG.
+
+OUTPUT:
+COVERAGE: [done]/[total] done · [skipped] skipped · [blocked] blocked · [outstanding] outstanding
+CORRECTNESS: [PASS/FAIL] — [command and counts]
+METRICS: [verified]/[metric-bearing tasks] comparable results · overall [metric] [baseline] → [final] · target [MET/NOT MET]
+EVIDENCE: [COMPLETE/INCOMPLETE] — [RUNLOG path]
+COMMITS: [count] task commits
+ISSUES: [none, or exact unresolved bugs/blockers/evidence gaps]`,
+      }, [s1, s2]);
+
+    step(wfId, s4, 'Goal Achievement Gate',
+      'Hard final gate: continue only when coverage, correctness, evidence and declared goals are all satisfied; otherwise stop the workflow for discussion.',
+      300, 770, 'quality-gate',
+      {
+        ...gate('custom'), maxRetries: 0, terminalOnFail: true,
+        customPrompt: `You are the final evidence gate. Do not implement, edit tests, optimize, repair the running document or reinterpret the target. Evaluate only the supplied coverage report, the running document and current repository evidence.
+
+Respond on the FIRST LINE with exactly PASS or FAIL.
+
+PASS only when:
+- every required task is done, with no blocked/outstanding task or unresolved bug;
+- the full correctness suite passes;
+- every metric-bearing task has comparable baseline/final evidence from the declared workload;
+- every retained experiment passed its correctness gate;
+- the declared target and overall workflow goal are met;
+- the running document contains enough evidence to reproduce the verdict.
+
+FAIL when any item is missing, invalid, unresolved, skipped without explicit authorization, or below target. A FAIL is terminal and intentionally stops this workflow so the operator can discuss the evidence before deciding what to do next. List the exact failed conditions and cite their RUNLOG sections.`,
+      }, [s3]);
+
+    step(wfId, s5, 'Notify',
+      'System notification emitted only after the goal gate passes.',
+      300, 1000, 'connector',
+      { connectorType: 'system-notify', title: 'CE Develop and Optimize — Goals Met', message: '{{workflowName}} passed its correctness and metric goals.\n{{result}}' },
+      [s4]);
   }
 
   // ── 9b. Epic: Two Repos ──────────────────────────────────────────────────
