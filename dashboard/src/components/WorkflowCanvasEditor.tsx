@@ -48,6 +48,7 @@ import type {
   StepStatus,
 } from '../types';
 import { pickFocusStep } from '../lib/currentStep';
+import { workflowAgentOptions } from '../lib/workflow-agent-options';
 
 // ─── Types ──────────────────────────────────────────
 
@@ -605,7 +606,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   }, []);
-  const onlineAgents = useMemo(() => agents.slice().sort(
+  const onlineAgents = useMemo(() => workflowAgentOptions(agents).sort(
     // Offline last, but still assignable: a step pinned to a cartridge that is merely asleep
     // should queue when the run starts, not be impossible to configure.
     (a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'),

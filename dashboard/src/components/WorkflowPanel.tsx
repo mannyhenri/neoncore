@@ -9,6 +9,7 @@ import { ConferCard } from './ConferPanel';
 import { isWaitingSession } from '../types';
 import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem } from '../types';
 import { AutonomyControl } from './AutonomyControl';
+import { workflowAgentOptions } from '../lib/workflow-agent-options';
 
 // ─── Browser notification helper ────────────────────
 
@@ -467,7 +468,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
    * "not sending". Offline is now a queueable state: the run waits for the cartridge to come
    * back, and the queue halts the lane with a reason if it never does. Sorted so live ones lead.
    */
-  const onlineAgents = (agents || [])
+  const onlineAgents = workflowAgentOptions(agents || [])
     .slice()
     .sort((a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'));
 
