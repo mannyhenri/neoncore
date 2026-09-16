@@ -3,7 +3,10 @@
  * Runs on startup and every 6 hours.
  */
 import db from '../db.js';
+import { existsSync } from 'node:fs';
 import { deleteAgentCascade } from './agent-cleanup.js';
+import { isLocalMachine } from './machine-locality.js';
+import { staleMissingRepoAgentIds } from './stale-agent-cleanup.js';
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -76,6 +79,22 @@ function runCleanup() {
   // Agents: delete those offline beyond the retention window, along with all
   // their child rows. Only 'offline' agents qualify — idle/working/waiting are
   // live, and an offline agent's last_seen is the moment it disconnected.
+  const offlineRows = db.prepare(
+    "SELECT id, status, machine, repo_path FROM agents WHERE status = 'offline'",
+  ).all() as Array<{ id: string; status: string; machine: string; repo_path: string }>;
+
+  // A removed local repository is definitive evidence that its offline cartridge is stale.
+  // Remote paths are not inspected because they need not exist on this server's filesystem.
+  const missingRepoIds = staleMissingRepoAgentIds(
+    offlineRows,
+    (row) => isLocalMachine(row.machine),
+    (row) => !row.repo_path || existsSync(row.repo_path),
+  );
+  for (const id of missingRepoIds) {
+    deleteAgentCascade(id);
+    stats.agents++;
+  }
+
   const offlineCutoff = new Date(Date.now() - OFFLINE_AGENT_RETENTION_MS).toISOString();
   const staleAgents = db.prepare(
     "SELECT id FROM agents WHERE status = 'offline' AND last_seen < ?"
