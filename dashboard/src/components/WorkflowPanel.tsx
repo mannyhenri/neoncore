@@ -38,48 +38,52 @@ interface Props {
 
 const PHASE_LABELS = { research: 'Research', coding: 'Coding', review: 'Review' } as const;
 
-type TemplateTab = 'all' | 'strategy' | 'development' | 'quality' | 'jira' | 'compound';
+type TemplateTab = 'all' | 'strategy' | 'planning' | 'development' | 'quality' | 'delivery' | 'learning';
 
 const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Product Strategy Session':       'strategy',
-  'Engineering Architecture Review':'strategy',
   'Deep Research':                  'strategy',
+  'CE: Phase 1 — Interrogate':      'strategy',
+  'Engineering Architecture Review':'planning',
+  'CE: Phase 2 — Plan':             'planning',
   'New Feature':                    'development',
-  'Feature Validation':             'development',
   'Bug Investigation':              'development',
-  'Code Review & Audit':            'development',
+  'Epic: Task by Task':             'development',
+  'Epic: Two Repos':                'development',
+  'Epic: Confer Across Repos':      'development',
+  'CE Develop and Optimize':        'development',
+  'CE: Phase 3 — Implement':        'development',
+  'Feature Validation':             'quality',
+  'Code Review & Audit':            'quality',
   'Full QA Review':                 'quality',
   'Bug Hunter':                     'quality',
   'CI/CD Pipeline':                 'quality',
-  'Jira Tasks Validation':          'jira',
-  'Epic: Task by Task':             'jira',
-  'CE Develop and Optimize':        'compound',
-  'CE: Phase 1 — Interrogate':      'compound',
-  'CE: Phase 2 — Plan':             'compound',
-  'CE: Phase 3 — Implement':        'compound',
-  'CE: Phase 4 — Review':           'compound',
-  'CE: Phase 5 — QA':               'compound',
-  'CE: Phase 6 — Ship':             'compound',
-  'CE: Phase 7 — Compound':         'compound',
-  'CE: Full Delivery':              'compound',
+  'Jira Tasks Validation':          'quality',
+  'CE: Phase 4 — Review':           'quality',
+  'CE: Phase 5 — QA':               'quality',
+  'CE: Phase 6 — Ship':             'delivery',
+  'CE: Full Delivery':              'delivery',
+  'CE: Phase 7 — Compound':         'learning',
 };
 
 const TAB_LABELS: Record<TemplateTab, string> = {
   all:      'All',
   strategy: 'Strategy',
+  planning: 'Plan',
   development: 'Dev',
   quality:  'Quality',
-  jira:     'Jira',
-  compound: 'Compound Eng',
+  delivery: 'Delivery',
+  learning: 'Learn',
 };
 
 const TAB_COLORS: Record<TemplateTab, string> = {
   all:         'bg-white/10 text-gray-200',
   strategy:    'bg-violet-900/60 text-violet-300',
+  planning:    'bg-indigo-900/60 text-indigo-300',
   development: 'bg-blue-900/60 text-blue-300',
   quality:     'bg-emerald-900/60 text-emerald-300',
-  jira:        'bg-orange-900/60 text-orange-300',
-  compound:    'bg-cyan-900/60 text-cyan-300',
+  delivery:    'bg-orange-900/60 text-orange-300',
+  learning:    'bg-cyan-900/60 text-cyan-300',
 };
 const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 
@@ -996,6 +1000,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           )}
         </div>
       </div>
+      {!wf.templateId && wf.description && (
+        <p className="text-xs leading-relaxed text-gray-500">{wf.description}</p>
+      )}
 
       {/* Step progress (V2 canvas) or Phase progress (V1) — templates don't show progress */}
       {wf.stepSummary && wf.templateId ? (
