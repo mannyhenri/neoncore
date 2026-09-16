@@ -53,6 +53,7 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'CI/CD Pipeline':                 'quality',
   'Jira Tasks Validation':          'jira',
   'Epic: Task by Task':             'jira',
+  'CE Develop and Optimize':        'compound',
   'CE: Phase 1 — Interrogate':      'compound',
   'CE: Phase 2 — Plan':             'compound',
   'CE: Phase 3 — Implement':        'compound',

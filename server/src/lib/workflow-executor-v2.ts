@@ -103,6 +103,11 @@ function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
 export const __buildCompletionSuffixForTests = buildCompletionSuffix;
 export const __buildPanelCompletionSuffixForTests = buildPanelCompletionSuffix;
 
+/** A gate verdict is valid only when its first non-empty line is exactly PASS. */
+export function isPassingGateVerdict(result: string): boolean {
+  return result.trim().split(/\r?\n/, 1)[0]?.trim().toUpperCase() === 'PASS';
+}
+
 /**
  * Dispatch a step's command and FAIL THE STEP if it went nowhere.
  *
@@ -990,7 +995,9 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
   const gateType = (step.executorConfig.gateType as string) || 'test';
   const customPrompt = (step.executorConfig.customPrompt as string) || '';
   const currentRetry = (step.executorConfig.currentRetry as number) || 0;
-  const maxRetries = (step.executorConfig.maxRetries as number) || 2;
+  // Zero is meaningful for terminal evidence gates: one failed evaluation must stop rather
+  // than resetting its dependency and manufacturing a second report from unchanged evidence.
+  const maxRetries = (step.executorConfig.maxRetries as number | undefined) ?? 2;
 
   // Use custom prompt or preset
   const preset = QUALITY_GATE_PRESETS[gateType];
@@ -1031,10 +1038,9 @@ function processQualityGateResult(
   allSteps: WorkflowStep[],
 ) {
   const now = new Date().toISOString();
-  const firstLine = result.trim().split('\n')[0].toUpperCase();
-  const passed = firstLine.includes('PASS');
+  const passed = isPassingGateVerdict(result);
   const currentRetry = (step.executorConfig.currentRetry as number) || 0;
-  const maxRetries = (step.executorConfig.maxRetries as number) || 2;
+  const maxRetries = (step.executorConfig.maxRetries as number | undefined) ?? 2;
   const gateType = (step.executorConfig.gateType as string) || 'test';
   const preset = QUALITY_GATE_PRESETS[gateType];
   const gateLabel = preset?.label ?? gateType;
@@ -1077,10 +1083,29 @@ function processQualityGateResult(
       emitStepLog(workflowId, depId, dep.name, `Reset for quality gate retry ${nextRetry} with feedback`, 'warn');
     }
   } else {
+    const failure = `Quality gate [${gateLabel}] failed after ${maxRetries} retries`;
     db.prepare('UPDATE workflow_steps SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
-      .run('failed', result, `Quality gate [${gateLabel}] failed after ${maxRetries} retries`, now, step.id);
+      .run('failed', result, failure, now, step.id);
     emitStepUpdate(step.id);
     emitStepLog(workflowId, step.id, step.name, `Quality gate [${gateLabel}] FAILED — retries exhausted (${maxRetries})`, 'error');
+
+    // Some gates are explicit stop points rather than repair loops. End the run and mark
+    // downstream work skipped so the dashboard cannot leave a failed workflow "running".
+    if (step.executorConfig.terminalOnFail === true) {
+      const pending = db.prepare(
+        `SELECT id FROM workflow_steps WHERE workflow_id = ? AND status = 'pending'`,
+      ).all(workflowId) as Array<{ id: string }>;
+      db.prepare(
+        `UPDATE workflow_steps
+            SET status = 'skipped', error = ?, completed_at = ?
+          WHERE workflow_id = ? AND status = 'pending'`,
+      ).run(`Skipped after terminal failure: ${step.name}`, now, workflowId);
+      for (const pendingStep of pending) emitStepUpdate(pendingStep.id);
+      db.prepare(
+        `UPDATE workflows SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`,
+      ).run(failure, now, workflowId);
+      emitWorkflowUpdate(workflowId);
+    }
     console.log(`[workflow-v2] Quality gate "${step.name}" FAILED — retries exhausted`);
   }
 }
@@ -1696,8 +1721,7 @@ function processReviewGateResult(
   allSteps: WorkflowStep[],
 ) {
   const now = new Date().toISOString();
-  const firstLine = result.trim().split('\n')[0].toUpperCase();
-  const passed = firstLine.includes('PASS');
+  const passed = isPassingGateVerdict(result);
   const currentRetry = (step.executorConfig.currentRetry as number) || 0;
   const maxRetries = (step.executorConfig.maxRetries as number) || 3;
 
