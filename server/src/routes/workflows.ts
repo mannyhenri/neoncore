@@ -7,7 +7,7 @@ import { sendCommandToAgent } from '../lib/send-command.js';
 import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
-import { unrunnableSteps, CONFER_FILL } from '../lib/workflow-launch.js';
+import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
 import { workflowRepoTargets } from '../lib/workflow-cartridges.js';
@@ -21,13 +21,12 @@ import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
-import { withReportStep } from '../lib/workflow-report.js';
+import { withReportStep, resolveRunPlaceholders } from '../lib/workflow-report.js';
 import { loopCountRequirements, validateUpstreamCount, configForRerun, LOOP_RUN_KEYS, type LoopConfig } from '../lib/workflow-loop.js';
 import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
 } from '../lib/autonomy.js';
-import type { StepExecutorType } from '../types.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -754,7 +753,13 @@ router.post('/v2/:id/start', (req, res) => {
         newStepId, runId,
         s.name, s.description,
         STEP_X, STEP_START_Y + i * STEP_SPACING_Y,
-        s.executor_type, s.executor_id, s.executor_config, s.auto_advance,
+        // `<workflowRunId>` is a template's stand-in for an id that does not exist until this
+        // moment. Resolving it HERE — once, into the stored config — means no dispatch path can
+        // hand an agent an unresolved placeholder, whatever executor it goes through. See
+        // resolveRunPlaceholders for the two reports that were written against an invented id.
+        s.executor_type, s.executor_id,
+        resolveRunPlaceholders((s.executor_config as string) || '', runId),
+        s.auto_advance,
         JSON.stringify(remappedDeps), now,
       );
     }
@@ -943,23 +948,16 @@ router.post('/v2/:id/start', (req, res) => {
    * be answered: the template author does not know, and a scoping step deciding it up front
    * is exactly what made the earlier attempts wrong.
    *
-   * ── WHY EACH TYPE IS TREATED THE WAY IT IS ────────────────────────────────────────────
+   * ── WHAT EACH STEP GETS ───────────────────────────────────────────────────────────────
    * Converting only the obvious type and ignoring the rest produces a half-collaborative run
    * — some steps conferred, some single-owner, no error anywhere — so every member of
-   * StepExecutorType is a stated decision here:
+   * StepExecutorType is a stated decision, and it is stated ONCE, in `CONFER_FILL`
+   * (lib/workflow-launch.ts), with the reasoning beside each entry. This list used to be
+   * restated here in prose and drifted from the code below it within one change.
    *
-   *   'claude-code'    CONVERTED. The agent-work step; this is the whole point.
-   *   'review-gate'    LEFT ALONE. A gate reads a PASS/FAIL verdict out of the result. A
-   *   'quality-gate'   confer produces work, not a judgement, so converting these breaks the
-   *                    gate — and it breaks as a gate that never passes, which reads as the
-   *                    agents being bad rather than as a wiring mistake.
-   *   'deliberation'   LEFT ALONE. Already multi-agent, with its own panel semantics.
-   *   'confer'         LEFT ALONE. Already a confer; participants come from the step or from
-   *                    conferOverrides below.
-   *   'command'        LEFT ALONE. A shell command has no cartridge to confer with.
-   *   'connector'      LEFT ALONE. Server-side action, no agent involved.
-   *   'decision'       LEFT ALONE. Waits for a HUMAN. Converting it would quietly replace
-   *                    your judgement with the agents' own.
+   * `conferFillFor` is what both halves call, because one step is an exception its TYPE cannot
+   * express: the Workflow Completion Report is a `claude-code` step that must never be
+   * conferred — see the note on that function.
    */
   const conferAllSteps = (req.body?.conferAllSteps as string[] | undefined)?.filter(Boolean) ?? [];
   if (conferAllSteps.length > 0) {
@@ -994,7 +992,7 @@ router.post('/v2/:id/start', (req, res) => {
     let converted = 0;
     let assigned = 0;
     for (const r of rows) {
-      const fill = CONFER_FILL[r.executor_type as StepExecutorType];
+      const fill = conferFillFor(r.executor_type, r.executor_config);
       if (!fill || fill === 'none') continue;
 
       const config = JSON.parse(r.executor_config || '{}') as Record<string, unknown>;
@@ -1334,19 +1332,96 @@ function validateResult(result: unknown): string | null {
  * Local machines only: a cartridge registered from another box reports a repo_path that does
  * not exist here, and fs would be answering about the wrong disk (see lib/machine-locality.ts).
  */
-function reportDir(workflowId: string, executorId: string): string | null {
+function reportDir(workflowId: string, agentId: string): string | null {
   const agent = db.prepare('SELECT repo_path, machine FROM agents WHERE id = ?')
-    .get(executorId) as { repo_path?: string; machine?: string } | undefined;
+    .get(agentId) as { repo_path?: string; machine?: string } | undefined;
   const repo = (agent?.repo_path || '').trim();
   if (!repo || !isLocalMachine(agent?.machine)) return null;
   return path.join(repo, '.neoncore', 'reports', workflowId);
 }
 
-function findReportHtml(workflowId: string, executorId: string): string {
-  const dir = reportDir(workflowId, executorId);
-  if (!dir) return '';
-  const html = path.join(dir, 'workflow-report.html');
-  try { return fs.existsSync(html) ? html : ''; } catch { return ''; }
+/**
+ * EVERY cartridge that could have written this step's report, owner first.
+ *
+ * `executor_id` alone was the whole lookup, and for a report step conferred by the old
+ * conversion it is the empty string — set that way deliberately, because no single cartridge
+ * owns a confer. So the ingest had nowhere to look and the boot backfill, which calls the same
+ * code, could never recover the run either. Seven of fourteen report steps were in that state;
+ * one of fourteen reached the journal.
+ *
+ * Steps are no longer conferred (see `conferFillFor`), but the runs that already happened
+ * still are, and their reports are sitting complete on disk. This is how they are read.
+ *
+ * ORDER IS THE ANSWER TO THE DUPLICATE. A conferred report was written by every participant,
+ * so several of these directories hold a valid copy of the same report. The list is ordered
+ * — owner, then participants in roster order — and the FIRST one holding a file wins. One run,
+ * one report, chosen the same way on every sweep rather than by whichever the filesystem
+ * happened to list first.
+ */
+function reportSources(stepId: string): { agentId: string; dir: string }[] {
+  const step = db.prepare('SELECT workflow_id, executor_id, executor_config FROM workflow_steps WHERE id = ?')
+    .get(stepId) as { workflow_id: string; executor_id: string; executor_config: string } | undefined;
+  if (!step) return [];
+
+  let config: Record<string, unknown> = {};
+  try { config = JSON.parse(step.executor_config || '{}'); } catch { /* a report is not worth failing over */ }
+  const roster = Array.isArray(config.conferAgentIds) ? config.conferAgentIds : [];
+
+  const ids: string[] = [];
+  for (const raw of [step.executor_id, ...roster]) {
+    const id = typeof raw === 'string' ? raw.trim() : '';
+    if (id && !awaitsLaunchFill(id) && !ids.includes(id)) ids.push(id);
+  }
+
+  /**
+   * WHICH DIRECTORY NAME. The run id is the one the prompt asks for and the only one used from
+   * now on — but a step dispatched through the confer conductor was never told the run id (see
+   * resolveRunPlaceholders), and the agents used the one identifier they did have: the confer
+   * session's. That is not a guess. Run 567fe12b's report step carries
+   * `conferSessionId: a6c37e54…`, and a6c37e54 is exactly the directory sitting in both
+   * baseback and backend-interlag — the report the user could not find in the journal.
+   *
+   * Run id first, so a correctly-named report always wins over a legacy one.
+   */
+  const dirNames = [step.workflow_id];
+  const session = typeof config.conferSessionId === 'string' ? config.conferSessionId.trim() : '';
+  if (session && session !== step.workflow_id) dirNames.push(session);
+
+  const out: { agentId: string; dir: string }[] = [];
+  for (const agentId of ids) {
+    for (const name of dirNames) {
+      const dir = reportDir(name, agentId);
+      if (dir) out.push({ agentId, dir });
+    }
+  }
+  return out;
+}
+
+/** The first source that actually holds a report, or null. `json` is what makes it a report. */
+function findReportOnDisk(stepId: string): { agentId: string; json: string; html: string } | null {
+  for (const { agentId, dir } of reportSources(stepId)) {
+    const json = path.join(dir, 'workflow-report.json');
+    const html = path.join(dir, 'workflow-report.html');
+    try {
+      if (!fs.existsSync(json)) continue;
+      return { agentId, json, html: fs.existsSync(html) ? html : '' };
+    } catch { /* unreadable disk is a report we do not have */ }
+  }
+  return null;
+}
+
+/**
+ * The readable half, for a step whose JSON arrived by POST.
+ *
+ * Takes the HTML from whichever source has one even when that source has no JSON: the agent
+ * posted the JSON itself, so requiring both here would drop the link to the page it wrote.
+ */
+function findReportHtml(stepId: string): string {
+  for (const { dir } of reportSources(stepId)) {
+    const html = path.join(dir, 'workflow-report.html');
+    try { if (fs.existsSync(html)) return html; } catch { /* next source */ }
+  }
+  return '';
 }
 
 /**
@@ -1381,14 +1456,14 @@ function ingestReportFromDisk(stepId: string): void {
     if (!step) return;
     if (db.prepare('SELECT 1 FROM workflow_reports WHERE step_id = ?').get(stepId)) return;
 
-    const dir = reportDir(step.workflow_id, step.executor_id);
-    if (!dir) return;
-    const jsonPath = path.join(dir, 'workflow-report.json');
-    if (!fs.existsSync(jsonPath)) return;
+    const found = findReportOnDisk(stepId);
+    if (!found) return;
 
-    const parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-    const stored = storeStepReport(stepId, parsed, findReportHtml(step.workflow_id, step.executor_id));
-    if (stored) console.log(`[workflow] Report read from disk for step ${stepId.slice(0, 8)} → ${dir}`);
+    const parsed = JSON.parse(fs.readFileSync(found.json, 'utf8'));
+    // The cartridge whose disk it came off is the project it belongs to — which for a legacy
+    // conferred step is the only way to know, since the step itself names nobody.
+    const stored = storeStepReport(stepId, parsed, found.html, found.agentId);
+    if (stored) console.log(`[workflow] Report read from disk for step ${stepId.slice(0, 8)} → ${found.json}`);
   } catch (err) {
     // Never let this fail a completion. A missing or malformed report on disk is a report we
     // do not have, not a step that did not finish.
@@ -1410,7 +1485,7 @@ function ingestReportFromDisk(stepId: string): void {
  * completion must not be able to fail the completion. Losing a report is recoverable; losing
  * the completion strands the workflow.
  */
-function storeStepReport(stepId: string, report: unknown, htmlPath = ''): { id: string; project: string } | null {
+function storeStepReport(stepId: string, report: unknown, htmlPath = '', sourceAgentId = ''): { id: string; project: string } | null {
   if (!report || typeof report !== 'object' || Array.isArray(report)) return null;
   try {
     const step = db.prepare(
@@ -1420,8 +1495,17 @@ function storeStepReport(stepId: string, report: unknown, htmlPath = ''): { id: 
 
     const wf = db.prepare('SELECT name, run_number FROM workflows WHERE id = ?')
       .get(step.workflow_id) as { name: string; run_number: number } | undefined;
+    /**
+     * Which project's journal this belongs in.
+     *
+     * `sourceAgentId` (the disk the report was read off) beats the step's own executor, because
+     * a legacy conferred step HAS no executor and would file the report under project '' —
+     * present in the table, invisible in every repo's journal. That is the state the
+     * baseback / backend-interlag reports were in.
+     */
+    const ownerId = sourceAgentId || step.executor_id || reportSources(stepId)[0]?.agentId || '';
     const agent = db.prepare('SELECT repo_name FROM agents WHERE id = ?')
-      .get(step.executor_id) as { repo_name: string } | undefined;
+      .get(ownerId) as { repo_name: string } | undefined;
 
     const header = (report as Record<string, unknown>).header as Record<string, unknown> | undefined;
     const status = typeof header?.overallStatus === 'string' ? header.overallStatus : '';
@@ -1438,7 +1522,7 @@ function storeStepReport(stepId: string, report: unknown, htmlPath = ''): { id: 
     ).run(
       uuid(), agent?.repo_name || '', step.workflow_id, step.id,
       wf?.name || '', wf?.run_number ?? 0, status, JSON.stringify(report),
-      htmlPath || findReportHtml(step.workflow_id, step.executor_id),
+      htmlPath || findReportHtml(stepId),
       new Date().toISOString(),
     );
 

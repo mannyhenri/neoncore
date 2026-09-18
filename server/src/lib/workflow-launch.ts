@@ -23,6 +23,7 @@
 import db from '../db.js';
 import { cartridgeExists, awaitsLaunchFill } from './cartridge-exists.js';
 import type { StepExecutorType } from '../types.js';
+import { isReportStep } from './workflow-report.js';
 
 /** Why a step cannot run: nobody was picked, or the one that was picked no longer exists. */
 export type UnrunnableReason = 'no-cartridge' | 'cartridge-gone';
@@ -80,6 +81,41 @@ export const CONFER_FILL: Record<StepExecutorType, ConferFill> = {
   'decision': 'none',
 };
 
+/**
+ * WHAT THIS STEP GETS FROM A RUN-LEVEL CONFER. The one answer, for the door and the conversion.
+ *
+ * CONFER_FILL above is keyed by executor TYPE, which is right for every question but one: the
+ * Workflow Completion Report is an ordinary `claude-code` step and must NOT be conferred.
+ *
+ * A completion report is ONE account of ONE run. Conferred, it became N accounts: every
+ * participant executed the report prompt, wrote `.neoncore/reports/<runId>/workflow-report.*`
+ * into its own repo and opened it — which is exactly the reported symptom, "I got the same
+ * report several times for baseback/interlag-backend". Run a6c37e54 has a complete report in
+ * both repos. Worse, the conversion empties `executor_id` by design, and the ingest resolves
+ * the repo from it, so a conferred report could never reach the journal: 7 of 14 report steps
+ * were conferred, 1 of 14 delivered.
+ *
+ * It is 'single', not 'none': it still needs a cartridge to run on, and the judge is the same
+ * first participant every other single-cartridge step gets. The report then covers the whole
+ * run, all participants included — `buildRunReportContext` reads the run, not one agent.
+ *
+ * Callers pass the step's `executor_config` because the exemption is a property of the STEP,
+ * not of its type — there is no executor type that means "report".
+ */
+export function conferFillFor(
+  executorType: string,
+  executorConfig: string | Record<string, unknown> | null | undefined,
+): ConferFill | undefined {
+  let config: Record<string, unknown> = {};
+  if (typeof executorConfig === 'string') {
+    try { config = JSON.parse(executorConfig || '{}') as Record<string, unknown>; } catch { config = {}; }
+  } else if (executorConfig) {
+    config = executorConfig;
+  }
+  if (isReportStep(config)) return 'single';
+  return CONFER_FILL[executorType as StepExecutorType];
+}
+
 /** Types the confer conversion supplies agents for, so the door must not refuse them. */
 const CONFER_SUPPLIES = new Set<ConferFill>(['confer-all', 'single', 'multi-if-empty', 'none']);
 
@@ -88,8 +124,8 @@ export function unrunnableSteps(
   body: Record<string, unknown> | undefined,
 ): { name: string; reason: UnrunnableReason }[] {
   const steps = db.prepare(
-    'SELECT id, name, executor_id, executor_type FROM workflow_steps WHERE workflow_id = ? ORDER BY position_y',
-  ).all(workflowId) as { id: string; name: string; executor_id: string; executor_type: string }[];
+    'SELECT id, name, executor_id, executor_type, executor_config FROM workflow_steps WHERE workflow_id = ? ORDER BY position_y',
+  ).all(workflowId) as { id: string; name: string; executor_id: string; executor_type: string; executor_config: string }[];
 
   const runAgentId = typeof body?.agentId === 'string' ? body.agentId.trim() : '';
 
@@ -129,7 +165,7 @@ export function unrunnableSteps(
     // door must not refuse a step merely for arriving unassigned. It still refuses a STALE
     // pin below: the fill only touches steps awaiting one, so a dead id survives the mode and
     // would die at dispatch. Hiding that behind confer would be the original bug inverted.
-    const fill = CONFER_FILL[s.executor_type as StepExecutorType];
+    const fill = conferFillFor(s.executor_type, s.executor_config);
     if (confersEveryStep && fill && CONFER_SUPPLIES.has(fill)
         && awaitsLaunchFill((s.executor_id ?? '').trim())) continue;
 
