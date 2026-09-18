@@ -56,6 +56,43 @@ const WORK_TYPES = new Set(['claude-code', 'command', '']);
  * and a report whose shape changes every run is one nobody learns to read. The section order is
  * fixed so the same question is always answered in the same place.
  */
+/**
+ * The stand-in for the run id inside the report prompt. A TEMPLATE has no run, so its stored
+ * prompt necessarily carries a placeholder; `resolveRunPlaceholders` replaces it the moment a
+ * run exists, which is at clone time.
+ */
+export const RUN_ID_PLACEHOLDER = '<workflowRunId>';
+
+/**
+ * Bake the run id into a step's prompt.
+ *
+ * WHY THIS IS NOT LEFT TO THE AGENT. The prompt below says "using the run id from the run
+ * record above", and for a `claude-code` report step that record is genuinely above it —
+ * `buildRunReportContext` puts it there. Every OTHER dispatch path builds its own prompt and
+ * supplies no run record, and then the agent receives the literal string `<workflowRunId>` six
+ * times and nothing to resolve it with.
+ *
+ * That is not hypothetical. Two agents in a conferred report step each wrote a real, complete
+ * report and had to invent an id for the directory:
+ *
+ *   "runIdIsSubstituted": true
+ *   "Aucun workflowRunId n'existe. L'API renvoie la tache avec la chaine LITTERALE
+ *    « <workflowRunId> » non substituee, et /api/workflow/runs, /api/runs et
+ *    /api/confer/<id>/state repondent 404."
+ *
+ * Both fell back to the confer's id, so both wrote the SAME invented directory — one report,
+ * two repos, matching no run in the database. Nothing could ingest it and nothing could show
+ * it in the journal, and from the outside that reads as "I got the same report several times
+ * and it is not in the journal".
+ *
+ * Substituting at the source removes the question from every dispatch path at once, instead of
+ * teaching each of them separately about a placeholder.
+ */
+export function resolveRunPlaceholders(config: string, runId: string): string {
+  if (!runId || !config.includes(RUN_ID_PLACEHOLDER)) return config;
+  return config.split(RUN_ID_PLACEHOLDER).join(runId);
+}
+
 export const WORKFLOW_REPORT_PROMPT = `Produce the WORKFLOW COMPLETION REPORT for this run. This is the final step of the workflow.
 
 This is a REPORTING step, not a work step. Do not start new feature work and do not fix problems you find — record them. "The workflow finished" and "the workflow succeeded" are different claims, and only the evidence decides which one this report makes.
