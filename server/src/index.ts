@@ -318,6 +318,14 @@ try {
 } catch (err) {
   console.error('[reports] disk backfill failed:', err);
 }
+// Runs created BEFORE the report step was exempted from confer conversion are still holding the
+// broken shape, and a pending one will reproduce the bug the moment its run advances — on fixed
+// code. Repairing at boot is the other half of that fix. Idempotent; see the module note.
+try {
+  repairConferredReportSteps(db);
+} catch (err) {
+  console.error('[reports] un-confer repair failed:', err);
+}
 
 startHeartbeatScheduler();
 startConferConductor();
@@ -355,6 +363,7 @@ import { discordSource } from './lib/discord-bot.js';
 import { registerAttentionActions, startAttentionNotifier, stopAttentionNotifier } from './lib/attention-notifier.js';
 import { registerPermissionActions } from './routes/permissions.js';
 import { backfillReportsFromDisk } from './routes/workflows.js';
+import { repairConferredReportSteps } from './lib/workflow-report-repair.js';
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces();
   for (const devName of Object.keys(interfaces)) {
