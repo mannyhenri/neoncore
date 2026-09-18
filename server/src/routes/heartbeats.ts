@@ -54,8 +54,26 @@ router.get('/:id', (req, res) => {
   res.json(normalizeHeartbeat(row));
 });
 
+
+/**
+ * When this schedule first fires.
+ *
+ * `firstRunAt` comes from the launch form's "Schedule this run" control and wins outright. It
+ * is only recomputed from the cadence when the form did not name a time — i.e. "Repeat" was
+ * ticked on its own, which means "start now and keep going".
+ */
+function firstRunAtOrCadence(firstRunAt: unknown, schedule: HeartbeatSchedule): string {
+  if (typeof firstRunAt === 'string' && firstRunAt.trim()) {
+    const t = Date.parse(firstRunAt);
+    if (!Number.isNaN(t)) return new Date(t).toISOString();
+  }
+  // No time given. A one-off with no time is immediate; a cadence computes its next slot.
+  if (schedule.type === 'once') return new Date().toISOString();
+  return computeNextRunAt(schedule);
+}
+
 router.post('/', (req, res) => {
-  const { projectId, templateId, agentId, schedule, label, active, autonomy } = req.body;
+  const { projectId, templateId, agentId, schedule, label, active, autonomy, initialContext, firstRunAt } = req.body;
   if (!templateId?.trim()) return res.status(400).json({ error: 'templateId required' });
 
   const parsedSchedule: HeartbeatSchedule = schedule || { type: 'daily', time: '09:00' };
@@ -63,8 +81,8 @@ router.post('/', (req, res) => {
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO heartbeats (id, project_id, template_id, agent_id, schedule, label, active, autonomy, last_run_at, next_run_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    INSERT INTO heartbeats (id, project_id, template_id, agent_id, schedule, label, active, autonomy, initial_context, last_run_at, next_run_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(
     id,
     projectId || null,
@@ -74,7 +92,11 @@ router.post('/', (req, res) => {
     label?.trim() || '',
     active !== false ? 1 : 0,
     isAutonomyLevel(String(autonomy || '')) ? autonomy : DEFAULT_AUTONOMY,
-    computeNextRunAt(parsedSchedule),
+    typeof initialContext === 'string' ? initialContext : '',
+    // The FIRST run is whatever the form picked, used verbatim. Recomputing it from the cadence
+    // would quietly move a 6am one-off to the cadence's own slot — "Schedule this run" names a
+    // time, and honouring a different one is the same as ignoring the control.
+    firstRunAtOrCadence(firstRunAt, parsedSchedule),
     now,
   );
 

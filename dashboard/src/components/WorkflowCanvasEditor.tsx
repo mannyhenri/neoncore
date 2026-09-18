@@ -49,6 +49,7 @@ import type {
 } from '../types';
 import { pickFocusStep } from '../lib/currentStep';
 import { workflowAgentOptions, offlineOptionCount } from '../lib/workflow-agent-options';
+import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
 
 // ─── Types ──────────────────────────────────────────
 
@@ -622,6 +623,9 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
   // Live-only by default so the canvas agrees with the app header and the launch popup.
   const [showOfflineAgents, setShowOfflineAgents] = useState(false);
+  // The same two options the workflow list's launch form offers — one shared component, so
+  // the two forms cannot drift the way every other duplicated launch control here has.
+  const [launchSchedule, setLaunchSchedule] = useState<LaunchScheduleValue>(emptySchedule);
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
@@ -1328,6 +1332,29 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     if (!allAgentsAssigned || !allPromptsAssigned) return;
 
     setRunning(true);
+
+    // SCHEDULED instead of started — same form, same cartridge, same answers, later.
+    if (isScheduledLaunch(launchSchedule)) {
+      try {
+        const agentId = conferAgents.length >= 2
+          ? conferAgents[0]
+          : Object.values(deferredAssignments).find(Boolean) || '';
+        await api.createHeartbeat({
+          templateId: deferredPopup.workflowId,
+          agentId,
+          label: 'Scheduled run',
+          ...scheduleRequest(launchSchedule),
+        });
+        setDeferredPopup(null);
+        setLaunchSchedule(emptySchedule());
+        showToast('Scheduled.');
+        onSaved?.();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Could not schedule this run.');
+      } finally { setRunning(false); }
+      return;
+    }
+
     setDeferredPopup(null);
     try {
       const result = await api.startWorkflowV2(
@@ -1813,6 +1840,9 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 </div>
               )}
             </div>
+            <div className="px-4 pb-1">
+              <LaunchSchedule value={launchSchedule} onChange={setLaunchSchedule} />
+            </div>
             <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
               <button
                 onClick={handleDeferredRun}
@@ -1826,7 +1856,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 }
                 className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
               >
-                Run Workflow
+                {launchButtonLabel(launchSchedule, running)}
               </button>
               <button onClick={() => setDeferredPopup(null)} className="text-sm px-3 py-2 text-gray-500 hover:text-white transition-colors">
                 Cancel

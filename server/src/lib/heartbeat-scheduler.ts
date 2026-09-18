@@ -13,7 +13,14 @@ import { cloneTemplateAsRun } from './workflow-from-template.js';
  * dependency sweep actually run on, and without them "put this on automation" meant "or run it
  * by hand every quarter", which is the thing being automated.
  */
-export const SCHEDULE_TYPES = ['hourly', 'daily', 'weekly', 'monthly', 'quarterly'] as const;
+/**
+ * `once` is the unchecked "Repeat?" box: scheduled for a time, and then finished.
+ *
+ * Without it there is no way to store "run this at 6am tomorrow and stop", and the box would
+ * have to be persisted as something that DOES repeat — the worst possible misreading of it.
+ * A `once` heartbeat is deactivated the moment it fires.
+ */
+export const SCHEDULE_TYPES = ['once', 'hourly', 'daily', 'weekly', 'monthly', 'quarterly'] as const;
 export type ScheduleType = (typeof SCHEDULE_TYPES)[number];
 
 export interface HeartbeatSchedule {
@@ -80,6 +87,13 @@ export function computeNextRunAt(schedule: HeartbeatSchedule, from: Date = new D
     return next.toISOString();
   }
 
+  // A one-off has no NEXT run. Answering this question at all would turn it into a repeating
+  // schedule, which is precisely what the unchecked Repeat box said not to do. The fire path
+  // deactivates it instead of asking.
+  if (schedule.type === 'once') {
+    throw new Error('A once schedule does not repeat — it is deactivated after it fires');
+  }
+
   // REFUSE rather than default. This used to return "an hour from now" for anything it did not
   // recognise, so a typo in a cadence became a job firing 24 times a day — and the only symptom
   // was a schedule that looked possessed.
@@ -96,6 +110,7 @@ const ORDINAL = (n: number): string => {
 export function formatScheduleLabel(schedule: HeartbeatSchedule): string {
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const at = schedule.time || '09:00';
+  if (schedule.type === 'once') return `Once at ${at}`;
   if (schedule.type === 'hourly') return 'Every hour';
   if (schedule.type === 'daily') return `Daily at ${at}`;
   if (schedule.type === 'weekly') return `Every ${DAYS[schedule.day ?? 1]} at ${at}`;
@@ -118,8 +133,22 @@ export function formatScheduleLabel(schedule: HeartbeatSchedule): string {
  * on its first dispatch. Refusing early means a heartbeat pointed at a cartridge that has been
  * removed produces a visible skip instead of a corpse.
  */
+/**
+ * What happens to a schedule after it fires.
+ *
+ * A repeating one re-arms for its next occurrence. A `once` is FINISHED: it keeps its time for
+ * the record and goes inactive, because the alternative — leaving it active with a past
+ * next_run_at — makes it fire on every 60s tick forever.
+ */
+function reArm(schedule: HeartbeatSchedule): { nextRunAt: string; stillActive: boolean } {
+  if (schedule.type === 'once') {
+    return { nextRunAt: new Date().toISOString(), stillActive: false };
+  }
+  return { nextRunAt: computeNextRunAt(schedule), stillActive: true };
+}
+
 function prepareFire(hb: Record<string, unknown>):
-  { ok: true; templateId: string; projectId: string | null; agentId: string; autonomy: string; schedule: HeartbeatSchedule }
+  { ok: true; templateId: string; projectId: string | null; agentId: string; autonomy: string; schedule: HeartbeatSchedule; initialContext: string }
   | { ok: false; reason: string } {
   const templateId = hb.template_id as string;
   const projectId = (hb.project_id as string) || null;
@@ -137,7 +166,8 @@ function prepareFire(hb: Record<string, unknown>):
   if (!cartridgeExists(agentId)) {
     return { ok: false, reason: `its cartridge no longer exists (${agentId.slice(0, 8)}) — it was restarted, or removed` };
   }
-  return { ok: true, templateId, projectId, agentId, autonomy, schedule };
+  const initialContext = ((hb.initial_context as string) || '').trim();
+  return { ok: true, templateId, projectId, agentId, autonomy, schedule, initialContext };
 }
 
 /** Announce a skip. A heartbeat that silently never fires looks exactly like one that works. */
@@ -161,19 +191,20 @@ export function fireHeartbeat(heartbeatId: string): { runId: string } | { error:
   if (!prep.ok) {
     // Refuse BEFORE cloning, and advance the schedule so a broken heartbeat does not re-refuse
     // on every 60s tick forever.
-    const nextRunAt = computeNextRunAt(JSON.parse((hb.schedule as string) || '{}'));
+    const nextRunAt = reArm(JSON.parse((hb.schedule as string) || '{}')).nextRunAt;
     db.prepare('UPDATE heartbeats SET next_run_at = ? WHERE id = ?').run(nextRunAt, heartbeatId);
     announceSkip(hb, prep.reason, nextRunAt);
     return { error: `Heartbeat cannot fire — ${prep.reason}` };
   }
-  const { templateId, projectId, agentId, autonomy, schedule } = prep;
+  const { templateId, projectId, agentId, autonomy, schedule, initialContext } = prep;
 
-  const runId = cloneTemplateAsRun(templateId, projectId, '', { agentId, autonomy });
+  const runId = cloneTemplateAsRun(templateId, projectId, initialContext, { agentId, autonomy });
   if (!runId) return { error: `Template ${templateId} not found` };
 
   const now = new Date().toISOString();
-  const nextRunAt = computeNextRunAt(schedule);
-  db.prepare('UPDATE heartbeats SET last_run_at = ?, next_run_at = ? WHERE id = ?').run(now, nextRunAt, heartbeatId);
+  const { nextRunAt, stillActive } = reArm(schedule);
+  db.prepare('UPDATE heartbeats SET last_run_at = ?, next_run_at = ?, active = ? WHERE id = ?')
+    .run(now, nextRunAt, stillActive ? 1 : 0, heartbeatId);
 
   import('../ws.js').then(({ getIO }) => {
     getIO().emit('heartbeat_fired', {
@@ -221,13 +252,13 @@ export function checkDueHeartbeats(): SweepResult {
     try {
       const prep = prepareFire(hb);
       if (!prep.ok) {
-        const skipNext = computeNextRunAt(JSON.parse((hb.schedule as string) || '{}'));
+        const skipNext = reArm(JSON.parse((hb.schedule as string) || '{}')).nextRunAt;
         db.prepare('UPDATE heartbeats SET next_run_at = ? WHERE id = ?').run(skipNext, hb.id);
         announceSkip(hb, prep.reason, skipNext);
         result.skipped.push({ heartbeatId: hb.id as string, reason: prep.reason });
         continue;
       }
-      const { templateId, projectId, agentId, autonomy, schedule } = prep;
+      const { templateId, projectId, agentId, autonomy, schedule, initialContext } = prep;
 
       // USD budget gate: skip if the project's goal has a dollar cap and the
       // goal's real spend (session_usage cost across its cartridges) has reached it.
@@ -255,15 +286,15 @@ export function checkDueHeartbeats(): SweepResult {
         }
       }
 
-      const runId = cloneTemplateAsRun(templateId, projectId, '', { agentId, autonomy });
+      const runId = cloneTemplateAsRun(templateId, projectId, initialContext, { agentId, autonomy });
       if (!runId) {
         console.warn(`[heartbeat] Template ${templateId} not found for heartbeat ${hb.id}`);
         continue;
       }
 
-      const nextRunAt = computeNextRunAt(schedule);
-      db.prepare('UPDATE heartbeats SET last_run_at = ?, next_run_at = ? WHERE id = ?')
-        .run(now, nextRunAt, hb.id);
+      const { nextRunAt, stillActive } = reArm(schedule);
+      db.prepare('UPDATE heartbeats SET last_run_at = ?, next_run_at = ?, active = ? WHERE id = ?')
+        .run(now, nextRunAt, stillActive ? 1 : 0, hb.id);
 
       result.fired.push({ heartbeatId: hb.id as string, runId });
       console.log(`[heartbeat] Fired ${hb.label || hb.id} → run ${runId} (next: ${nextRunAt})`);

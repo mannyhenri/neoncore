@@ -57,6 +57,8 @@ test('the cadence union is read from source and covers what a person would ask f
   for (const needed of ['daily', 'weekly', 'monthly', 'quarterly']) {
     assert.ok(SCHEDULE_TYPES.includes(needed as never), `no ${needed} cadence`);
   }
+  // 'once' belongs to the same union — it is what an unchecked "Repeat?" box stores.
+  assert.ok(SCHEDULE_TYPES.includes('once' as never), "no 'once' type for a non-repeating schedule");
   console.log(`[set] ${SCHEDULE_TYPES.length} cadences: ${SCHEDULE_TYPES.join(', ')}`);
 });
 
@@ -64,7 +66,13 @@ test('EVERY cadence computes a future next-run at its own interval — none fall
   const from = new Date('2026-09-18T12:00:00');
   const wrong: string[] = [];
 
-  for (const type of SCHEDULE_TYPES) {
+  // 'once' is deliberately excluded: it is a scheduled TIME, not a cadence, and asking when it
+  // runs next has no answer — computeNextRunAt throws for it on purpose (see the 'once' tests
+  // in scheduled-launch.test.ts). Every OTHER type must have a real interval.
+  const CADENCES = SCHEDULE_TYPES.filter((t) => t !== 'once');
+  assert.ok(CADENCES.length >= 5, 'the cadence set shrank');
+
+  for (const type of CADENCES) {
     const schedule = { type, time: '09:00', day: 1, dayOfMonth: 1 } as HeartbeatSchedule;
 
     const first = new Date(computeNextRunAt(schedule, from));
@@ -84,7 +92,7 @@ test('EVERY cadence computes a future next-run at its own interval — none fall
   }
   assert.deepEqual(wrong, [],
     'a cadence fell through to the hourly default — it would fire every hour forever:\n  ' + wrong.join('\n  '));
-  console.log(`[set] ${SCHEDULE_TYPES.length}/${SCHEDULE_TYPES.length} cadences compute their own interval`);
+  console.log(`[set] ${CADENCES.length}/${CADENCES.length} repeating cadences compute their own interval`);
 });
 
 test('EVERY cadence has a human label — no "Unknown schedule" in the UI', () => {
