@@ -845,16 +845,21 @@ export function createClient(config: ClientConfig = {}) {
     projectId?: string | null;
     templateId: string;
     agentId?: string;
-    schedule: { type: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly'; time?: string; day?: number; dayOfMonth?: number };
+    // 'once' is the unchecked "Repeat?" box — scheduled for a time, then finished.
+    schedule: { type: 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly'; time?: string; day?: number; dayOfMonth?: number };
     label?: string;
     active?: boolean;
     /** Posture the scheduled run starts in. Defaults server-side to DEFAULT_AUTONOMY. */
     autonomy?: string;
+    /** What was typed into the launch form. A scheduled run that drops it is a different run. */
+    initialContext?: string;
+    /** The FIRST run, from "Schedule this run". Used verbatim, not rounded to the cadence. */
+    firstRunAt?: string;
   }) => request<import('./types').Heartbeat>('/heartbeats', { method: 'POST', body: JSON.stringify(data) }),
   updateHeartbeat: (id: string, data: {
     templateId?: string;
     agentId?: string;
-    schedule?: { type: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly'; time?: string; day?: number; dayOfMonth?: number };
+    schedule?: { type: 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly'; time?: string; day?: number; dayOfMonth?: number };
     label?: string;
     active?: boolean;
   }) => request<import('./types').Heartbeat>(`/heartbeats/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

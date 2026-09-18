@@ -2888,6 +2888,9 @@ for (const [table, column, decl] of [
   // is the one posture that cannot be right for it. Same default as a hand-launched run
   // (DEFAULT_AUTONOMY): a schedule is a launch you are not present for, not a weaker one.
   ['heartbeats', 'autonomy', "TEXT NOT NULL DEFAULT 'full'"],
+  // What was typed into the launch form. A scheduled run that drops it is not the run that
+  // was configured — the form collects context, and scheduling is just "run this later".
+  ['heartbeats', 'initial_context', "TEXT NOT NULL DEFAULT ''"],
   ['workflows', 'autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
   ['workflows', 'autonomy_expires_at', 'TEXT'],
   ['projects', 'default_autonomy', "TEXT NOT NULL DEFAULT 'manual'"],

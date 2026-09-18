@@ -12,6 +12,7 @@ import { AutonomyControl } from './AutonomyControl';
 import { workflowAgentOptions, isOfflineOption, offlineOptionCount } from '../lib/workflow-agent-options';
 import { launchBlockers } from '../lib/launchReadiness';
 import { searchTemplates } from '../lib/templateSearch';
+import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
 
 // ─── Browser notification helper ────────────────────
 
@@ -679,6 +680,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   const [showOffline, setShowOffline] = useState(false);
   // Scheduling lives on the template card itself — see ScheduleControl.
   const [scheduling, setScheduling] = useState(false);
+  // The two options beside the Run button. See components/LaunchSchedule.tsx.
+  const [launchSchedule, setLaunchSchedule] = useState<LaunchScheduleValue>(emptySchedule);
   /** A TEMPLATE is a workflow with no templateId — a run points at the template it came from. */
   const isTemplate = !wf.templateId;
   const isV2 = !!wf.stepSummary;
@@ -804,6 +807,31 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : 'Could not read attachment.');
       setStarting(false);
+      return;
+    }
+
+    // SCHEDULED instead of started. Everything the form collected still applies — the
+    // cartridge, the context, the posture — it just happens later. A separate control outside
+    // this form could not carry any of that.
+    if (isScheduledLaunch(launchSchedule)) {
+      try {
+        const agentId = conferAgents.length >= 2 ? conferAgents[0]
+          : (perStepAgents ? Object.values(deferredAssignments).find(Boolean) : runAgentId) || '';
+        const req = scheduleRequest(launchSchedule);
+        await api.createHeartbeat({
+          templateId: wf.id,
+          agentId,
+          projectId: selectedProjectId || null,
+          label: wf.name,
+          initialContext: initialContext.trim() || undefined,
+          ...req,
+        });
+        setDeferredPopup(null);
+        setLaunchSchedule(emptySchedule());
+        onAction();
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : 'Could not schedule this run.');
+      } finally { setStarting(false); }
       return;
     }
 
@@ -1094,6 +1122,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           // the user can see they cannot start and not why.
           <p className="px-4 pb-2 text-[13px] text-gray-500">{blockers.join(' ')}</p>
         )}
+        <div className="px-4 pb-1">
+          <LaunchSchedule value={launchSchedule} onChange={setLaunchSchedule} />
+        </div>
         <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
           <button
             onClick={handleDeferredRun}
@@ -1101,7 +1132,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             title={blockers.join(' ')}
             className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
           >
-            {starting ? 'Starting…' : 'Run Workflow'}
+            {launchButtonLabel(launchSchedule, starting)}
           </button>
           <button onClick={() => setDeferredPopup(null)} className="text-sm px-3 py-2 text-gray-500 hover:text-white transition-colors">
             Cancel
