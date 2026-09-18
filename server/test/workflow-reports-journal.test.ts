@@ -27,6 +27,7 @@ import './helpers/isolated-db.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import type { Server } from 'http';
@@ -71,13 +72,13 @@ const iso = () => new Date().toISOString();
 let n = 0;
 
 /** A run mid-flight on a cartridge in `repo`, with its report step running. */
-function runWithReportStep(repo: string): { stepId: string; runId: string } {
+function runWithReportStep(repo: string, repoPath?: string): { stepId: string; runId: string } {
   const i = ++n;
   const agentId = `rep-agent-${i}`, runId = `rep-run-${i}`, stepId = `rep-step-${i}`;
   db.prepare(
     `INSERT INTO agents (id,name,machine,repo_path,repo_name,agent_type,status,last_seen,session_id)
-     VALUES (?,?,'mac',?,?,'claude','working',?,?)`,
-  ).run(agentId, agentId, `/tmp/${repo}`, repo, iso(), `s-${i}`);
+     VALUES (?,?,?,?,?,'claude','working',?,?)`,
+  ).run(agentId, agentId, os.hostname(), repoPath ?? `/tmp/${repo}`, repo, iso(), `s-${i}`);
   db.prepare(
     `INSERT INTO workflows (id,name,description,status,target_repos,created_at,started_at,template_id,run_number)
      VALUES (?,'Bug Hunter','','running','[]',?,?, 'tpl-x', ?)`,
@@ -309,4 +310,115 @@ test('a retired filename is refused by the knowledge route, not silently stored'
     });
     assert.equal(r.status, 400, `${f} is still writable — the registry is not being enforced`);
   }
+});
+
+/**
+ * THE SERVER CAN JUST READ THE FILE.
+ *
+ * "Still don't see this report: file:///…/.neoncore/reports/<runId>/workflow-report.html"
+ *
+ * It was on disk, valid, complete — and the journal was empty, because delivery was built as
+ * "the agent must POST it" and that run's prompt predated the POST instruction. Which exposes
+ * the design flaw: for a cartridge on THIS machine the server can read the file itself and
+ * needs no cooperation from the agent at all.
+ *
+ * So there are three ingest paths now, and the third depends on nothing:
+ *   · the dedicated endpoint      (an engine with no MCP)
+ *   · the completion webhook      (what neoncore_report_step_done posts)
+ *   · the server reading the disk (needs no agent cooperation whatsoever)
+ *
+ * AND THE HTML MUST BE OPENABLE. A browser will not navigate to file:// from an http page, so
+ * a link to the path on disk is inert — the report is readable only by pasting a path into a
+ * new tab, which is what was being reported. The server serves it instead, and ONLY from a path
+ * it recorded itself: the id is the key, never a path from the request, or the endpoint becomes
+ * arbitrary file read.
+ */
+test('the server ingests a report from the cartridge disk — no agent cooperation', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ondisk-'));
+  const { stepId, runId } = runWithReportStep('ondisk-repo', repo);
+
+  const dir = path.join(repo, '.neoncore', 'reports', runId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'workflow-report.json'), JSON.stringify({ ...SAMPLE, executiveSummary: 'read from disk' }));
+  fs.writeFileSync(path.join(dir, 'workflow-report.html'), '<title>Report</title><h1>Report</h1>');
+
+  // The step completes WITHOUT carrying a report — exactly the case that produced an empty
+  // journal while the files sat on disk.
+  const res = await fetch(`${base}/api/workflows/webhook/${stepId}/complete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result: 'wrote and opened the report', scope: '9/9', verify: 'ls → 2 files' }),
+  });
+  assert.ok(res.ok, await res.text());
+
+  const list = await (await fetch(`${base}/api/journal/projects/ondisk-repo/reports`)).json() as
+    { id: string; report: { executiveSummary: string }; htmlUrl?: string }[];
+  assert.equal(list.length, 1, 'the report was on disk and the server did not pick it up');
+  assert.equal(list[0].report.executiveSummary, 'read from disk');
+  assert.ok(list[0].htmlUrl, 'no way to open the HTML — the readable half of the report');
+});
+
+test('a posted report WINS over the file on disk — it is the agent’s own account', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'both-'));
+  const { stepId, runId } = runWithReportStep('both-repo', repo);
+  const dir = path.join(repo, '.neoncore', 'reports', runId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'workflow-report.json'), JSON.stringify({ ...SAMPLE, executiveSummary: 'stale disk copy' }));
+
+  await fetch(`${base}/api/workflows/webhook/${stepId}/complete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result: 'done', scope: '9/9', verify: 'ok', report: { ...SAMPLE, executiveSummary: 'posted copy' } }),
+  });
+  const list = await (await fetch(`${base}/api/journal/projects/both-repo/reports`)).json() as { report: { executiveSummary: string } }[];
+  assert.equal(list[0].report.executiveSummary, 'posted copy');
+});
+
+test('the HTML is served by the SERVER, so it is clickable from the app', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-'));
+  const { stepId, runId } = runWithReportStep('serve-repo', repo);
+  const dir = path.join(repo, '.neoncore', 'reports', runId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'workflow-report.json'), JSON.stringify(SAMPLE));
+  fs.writeFileSync(path.join(dir, 'workflow-report.html'), '<title>Report</title><h1>The report</h1>');
+  await fetch(`${base}/api/workflows/webhook/${stepId}/complete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result: 'done', scope: '9/9', verify: 'ok' }),
+  });
+
+  const [row] = await (await fetch(`${base}/api/journal/projects/serve-repo/reports`)).json() as { id: string; htmlUrl: string }[];
+  const html = await fetch(`${base}${row.htmlUrl}`);
+  assert.equal(html.status, 200);
+  assert.match(html.headers.get('content-type') ?? '', /text\/html/);
+  assert.match(await html.text(), /The report/);
+});
+
+test('the HTML endpoint serves ONLY what it recorded — never a path from the request', async () => {
+  // Otherwise this is an arbitrary file read wearing a report's clothes.
+  const res = await fetch(`${base}/api/journal/reports/no-such-report/html`);
+  assert.equal(res.status, 404);
+
+  for (const attack of ['../../../../etc/passwd', '..%2f..%2f..%2fetc%2fpasswd']) {
+    const r = await fetch(`${base}/api/journal/reports/${encodeURIComponent(attack)}/html`);
+    assert.ok(r.status === 404 || r.status === 400, `traversal attempt returned ${r.status}`);
+    const body = await r.text();
+    assert.ok(!/root:/.test(body), 'served a file outside the recorded report');
+  }
+});
+
+test('a report whose file has since been deleted says so, rather than 500ing', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gone-'));
+  const { stepId, runId } = runWithReportStep('gone-repo', repo);
+  const dir = path.join(repo, '.neoncore', 'reports', runId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'workflow-report.json'), JSON.stringify(SAMPLE));
+  fs.writeFileSync(path.join(dir, 'workflow-report.html'), '<h1>x</h1>');
+  await fetch(`${base}/api/workflows/webhook/${stepId}/complete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result: 'done', scope: '9/9', verify: 'ok' }),
+  });
+  const [row] = await (await fetch(`${base}/api/journal/projects/gone-repo/reports`)).json() as { htmlUrl: string }[];
+  fs.rmSync(repo, { recursive: true, force: true });
+
+  const res = await fetch(`${base}${row.htmlUrl}`);
+  assert.equal(res.status, 404);
+  assert.match(await res.text(), /no longer|not found|deleted/i);
 });

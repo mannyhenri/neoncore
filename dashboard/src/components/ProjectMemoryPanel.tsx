@@ -327,11 +327,23 @@ function ReportHistory({ project, formatDate, onShare }: {
                 )}
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
+                {r.htmlUrl && (
+                  // The readable half. A server URL, so it actually opens — a file:// link
+                  // from this page would be silently refused by the browser.
+                  <a
+                    href={r.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-emerald-400 hover:text-emerald-300"
+                  >
+                    Open report ↗
+                  </a>
+                )}
                 <button
                   onClick={() => setExpanded(open ? null : r.id)}
                   className="text-[11px] text-gray-500 hover:text-gray-300"
                 >
-                  {open ? 'Hide JSON' : 'Full report'}
+                  {open ? 'Hide JSON' : 'JSON'}
                 </button>
                 {onShare && (
                   <button

@@ -2891,6 +2891,10 @@ for (const [table, column, decl] of [
   // What was typed into the launch form. A scheduled run that drops it is not the run that
   // was configured — the form collects context, and scheduling is just "run this later".
   ['heartbeats', 'initial_context', "TEXT NOT NULL DEFAULT ''"],
+  // Where the rendered HTML lives on the cartridge's disk. Without it the journal holds the
+  // JSON and no way to open the half a person actually reads — and a browser will not follow a
+  // file:// link from an http page, so the server has to serve it.
+  ['workflow_reports', 'html_path', "TEXT NOT NULL DEFAULT ''"],
   ['workflows', 'autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
   ['workflows', 'autonomy_expires_at', 'TEXT'],
   ['projects', 'default_autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
