@@ -9,6 +9,7 @@ import { resolveAgentId } from '../lib/resolve-agent.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { notifyAll } from '../lib/channels.js';
 import { buildPermissionParts, answerPayloadFor, PERM_PREFIX } from '../lib/permission-notice.js';
+import { sendCommandToAgent } from '../lib/send-command.js';
 import { registerAction } from '../lib/commands-registry.js';
 
 const router = Router();
@@ -48,6 +49,13 @@ const pendingPolls = new Map<string, {
 }>();
 
 /**
+ * The live long-polls, as a test seam. The "an agent is still blocked on this" guard in
+ * closeQuestionsAnsweredElsewhere reads this map, and a guard that cannot be tested is a
+ * guard nobody finds out has stopped working.
+ */
+export const __pendingPollsForTests = pendingPolls;
+
+/**
  * Resolve a pending long-poll by ID. Called from trust.ts when auto-approving
  * permissions so the hook gets an immediate response instead of timing out.
  */
@@ -60,7 +68,13 @@ export function resolvePendingPoll(id: string, decision: 'allowed' | 'denied', r
 
 // Request a permission decision (called by hook scripts)
 router.post('/request', (req, res) => {
-  const { agentId, sessionId, machine, repoPath, toolName, toolInput, description } = req.body;
+  const { agentId, sessionId, machine, repoPath, description, questionCallId } = req.body;
+  const nativeQuestion = req.body.agentType === 'codex' &&
+    ['request_user_input', 'request_user_input_async'].includes(req.body.toolName);
+  const toolName = nativeQuestion ? 'AskUserQuestion' : req.body.toolName;
+  const toolInput = nativeQuestion ? { ...req.body.toolInput,
+    _codexQuestion: { tool: req.body.toolName, callId: questionCallId || '' },
+  } : req.body.toolInput;
   console.log(`[permissions] Permission request: tool=${toolName} sessionId=${sessionId?.slice(0, 20)} agentId=${agentId || 'none'}`);
 
   // Resolve agent — try sessionId first, then fall back to agentId.
@@ -87,7 +101,7 @@ router.post('/request', (req, res) => {
   // relay's own session_id, so a terminal CLI that only knows its repo — e.g.
   // gridlight — would otherwise fail to resolve. Mirrors the transcript route.
   if (!resolvedBySession && !resolvedAgentId && (machine || repoPath)) {
-    const byRepo = resolveAgentId({ machine, repoPath });
+    const byRepo = resolveAgentId({ machine, repoPath, agentType: req.body.agentType });
     if (byRepo) resolvedAgentId = byRepo;
   }
 
@@ -113,6 +127,13 @@ router.post('/request', (req, res) => {
       }
       return res.json({ decision: 'allowed', trustMode: true });
     }
+  }
+
+  if (nativeQuestion && questionCallId) {
+    const duplicate = db.prepare(`SELECT id, status FROM permissions WHERE agent_id = ?
+      AND tool_name = 'AskUserQuestion' AND json_valid(tool_input)
+      AND json_extract(tool_input, '$._codexQuestion.callId') = ?`).get(resolvedAgentId, questionCallId);
+    if (duplicate) return res.json(duplicate);
   }
 
   const id = uuid();
@@ -142,6 +163,9 @@ router.post('/request', (req, res) => {
     response: '',
   };
 
+  if (toolName === 'AskUserQuestion') {
+    db.prepare('UPDATE agents SET pending_question = ? WHERE id = ?').run(toolInputStr, resolvedAgentId);
+  }
   getIO().emit('permission_requested', request);
 
   // Fire mobile push notification — agent needs human attention
@@ -237,6 +261,20 @@ export function applyDecision(
   decision: 'allowed' | 'denied',
   responseData?: unknown,
 ): PermissionRequest | null {
+  const previous = db.prepare('SELECT * FROM permissions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  if (!previous) return null;
+  if (previous.status !== 'pending') return normalizePermission(previous);
+  let input: { questions?: unknown; _codexQuestion?: { tool: string; callId?: string } } = {};
+  try { input = JSON.parse((previous.tool_input as string) || '{}') || {}; } catch { /* Ordinary approval payloads may be plain text. */ }
+  if (input._codexQuestion) {
+    const command = sendCommandToAgent(previous.agent_id as string,
+      `The user answered your ${input._codexQuestion.tool} question(s) via NeonCore.\n` +
+      `Questions: ${JSON.stringify(input.questions)}\nDecision: ${decision}\n` +
+      `Answers: ${typeof responseData === 'string' ? responseData : JSON.stringify(responseData || {})}\n` +
+      'Use these answers and continue the task. Do not ask these questions again.', false,
+      undefined, { deliverNow: true, trackObjective: false });
+    if (!command) return null;
+  }
   const now = new Date().toISOString();
   const responseStr = responseData ? (typeof responseData === 'string' ? responseData : JSON.stringify(responseData)) : '';
   db.prepare(`UPDATE permissions SET status = ?, decided_at = ?, response = ? WHERE id = ?`).run(decision, now, responseStr, id);
@@ -252,6 +290,8 @@ export function applyDecision(
     `UPDATE agents SET status = 'working', pending_question = '', last_seen = ? WHERE id = ?`
   ).run(now, perm.agent_id);
 
+  const remaining = db.prepare("SELECT tool_input FROM permissions WHERE agent_id = ? AND status = 'pending' AND tool_name = 'AskUserQuestion' ORDER BY created_at").get(perm.agent_id) as { tool_input: string } | undefined;
+  if (remaining) db.prepare("UPDATE agents SET status = 'waiting', pending_question = ? WHERE id = ?").run(remaining.tool_input, perm.agent_id);
   const normalized = normalizePermission(perm);
   getIO().emit('permission_decided', normalized);
 
@@ -292,6 +332,90 @@ export function applyDecision(
   }
 
   return normalized;
+}
+
+/**
+ * Close the questions this cartridge already answered SOMEWHERE ELSE — almost always by the
+ * human typing the answer straight into the terminal the agent is running in.
+ *
+ * THE PROBLEM THIS SOLVES. NeonCore learns about a question when a hook opens a `permissions`
+ * row, and it learns about the ANSWER only when the answer comes back through NeonCore. Answer
+ * it in the terminal instead and nothing ever tells the server: the row sat `pending` until the
+ * 15-minute TTL sweep in index.ts marked it `expired`. For a quarter of an hour the approvals
+ * inbox showed a question that was already answered, the cartridge wore a stale ❓ banner, and
+ * the queue held its lane because `waiting` counts as busy (lib/queue-runner.ts).
+ *
+ * THE SIGNAL IS THE ONE THAT ALREADY EXISTS. `statusFromActivity` (lib/activity-status.ts)
+ * classifies every incoming event as "this cartridge is executing", "this cartridge is blocked
+ * on a human", or "don't know". A cartridge that is executing is not waiting for an answer — so
+ * `working` is the proof, and no second list of event names is introduced to drift from the
+ * first. `ask_user` and a "Claude is waiting for your input" notification both classify as
+ * `waiting` and therefore never close anything, which is what keeps two concurrent Codex async
+ * forms from wiping each other out.
+ *
+ * TWO GUARDS AGAINST CLOSING A LIVE QUESTION, because the failure mode here is worse than the
+ * bug: close a question the agent is genuinely blocked on and the human's answer lands nowhere
+ * while the hook keeps polling.
+ *
+ *   1. `before` — only rows created strictly earlier than the event that triggered this. Every
+ *      hook posts its activity BEFORE it requests the permission (permission-proxy.py:243→255,
+ *      codex-reporter.py:235→249), so the row the agent is blocked on right now is always newer
+ *      than the event in hand and is never eligible.
+ *   2. A live entry in `pendingPolls` means a hook is at this moment waiting on that exact id.
+ *      That is not a question answered elsewhere; that is a question still being asked.
+ *
+ * `answered_elsewhere` rather than reusing `expired`: "you ran out of time" and "you answered
+ * this at your keyboard" are different facts, and the one the reader needs is which.
+ *
+ * Returns the rows it closed.
+ */
+export function closeQuestionsAnsweredElsewhere(
+  agentId: string,
+  opts: { before: string; reason?: string },
+): PermissionRequest[] {
+  if (!agentId || !opts.before) return [];
+
+  const open = db.prepare(
+    `SELECT * FROM permissions
+      WHERE agent_id = ? AND status = 'pending' AND created_at < ?`,
+  ).all(agentId, opts.before) as Record<string, unknown>[];
+
+  const closable = open.filter((row) => !pendingPolls.has(row.id as string));
+  if (closable.length === 0) return [];
+
+  const now = new Date().toISOString();
+  const mark = db.prepare(
+    `UPDATE permissions SET status = 'answered_elsewhere', decided_at = ?
+      WHERE id = ? AND status = 'pending'`,
+  );
+
+  const closed: PermissionRequest[] = [];
+  for (const row of closable) {
+    if (mark.run(now, row.id).changes === 0) continue;
+    const fresh = db.prepare('SELECT * FROM permissions WHERE id = ?').get(row.id) as Record<string, unknown>;
+    const normalized = normalizePermission(fresh);
+    closed.push(normalized);
+    // The app is TOLD, not left to discover it on the next poll — this is the event the
+    // dashboard and the mobile approvals screen both already use to drop a row.
+    getIO().emit('permission_decided', normalized);
+  }
+  if (closed.length === 0) return [];
+
+  // The banner mirrors the inbox, so it goes with it — unless something is still genuinely
+  // open, in which case it shows THAT question rather than being blanked.
+  const stillOpen = db.prepare(
+    `SELECT tool_input FROM permissions
+      WHERE agent_id = ? AND status = 'pending' AND tool_name = 'AskUserQuestion'
+      ORDER BY created_at`,
+  ).get(agentId) as { tool_input: string } | undefined;
+  db.prepare('UPDATE agents SET pending_question = ? WHERE id = ?')
+    .run(stillOpen?.tool_input ?? '', agentId);
+
+  console.log(
+    `[permissions] Closed ${closed.length} question(s) for ${agentId.slice(0, 8)} `
+    + `— answered outside NeonCore (${opts.reason || 'agent moved on'})`,
+  );
+  return closed;
 }
 
 router.post('/decide', (req, res) => {

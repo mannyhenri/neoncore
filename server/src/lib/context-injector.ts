@@ -3,7 +3,6 @@ import { sendCommandToAgent } from './send-command.js';
 import {
   SESSION_SUMMARY_MAX_CHARS,
   SESSION_COUNT,
-  KNOWLEDGE_FILE_MAX_CHARS,
   PROJECT_CONTEXT_MAX_CHARS,
 } from './context-budget.js';
 
@@ -29,29 +28,10 @@ export function buildProjectContext(project: string): string {
     }
   }
 
-  // Gotchas
-  const gotchas = db.prepare(
-    "SELECT content FROM project_knowledge WHERE project = ? AND filename = 'gotchas.md'"
-  ).get(project) as { content: string } | undefined;
-
-  if (gotchas?.content && gotchas.content.trim().length > 30) {
-    parts.push('## Known Gotchas');
-    parts.push(gotchas.content.slice(0, KNOWLEDGE_FILE_MAX_CHARS));
-  }
-
-  // Recent progress (last 8 lines)
-  const progress = db.prepare(
-    "SELECT content FROM project_knowledge WHERE project = ? AND filename = 'progress.md'"
-  ).get(project) as { content: string } | undefined;
-
-  if (progress?.content) {
-    const lines = progress.content.trim().split('\n').filter((l) => l.startsWith('- '));
-    if (lines.length > 0) {
-      parts.push('## Recent Progress');
-      const progressText = lines.slice(-8).join('\n');
-      parts.push(progressText.slice(0, KNOWLEDGE_FILE_MAX_CHARS));
-    }
-  }
+  // progress.md and gotchas.md used to be read here. Both were auto-appended by the session
+  // summarizer and read by nobody — the live progress.md was prompt fragments with "— {}" on
+  // the end of each — so injecting them spent the context budget on noise. Recent sessions
+  // above carry the same ground truth, written once per session instead of once per hook.
 
   if (parts.length === 0) return '';
 
@@ -70,9 +50,6 @@ export function buildSelectiveContext(
   project: string,
   options: {
     sessionIds?: string[];
-    includeProgress?: boolean;
-    includeGotchas?: boolean;
-    includeDecisions?: boolean;
     includeDetails?: boolean;
   },
 ): string {
@@ -95,11 +72,10 @@ export function buildSelectiveContext(
     }
   }
 
-  // Knowledge files (full content)
+  // Knowledge files (full content). One file now: details.md is the only one a PERSON writes,
+  // and the only one worth spending a cartridge's context on. Derived from the registry so a
+  // file added there is offered here without a second edit.
   const fileMap: [boolean | undefined, string, string][] = [
-    [options.includeProgress, 'progress.md', '## Recent Progress'],
-    [options.includeGotchas, 'gotchas.md', '## Known Gotchas'],
-    [options.includeDecisions, 'decisions.md', '## Decisions'],
     [options.includeDetails, 'details.md', '## Project Details'],
   ];
 
@@ -120,7 +96,9 @@ export function buildSelectiveContext(
 
 /**
  * Inject project context into a new agent session.
- * Called from session-manager.ts startSession().
+ * NOT called at session start, despite what this comment said for a long time.
+ * session-manager.ts:74 records the actual rule: "Context injection is now manual — triggered
+ * via dashboard 'Send Context' button". The only caller is POST /api/agents/:id/send-context.
  */
 export function injectProjectContext(agentId: string, project: string): void {
   const context = buildProjectContext(project);

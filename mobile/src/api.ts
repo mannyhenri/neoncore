@@ -1,4 +1,4 @@
-import type { Agent, AgentMode, ConferSession, Goal, Machine, PermissionRequest, Task, TaskStatus, TranscriptEvent, Workflow, WorkflowStep } from './types';
+import type { Agent, AgentMode, ConferSession, Goal, Machine, PermissionRequest, Task, TaskStatus, TranscriptEvent, Workflow, WorkflowStep, WorkflowReport } from './types';
 /**
  * Queue types come from the SHARED package, not a local copy.
  *
@@ -367,6 +367,8 @@ export const api = {
   listConfers: (base: string) => req<ConferSession[]>(base, '/api/confer'),
   cancelConfer: (base: string, id: string) =>
     req<ConferSession>(base, `/api/confer/${id}/cancel`, { method: 'POST' }),
+  resumeConfer: (base: string, id: string) =>
+    req<{ ok: true; session: ConferSession; delivered: number }>(base, `/api/confer/${id}/resume`, { method: 'POST' }),
 
   // ─── Goals ───────────────────────────────────────────────────────────────
   // Read plus the one write a phone should own. Drafting and decomposition stay on the
@@ -484,9 +486,15 @@ export const api = {
     req<{ ok: boolean }>(base, `/api/queue/${id}/remove`, { method: 'DELETE' }),
 
   // ── Project memory ────────────────────────────────────────────────────────
-  // The same four knowledge files and the same note CRUD the web panel offers, so a fix
-  // typed on a phone lands in the place the next agent actually reads. Session history and
-  // journal search are deliberately absent — see NOT_ON_MOBILE in mobile-memory-parity.test.ts.
+  // The same knowledge file and the same note CRUD the web panel offers, so a fix typed on a
+  // phone lands in the place the next agent actually reads. Session history and journal search
+  // are deliberately absent — see NOT_ON_MOBILE in mobile-memory-parity.test.ts.
+  //
+  // Reports are HERE rather than exempted: "we should be able to go back and read the reports"
+  // is a reading task, and reading the overnight run's outcome is exactly what a phone is for.
+  getProjectReports: (base: string, project: string, limit = 50) =>
+    req<WorkflowReport[]>(
+      base, `/api/journal/projects/${encodeURIComponent(project)}/reports?limit=${limit}`),
   getKnowledgeFile: (base: string, project: string, filename: string) =>
     req<{ project: string; filename: string; content: string; updatedAt: string }>(
       base, `/api/journal/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(filename)}`),

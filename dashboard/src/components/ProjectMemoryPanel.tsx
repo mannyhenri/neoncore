@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { Agent, Session } from '../types';
+import type { Agent, Session, WorkflowReport } from '../types';
 import SendToCartridgeModal from './SendToCartridgeModal';
 
 interface Props {
@@ -9,9 +9,11 @@ interface Props {
   onClose: () => void;
 }
 
-const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'] as const;
+// Three of the four files this used to list are retired — see server/src/lib/knowledge-files.ts.
+// What replaced them is the Reports tab: the JSON each run's completion report produces.
+const KNOWLEDGE_FILES = ['details.md'] as const;
 
-type TabKey = 'sessions' | 'notes' | typeof KNOWLEDGE_FILES[number];
+type TabKey = 'sessions' | 'reports' | 'notes' | typeof KNOWLEDGE_FILES[number];
 
 export default function ProjectMemoryPanel({ project, agents, onClose }: Props) {
   const [sendModal, setSendModal] = useState<{ text: string; label: string } | null>(null);
@@ -111,14 +113,8 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
           <TabButton active={activeTab === 'sessions'} onClick={() => setActiveTab('sessions')}>
             Sessions
           </TabButton>
-          <TabButton active={activeTab === 'progress.md'} onClick={() => setActiveTab('progress.md')}>
-            Progress
-          </TabButton>
-          <TabButton active={activeTab === 'decisions.md'} onClick={() => setActiveTab('decisions.md')}>
-            Decisions
-          </TabButton>
-          <TabButton active={activeTab === 'gotchas.md'} onClick={() => setActiveTab('gotchas.md')}>
-            Gotchas
+          <TabButton active={activeTab === 'reports'} onClick={() => setActiveTab('reports')}>
+            Reports
           </TabButton>
           <TabButton active={activeTab === 'details.md'} onClick={() => setActiveTab('details.md')}>
             Project Details
@@ -217,6 +213,12 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
               formatDuration={formatDuration}
               onShare={agents?.length ? (text, label) => setSendModal({ text, label }) : undefined}
             />
+          ) : activeTab === 'reports' ? (
+            <ReportHistory
+              project={project}
+              formatDate={formatDate}
+              onShare={agents?.length ? (text, label) => setSendModal({ text, label }) : undefined}
+            />
           ) : activeTab === 'notes' ? (
             <NotesEditor
               project={project}
@@ -248,6 +250,111 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
 }
 
 // ── Sub-components ──
+
+/**
+ * The completion reports this project's runs produced — what replaced Progress / Decisions /
+ * Gotchas.
+ *
+ * Those three were appended to on every session hook and read by nobody. This is written once
+ * per run, by the agent that did the work, and it is the same JSON the run's HTML report was
+ * rendered from — so the summary here and the document cannot disagree.
+ *
+ * The executive summary is shown open because it is the part written to be read on its own; the
+ * rest of the JSON is one click away rather than on the page, since a run's full report is
+ * several screens of it.
+ */
+function ReportHistory({ project, formatDate, onShare }: {
+  project: string;
+  formatDate: (iso: string) => string;
+  onShare?: (text: string, label: string) => void;
+}) {
+  const [reports, setReports] = useState<WorkflowReport[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.getProjectReports(project).then(setReports).catch(() => {}).finally(() => setLoaded(true));
+  }, [project]);
+
+  if (loaded && reports.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center">
+        <p className="text-sm text-gray-500">No completion reports yet.</p>
+        <p className="text-[11px] text-gray-600 mt-2 max-w-md mx-auto">
+          Every workflow ends by writing one. It appears here once a run on this repo finishes
+          its final step.
+        </p>
+      </div>
+    );
+  }
+
+  const TONE: Record<string, string> = {
+    SUCCESS: 'text-emerald-400 border-emerald-400/30 bg-emerald-500/10',
+    PARTIAL: 'text-amber-400 border-amber-400/30 bg-amber-500/10',
+    FAILED: 'text-red-400 border-red-400/30 bg-red-500/10',
+    BLOCKED: 'text-red-400 border-red-400/30 bg-red-500/10',
+  };
+
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      {reports.map((r) => {
+        const rep = r.report as Record<string, unknown>;
+        const summary = typeof rep.executiveSummary === 'string' ? rep.executiveSummary : '';
+        const outcome = rep.outcome as Record<string, unknown> | undefined;
+        const open = expanded === r.id;
+        return (
+          <div key={r.id} className="border border-white/[0.06] rounded-md bg-white/[0.02]">
+            <div className="flex items-start gap-3 px-3 py-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-gray-200">{r.workflowName}</span>
+                  {r.runNumber > 0 && <span className="text-[11px] text-gray-600">#{r.runNumber}</span>}
+                  {r.status && (
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${TONE[r.status] || 'text-gray-400 border-white/10'}`}>
+                      {r.status}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-gray-600">{formatDate(r.createdAt)}</span>
+                </div>
+                {summary && <p className="text-[13px] text-gray-400 mt-1.5 leading-relaxed">{summary}</p>}
+                {outcome && (
+                  <p className="text-[11px] text-gray-600 mt-1.5 font-mono">
+                    tasks {String(outcome.tasksCompleted ?? '?')}/{String(outcome.tasksTotal ?? '?')}
+                    {' · '}tests {String(outcome.testsPassed ?? '?')}/{String(outcome.testsTotal ?? '?')}
+                    {Number(outcome.issues) > 0 && ` · ${outcome.issues} issue(s)`}
+                    {Number(outcome.humanActionsRequired) > 0 && ` · ${outcome.humanActionsRequired} awaiting you`}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <button
+                  onClick={() => setExpanded(open ? null : r.id)}
+                  className="text-[11px] text-gray-500 hover:text-gray-300"
+                >
+                  {open ? 'Hide JSON' : 'Full report'}
+                </button>
+                {onShare && (
+                  <button
+                    onClick={() => onShare(JSON.stringify(r.report, null, 2), `${r.workflowName} report — ${project}`)}
+                    className="text-[11px] text-gray-500 hover:text-gray-300"
+                  >
+                    Send
+                  </button>
+                )}
+              </div>
+            </div>
+            {open && (
+              <pre className="text-[11px] font-mono text-gray-400 px-3 pb-3 overflow-x-auto whitespace-pre-wrap border-t border-white/[0.04] pt-2">
+                {JSON.stringify(r.report, null, 2)}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (

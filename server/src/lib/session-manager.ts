@@ -2,7 +2,8 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Session } from '../types.js';
-import { summarizeSession, updateKnowledgeFromSession } from './session-summarizer.js';
+import { summarizeSession } from './session-summarizer.js';
+import { KNOWLEDGE_FILES } from './knowledge-files.js';
 
 // ── Helpers ──────────────────────────────────────────
 
@@ -25,14 +26,16 @@ function normalizeSession(row: Record<string, unknown>): Session {
 
 // ── Ensure default knowledge files exist for a project ──
 
+/**
+ * Seed the knowledge files a project keeps, from the registry (lib/knowledge-files.ts).
+ *
+ * It used to seed progress.md, decisions.md and gotchas.md. Those were then appended to on
+ * every session by the summarizer and read by nobody, which is how a project ended up with a
+ * "Progress" document full of prompt fragments. The registry holds one file now — details.md,
+ * which a person writes — and this creates it empty so there is something to open.
+ */
 function ensureProjectKnowledge(project: string) {
   if (!project) return;
-
-  const defaults: { filename: string; content: string }[] = [
-    { filename: 'progress.md', content: `# Progress — ${project}\n\n` },
-    { filename: 'decisions.md', content: `# Decisions — ${project}\n\n` },
-    { filename: 'gotchas.md', content: `# Gotchas — ${project}\n\n` },
-  ];
 
   const now = new Date().toISOString();
   const insertStmt = db.prepare(`
@@ -40,8 +43,8 @@ function ensureProjectKnowledge(project: string) {
     VALUES (?, ?, ?, ?, ?)
   `);
 
-  for (const { filename, content } of defaults) {
-    insertStmt.run(uuid(), project, filename, content, now);
+  for (const filename of KNOWLEDGE_FILES) {
+    insertStmt.run(uuid(), project, filename, '', now);
   }
 }
 
@@ -100,12 +103,6 @@ export function endSession(agentId: string): void {
       const summary = summarizeSession(session.id as string, agentId, startedAt, now);
       db.prepare('UPDATE sessions SET status = ?, summary = ? WHERE id = ?')
         .run('summarized', summary, session.id as string);
-
-      // Update project knowledge files
-      const project = session.project as string;
-      if (project) {
-        updateKnowledgeFromSession(project, summary, agentId);
-      }
 
       console.log(`[session] Summarized session ${(session.id as string).slice(0, 8)} (${summary.length} chars)`);
     } catch (err) {

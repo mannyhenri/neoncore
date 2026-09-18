@@ -28,9 +28,9 @@ import path from 'node:path';
  * tuning one instance of it — the app already had the pattern and memory was the one screen
  * not using it.
  *
- * Also asserted: memory does not open on its emptiest tab. `notes` is [] for 10 of 11 projects
- * while every one of them has content in progress.md, so defaulting to notes made a working
- * screen look broken — which is exactly what was reported.
+ * Also asserted: memory does not open on its emptiest tab. `notes` is [] for 10 of 11 projects,
+ * so defaulting to notes made a working screen look broken — which is exactly what was
+ * reported. It opens on details.md (progress.md, the original default, is retired).
  */
 
 const MOBILE = path.join(import.meta.dirname, '..', '..');
@@ -54,7 +54,9 @@ function memoryTabs(): string[] {
 describe('the metrics report is drillable', () => {
   it('scans are non-vacuous', () => {
     expect(code(TOKENS).length, 'TokensScreen not readable').toBeGreaterThan(500);
-    expect(memoryTabs().length, 'memory tab registry not parsed').toBeGreaterThanOrEqual(5);
+    // 2: notes + details.md. Was 5 — three knowledge files were retired (see
+    // server/src/lib/knowledge-files.ts). Still a non-vacuity check on the parser.
+    expect(memoryTabs().length, 'memory tab registry not parsed').toBeGreaterThanOrEqual(2);
   });
 
   it('renders EVERY dimension the endpoint returns', () => {

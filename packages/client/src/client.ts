@@ -218,20 +218,13 @@ export function createClient(config: ClientConfig = {}) {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
-  focusAgent: (id: string) => request<{ ok: boolean }>(`/agents/${id}/focus`, { method: 'POST' }),
   getContextOptions: (id: string) =>
     request<{
       sessions: { id: string; startedAt: string; summary: string; branch: string }[];
-      hasProgress: boolean;
-      hasGotchas: boolean;
-      hasDecisions: boolean;
       hasDetails: boolean;
     }>(`/agents/${id}/context-options`),
   sendContext: (id: string, options?: {
     sessionIds?: string[];
-    includeProgress?: boolean;
-    includeGotchas?: boolean;
-    includeDecisions?: boolean;
     includeDetails?: boolean;
   }) => request<{ ok: boolean }>(`/agents/${id}/send-context`, {
     method: 'POST',
@@ -399,6 +392,8 @@ export function createClient(config: ClientConfig = {}) {
   getConfers: () => request<import('./types').ConferSession[]>('/confer'),
   cancelConfer: (id: string) =>
     request<import('./types').ConferSession>(`/confer/${id}/cancel`, { method: 'POST' }),
+  resumeConfer: (id: string) =>
+    request<{ ok: true; session: import('./types').ConferSession; delivered: number }>(`/confer/${id}/resume`, { method: 'POST' }),
 
   // GitHub accounts (gh CLI)
   getGithubAccounts: () =>
@@ -636,6 +631,15 @@ export function createClient(config: ClientConfig = {}) {
       body: JSON.stringify({ content }),
     }),
 
+  /**
+   * The completion reports a project's runs produced. This is what replaced progress.md,
+   * decisions.md and gotchas.md: written once per run by the agent that did the work, rather
+   * than appended to on every hook.
+   */
+  getProjectReports: (project: string, limit = 50) =>
+    request<import('./types').WorkflowReport[]>(
+      `/journal/projects/${encodeURIComponent(project)}/reports?limit=${limit}`),
+
   // Project-scoped notes
   getProjectNotes: (project: string) =>
     request<{ id: string; content: string; createdAt: string; updatedAt: string }[]>(
@@ -841,14 +845,16 @@ export function createClient(config: ClientConfig = {}) {
     projectId?: string | null;
     templateId: string;
     agentId?: string;
-    schedule: { type: 'hourly' | 'daily' | 'weekly'; time?: string; day?: number };
+    schedule: { type: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly'; time?: string; day?: number; dayOfMonth?: number };
     label?: string;
     active?: boolean;
+    /** Posture the scheduled run starts in. Defaults server-side to DEFAULT_AUTONOMY. */
+    autonomy?: string;
   }) => request<import('./types').Heartbeat>('/heartbeats', { method: 'POST', body: JSON.stringify(data) }),
   updateHeartbeat: (id: string, data: {
     templateId?: string;
     agentId?: string;
-    schedule?: { type: 'hourly' | 'daily' | 'weekly'; time?: string; day?: number };
+    schedule?: { type: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly'; time?: string; day?: number; dayOfMonth?: number };
     label?: string;
     active?: boolean;
   }) => request<import('./types').Heartbeat>(`/heartbeats/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

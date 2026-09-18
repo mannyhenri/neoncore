@@ -7,6 +7,7 @@ import {
   fireHeartbeat,
   type HeartbeatSchedule,
 } from '../lib/heartbeat-scheduler.js';
+import { DEFAULT_AUTONOMY, isAutonomyLevel } from '../lib/autonomy.js';
 
 const router = Router();
 
@@ -25,6 +26,9 @@ function normalizeHeartbeat(row: Record<string, unknown>) {
     templateId: row.template_id,
     templateName: templateRow?.name || null,
     agentId: row.agent_id || '',
+    // The posture a scheduled run starts in. Defaults to DEFAULT_AUTONOMY — a schedule is a
+    // launch you are not present for, not a weaker one.
+    autonomy: (row.autonomy as string) || 'full',
     agentName: agentRow ? (agentRow.repo_name || agentRow.name) : null,
     schedule,
     scheduleLabel: formatScheduleLabel(schedule),
@@ -51,7 +55,7 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { projectId, templateId, agentId, schedule, label, active } = req.body;
+  const { projectId, templateId, agentId, schedule, label, active, autonomy } = req.body;
   if (!templateId?.trim()) return res.status(400).json({ error: 'templateId required' });
 
   const parsedSchedule: HeartbeatSchedule = schedule || { type: 'daily', time: '09:00' };
@@ -59,8 +63,8 @@ router.post('/', (req, res) => {
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO heartbeats (id, project_id, template_id, agent_id, schedule, label, active, last_run_at, next_run_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    INSERT INTO heartbeats (id, project_id, template_id, agent_id, schedule, label, active, autonomy, last_run_at, next_run_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(
     id,
     projectId || null,
@@ -69,6 +73,7 @@ router.post('/', (req, res) => {
     JSON.stringify(parsedSchedule),
     label?.trim() || '',
     active !== false ? 1 : 0,
+    isAutonomyLevel(String(autonomy || '')) ? autonomy : DEFAULT_AUTONOMY,
     computeNextRunAt(parsedSchedule),
     now,
   );
@@ -81,17 +86,20 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM heartbeats WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Heartbeat not found' });
 
-  const { templateId, agentId, schedule, label, active } = req.body;
+  const { templateId, agentId, schedule, label, active, autonomy } = req.body;
   const newSchedule: HeartbeatSchedule = schedule || JSON.parse((row.schedule as string) || '{}');
 
   db.prepare(`
-    UPDATE heartbeats SET template_id = ?, agent_id = ?, schedule = ?, label = ?, active = ?, next_run_at = ? WHERE id = ?
+    UPDATE heartbeats SET template_id = ?, agent_id = ?, schedule = ?, label = ?, active = ?, autonomy = ?, next_run_at = ? WHERE id = ?
   `).run(
     templateId?.trim() ?? row.template_id,
     agentId ?? row.agent_id,
     JSON.stringify(newSchedule),
     label?.trim() ?? row.label,
     active !== undefined ? (active ? 1 : 0) : row.active,
+    // An unrecognised level keeps whatever the heartbeat already had, rather than silently
+    // resetting a deliberately lowered posture to the default.
+    isAutonomyLevel(String(autonomy || '')) ? autonomy : row.autonomy,
     computeNextRunAt(newSchedule),
     req.params.id,
   );

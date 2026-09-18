@@ -11,6 +11,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn } from 'child_process';
 import { getServerBaseUrl } from './server-url.js';
+// Shared with the runner's own launcher (agent/runner/index.js) so the two launch paths cannot
+// drift. Plain ESM JS with no type declarations, same as the relay's fleet-token.mjs.
+// @ts-expect-error — untyped ESM shared with the agent side.
+import { ensureFolderTrusted } from '../../../agent/lib/folder-trust.mjs';
+
+export { ensureFolderTrusted };
 
 // ---------------------------------------------------------------------------
 // Binary finders
@@ -437,6 +443,9 @@ export function openDirectory(
   if (relayEnv) {
     const sessionId = relayEnv.GRIDLIGHT_SESSION_ID
       || `neoncore-${RELAY_LAUNCH_TYPES[agentType]}-${Date.now()}`;
+    // Before the terminal exists: a first-ever launch into this directory would otherwise stop
+    // on Claude's folder-trust prompt, which defaults to "No, exit".
+    ensureFolderTrusted(dirPath);
     return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, relayEnv);
   }
 

@@ -10,7 +10,6 @@ import type { Agent, Activity } from '../../types';
 vi.mock('../../lib/api', () => ({
   api: {
     getAgentTokenUsage: vi.fn().mockResolvedValue({ total: 0, costUsd: 0 }),
-    focusAgent: vi.fn().mockResolvedValue({}),
     openRepo: vi.fn().mockResolvedValue({}),
     recoverAgentSession: vi.fn().mockResolvedValue({}),
     dismissAgentRecovery: vi.fn().mockResolvedValue({}),

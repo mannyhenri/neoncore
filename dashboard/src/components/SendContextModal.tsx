@@ -19,13 +19,7 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [sessions, setSessions] = useState<ContextSession[]>([]);
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
-  const [includeProgress, setIncludeProgress] = useState(false);
-  const [includeGotchas, setIncludeGotchas] = useState(false);
-  const [includeDecisions, setIncludeDecisions] = useState(false);
   const [includeDetails, setIncludeDetails] = useState(false);
-  const [hasProgress, setHasProgress] = useState(false);
-  const [hasGotchas, setHasGotchas] = useState(false);
-  const [hasDecisions, setHasDecisions] = useState(false);
   const [hasDetails, setHasDetails] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);
 
@@ -33,13 +27,8 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
     api.getContextOptions(agentId)
       .then((opts) => {
         setSessions(opts.sessions);
-        setHasProgress(opts.hasProgress);
-        setHasGotchas(opts.hasGotchas);
-        setHasDecisions(opts.hasDecisions);
         setHasDetails(opts.hasDetails);
         // Pre-select knowledge files that have content
-        if (opts.hasProgress) setIncludeProgress(true);
-        if (opts.hasGotchas) setIncludeGotchas(true);
         if (opts.hasDetails) setIncludeDetails(true);
         // Pre-select first 2 sessions
         const preselect = new Set(opts.sessions.slice(0, 2).map((s) => s.id));
@@ -66,7 +55,7 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
     setSelectedSessions(new Set());
   };
 
-  const hasAnythingSelected = selectedSessions.size > 0 || includeProgress || includeGotchas || includeDecisions || includeDetails;
+  const hasAnythingSelected = selectedSessions.size > 0 || includeDetails;
 
   const handleSend = async () => {
     if (!hasAnythingSelected) return;
@@ -74,9 +63,6 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
     try {
       await api.sendContext(agentId, {
         sessionIds: [...selectedSessions],
-        includeProgress,
-        includeGotchas,
-        includeDecisions,
         includeDetails,
       });
       onClose();
@@ -116,21 +102,6 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
               {/* Knowledge Files */}
               <div className="space-y-2">
                 <span className="text-[13px] text-gray-500 uppercase tracking-wider">Knowledge Files</span>
-                <label className={`flex items-center gap-2 text-xs ${hasProgress ? 'text-gray-300' : 'text-gray-600'}`}>
-                  <input type="checkbox" checked={includeProgress} onChange={() => setIncludeProgress(!includeProgress)} disabled={!hasProgress}
-                    className="rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
-                  Progress
-                </label>
-                <label className={`flex items-center gap-2 text-xs ${hasGotchas ? 'text-gray-300' : 'text-gray-600'}`}>
-                  <input type="checkbox" checked={includeGotchas} onChange={() => setIncludeGotchas(!includeGotchas)} disabled={!hasGotchas}
-                    className="rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
-                  Gotchas
-                </label>
-                <label className={`flex items-center gap-2 text-xs ${hasDecisions ? 'text-gray-300' : 'text-gray-600'}`}>
-                  <input type="checkbox" checked={includeDecisions} onChange={() => setIncludeDecisions(!includeDecisions)} disabled={!hasDecisions}
-                    className="rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
-                  Decisions
-                </label>
                 <label className={`flex items-center gap-2 text-xs ${hasDetails ? 'text-gray-300' : 'text-gray-600'}`}>
                   <input type="checkbox" checked={includeDetails} onChange={() => setIncludeDetails(!includeDetails)} disabled={!hasDetails}
                     className="rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
@@ -166,7 +137,7 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
                 </div>
               )}
 
-              {sessions.length === 0 && !hasProgress && !hasGotchas && !hasDecisions && !hasDetails && (
+              {sessions.length === 0 && !hasDetails && (
                 <div className="text-xs text-gray-500 text-center py-8">No context available for this project yet.</div>
               )}
             </>

@@ -208,55 +208,12 @@ export function summarizeSession(
   return parts.join('\n');
 }
 
-// ── Update project knowledge files after session summarization ──
-
-export function updateKnowledgeFromSession(
-  project: string,
-  summary: string,
-  agentId: string,
-): void {
-  const now = new Date().toISOString();
-  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-
-  const agent = db.prepare('SELECT name FROM agents WHERE id = ?')
-    .get(agentId) as { name: string } | undefined;
-  const agentName = agent?.name || agentId.slice(0, 8);
-
-  // Extract task one-liner from summary
-  const taskMatch = summary.match(/### Task\n(.+)/);
-  const task = taskMatch?.[1]?.slice(0, 80) || 'work session';
-
-  // Extract outcome one-liner
-  const outcomeMatch = summary.match(/### Outcome\n(.+)/);
-  const outcome = outcomeMatch?.[1]?.slice(0, 80) || 'completed';
-
-  // Append to progress.md
-  const progressRow = db.prepare(
-    "SELECT id, content FROM project_knowledge WHERE project = ? AND filename = 'progress.md'"
-  ).get(project) as { id: string; content: string } | undefined;
-
-  if (progressRow) {
-    const entry = `- **${dateStr}** (${agentName}): ${task} — ${outcome}\n`;
-    db.prepare('UPDATE project_knowledge SET content = ?, updated_at = ? WHERE id = ?')
-      .run(progressRow.content + entry, now, progressRow.id);
-  }
-
-  // Extract decisions and append to decisions.md
-  const decisionLines = summary.match(/### Decisions\n([\s\S]*?)(?=\n###|\n$|$)/);
-  if (decisionLines?.[1]?.trim()) {
-    const decisionsRow = db.prepare(
-      "SELECT id, content FROM project_knowledge WHERE project = ? AND filename = 'decisions.md'"
-    ).get(project) as { id: string; content: string } | undefined;
-
-    if (decisionsRow) {
-      const entries = decisionLines[1].trim().split('\n')
-        .filter((l) => l.startsWith('- '))
-        .map((l) => `- **${dateStr}**: ${l.slice(2)}`)
-        .join('\n');
-      if (entries) {
-        db.prepare('UPDATE project_knowledge SET content = ?, updated_at = ? WHERE id = ?')
-          .run(decisionsRow.content + entries + '\n', now, decisionsRow.id);
-      }
-    }
-  }
-}
+// updateKnowledgeFromSession() lived here and is gone.
+//
+// It appended one line per session to progress.md and decisions.md. Nobody read either, and the
+// progress lines rendered as "- **Sep 6, 2026** (host/repo): <prompt fragment> — {}" because the
+// outcome regex usually missed. The summary they were derived from is stored on the session row,
+// which the Sessions tab already shows, so they were a lossy duplicate of data one click away.
+//
+// The per-run record that replaced them is `workflow_reports` — written once by the agent that
+// did the work, and readable in the project journal.

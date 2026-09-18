@@ -48,7 +48,7 @@ import type {
   StepStatus,
 } from '../types';
 import { pickFocusStep } from '../lib/currentStep';
-import { workflowAgentOptions } from '../lib/workflow-agent-options';
+import { workflowAgentOptions, offlineOptionCount } from '../lib/workflow-agent-options';
 
 // ─── Types ──────────────────────────────────────────
 
@@ -549,6 +549,24 @@ const edgeTypes: EdgeTypes = {
 
 // ─── Inner canvas (needs ReactFlowProvider) ─────────
 
+/**
+ * The way back to a sleeping cartridge, as a trailing <option>.
+ *
+ * The cartridge selects here are compact toolbar controls with nowhere to put a link, so the
+ * reveal rides in the list itself. It is a sentinel, never an assignable id — every onChange
+ * that renders it checks for SHOW_OFFLINE first.
+ *
+ * Why a reveal at all: the list is live-only so it agrees with the app's own cartridge count,
+ * and that exact filter was reverted once (894144d) because a disconnected cartridge SILENTLY
+ * vanished and could no longer be launched onto. Folded away behind a count is not missing.
+ */
+const SHOW_OFFLINE = '__show_offline__';
+
+function OfflineOption({ count }: { count: number }) {
+  if (count < 1) return null;
+  return <option value={SHOW_OFFLINE}>── Show {count} offline ──</option>;
+}
+
 function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   const reactFlowInstance = useReactFlow();
   const nodesInitialized = useNodesInitialized();
@@ -602,15 +620,35 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
   const isExecuting = ['running', 'paused'].includes(workflowStatus);
 
+  // Live-only by default so the canvas agrees with the app header and the launch popup.
+  const [showOfflineAgents, setShowOfflineAgents] = useState(false);
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   }, []);
-  const onlineAgents = useMemo(() => workflowAgentOptions(agents).sort(
-    // Offline last, but still assignable: a step pinned to a cartridge that is merely asleep
-    // should queue when the run starts, not be impossible to configure.
-    (a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'),
-  ), [agents]);
+  // Ordering, age-out, duplicate collapsing and the live-only default are all
+  // workflowAgentOptions' job — two selectors deciding any of that independently is how they
+  // drift into disagreeing about which cartridges exist.
+  //
+  // keepIds is NOT optional here. This editor is where a step gets pinned to a cartridge, and
+  // a step pinned to one that has since gone offline must keep rendering its own name — drop
+  // it from the options and the <select> falls back to blank, then the next save writes that
+  // blank back and the assignment is gone with nothing said. Offline stays assignable: a step
+  // on a sleeping cartridge queues when the run starts.
+  const assignedIds = useMemo(
+    () => steps.map((s) => s.executorId)
+      .concat(steps.map((s) => (s.executorConfig as Record<string, unknown> | undefined)?.reviewAgentId as string))
+      .filter((id): id is string => !!id && id !== '__deferred__'),
+    [steps],
+  );
+  const onlineAgents = useMemo(
+    () => workflowAgentOptions(agents, { includeOffline: showOfflineAgents, keepIds: assignedIds }),
+    [agents, showOfflineAgents, assignedIds],
+  );
+  const hiddenOfflineAgents = useMemo(
+    () => (showOfflineAgents ? 0 : offlineOptionCount(agents, { keepIds: assignedIds })),
+    [agents, showOfflineAgents, assignedIds],
+  );
   // Two machines can each run a cartridge on a repo of the SAME name — identical labels for
   // different disks. Whenever the fleet spans more than one host, put the host in the label:
   // picking the off-box twin silently sends every step's files to a path that isn't here.
@@ -1426,7 +1464,10 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 <span className="text-[11px] text-gray-500">Cartridge</span>
                 <select
                   value={workflowCartridge}
-                  onChange={(e) => setWorkflowCartridge(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === SHOW_OFFLINE) { setShowOfflineAgents(true); return; }
+                    setWorkflowCartridge(e.target.value);
+                  }}
                   onKeyDown={(e) => e.stopPropagation()}
                   disabled={isExecuting}
                   title="Every step in this workflow runs on this cartridge"
@@ -1436,6 +1477,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                   {onlineAgents.map((a) => (
                     <option key={a.id} value={a.id}>{agentLabel(a)}</option>
                   ))}
+                  <OfflineOption count={hiddenOfflineAgents} />
                 </select>
               </div>
             </>
@@ -1691,6 +1733,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     value={deferredAssignments[deferredPopup.agentSteps[0].stepId] || ''}
                     onChange={(e) => {
                       const agentId = e.target.value;
+                      if (agentId === SHOW_OFFLINE) { setShowOfflineAgents(true); return; }
                       setDeferredAssignments(
                         Object.fromEntries(deferredPopup.agentSteps.map((s) => [s.stepId, agentId])),
                       );
@@ -1701,6 +1744,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     {onlineAgents.map((a) => (
                       <option key={a.id} value={a.id}>{agentLabel(a)}</option>
                     ))}
+                    <OfflineOption count={hiddenOfflineAgents} />
                   </select>
                   <p className="text-[13px] text-gray-600">
                     {conferAgents.length >= 2

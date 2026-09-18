@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import { closeQuestionsAnsweredElsewhere } from './permissions.js';
 import { getIO, upgradeSocketsToAgentRoom, hasActiveSocket } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
@@ -18,6 +19,7 @@ import { recordQueueCompletion } from '../lib/queue-kinds.js';
 import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } from '../types.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { relaunchSessionNatively } from '../lib/native-relaunch.js';
+import { KNOWLEDGE_FILES } from '../lib/knowledge-files.js';
 
 const router = Router();
 
@@ -87,6 +89,10 @@ router.post('/session-end', (req, res) => {
   markAgentSessionInterrupted(resolved, 'session-end');
   endSession(resolved);
   db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(resolved);
+  // The session is gone, so nothing is waiting on an answer any more — whatever it had open
+  // was either answered in that terminal or died with it. Either way it must not keep sitting
+  // in the approvals inbox asking someone to decide for a cartridge that no longer exists.
+  closeQuestionsAnsweredElsewhere(resolved, { before: new Date().toISOString(), reason: 'session ended' });
   const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(resolved) as Record<string, unknown>;
   if (row) getIO().emit('agent_updated', normalizeAgent(row));
 
@@ -706,30 +712,22 @@ router.post('/:id/clear-review', (req, res) => {
   res.json({ ok: true });
 });
 
-// Focus an agent's VS Code window
-router.post('/:id/focus', (req, res) => {
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
-  if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-  getIO().to(`agent:${req.params.id}`).emit('focus_window' as any);
-  res.json({ ok: true });
-});
-
 // Get available context options for the Send Context popup
 router.get('/:id/context-options', (req, res) => {
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
   const project = (agent.repo_name as string) || '';
-  if (!project) return res.json({ sessions: [], hasProgress: false, hasGotchas: false, hasDecisions: false, hasDetails: false });
+  if (!project) return res.json({ sessions: [], hasDetails: false });
 
   const sessions = db.prepare(
     "SELECT id, started_at, summary, branch FROM sessions WHERE project = ? AND status = 'summarized' AND summary != '' ORDER BY started_at DESC LIMIT 10"
   ).all(project) as { id: string; started_at: string; summary: string; branch: string }[];
 
-  const knowledgeFiles = ['progress.md', 'gotchas.md', 'decisions.md', 'details.md'];
+  // From the registry, not a fourth hand-written list. Three of the four files it used to
+  // name are retired — see lib/knowledge-files.ts.
   const hasContent: Record<string, boolean> = {};
-  for (const f of knowledgeFiles) {
+  for (const f of KNOWLEDGE_FILES) {
     const row = db.prepare(
       'SELECT content FROM project_knowledge WHERE project = ? AND filename = ?'
     ).get(project, f) as { content: string } | undefined;
@@ -743,9 +741,6 @@ router.get('/:id/context-options', (req, res) => {
       summary: s.summary.slice(0, 200),
       branch: s.branch,
     })),
-    hasProgress: hasContent['progress.md'],
-    hasGotchas: hasContent['gotchas.md'],
-    hasDecisions: hasContent['decisions.md'],
     hasDetails: hasContent['details.md'],
   });
 });
@@ -758,13 +753,13 @@ router.post('/:id/send-context', (req, res) => {
   const project = (agent.repo_name as string) || '';
   if (!project) return res.status(400).json({ error: 'No project associated with agent' });
 
-  const { sessionIds, includeProgress, includeGotchas, includeDecisions, includeDetails } = req.body || {};
+  const { sessionIds, includeDetails } = req.body || {};
 
   // If no selections provided, fall back to full context
-  if (!sessionIds && !includeProgress && !includeGotchas && !includeDecisions && !includeDetails) {
+  if (!sessionIds && !includeDetails) {
     injectProjectContext(req.params.id, project);
   } else {
-    const context = buildSelectiveContext(project, { sessionIds, includeProgress, includeGotchas, includeDecisions, includeDetails });
+    const context = buildSelectiveContext(project, { sessionIds, includeDetails });
     if (context) {
       sendCommandToAgent(req.params.id, context, false);
     }

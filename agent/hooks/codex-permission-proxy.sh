@@ -43,6 +43,18 @@ POLL_TIMEOUT=120
 MAX_POLL_RETRIES=5
 
 INPUT=$(cat)
+# Async questions must execute immediately; PostToolUse publishes their form.
+# Blocking native questions are published here, before the native UI can wait.
+QUESTION_KIND=$(printf '%s' "$INPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_name", "").split(".")[-1])' 2>/dev/null)
+if [ "$QUESTION_KIND" = "request_user_input_async" ]; then
+  exit 0
+fi
+export NEONCORE_CODEX_HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+FLEET_TOKEN=$(PYTHONPATH="$NEONCORE_CODEX_HOOK_DIR" python3 -c 'from _fleet import fleet_token; print(fleet_token() or "")')
+AUTH_ARGS=()
+if [ -n "$FLEET_TOKEN" ]; then
+  AUTH_ARGS=(-H "Authorization: Bearer $FLEET_TOKEN")
+fi
 
 PARSED=$(printf '%s' "$INPUT" | /usr/bin/env python3 -c "
 import sys, json, os, subprocess
@@ -91,6 +103,16 @@ permission_body = json.dumps({
     'agentType': 'codex',
 })
 
+if tool_name.split('.')[-1] == 'request_user_input':
+    sys.path.insert(0, os.environ['NEONCORE_CODEX_HOOK_DIR'])
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('codex_reporter', os.path.join(os.environ['NEONCORE_CODEX_HOOK_DIR'], 'codex-reporter.py'))
+    reporter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reporter)
+    question = reporter.question_request(d)
+    if question:
+        permission_body = json.dumps({**json.loads(permission_body), **question})
+
 print(register_body)
 print(permission_body)
 print(session_id)
@@ -108,12 +130,12 @@ SESSION_ID=$(printf '%s\n' "$PARSED" | sed -n '3p')
 TOOL_NAME=$(printf '%s\n' "$PARSED" | sed -n '4p' | /usr/bin/env python3 -c "import sys,json; print(json.load(sys.stdin))" 2>/dev/null)
 
 # Register agent (fire-and-forget)
-curl -sf -X POST "$ORCHESTRATOR_URL/api/agents/register" \
+curl -sf "${AUTH_ARGS[@]}" -X POST "$ORCHESTRATOR_URL/api/agents/register" \
   -H "Content-Type: application/json" \
-  -d "$REGISTER_BODY" >/dev/null 2>&1 &
+  -d "$REGISTER_BODY" >/dev/null 2>&1
 
 # Request permission from orchestrator
-RESPONSE=$(curl -sf -X POST "$ORCHESTRATOR_URL/api/permissions/request" \
+RESPONSE=$(curl -sf "${AUTH_ARGS[@]}" -X POST "$ORCHESTRATOR_URL/api/permissions/request" \
   -H "Content-Type: application/json" \
   -d "$PERMISSION_BODY" 2>/dev/null)
 
@@ -143,7 +165,7 @@ fi
 # Long-poll for decision
 RETRY=0
 while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
-  POLL_RESULT=$(curl -sf --max-time $POLL_TIMEOUT \
+  POLL_RESULT=$(curl -sf "${AUTH_ARGS[@]}" --max-time $POLL_TIMEOUT \
     "$ORCHESTRATOR_URL/api/permissions/poll/$REQUEST_ID?timeout=$((POLL_TIMEOUT * 1000))" 2>/dev/null)
 
   if [ -z "$POLL_RESULT" ]; then
@@ -151,13 +173,18 @@ while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
     continue
   fi
 
-  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 -c "
-import sys, json
+  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | NEONCORE_QUESTION_KIND="$QUESTION_KIND" /usr/bin/env python3 -c "
+import sys, json, os
 poll = json.load(sys.stdin)
 decision = poll.get('decision', '')
 response_str = poll.get('response', '')
 
-if decision == 'allowed':
+if decision in ('allowed', 'denied') and os.environ.get('NEONCORE_QUESTION_KIND') == 'request_user_input':
+    print(json.dumps({'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+        'permissionDecisionReason': 'The user answered via NeonCore. Use these answers and continue; do not ask again. Decision: ' + decision + '. Response: ' + str(response_str)
+    }}))
+elif decision == 'allowed':
     print(json.dumps({
         'hookSpecificOutput': {
             'hookEventName': 'PreToolUse',

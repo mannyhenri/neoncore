@@ -99,10 +99,12 @@ test('the memory screen is REACHABLE on mobile, not merely present', () => {
 });
 
 test('every knowledge file the web edits is editable on mobile', () => {
-  // The four files are a registry in the web panel. Mobile offering three of them would be a
-  // silent subset — the user asked to edit project memory "like on web".
+  // A registry in the web panel, whatever its size. Mobile offering a SUBSET would be the bug —
+  // the user asked to edit project memory "like on web". It was four files; three were retired
+  // (server/src/lib/knowledge-files.ts), so this asserts parity rather than a count, and the
+  // non-vacuity check is that the registry parsed at all.
   const webFiles = [...WEB_PANEL.matchAll(/'(\w+\.md)'/g)].map((m) => m[1]);
-  assert.ok(webFiles.length >= 4, `expected the web KNOWLEDGE_FILES registry, found ${webFiles.length}`);
+  assert.ok(webFiles.length >= 1, `expected the web KNOWLEDGE_FILES registry, found ${webFiles.length}`);
   const screen = read('mobile/src/screens/ProjectMemoryScreen.tsx');
   const missing = [...new Set(webFiles)].filter((f) => !screen.includes(f));
   assert.deepEqual(missing, [], `mobile cannot edit these knowledge files: ${missing.join(', ')}`);

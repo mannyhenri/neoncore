@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { normalizeSession, getProjectSessions } from '../lib/session-manager.js';
+import { KNOWLEDGE_FILES, isKnowledgeFile } from '../lib/knowledge-files.js';
 
 const router = Router();
 
@@ -45,9 +46,10 @@ router.get('/sessions/:id', (req, res) => {
 
 router.get('/projects/:project/knowledge/:filename', (req, res) => {
   const { project, filename } = req.params;
-  const allowed = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'];
-  if (!allowed.includes(filename)) {
-    return res.status(400).json({ error: `Invalid filename. Allowed: ${allowed.join(', ')}` });
+  // The registry, not a third and fourth copy of the list — these two routes each carried
+  // their own, which is how a file can end up writable but unlisted.
+  if (!isKnowledgeFile(filename)) {
+    return res.status(400).json({ error: `Invalid filename. Allowed: ${KNOWLEDGE_FILES.join(', ')}` });
   }
 
   const row = db.prepare(
@@ -70,9 +72,10 @@ router.get('/projects/:project/knowledge/:filename', (req, res) => {
 router.put('/projects/:project/knowledge/:filename', (req, res) => {
   const { project, filename } = req.params;
   const { content } = req.body;
-  const allowed = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'];
-  if (!allowed.includes(filename)) {
-    return res.status(400).json({ error: `Invalid filename. Allowed: ${allowed.join(', ')}` });
+  // The registry, not a third and fourth copy of the list — these two routes each carried
+  // their own, which is how a file can end up writable but unlisted.
+  if (!isKnowledgeFile(filename)) {
+    return res.status(400).json({ error: `Invalid filename. Allowed: ${KNOWLEDGE_FILES.join(', ')}` });
   }
 
   if (typeof content !== 'string') {
@@ -94,6 +97,36 @@ router.put('/projects/:project/knowledge/:filename', (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+// ── Completion reports for a project ──
+//
+// What replaced progress.md / decisions.md / gotchas.md. Those were appended on every hook and
+// read by nobody; this is written once per run, by the agent that did the work, and is the
+// structured half of the report it rendered.
+
+router.get('/projects/:project/reports', (req, res) => {
+  const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10) || 50, 200);
+  const rows = db.prepare(
+    `SELECT id, project, workflow_id, step_id, workflow_name, run_number, status, report, created_at
+       FROM workflow_reports WHERE project = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+  ).all(req.params.project, limit) as Record<string, unknown>[];
+
+  res.json(rows.map((r) => ({
+    id: r.id as string,
+    project: r.project as string,
+    workflowId: r.workflow_id as string,
+    stepId: r.step_id as string,
+    workflowName: r.workflow_name as string,
+    runNumber: r.run_number as number,
+    status: r.status as string,
+    createdAt: r.created_at as string,
+    // Parsed, not handed back as a string — every consumer would otherwise parse it itself,
+    // and one of them would forget the try/catch.
+    report: (() => {
+      try { return JSON.parse((r.report as string) || '{}'); } catch { return {}; }
+    })(),
+  })));
 });
 
 // ── Project-scoped notes ──

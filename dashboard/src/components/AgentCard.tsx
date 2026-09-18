@@ -447,13 +447,6 @@ export function AgentCard({ agent, permissions, stuckAlert, onDecidePermission, 
             </svg>
           </button>
           <button
-            onClick={() => api.focusAgent(agent.id).catch(() => {})}
-            className="text-gray-600 hover:text-gl-purple transition-colors text-xs"
-            title="Bring VS Code window to front"
-          >
-            ^
-          </button>
-          <button
             onClick={() => onDelete(agent.id)}
             className="text-gray-600 hover:text-red-400 transition-colors text-sm"
             title="Remove agent"

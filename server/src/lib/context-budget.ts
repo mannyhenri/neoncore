@@ -24,3 +24,11 @@ export const PROJECT_CONTEXT_MAX_CHARS = 2000;
 // Workflow dependency results
 export const DEP_RESULT_MAX_CHARS = 1500;
 export const DEP_TOTAL_MAX_CHARS = 4000;
+
+// The full-run record injected into the terminal Workflow Completion Report step.
+// Wider than the dependency budget on purpose: that one carries a handoff between two
+// steps, this one is the entire run and is the only thing standing between the report and
+// an invented account of it. Still capped — per step so one huge result cannot crowd out
+// the rest, and in total so a forty-step run does not blow the prompt.
+export const RUN_REPORT_RESULT_MAX_CHARS = 1200;
+export const RUN_REPORT_TOTAL_MAX_CHARS = 24000;

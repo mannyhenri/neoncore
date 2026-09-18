@@ -16,6 +16,9 @@ export type GoalHealth = import('@neoncore/client').GoalHealth;
 export type GoalSchedule = import('@neoncore/client').GoalSchedule;
 export type Task = import('@neoncore/client').Task;
 export type TaskStatus = import('@neoncore/client').TaskStatus;
+/** The run report the journal stores. Shared, not copied — its `report` payload is the
+ *  verbatim JSON an agent wrote, and a stricter local copy would silently drop fields. */
+export type WorkflowReport = import('@neoncore/client').WorkflowReport;
 
 export type AgentMode = 'manual' | 'trust' | 'plan';
 export type AgentType = 'claude' | 'gridlight' | 'codex';

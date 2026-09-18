@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { theme } from '../theme';
 import { api } from '../api';
@@ -21,6 +21,8 @@ export function ConferCard({ session: c }: { session: ConferSession }) {
   const [confirming, setConfirming] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelErr, setCancelErr] = useState('');
+  const [resuming, setResuming] = useState(false);
+  useEffect(() => { if (c.status !== 'failed') setResuming(false); }, [c.status]);
 
   const doCancel = async () => {
     setCancelling(true);
@@ -32,6 +34,15 @@ export function ConferCard({ session: c }: { session: ConferSession }) {
     } catch (e) {
       setCancelErr(e instanceof Error ? e.message : 'Cancel failed');
       setCancelling(false);
+    }
+  };
+  const doResume = async () => {
+    setResuming(true);
+    setCancelErr('');
+    try { await api.resumeConfer(baseUrl, c.id); }
+    catch (e) {
+      setCancelErr(e instanceof Error ? e.message : 'Resume failed');
+      setResuming(false);
     }
   };
 
@@ -64,6 +75,10 @@ export function ConferCard({ session: c }: { session: ConferSession }) {
               <Text style={styles.cancel}>Cancel</Text>
             </TouchableOpacity>
           )
+        ) : c.status === 'failed' ? (
+          <TouchableOpacity onPress={doResume} disabled={resuming} hitSlop={8}>
+            <Text style={styles.cancel}>{resuming ? 'Resuming…' : 'Resume'}</Text>
+          </TouchableOpacity>
         ) : (
           <Text style={[styles.status, { color: conferColor[c.status] || theme.textDim }]}>
             {c.status.toUpperCase()}

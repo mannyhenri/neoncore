@@ -2,6 +2,8 @@ import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import { ensureReportStepOnTemplates } from './lib/workflow-report.js';
+import { layoutSteps } from './lib/workflow-layout.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,10 +17,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     keeps a test run from mutating the real neoncore.db underneath a live server.
 const DB_PATH = process.env.NEONCORE_DB_PATH?.trim() || path.join(__dirname, '..', 'neoncore.db');
 
-const db: DatabaseType = new Database(DB_PATH);
+const db: DatabaseType = new Database(DB_PATH, { timeout: 20_000 });
 
 // Enable WAL mode for better concurrent read performance
 db.pragma('journal_mode = WAL');
+
+// WAIT for a writer instead of throwing at it.
+//
+// WAL lets readers and one writer coexist; it does NOT queue two writers. Without a busy
+// timeout the second one fails instantly with SQLITE_BUSY "database is locked", and better
+// -sqlite3's own default (5s) is not enough when many processes open this file at once and
+// each runs the template seed at import.
+//
+// That is not only a test-suite condition. The runner daemon, a second federated server on
+// the same box and the MCP server all open this same file, and a write that throws where it
+// could have waited a moment is a lost write with a confusing error attached.
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS agents (
@@ -938,6 +951,30 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_knowledge_project ON project_knowledge(project);
 
+  -- The completion report a run produces, brought BACK from the cartridge.
+  --
+  -- The report step is an ordinary claude-code step: the agent writes workflow-report.json and
+  -- .html onto its OWN disk under .neoncore/reports/<runId>/, where the app cannot see them.
+  -- "Not sure the reports are working, I haven't seen one yet" — they were, and they were
+  -- landing somewhere unreachable. This is where they land now.
+  --
+  -- Keyed by project as a REPO NAME, matching project_knowledge and the journal routes, so a
+  -- report shows up in the same panel you already go to for that repo. UNIQUE on step_id: a
+  -- retried report replaces its earlier attempt instead of stacking a second row that disagrees
+  -- with the first.
+  CREATE TABLE IF NOT EXISTS workflow_reports (
+    id TEXT PRIMARY KEY,
+    project TEXT NOT NULL DEFAULT '',
+    workflow_id TEXT NOT NULL,
+    step_id TEXT NOT NULL UNIQUE,
+    workflow_name TEXT NOT NULL DEFAULT '',
+    run_number INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT '',
+    report TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_workflow_reports_project ON workflow_reports(project, created_at);
+
   -- Centralized command templates
   CREATE TABLE IF NOT EXISTS command_templates (
     id TEXT PRIMARY KEY,
@@ -1063,6 +1100,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_heartbeats_project ON heartbeats(project_id);
   CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats(active, next_run_at);
 
+
   -- Expo push tokens for the mobile app. One row per device; the token is the identity,
   -- so re-registering the same device is an idempotent upsert. Invalid tokens are pruned
   -- when Expo reports DeviceNotRegistered (see lib/push.ts).
@@ -1183,7 +1221,12 @@ if (orphanNotes.length > 0) {
  * The standard templates, by name. Exported so the id-stability test iterates the real
  * registry rather than a copy that can drift from it.
  */
-export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipeline', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
+// 'New Feature' and 'CI/CD Pipeline' are GONE, not reordered. Every one of their agent steps
+// had an empty prompt, so a step called "Develop" dispatched the word "Develop" to a cartridge
+// (the executor falls back to `description || name`). They looked like the real templates in the
+// picker, which is most of why the list read as convoluted. Both are in `deprecatedNames` below
+// so they are deleted from existing databases too, not merely unlisted.
+export const STANDARD_TEMPLATE_NAMES = ['Spec Intake → Dev Spec', 'Daily AI Research Digest', 'Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery'] as const;
 
 /**
  * Re-seed the standard templates, PRESERVING each one's id.
@@ -1199,6 +1242,28 @@ export const STANDARD_TEMPLATE_NAMES = ['Bug Hunter', 'New Feature', 'CI/CD Pipe
  * refreshed; only identity survives.
  */
 export function seedDefaultTemplates() {
+  // ONE TRANSACTION, and it is not a nicety.
+  //
+  // This deletes every standard template and re-inserts it, at module load, on every boot. The
+  // server's test suite has 60-plus files that do NOT point at an isolated database, so they
+  // open the real one concurrently and each runs this. Between one process's workflow INSERT
+  // and its step INSERTs, another process's DELETE lands — and the step insert dies on
+  // SQLITE_CONSTRAINT_FOREIGNKEY, taking the whole test FILE with it. Different file each run,
+  // no named failing test, and reproducible on a clean tree: 2 of 6 runs before this, and
+  // closer to every run once three more test files were added.
+  //
+  // A half-applied seed is also not a state worth exposing to a reader even when it does not
+  // crash: all of the templates or none.
+  //
+  // IMMEDIATE, not the default DEFERRED. A deferred transaction starts as a READER and upgrades
+  // when it first writes — and SQLite refuses to apply `busy_timeout` to that upgrade, because
+  // waiting there could deadlock two readers each trying to become the writer. It returns
+  // SQLITE_BUSY at once instead, so the timeout above looked like it did nothing. IMMEDIATE
+  // takes the write lock up front, which is exactly the case the timeout is for.
+  db.transaction(runStandardTemplateSeed).immediate();
+}
+
+function runStandardTemplateSeed() {
   const standardNames = STANDARD_TEMPLATE_NAMES;
 
   // Capture the established id for each name BEFORE deleting anything. Oldest wins, so
@@ -1224,7 +1289,7 @@ export function seedDefaultTemplates() {
   // in STANDARD_TEMPLATE_NAMES, so a rename that does not deprecate its old name leaves that row
   // in every existing database forever, beside its replacement with nothing to tell them apart.
   // Invisible on a fresh database, which is where a rename gets tested.
-  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion'];
+  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline'];
   for (const name of deprecatedNames) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {
@@ -1279,6 +1344,177 @@ export function seedDefaultTemplates() {
   const gate = (gateType: string) => ({ gateType, includeDepOutput: true });
 
   // Layout constants: all steps x=300, y increments by 175 (fully linear/sequential).
+
+  // ── 0a. Spec Intake → Dev Spec ────────────────────────────────────────────
+  //
+  // Upload a PDF of requirements, get a spec you can hit "start development" on.
+  //
+  // THE STEP THAT MATTERS IS THE COMPREHENSION CHECK. A specification understood wrongly and
+  // then built is worse than one never read: the work looks finished and satisfies nobody. So
+  // the agent must state its understanding back BEFORE writing a line of spec, and a human
+  // confirms it. That is the only reason this is a workflow rather than one long prompt.
+  //
+  // The document arrives through the launch modal's "Attach files" — attachments are copied
+  // into every cartridge's repo and referenced in each step's prompt (lib/attachments.ts), so
+  // nothing here needs to know about PDFs specifically.
+  {
+    const wfId = stableId('Spec Intake → Dev Spec');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(),
+          s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
+    insertWorkflow.run(wfId, 'Spec Intake → Dev Spec',
+      'Attach a requirements document (PDF/MD/DOCX) at launch. Extracts every requirement, checks them against this codebase, confirms its understanding with you, writes docs/specs/[slug]/spec.md, then waits for you to start development.', now);
+
+    step(wfId, s1, 'Read the Document', 'Extract EVERY requirement from the attached document as a numbered, testable list.', 300, 50, 'claude-code',
+      { ...cc('researcher'), prompt: 'A requirements document was ATTACHED to this run. Its path in this repo is given in the attachments block above — read that file first (use the Read tool; it handles PDF, Markdown and text).\n\nYour job is extraction, not interpretation. Do NOT design anything yet.\n\n1. Read the document END TO END before writing anything.\n2. Extract EVERY requirement as a numbered list. A requirement is anything the document says the system MUST, SHOULD or WILL do — including ones stated in passing, in a diagram caption, or in an example.\n3. For each: `R[n] | <one-line statement> | <MUST|SHOULD|MAY> | <verbatim quote or page/section>`.\n4. Separately list: explicit NON-goals, stated constraints (deadline, stack, compliance), and open questions the document leaves unanswered.\n5. STATE THE COUNT: "N requirements extracted".\n\nIf the document is unreadable or the attachment is missing, say so plainly and STOP — do not invent requirements from the workflow description.\n\nOutput:\n```\n## Extracted Requirements (N)\n[the numbered table]\n\n## Non-Goals\n## Constraints\n## Unanswered in the document\n```' }, []);
+
+    step(wfId, s2, 'Map to This Codebase', 'For every requirement: what already exists, what is missing, what conflicts.', 300, 225, 'claude-code',
+      { ...cc('architect'), prompt: 'Take the numbered requirements above and map EVERY ONE of them onto this repository. Iterate the list — a requirement you skip is one that gets discovered during development instead.\n\nFor each R[n], search the code (Grep/Glob/Read) and classify it:\n- ALREADY BUILT — name the file and symbol. Say how you verified it.\n- PARTIAL — what exists, what is missing.\n- MISSING — nothing in the repo does this.\n- CONFLICTS — the codebase already does something incompatible. Name both sides.\n- UNCLEAR — the requirement cannot be mapped without a decision from the author.\n\nThen answer three questions the document cannot:\n1. Which requirements are cheap because the groundwork exists?\n2. Which are expensive because they cut across existing structure?\n3. Which would change an existing contract (schema, route, exported type) that other things depend on?\n\nState the totals: "N requirements — A built, B partial, C missing, D conflicts, E unclear".' }, [s1]);
+
+    step(wfId, s3, 'State Your Understanding', 'Say back what you think is being asked — in plain language, before any spec is written.', 300, 400, 'claude-code',
+      { ...cc('planner'), prompt: 'Before any specification is written, state your understanding back to the author so they can correct it. This step exists because a document understood wrongly and then BUILT is the expensive failure — the work looks finished and satisfies nobody.\n\nWrite for the person who wrote the document, not for an engineer:\n\n```\n## What I understand you are asking for\n[3-6 sentences, plain language, no file paths, no jargon. What is the outcome they want and who is it for?]\n\n## The N requirements, in my words\n[the numbered list, each restated in ONE plain sentence — not quoted back]\n\n## What I believe is ALREADY done\n[from the mapping — so they can tell you if you are wrong about the current state]\n\n## What I think this will actually involve\n[the 3-6 real pieces of work, in dependency order]\n\n## Where I had to interpret\n[every place the document was ambiguous and you picked a reading. Say which reading and why. THIS IS THE MOST IMPORTANT SECTION — it is where a misunderstanding hides.]\n\n## What I still need from you\n[the questions that block a correct spec, or "nothing"]\n```\n\nThen use the AskUserQuestion tool to ask: "Is this the right understanding of what you want?" with options: Yes — write the spec / Mostly — I will correct some points / No — you have misread this.\n\nDo NOT proceed past your own question. Wait for the answer.' }, [s2], false);
+
+    step(wfId, s4, 'Write the Dev Spec', 'Turn the confirmed understanding into an implementable specification on disk.', 300, 575, 'claude-code',
+      { ...cc('architect'), prompt: 'The author has confirmed (or corrected) your understanding above. Fold in every correction they made — their correction outranks your earlier reading.\n\nDerive a short kebab-case slug from the subject and WRITE `docs/specs/[slug]/spec.md`:\n\n```\n# Spec: [Name]\n\n## Objective\n[what this delivers and for whom — 3-5 sentences]\n\n## Requirements\n[the numbered list, each with: statement | MUST/SHOULD/MAY | acceptance criterion that can be checked | current state]\n\n## Out of Scope\n[explicit non-goals, including anything the author ruled out in the previous step]\n\n## Design\n[the approach. Name real files, real functions, real tables. A spec that could describe any codebase is not a spec for this one.]\n\n## Work Breakdown\n[ordered tasks, each independently completable and verifiable. For each: what changes, what proves it done.]\n\n## Test Plan\n[per requirement: the test that proves it. Set-based where the requirement covers a set.]\n\n## Risks and Open Questions\n[what could make this wrong, and what is still undecided]\n```\n\nEvery requirement from step 1 appears here or in Out of Scope. None may silently vanish — state the count at the end: "N requirements: X specified, Y explicitly out of scope".' }, [s3]);
+
+    step(wfId, s5, 'Start development?', 'The spec is written. Build it now, revise it, or stop here.', 300, 750, 'decision',
+      { question: 'The development spec is written to docs/specs/[slug]/spec.md. Start development?',
+        eli10: 'Everything so far has been reading and planning — nothing in the codebase has changed. Saying "build it" hands the spec to the agent, which will write failing tests first and then implement against them.',
+        stakes: 'This is the last cheap moment. Changing the spec now costs a paragraph; changing it after implementation costs the implementation. If anything in the spec reads wrong, send it back.',
+        recommendation: 'build',
+        options: [
+          { id: 'build', label: 'Start development', description: 'Implement the spec: failing tests first, then code, then verify against the acceptance criteria.' },
+          { id: 'revise', label: 'Revise the spec first', description: 'Something is wrong or missing. The agent reworks the spec and asks again.' },
+          { id: 'stop', label: 'Stop here — spec only', description: 'Keep the spec document and build nothing. The spec stays on disk for later.' },
+        ] }, [s4]);
+
+    step(wfId, s6, 'Build It', 'Implement the spec, test-first, or revise it — per the decision above.', 300, 925, 'claude-code',
+      { ...cc('backend'), prompt: 'The decision above says what to do.\n\nIF "stop": output "Spec complete, no development requested." and nothing else. Do not touch the codebase.\n\nIF "revise": rework `docs/specs/[slug]/spec.md` against the feedback in the decision, then STOP and report what changed. Do not implement.\n\nIF "build":\n1. Read `docs/specs/[slug]/spec.md` in full.\n2. WRITE THE TESTS FIRST, from the Test Plan, and watch them fail. A test written after the code tests the code, not the requirement.\n3. Work the Work Breakdown IN ORDER. Commit after each task with a message naming the requirement id.\n4. Do not exceed the spec. Anything you believe is needed but is not specified goes in your report as a recommendation, not into the code.\n5. If a requirement turns out to be impossible or contradictory, STOP on that one, record it, and continue with the rest.\n\nReport: which requirements are implemented, which are deferred and why, and every commit made.' }, [s5]);
+
+    step(wfId, s7, 'Verify Against the Spec', 'Every requirement checked against its own acceptance criterion.', 300, 1100, 'quality-gate',
+      { ...gate('standard'), includeDepOutput: true, criteria: 'Read docs/specs/[slug]/spec.md. For EVERY numbered requirement marked MUST, verify its acceptance criterion against the actual code and the actual test output — not against the implementation report. PASS only if every MUST is satisfied or explicitly deferred with a reason. Say which requirement failed and how you checked.', maxRetries: 1 }, [s6]);
+
+    step(wfId, s8, 'Notify', 'Spec intake complete.', 300, 1275, 'connector',
+      { connectorType: 'system-notify', title: 'Spec Intake — Done', message: 'The spec is written and the run has finished. Check NeonCore for the report.' }, [s7]);
+  }
+
+  // ── 0b. Daily AI Research Digest ──────────────────────────────────────────
+  //
+  // Pairs with a heartbeat (Projects → Heartbeats → daily). Deliberately produces a SELF-
+  // CONTAINED html file: a digest that needs a server to render is one you cannot read on a
+  // phone at breakfast, which is the entire use case.
+  {
+    const wfId = stableId('Daily AI Research Digest');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
+    insertWorkflow.run(wfId, 'Daily AI Research Digest',
+      'Searches the web for the last 24-48h of AI news, models, tooling and research, filters it against what you actually work on, and renders a self-contained HTML digest it opens for you. Schedule it with a daily heartbeat.', now);
+
+    step(wfId, s1, 'Scan the Web', 'Find what actually happened in AI in the last 24-48 hours.', 300, 50, 'claude-code',
+      { ...cc('researcher'), prompt: 'Find what genuinely happened in AI in the LAST 24-48 HOURS. Use WebSearch to find it and WebFetch to read the actual sources — a headline you have not opened is a rumour.\n\nCover, and say explicitly when a category had nothing worth reporting:\n1. MODEL RELEASES — new models, versions, benchmarks, pricing or context-window changes (Anthropic, OpenAI, Google, Meta, Mistral, Qwen, DeepSeek, open weights).\n2. AGENT + CODING TOOLING — coding agents, IDE and CLI tooling, MCP, orchestration frameworks, evals.\n3. RESEARCH — papers with a result someone would act on, not incremental benchmarks.\n4. INDUSTRY — funding, acquisitions, licensing, regulation, outages, deprecations.\n5. SECURITY — prompt injection, model or supply-chain vulnerabilities, incidents.\n\nRules that decide whether this is worth reading:\n- DATE-CHECK every item. Search engines surface old pages constantly. If you cannot establish that it is from the last 48 hours, drop it.\n- Follow the link. Summarise the SOURCE, never the search snippet.\n- Record the primary URL for every item. An item with no source does not go in.\n- Distinguish ANNOUNCED from AVAILABLE. "Announced" and "you can use it today" are different facts.\n- No hype. If a day was quiet, a short honest digest beats a padded one.\n\nFor each item: title | date | source URL | what actually changed (2-3 sentences) | why it matters.' }, []);
+
+    step(wfId, s2, 'Filter for Relevance', 'Rank it against the stack these repos actually use.', 300, 225, 'claude-code',
+      { ...cc('planner'), prompt: 'Cut the scan down to what is worth this reader\'s attention.\n\nTheir context: they build AI agent orchestration (NeonCore — multi-agent workflows, Claude Code and Codex cartridges, MCP) and Gridlight. TypeScript/Node, React, SQLite, iOS/React Native. They care about agent tooling, model capability and pricing, and anything that changes how coding agents are built or run.\n\nSort every item into exactly one bucket:\n- ACT ON IT — changes something they might do this week. Say what the action is.\n- WORTH KNOWING — affects the landscape they work in.\n- BACKGROUND — real news, no bearing on their work.\n- DROPPED — say why (undated, unverified, pure marketing, duplicate).\n\nThen write a 2-3 sentence THROUGH-LINE for the day: the one thing that connects the items, or "no pattern today — these are unrelated". Do not manufacture a narrative.\n\nCap it: at most 5 ACT ON IT, 6 WORTH KNOWING, 4 BACKGROUND. A digest nobody finishes is a digest nobody reads.' }, [s1]);
+
+    step(wfId, s3, 'Render the Digest', 'One self-contained HTML file, opened for you.', 300, 400, 'claude-code',
+      { ...cc('general'), prompt: 'Render the filtered digest as ONE self-contained HTML file and open it.\n\nWrite it to `.neoncore/digests/ai-YYYY-MM-DD.html` (create the folder; make sure `.neoncore/` is gitignored — do not commit it).\n\nHARD REQUIREMENTS:\n- Self-contained: no external CSS, JS, fonts or images. It must render correctly opened from file:// with no network.\n- Legible in light AND dark: define your colours as tokens on :root, redefine them under @media (prefers-color-scheme: dark), and set an explicit background on body.\n- Readable at phone width (~400px) with a 16px side gutter and no horizontal scrolling.\n- Every item links to its primary source, and the link opens in a new tab.\n\nSTRUCTURE:\n1. Header — the date, the item count, and the through-line in one sentence.\n2. ACT ON IT — each with the action stated as an imperative.\n3. WORTH KNOWING — title, one-line what-changed, source link.\n4. BACKGROUND — a compact list.\n5. A collapsed <details> holding what was dropped and why, so the filtering is auditable.\n\nIf the day was quiet, say so at the top in plain words rather than padding the page.\n\nThen OPEN IT — one window:\n  macOS   open .neoncore/digests/ai-YYYY-MM-DD.html\n  Linux   xdg-open …   Windows  start …\nDo not publish it anywhere. The local file is the deliverable.' }, [s2]);
+
+    step(wfId, s4, 'Digest Ready', 'Notify that the digest is open.', 300, 575, 'connector',
+      { connectorType: 'system-notify', title: 'AI Digest — Ready', message: 'Today\'s AI research digest has been rendered and opened.' }, [s3]);
+
+    step(wfId, s5, 'Archive Note', 'Record what today covered, so tomorrow does not repeat it.', 300, 750, 'claude-code',
+      { ...cc('general'), prompt: 'Write a ONE-LINE-PER-ITEM index of what today\'s digest covered, appended to `.neoncore/digests/index.md` as `- YYYY-MM-DD | <title> | <url>`.\n\nThis exists so a future run can check what has already been reported and avoid repeating an item across days. Before appending, read the last 30 lines of that file if it exists and note in your result any item from today that had ALREADY been reported earlier in the week — that is a filtering miss worth knowing about.' }, [s3]);
+  }
+
+  // ── 0c. Confer ────────────────────────────────────────────────────────────
+  //
+  // Confer as a TEMPLATE rather than a button in the header. It was a global action in the top
+  // menu, which made it the one way of starting work that had no run history, no project, no
+  // report and no place on the canvas. It is a workflow like everything else.
+  //
+  // The confer step ships with an EMPTY conferAgentIds: the launch modal fills it from the
+  // cartridges picked under "Run on" (CONFER_FILL, lib/workflow-launch.ts).
+  {
+    const wfId = stableId('Confer');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID();
+    insertWorkflow.run(wfId, 'Confer',
+      'Two or more cartridges work one task together — they agree an approach, split it between themselves, and build in rounds. Pick the cartridges under "Run on" at launch and put the task in the description.', now);
+
+    step(wfId, s1, 'Confer & Build', 'The cartridges agree an approach, divide the work, and build it.', 300, 50, 'confer',
+      { conferAgentIds: [], conferMode: 'divide', conferIsolation: 'shared', buildRounds: 3, includeDepOutput: true,
+        prompt: 'The task is in the workflow description above.\n\nYou are working this TOGETHER with the other cartridges in this confer. Each of you is in a different repo or checkout, and none of you owns the whole task.\n\nROUND 1 — AGREE THE SHAPE. Before any code: say what you believe the task is, what your repo can contribute, and what you need from the others. Read their answers. Converge on ONE approach and ONE division of the work. If you disagree, say so explicitly — an unspoken disagreement becomes two incompatible implementations.\n\nROUND 2+ — BUILD YOUR PART. Work only the piece you agreed to own. Commit as you go. When you change anything another participant depends on — a shared type, an API shape, a schema — say so immediately rather than at the end.\n\nTHROUGHOUT:\n- Never edit a repo you are not in.\n- State what you have finished and what is still open at the end of each round.\n- If you are blocked on another participant, name them and what you need.\n\nFinish when your agreed piece is done and verified in your own repo.' }, []);
+
+    step(wfId, s2, 'Verify Together', 'Does the combined result actually work across repos?', 300, 225, 'claude-code',
+      { ...cc('reviewer'), prompt: 'The confer is finished. Verify the COMBINED result — the failure mode of a confer is a set of pieces that each work alone and do not fit.\n\n1. Read what every participant reported.\n2. For each shared contract they touched (types, API shapes, schemas, env vars), check both sides actually agree. Name the file on each side.\n3. Run the tests in this repo and paste the real output.\n4. List anything a participant said they were blocked on that was never resolved.\n\nVerdict: DOES IT FIT — yes, or exactly what does not.' }, [s1]);
+
+    step(wfId, s3, 'Notify', 'Confer complete.', 300, 400, 'connector',
+      { connectorType: 'system-notify', title: 'Confer — Done', message: 'The cartridges have finished conferring. Check NeonCore for the report.' }, [s2]);
+  }
+
+  // ── 0d. QA Testing Guide ──────────────────────────────────────────────────
+  //
+  // The gap: Full QA Review and CE Phase 5 both produce a REPORT OF ONE RUN — findings, a health
+  // score, bugs found. Neither produces a GUIDE: the reusable document that tells the next
+  // person (or the next agent) how to test this thing. Searched all templates for user guides,
+  // test plans, runbooks — zero. So every QA run rediscovers the flows from scratch.
+  {
+    const wfId = stableId('QA Testing Guide');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(),
+          s5 = randomUUID(), s6 = randomUUID();
+    insertWorkflow.run(wfId, 'QA Testing Guide',
+      'Produces a REUSABLE testing guide for this product — every flow, its steps, its expected result and how it fails — not a report of one QA run. Writes docs/qa/testing-guide.md. Re-run it to refresh the guide as the product changes.', now);
+
+    step(wfId, s1, 'Map What Can Be Tested', 'Enumerate every user-facing flow from the code, not from memory.', 300, 50, 'claude-code',
+      { ...cc('tester'), prompt: 'Enumerate EVERY testable user-facing flow in this product, derived from the CODE — routes, screens, commands, jobs — not from what you remember about it.\n\n1. Find the entry points: HTTP routes, UI screens/views, CLI commands, scheduled jobs, webhooks.\n2. For each, identify the user-visible flow it belongs to. A flow is something a person does end to end ("launch a workflow", "approve a permission"), not a function call.\n3. Group flows by area, and mark each CRITICAL / IMPORTANT / MINOR — critical means the product is broken without it.\n4. Note which flows have automated coverage already (find the tests) and which have none.\n\nSTATE THE COUNT: "N flows across M areas — X critical, Y already covered by automated tests."\n\nThis enumeration is the spine of the guide. A flow missed here is a flow nobody tests.' }, []);
+
+    step(wfId, s2, 'Write the Steps for Each Flow', 'Concrete, followable steps — no "verify it works".', 300, 225, 'claude-code',
+      { ...cc('tester'), prompt: 'For EVERY flow enumerated above — iterate the list, skip none — write the actual test procedure.\n\nEach flow gets:\n- **Preconditions** — what must be true first (logged in? data seeded? a cartridge running?). Name them concretely.\n- **Steps** — numbered, each a single action a person can perform without interpretation. "Click Run Workflow" not "start the workflow".\n- **Expected result** — what you should SEE. A specific string, state or screen, not "it works".\n- **How it fails** — the realistic failure modes and what each looks like. This is the part that turns a script into a guide: it tells the tester what they are looking at when it goes wrong.\n\nWrite it so someone who has never used this product can follow it. Where a step needs a value (a URL, an id, a file), say where to get that value.\n\nIf a flow cannot be tested manually, say so and say why — that is a finding, not an omission.' }, [s1]);
+
+    step(wfId, s3, 'Edge Cases and Data Setup', 'The cases that break in production, and how to create them.', 300, 400, 'claude-code',
+      { ...cc('tester'), prompt: 'A guide that only covers the happy path is a demo script. For each CRITICAL flow above, add the cases that actually break:\n\n- **Empty / first-run state** — nothing created yet. The most common broken screen in any product.\n- **Boundary** — one item, many items, maximum length, zero, negative.\n- **Failure injection** — the network is down, the dependency is offline, the file is missing, permission denied. Say HOW to create each condition in this product specifically.\n- **Concurrency** — two of something at once, where that is possible here.\n- **Interrupted** — the user closes the tab / the process dies mid-operation.\n\nThen write a **Test Data** section: exactly how to get the system into each state needed above — commands, fixtures, SQL, UI steps. A guide whose setup is "have some data" is a guide nobody can follow.' }, [s2]);
+
+    step(wfId, s4, 'Write the Guide', 'One document, on disk, for a human or an agent to follow.', 300, 575, 'claude-code',
+      { ...cc('planner'), prompt: 'Assemble everything above into ONE document and WRITE it to `docs/qa/testing-guide.md`. Read the existing file first if it is there and PRESERVE any hand-written notes, marking what you changed.\n\n```\n# QA Testing Guide — [Product]\n\nLast generated: [date] · [N] flows · [X] critical\n\n## How to use this guide\n[how to run a pass: full sweep vs critical-only, roughly how long each takes]\n\n## Environment and Test Data\n[how to get a working environment, and how to create each state the flows need]\n\n## Critical Flows\n### [Flow name]\n**Preconditions** · **Steps** (numbered) · **Expected** · **How it fails**\n\n## Important Flows\n## Minor Flows\n\n## Edge Cases by Flow\n\n## Known Gaps\n[flows with no automated coverage, and anything that cannot be tested manually and why]\n\n## Regression Checklist\n[the short list — the N things to check before any release. Critical flows only.]\n```\n\nEvery flow from step 1 appears, or is listed under Known Gaps with a reason. State the count at the end.' }, [s3]);
+
+    step(wfId, s5, 'Check It Is Followable', 'A guide nobody can follow is a document, not a guide.', 300, 750, 'quality-gate',
+      { ...gate('standard'), includeDepOutput: true, criteria: 'Read docs/qa/testing-guide.md as if you had never seen this product. PASS only if: every critical flow has numbered steps with a CONCRETE expected result (not "verify it works"); every precondition says how to reach it; the Test Data section is specific enough to act on; and the flow count in the document matches the count enumerated in step 1. Name the first flow that fails any of these and quote it.', maxRetries: 1 }, [s4]);
+
+    step(wfId, s6, 'Notify', 'The testing guide is written.', 300, 925, 'connector',
+      { connectorType: 'system-notify', title: 'QA Testing Guide — Ready', message: 'docs/qa/testing-guide.md has been written or refreshed.' }, [s5]);
+  }
+
+  // ── 0e. Release Documentation ─────────────────────────────────────────────
+  //
+  // The other gap: `Document Release` (CE Phase 6) updates INTERNAL docs — README, ARCHITECTURE,
+  // CLAUDE.md — against the diff. Nothing produced anything you would SHIP: release notes, an
+  // upgrade path, install steps, a support runbook. Searched every template for user guides,
+  // release notes, runbooks, install docs — zero hits.
+  {
+    const wfId = stableId('Release Documentation');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(),
+          s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
+    insertWorkflow.run(wfId, 'Release Documentation',
+      'Produces the documents you SHIP with a release, not the ones you keep: release notes, upgrade/migration steps, install & configuration, and a support runbook. Put the version or tag range in the description. Writes docs/release/[version]/.', now);
+
+    step(wfId, s1, 'Establish What Shipped', 'The real change set, from git — not from memory.', 300, 50, 'claude-code',
+      { ...cc('researcher'), prompt: 'Establish exactly what is in this release. The version or tag range is in the workflow description; if it is not, use the commits since the last tag (`git describe --tags --abbrev=0`) and SAY which range you used.\n\n1. `git log --oneline <range>` — every commit.\n2. Sort each commit into: USER-VISIBLE change, BUG FIX, BREAKING change, INTERNAL only, or DEPENDENCY.\n3. For each user-visible one: what can a user now do, or do differently, that they could not before? Answer from the diff, not from the commit message — commit messages describe intent and code describes behaviour.\n4. Flag every BREAKING change explicitly: a changed API shape, a renamed config key, a dropped option, a schema migration, a new required environment variable.\n\nSTATE THE COUNTS: "N commits — A user-visible, B fixes, C breaking, D internal."\n\nIf the range is empty or you cannot determine it, say so and STOP rather than inventing a release.' }, []);
+
+    step(wfId, s2, 'Release Notes', 'What changed, written for the person using it.', 300, 225, 'claude-code',
+      { ...cc('planner'), prompt: 'Write the release notes, for USERS. Not a changelog of commits — a description of what is different for someone using this product.\n\nRules that separate release notes from a git log:\n- Lead with what they can now DO. "Workflows now run on a schedule" beats "add heartbeat scheduler".\n- No commit hashes, no file paths, no internal module names in the body.\n- Every BREAKING change goes at the TOP, before the features, with what the reader must do about it.\n- Internal-only commits do not appear at all.\n- If the release is small, it is short. Padding a release note is how people learn not to read them.\n\n```\n# [Product] [version]\n[one sentence: the headline of this release]\n\n## Breaking changes\n[what broke | what you must do | why]  — or "None."\n\n## New\n## Improved\n## Fixed\n## Known issues\n```' }, [s1]);
+
+    step(wfId, s3, 'Upgrade & Migration', 'How an existing install gets from the last version to this one.', 300, 400, 'claude-code',
+      { ...cc('backend'), prompt: 'Write the upgrade path for someone ALREADY RUNNING the previous version. This is the document whose absence causes support tickets.\n\nWork from the breaking changes and schema/config changes found in step 1:\n1. **Before you upgrade** — what to back up, what to check, anything that must be drained or stopped.\n2. **Steps** — numbered, in order, each independently verifiable. Include the actual commands.\n3. **Schema migrations** — do they run automatically or by hand? Are they reversible? What happens to existing rows?\n4. **Configuration changes** — every new, renamed, or removed setting, with defaults and whether it is required.\n5. **Verify the upgrade worked** — the specific checks, with expected output.\n6. **Rollback** — how to go back, and what is lost if you do. If rollback is impossible, SAY SO PROMINENTLY.\n\nIf nothing is required, write "No migration needed — upgrade in place" and say why you are confident.' }, [s1]);
+
+    step(wfId, s4, 'Install & Configure', 'A clean install, from nothing to running.', 300, 575, 'claude-code',
+      { ...cc('backend'), prompt: 'Write the install and configuration guide for someone starting from NOTHING. Derive it from the repo — package manifests, Dockerfiles, env handling, setup scripts — and not from what you assume a developer already has.\n\n1. **Requirements** — runtimes and versions, OS support, external services. Read the manifests; state real versions.\n2. **Install** — the actual commands, in order, for each supported platform.\n3. **Configuration** — EVERY environment variable and config key: name, what it does, default, required or optional. Find these in the code, not in an existing doc that may be stale.\n4. **First run** — how to start it and how to tell it is working.\n5. **Common install problems** — what goes wrong and the fix.\n\nWhere a secret or credential is needed, say what it is for and where to obtain it. NEVER include a real credential, token or key in this document — if you find one hardcoded in the repo, report that as a finding instead.' }, [s1]);
+
+    step(wfId, s5, 'Support Runbook', 'What the person on the other end of the problem needs.', 300, 750, 'claude-code',
+      { ...cc('reviewer'), prompt: 'Write the support runbook — for whoever handles it when this release misbehaves in the field.\n\n1. **Health checks** — how to tell, quickly, whether the system is working. Exact commands or endpoints with expected output.\n2. **Where the logs are** — paths, formats, how to raise verbosity.\n3. **Symptom → cause → fix**, one row per realistic failure. Derive these from the error paths in the code and from the risks in this release specifically, not generic advice.\n4. **Diagnostics to collect** before escalating — the exact set, so a report arrives complete.\n5. **Known limitations** of this release that will be reported as bugs but are not.\n\nBe concrete. "Check the logs" helps nobody; "`tail -f server/neoncore-server.log` and look for `[heartbeat] SKIPPED`" does.' }, [s1]);
+
+    step(wfId, s6, 'Assemble the Release Bundle', 'Write the documents to disk, together.', 300, 925, 'claude-code',
+      { ...cc('planner'), prompt: 'Write every document above to `docs/release/[version]/`, one file each:\n\n  RELEASE-NOTES.md · UPGRADE.md · INSTALL.md · SUPPORT-RUNBOOK.md · README.md (an index of the four, with a one-line description of each)\n\nDerive [version] from the range established in step 1. Create the directory.\n\nThen cross-check the set before you finish:\n- Every BREAKING change from step 1 appears in BOTH the release notes and the upgrade guide.\n- Every new config key appears in the install guide.\n- No document contradicts another about a version number, a default, or a command.\n- No credential, token or key appears anywhere in the bundle.\n\nReport: the files written, the counts from step 1, and any contradiction you had to resolve.' }, [s2, s3, s4, s5]);
+
+    step(wfId, s7, 'Notify', 'The release bundle is written.', 300, 1100, 'connector',
+      { connectorType: 'system-notify', title: 'Release Documentation — Ready', message: 'The shippable release bundle has been written to docs/release/.' }, [s6]);
+  }
 
   // ── 1. Bug Hunter ────────────────────────────────────────────────────────
   {
@@ -1336,40 +1572,6 @@ export function seedDefaultTemplates() {
       'System notification: Bug Hunter workflow complete.',
       300, 1460, 'connector',
       { connectorType: 'system-notify', title: 'Bug Hunter — Done', message: '{{workflowName}} finished. Check NeonCore for the full bug report.' }, [s6]);
-  }
-
-  // ── 3. New Feature ────────────────────────────────────────────────────────
-  {
-    const wfId = stableId('New Feature');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
-    insertWorkflow.run(wfId, 'New Feature',
-      'Research → architect → define tests → develop → run tests → security → summary → notify.', now);
-    step(wfId, s1, 'Research',        'Investigate existing approaches, patterns, and trade-offs.',                                                                                                                           300,   50, 'claude-code', cc('researcher'), []);
-    step(wfId, s2, 'Architecture',    'Design implementation plan with file paths and interfaces. Manual advance — review before tests are written.',                                                                         300,  225, 'claude-code', cc('architect'),  [s1], false);
-    step(wfId, s3, 'Define Tests',    'Define all test cases and acceptance criteria. For each test: describe the scenario, inputs, expected output, and what failure means. Do not write any implementation code.',          300,  400, 'claude-code', cc('tester'),     [s2]);
-    step(wfId, s4, 'Develop',         'Build the feature following the architecture plan.',                                                                                                                                   300,  575, 'claude-code', cc('backend'),    [s3]);
-    step(wfId, s5, 'Run Tests',       'Execute the tests defined in Define Tests. All acceptance criteria must pass.',                                                                                                        300,  750, 'quality-gate',
-      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s4 }], maxCycles: 3 }, [s4]);
-    step(wfId, s6, 'Security & Lint', 'Full lint + security check.',                                                                                                                                                          300,  925, 'quality-gate', gate('security'), [s5]);
-    step(wfId, s7, 'Summary',         'Document all changes, test results, and manual testing instructions.',                                                                                                                 300, 1100, 'claude-code', cc('planner'), [s6]);
-    step(wfId, s8, 'Notify',          'System notification: New Feature workflow complete.',                                                                                                                             300, 1275, 'connector',
-      { connectorType: 'system-notify', title: 'New Feature — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s7]);
-  }
-
-  // ── 5. CI/CD Pipeline ─────────────────────────────────────────────────────
-  {
-    const wfId = stableId('CI/CD Pipeline');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
-    insertWorkflow.run(wfId, 'CI/CD Pipeline',
-      'Code review → unit tests → integration tests → security → notify.', now);
-    step(wfId, s1, 'Code Review',           'Review code quality, patterns, and edge cases.',                                                                                                                                 300,  50, 'quality-gate', gate('full-review'), []);
-    step(wfId, s2, 'Run Unit Tests',        'Execute full unit test suite.',                                                                                                                                                  300, 225, 'quality-gate',
-      { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s1 }], maxCycles: 1 }, [s1]);
-    step(wfId, s3, 'Run Integration Tests', 'Execute integration and end-to-end tests.',                                                                                                                                      300, 400, 'claude-code',
-      cc('tester', { systemPrompt: 'Run all integration and e2e tests. Report STATUS: PASS or STATUS: FAIL in your result.' }), [s2]);
-    step(wfId, s4, 'Security Scan',         'Audit for OWASP issues, auth flaws, and credential exposure.',                                                                                                                   300, 575, 'quality-gate', gate('security'), [s3]);
-    step(wfId, s5, 'Notify',                'System notification: CI/CD Pipeline workflow complete.',                                                                                                                  300, 750, 'connector',
-      { connectorType: 'system-notify', title: 'CI/CD Pipeline — Done', message: '{{workflowName}} finished. Check NeonCore for results.' }, [s4]);
   }
 
   // ── 6. Feature Validation ─────────────────────────────────────────────────
@@ -2607,7 +2809,9 @@ FAIL when any item is missing, invalid, unresolved, skipped without explicit aut
     step(wfId, p7s5, '[P7] ✓ Sprint Complete',        'All 7 phases done. Feature live, learnings captured.',                300, 6825, 'connector',   { connectorType: 'system-notify', title: 'CE Full Delivery — COMPLETE 🎯', message: 'All 7 phases done. Feature live, compound doc written, CLAUDE.md updated, retro done.' }, [p7s4]);
   }
 
-  console.log('[db] Seeded 20 default workflow templates');
+  // Derived, not hand-written: this said 20 while the list held 23, because a count typed
+  // into a log line is a fact nobody updates when they add a template.
+  console.log(`[db] Seeded ${standardNames.length} default workflow templates`);
 }
 
 /**
@@ -2680,6 +2884,10 @@ for (const [table, column, decl] of [
   //
   // `autonomy_expires_at` is what makes raising a level a decision you cannot forget you made:
   // an unbounded grant is one you stop noticing.
+  // A scheduled run fires with NOBODY WATCHING, so 'manual' — which auto-resolves nothing —
+  // is the one posture that cannot be right for it. Same default as a hand-launched run
+  // (DEFAULT_AUTONOMY): a schedule is a launch you are not present for, not a weaker one.
+  ['heartbeats', 'autonomy', "TEXT NOT NULL DEFAULT 'full'"],
   ['workflows', 'autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
   ['workflows', 'autonomy_expires_at', 'TEXT'],
   ['projects', 'default_autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
@@ -2692,5 +2900,62 @@ for (const [table, column, decl] of [
 }
 
 seedDefaultTemplates();
+
+// Every template ends in a Workflow Completion Report — the standard ones just re-seeded
+// above AND the ones a user built on the canvas, which is why this keys off `template_id IS
+// NULL` rather than a list of names. It has to run AFTER seedDefaultTemplates(), which
+// deletes and re-inserts the standard templates on every boot and would otherwise drop the
+// step this just wrote. Idempotent: a template that already carries the marker is skipped.
+/**
+ * RECONNECT HISTORICAL RUNS TO THEIR TEMPLATE.
+ *
+ * `stableId` preserves a template's id across re-seeds now, but it did not always: every boot
+ * used to mint a fresh `randomUUID()`, and the comment on seedDefaultTemplates records the
+ * consequence — "historical runs' template_id became dangling". Measured on the live database:
+ * 71 runs going back to April 2026, and 70 of them pointing at a template id that no longer
+ * existed.
+ *
+ * That is not cosmetic. `GET /workflows/:id/runs` and the dashboard's run history both join on
+ * this column, so eight months of runs were invisible from the template that produced them —
+ * and any count taken over the join reads as zero, which is exactly the wrong conclusion to
+ * draw about a template.
+ *
+ * Matched BY NAME, which is the same key seedDefaultTemplates uses to preserve identity in the
+ * first place, and only for runs whose current template_id resolves to nothing. A run already
+ * pointing at a live template is never touched.
+ */
+function reattachOrphanedRuns(): number {
+  const changed = db.prepare(`
+    UPDATE workflows AS r
+       SET template_id = (
+             SELECT t.id FROM workflows t
+              WHERE t.template_id IS NULL AND t.name = r.name
+              ORDER BY t.created_at ASC LIMIT 1)
+     WHERE r.template_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM workflows t2 WHERE t2.id = r.template_id)
+       AND EXISTS (SELECT 1 FROM workflows t3 WHERE t3.template_id IS NULL AND t3.name = r.name)
+  `).run().changes;
+  return changed;
+}
+
+const reattached = reattachOrphanedRuns();
+if (reattached > 0) {
+  console.log(`[db] Re-attached ${reattached} historical run(s) to their template`);
+}
+
+const reportStepsAdded = ensureReportStepOnTemplates(db);
+
+// Lay every template out with ONE spacing, recomputed from the step graph.
+//
+// The y values in the template definitions above are ~150 hand-typed literals stepping by 175,
+// which crowds a 300px-wide node — "all the steps are close together". Rather than edit every
+// literal (and have the next template type a new one), the layout is recomputed here from the
+// dependency graph. The authored values no longer matter.
+for (const t of db.prepare('SELECT id FROM workflows WHERE template_id IS NULL').all() as { id: string }[]) {
+  layoutSteps(db, t.id);
+}
+if (reportStepsAdded > 0) {
+  console.log(`[db] Added the completion report step to ${reportStepsAdded} workflow template(s)`);
+}
 
 export default db;

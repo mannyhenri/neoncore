@@ -25,11 +25,16 @@ import { theme } from '../theme';
 import { api, type ProjectNote } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import { Card, Chip, ActionButton, PrimaryButton, Adaptive } from '../components/ui';
+import type { WorkflowReport } from '../types';
 
 /** Mirrors KNOWLEDGE_FILES in dashboard/src/components/ProjectMemoryPanel.tsx. The parity
- *  test asserts this list matches the web's, so a file added there fails here until added. */
-const KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md', 'details.md'] as const;
-type Tab = 'notes' | (typeof KNOWLEDGE_FILES)[number];
+ *  test asserts this list matches the web's, so a file added there fails here until added.
+ *
+ *  Was four. progress.md, decisions.md and gotchas.md were auto-appended by the session
+ *  summarizer and read by nobody; see server/src/lib/knowledge-files.ts. details.md is the one
+ *  a person writes. */
+const KNOWLEDGE_FILES = ['details.md'] as const;
+type Tab = 'notes' | 'reports' | (typeof KNOWLEDGE_FILES)[number];
 
 export function ProjectMemoryScreen({ project: projectProp, onBack }: { project?: string; onBack?: () => void }) {
   const { baseUrl, agents } = useNeonCore();
@@ -41,13 +46,14 @@ export function ProjectMemoryScreen({ project: projectProp, onBack }: { project?
   const [picked, setPicked] = useState('');
   const project = projectProp || picked || repos[0] || '';
   /**
-   * Opens on progress.md, NOT on notes.
+   * Opens on details.md, NOT on notes.
    *
-   * Measured against the live server: notes is [] for 10 of 11 projects, while every one of
-   * them has content in progress.md. Defaulting to the empty tab made a working screen look
-   * broken — "the memory button doesn't bring anything" was this, not a missing feature.
+   * The original reasoning still holds, with a different file: notes is [] for 10 of 11
+   * projects, so defaulting to it made a working screen look broken — "the memory button
+   * doesn't bring anything" was this, not a missing feature. progress.md used to be the
+   * non-empty one; it is retired, and details.md is now the only file here.
    */
-  const [tab, setTab] = useState<Tab>('progress.md');
+  const [tab, setTab] = useState<Tab>('details.md');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -58,12 +64,18 @@ export function ProjectMemoryScreen({ project: projectProp, onBack }: { project?
   const [fileText, setFileText] = useState('');
   const [dirty, setDirty] = useState(false);
 
+  // The run reports for this repo — what replaced the Progress/Decisions/Gotchas tabs. Reading
+  // last night's outcome is a phone task, which is why this is here and not desk-only.
+  const [reports, setReports] = useState<WorkflowReport[]>([]);
+
   const load = useCallback(async () => {
     if (!baseUrl || !project) return;
     setBusy(true);
     try {
       if (tab === 'notes') {
         setNotes(await api.getProjectNotes(baseUrl, project));
+      } else if (tab === 'reports') {
+        setReports(await api.getProjectReports(baseUrl, project));
       } else {
         // A file that has never been written 404s; an empty editor is the correct rendering
         // of "nothing here yet", not an error to shout about.
@@ -126,7 +138,7 @@ export function ProjectMemoryScreen({ project: projectProp, onBack }: { project?
       )}
 
       <View style={[s.chipRow, s.tabRow]}>
-        {(['notes', ...KNOWLEDGE_FILES] as Tab[]).map((t) => (
+        {(['reports', 'notes', ...KNOWLEDGE_FILES] as Tab[]).map((t) => (
           <Chip key={t} label={t.replace('.md', '')} on={tab === t} onPress={() => setTab(t)} />
         ))}
       </View>
@@ -134,7 +146,27 @@ export function ProjectMemoryScreen({ project: projectProp, onBack }: { project?
       {error !== '' ? <Text style={s.err}>{error}</Text> : null}
       {busy && <ActivityIndicator style={s.spinner} color={theme.accent} />}
 
-      {tab === 'notes' ? (
+      {tab === 'reports' ? (
+        <ScrollView style={s.flex} contentContainerStyle={s.scrollPad}>
+          {reports.length === 0 && !busy ? (
+            <Text style={s.empty}>
+              No completion reports yet. Every workflow writes one when it finishes.
+            </Text>
+          ) : reports.map((r) => {
+            const rep = r.report as Record<string, unknown>;
+            const summary = typeof rep.executiveSummary === 'string' ? rep.executiveSummary : '';
+            return (
+              <View key={r.id} style={s.reportCard}>
+                <Text style={s.reportTitle}>
+                  {r.workflowName}{r.runNumber > 0 ? ` #${r.runNumber}` : ''}
+                  {r.status ? `  ·  ${r.status}` : ''}
+                </Text>
+                {summary !== '' && <Text style={s.reportBody}>{summary}</Text>}
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : tab === 'notes' ? (
         <ScrollView style={s.flex} contentContainerStyle={s.scrollPad}>
           <TextInput
             value={draft}
@@ -222,6 +254,13 @@ const s = StyleSheet.create({
   err: { color: theme.danger, fontSize: 12, paddingHorizontal: 12, paddingBottom: 6 },
   spinner: { marginVertical: 6 },
   scrollPad: { paddingHorizontal: 12, paddingBottom: 24 },
+  empty: { color: theme.textFaint, fontSize: 13, paddingVertical: 20, textAlign: 'center' },
+  reportCard: {
+    backgroundColor: theme.bgCard, borderRadius: 8, padding: 12, marginTop: 8,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  reportTitle: { color: theme.text, fontSize: 13, fontWeight: '600' },
+  reportBody: { color: theme.textDim, fontSize: 12, marginTop: 6, lineHeight: 17 },
   input: {
     color: theme.text,
     backgroundColor: theme.bgCard,

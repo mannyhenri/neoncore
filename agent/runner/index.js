@@ -16,6 +16,7 @@
 import fs from 'fs';
 import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
+import { ensureFolderTrusted } from '../lib/folder-trust.mjs';
 import path from 'path';
 import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
@@ -139,6 +140,10 @@ function launchCartridge({ repoPath, agentType, sessionId, context, resumeSessio
   // POSIX and Windows branches below serialize this same object, so one line covers both.
   if (resumeSessionId) env.NEONCORE_RESUME_SESSION_ID = resumeSessionId;
   if (isWin && type === 'claude') env.NEONCORE_AGENT_CMD = 'claude.cmd';
+
+  // Before any terminal exists: a first-ever launch into this directory would otherwise stop
+  // on Claude's folder-trust prompt, which defaults to "No, exit". Covers BOTH branches below.
+  ensureFolderTrusted(repoPath);
 
   try {
     if (isWin) {

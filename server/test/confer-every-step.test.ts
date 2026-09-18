@@ -28,6 +28,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CONFER_FILL } from '../src/lib/workflow-launch.ts';
 
 const ROOT = path.join(import.meta.dirname, '..', '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -57,10 +58,13 @@ test('the launch path offers a run-level confer mode', () => {
 test('EVERY executor type is a stated decision in the conversion', () => {
   // The conversion must name every type: which it rewrites, which are already multi-agent,
   // and which are deliberately left alone. Silence for a type is a half-converted run.
-  const routes = read('server/src/routes/workflows.ts');
-  const block = routes.slice(routes.indexOf('conferAllSteps'));
-  const scope = block.slice(0, 4000);
-  const unstated = executorTypes().filter((t) => !scope.includes(`'${t}'`));
+  //
+  // This used to scan routes/workflows.ts for the type names. The table now lives in
+  // lib/workflow-launch.ts as CONFER_FILL — ONE registry shared with the door that refuses a
+  // launch, because the two had drifted and the door won: 12 of 24 templates were refused for
+  // steps the conversion handled perfectly well. Importing the object is also strictly stronger
+  // than reading the file it is written in.
+  const unstated = executorTypes().filter((t) => !(t in CONFER_FILL));
   assert.deepEqual(unstated, [],
     `the run-level confer conversion says nothing about: ${unstated.join(', ')} — ` +
     'a type it ignores stays single-owner and the run is silently half collaborative');
@@ -69,31 +73,28 @@ test('EVERY executor type is a stated decision in the conversion', () => {
 test('gates and human steps are NOT converted', () => {
   // Structural, not a word-match. The first version only asserted the words "verdict" or
   // "judgement" appeared somewhere in the block, and passed a mutation that reclassified
-  // review-gate as 'convert' — the exact breakage it was written to prevent.
+  // review-gate as 'convert' — the exact breakage it was written to prevent. It now reads the
+  // registry object itself, which no mutation can satisfy by accident.
   //
   // A gate reads PASS/FAIL out of a step result. A confer produces WORK, not a judgement, so
   // converting one breaks it as a gate that never passes — which reads as the agents being
   // bad at their job rather than as a wiring mistake. A decision step waits for a HUMAN;
   // converting it would quietly replace your judgement with the agents' own.
-  const routes = read('server/src/routes/workflows.ts');
-  const table = routes.slice(routes.indexOf('const CONFER_CONVERSION'));
-  const body = table.slice(0, table.indexOf('};'));
-  assert.ok(body.length > 40, 'could not read the conversion table — scanner broken');
-
-  for (const [type, forbidden] of [
-    ['review-gate', 'convert'], ['quality-gate', 'convert'], ['decision', 'convert'],
-  ] as const) {
-    const m = body.match(new RegExp(`'${type}':\\s*'([a-z-]+)'`));
-    assert.ok(m, `${type} is missing from the conversion table`);
-    assert.notEqual(m![1], forbidden,
-      `${type} is set to '${forbidden}' — a gate is a judgement and a decision is yours; ` +
-      'neither survives being turned into collaborative work');
+  //
+  // What CHANGED: a gate is no longer merely "not converted", it is 'single' — it keeps its
+  // one-judge shape and is GIVEN a judge from the confer set. Being left alone was the bug:
+  // unassigned and unconvertible, it was refused at the door.
+  for (const type of ['review-gate', 'quality-gate'] as const) {
+    assert.equal(CONFER_FILL[type], 'single',
+      `${type} must keep its single-judge shape and be given a judge — a gate turned into ` +
+      'collaborative work is a gate that never passes');
   }
+  assert.equal(CONFER_FILL['decision'], 'none',
+    'a decision waits for YOUR judgement — nothing may fill it');
   // And the one that MUST convert, or the mode does nothing at all.
-  const cc = body.match(/'claude-code':\s*'([a-z-]+)'/);
-  assert.equal(cc?.[1], 'convert', "claude-code must convert — it is the mode's entire point");
+  assert.equal(CONFER_FILL['claude-code'], 'confer-all',
+    "claude-code must convert — it is the mode's entire point");
 });
-
 /**
  * ── EVERY SURFACE THAT LETS A HUMAN PICK CARTRIDGES MUST OFFER CONFER ───────────────────
  *

@@ -14,6 +14,9 @@
 import db from '../db.js';
 import { libelleContexte } from './context-label.js';
 import { randomUUID } from 'crypto';
+import { awaitsLaunchFill } from './cartridge-exists.js';
+import { DEFAULT_AUTONOMY } from './autonomy.js';
+import { layoutSteps } from './workflow-layout.js';
 
 /** Recent learnings for a project, as the scheduler has always injected them. */
 function learningsContext(projectId: string): string {
@@ -36,10 +39,29 @@ function learningsContext(projectId: string): string {
  * tell "no such template" from "created", because silently creating nothing is how a plan item
  * disappears between acceptance and execution.
  */
+export interface CloneOptions {
+  /**
+   * The cartridge every deferred step should land on.
+   *
+   * WITHOUT THIS A SCHEDULED RUN IS BORN DEAD. Template steps carry `__deferred__` — "ask me at
+   * launch" — and this function copied that verbatim. The manual launch path fills them from the
+   * request; the heartbeat path had nowhere to get one, even though `heartbeats.agent_id` was
+   * collected by the route and the dashboard and simply never passed on. Measured: 7 of 8 steps
+   * landed with no cartridge while the run was marked `running`.
+   */
+  agentId?: string;
+  /**
+   * The posture the run starts in. A scheduled run that inherits the column default `manual`
+   * auto-resolves NOTHING and halts at the first of ten attention reasons with nobody there.
+   */
+  autonomy?: string;
+}
+
 export function cloneTemplateAsRun(
   templateId: string,
   projectId: string | null,
   extraContext = '',
+  opts: CloneOptions = {},
 ): string | null {
   const template = db.prepare('SELECT * FROM workflows WHERE id = ? AND template_id IS NULL')
     .get(templateId) as Record<string, unknown> | undefined;
@@ -67,6 +89,11 @@ export function cloneTemplateAsRun(
   );
 
   if (projectId) db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId, runId);
+
+  // Set the posture BEFORE any step can be picked up by the executor poll. Explicit rather
+  // than relying on the column default — see DEFAULT_AUTONOMY.
+  db.prepare('UPDATE workflows SET autonomy = ? WHERE id = ?')
+    .run(opts.autonomy || DEFAULT_AUTONOMY, runId);
 
   // Context the run should open with. `extraContext` goes FIRST: the answers a person just typed
   // are more specific than historical learnings, and the first thing in the field is the thing
@@ -104,10 +131,20 @@ export function cloneTemplateAsRun(
     `).run(
       oldToNew.get(s.id as string), runId, s.name, s.description ?? '',
       s.position_x ?? 0, s.position_y ?? 0,
-      s.executor_type, s.executor_id ?? '', s.executor_config ?? '{}',
+      // Fill only what is AWAITING a cartridge. A template step deliberately pinned to a
+      // specific cartridge keeps it — the fill is for '__deferred__', not a blanket overwrite.
+      s.executor_type,
+      awaitsLaunchFill(String(s.executor_id ?? '')) && opts.agentId
+        ? opts.agentId
+        : (s.executor_id ?? ''),
+      s.executor_config ?? '{}',
       deps, s.auto_advance ?? 1, now,
     );
   }
+
+  // Same layout authority as every other path — a scheduled run must open looking like a
+  // hand-launched one.
+  layoutSteps(db, runId);
 
   return runId;
 }

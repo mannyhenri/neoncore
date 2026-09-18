@@ -22,6 +22,7 @@ import {
   explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
+import { buildRunReportContext } from './workflow-report.js';
 // Re-exported for the modules that already import it from here. The DEFINITION lives in
 // lib/workflow-normalize.ts — a serializer is not the executor's to own, and it having been
 // owned by two modules at once is what let the copies drift.
@@ -437,6 +438,15 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     }
   }
 
+  // The completion-report step is TERMINAL, so gatherDependencyContext above gives it only
+  // the last step or two. Reporting on a twenty-step run from the tail of it produces an
+  // authoritative-looking account of work the agent never saw — worse than no report, since
+  // the reader has no way to tell. reportContext swaps in the whole run.
+  let runReportCtx = '';
+  if (step.executorConfig.reportContext) {
+    runReportCtx = buildRunReportContext(db, step.workflowId, step.id, getServerBaseUrl());
+  }
+
   // Typed output format instructions
   const outputSchema = step.executorConfig.outputSchema as string | undefined;
   const OUTPUT_FORMAT_INSTRUCTIONS: Record<string, string> = {
@@ -462,7 +472,7 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     loopUntil: loopCfg.loopUntil,
   });
 
-  const finalPrompt = initialCtxPrefix + workflowCtx + loopHeader + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
+  const finalPrompt = initialCtxPrefix + workflowCtx + loopHeader + runReportCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
@@ -470,6 +480,7 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
 
   const parts: string[] = [];
   if (loopHeader) parts.push(`loop header (dispatch ${loopCfg._currentLoop})`);
+  if (runReportCtx) parts.push('full run record');
   if (context) parts.push('dependency context');
   if (rolePrefix) parts.push(`${roleLabel} role prefix`);
   parts.push(step.executorConfig.useIntent ? 'structured intent' : 'prompt');
