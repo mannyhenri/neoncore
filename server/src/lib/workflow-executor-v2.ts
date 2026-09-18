@@ -23,6 +23,7 @@ import {
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
 import { buildRunReportContext } from './workflow-report.js';
+import { buildLaunchContext } from './workflow-context.js';
 // Re-exported for the modules that already import it from here. The DEFINITION lives in
 // lib/workflow-normalize.ts — a serializer is not the executor's to own, and it having been
 // owned by two modules at once is what let the copies drift.
@@ -427,16 +428,10 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     }
   }
 
-  // For first steps (no dependencies), prepend the user-supplied initial context if present.
-  let initialCtxPrefix = '';
-  if (step.dependsOn.length === 0) {
-    const wfRow = db.prepare('SELECT initial_context FROM workflows WHERE id = ?')
-      .get(step.workflowId) as { initial_context: string } | undefined;
-    const ic = wfRow?.initial_context?.trim();
-    if (ic) {
-      initialCtxPrefix = `## Context\n${ic}\n\n`;
-    }
-  }
+  // For first steps, what the run is about. SHARED with every other executor — this used to be
+  // a private copy here and five other executors had none, which is how a confer was dispatched
+  // with "the task is in the workflow description above" and nothing above it.
+  const initialCtxPrefix = buildLaunchContext(db, step);
 
   // The completion-report step is TERMINAL, so gatherDependencyContext above gives it only
   // the last step or two. Reporting on a twenty-step run from the tail of it produces an
@@ -523,7 +518,7 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
   // rejected forever, with the step wedged in `running` and no clue why.
   const webhookSuffix = buildCompletionSuffix(step.id);
 
-  const finalPrompt = context + template.content + webhookSuffix;
+  const finalPrompt = buildLaunchContext(db, step) + context + template.content + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   emitStepLog(step.workflowId, step.id, step.name,
@@ -549,7 +544,7 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const currentRetry = (step.executorConfig.currentRetry as number) || 0;
   const maxRetries = (step.executorConfig.maxRetries as number) || 3;
 
-  const reviewPrompt = `You are a code review critic. Evaluate the following work against these criteria:\n\n**Criteria:** ${criteria}\n\n---\n${depContext || 'No dependency output available.'}\n---\n\nYou MUST respond with exactly **PASS** or **FAIL** on the FIRST line of your response.\nThen provide your detailed reasoning.\nIf FAIL, provide specific actionable feedback for improvement.\n\nRetry ${currentRetry + 1} of ${maxRetries + 1}.`
+  const reviewPrompt = buildLaunchContext(db, step) + `You are a code review critic. Evaluate the following work against these criteria:\n\n**Criteria:** ${criteria}\n\n---\n${depContext || 'No dependency output available.'}\n---\n\nYou MUST respond with exactly **PASS** or **FAIL** on the FIRST line of your response.\nThen provide your detailed reasoning.\nIf FAIL, provide specific actionable feedback for improvement.\n\nRetry ${currentRetry + 1} of ${maxRetries + 1}.`
     + buildCompletionSuffix(step.id, false)
     + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
@@ -666,8 +661,12 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   // than inventing one.
   const home = rows.find((r) => r.repo_path) ?? rows[0];
 
+  // THE REPORTED BUG. This was `context + prompt`, so a confer as the FIRST step of a run had
+  // no dependency output AND no launch context — the participants were told "the task is in
+  // the workflow description above" with nothing above it.
   const context = gatherDependencyContext(step);
-  const task = context + ((cfg.prompt as string) || step.description || step.name);
+  const task = buildLaunchContext(db, step) + context
+    + ((cfg.prompt as string) || step.description || step.name);
 
   const session = startConfer({
     repoName: home.repo_name || '',
@@ -770,7 +769,8 @@ async function executeDeliberation(step: WorkflowStep): Promise<void> {
 function dispatchDeliberationPrompts(step: WorkflowStep, panelAgentIds: string[]): void {
   const context = gatherDependencyContext(step);
   const prompt = (step.executorConfig.prompt as string) || step.description || step.name;
-  const fullPrompt = context + prompt;
+  // A panel deliberating as the FIRST step needs the same grounding a confer does.
+  const fullPrompt = buildLaunchContext(db, step) + context + prompt;
 
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching to ${panelAgentIds.length} panel agents for deliberation`, 'info');
 
@@ -1012,7 +1012,10 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
 
   // Use custom prompt or preset
   const preset = QUALITY_GATE_PRESETS[gateType];
-  const basePrompt = customPrompt || (preset?.prompt ?? QUALITY_GATE_PRESETS.test.prompt);
+  // A gate judging the FIRST step of a run has nothing upstream to read, so without this it
+  // is asked to assess work it was never told the purpose of.
+  const basePrompt = buildLaunchContext(db, step)
+    + (customPrompt || (preset?.prompt ?? QUALITY_GATE_PRESETS.test.prompt));
 
   // If this is a retry, prepend feedback from the previous failure
   const lastFeedback = (step.executorConfig.lastFeedback as string) || '';
