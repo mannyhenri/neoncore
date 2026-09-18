@@ -241,20 +241,37 @@ describe('demo responses match the shapes the client declares', () => {
  * recovery control.
  */
 describe('escaping demo mode without a working app', () => {
-  it('main.tsx applies ?demo=off BEFORE React mounts', async () => {
+  it('main.tsx applies ?demo=off BEFORE the module that READS the flag is evaluated', async () => {
     const { readFileSync } = await import('fs');
     const { resolve } = await import('path');
     const src = readFileSync(resolve(__dirname, '../../main.tsx'), 'utf8');
 
-    const applyAt = src.indexOf('applyDemoOverrideFromUrl()');
-    const renderAt = src.indexOf('createRoot(');
-    expect(applyAt, 'no URL override in main.tsx').toBeGreaterThan(-1);
-    expect(applyAt, 'the override runs AFTER React mounts — useless if the first render throws')
-      .toBeLessThan(renderAt);
-
+    expect(src, 'no URL override in main.tsx').toMatch(/applyDemoOverrideFromUrl\(\)/);
     expect(src, '?demo=off does not clear the flag').toMatch(/removeItem\(['"]neoncore\.demoMode/);
-    expect(src, 'the query string is not cleaned up, so a refresh re-applies it')
-      .toMatch(/replaceState/);
+    expect(src, 'the query string is not cleaned up, so a refresh re-applies it').toMatch(/replaceState/);
+
+    // THE ASSERTION THAT MATTERS, and the one the first version got wrong. It compared the
+    // override's position against `createRoot` — which passed while the override was useless,
+    // because ES module imports are HOISTED: `import App from './App'` pulled in lib/api and
+    // read the demo flag before a single statement in this file ran. Position against a later
+    // statement proves nothing; what matters is that App is NOT statically imported.
+    expect(src, 'App is statically imported, so lib/api reads the demo flag before the '
+      + 'override can run — ?demo=off would clear storage after the decision was made')
+      .not.toMatch(/^import\s+App\s+from/m);
+    // Dynamic, however it is spelled — `await import(…)` or `import(…).then(…)`. The build
+    // target has no top-level await, so the .then form is the one that ships.
+    expect(src, 'App must be imported dynamically, after the override')
+      .toMatch(/import\(['"]\.\/App['"]\)/);
+  });
+
+  it('lib/api reads the flag at module load — which is WHY the ordering matters', async () => {
+    const { readFileSync } = await import('fs');
+    const { resolve } = await import('path');
+    const api = readFileSync(resolve(__dirname, '../api.ts'), 'utf8');
+    // If this ever stops being true the hoisting hazard goes away, and this test should be
+    // revisited rather than left asserting a constraint that no longer exists.
+    expect(api, 'lib/api no longer reads the flag at module load')
+      .toMatch(/const DEMO = isDemoEnabled\(\)/);
   });
 
   it('the flag it clears is the one demo mode reads', () => {
