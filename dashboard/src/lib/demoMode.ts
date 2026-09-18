@@ -84,6 +84,19 @@ function seed() {
       { id: 'demo-ac2', agentId: 'demo-a3', eventType: 'ask_user', toolName: 'AskUserQuestion', toolInput: '{"questions":[{"question":"Round half-up or half-even?"}]}', toolResult: '{}', timestamp: ago(2) },
       { id: 'demo-ac3', agentId: 'demo-a2', eventType: 'Stop', toolName: '', toolInput: '', toolResult: '{}', timestamp: ago(5) },
     ],
+    reports: [
+      {
+        id: 'demo-rep1', project: 'atlas-api', workflowId: 'demo-w2', stepId: 'demo-st1',
+        workflowName: 'Full QA Review', runNumber: 3, status: 'SUCCESS', createdAt: ago(120),
+        htmlUrl: '',
+        report: {
+          schema: 'neoncore.workflow-report/1',
+          header: { project: 'Atlas', overallStatus: 'SUCCESS', runId: 'demo-w2' },
+          executiveSummary: 'Walked every checkout flow against staging. All nine flows passed, one accessibility warning on the payment step (missing label on the CVV field) which is filed but not blocking. No regressions found.',
+          outcome: { tasksCompleted: 9, tasksTotal: 9, testsPassed: 42, testsTotal: 42, issues: 1, warnings: 1, humanActionsRequired: 0 },
+        },
+      },
+    ],
     permissions: [
       { id: 'demo-perm1', agentId: 'demo-a3', toolName: 'AskUserQuestion', toolInput: '{"questions":[{"question":"Round half-up or half-even?","options":[{"label":"half-up"},{"label":"half-even"}]}]}', description: 'Rounding rule for ledger totals', status: 'pending', createdAt: ago(2), decidedAt: null, response: '' },
     ],
@@ -136,16 +149,38 @@ export function createDemoFetch(_realFetch: typeof fetch = fetch): typeof fetch 
 
     // ── Reads ────────────────────────────────────────────────────────────────────────
     if (method === 'GET') {
+      const shaped = objectShaped(seg);
+      if (shaped !== undefined) return json(shaped);
+
       switch (seg[0]) {
         case 'agents':      return json(seg.length === 1 ? data.agents : data.agents.find((a) => a.id === seg[1]) ?? null);
         case 'workflows':   return json(demoWorkflows(seg, data));
         case 'tasks':       return json(seg.length === 1 ? data.tasks : data.tasks.find((t) => t.id === seg[1]) ?? null);
-        case 'projects':    return json(seg.length === 1 ? data.projects : data.projects.find((p) => p.id === seg[1]) ?? null);
-        case 'goals':       return json(seg.length === 1 ? data.goals : data.goals.find((g) => g.id === seg[1]) ?? null);
+        case 'projects':
+          if (seg.length === 1) return json(data.projects);
+          if (seg.length >= 3) return json([]);   // /projects/:id/learnings and friends
+          return json(data.projects.find((pr) => pr.id === seg[1]) ?? null);
+        case 'goals':
+          // Only /goals/:id is a lookup. Everything deeper — /goals/:id/decompositions,
+          // /goals/drafts/... — is a collection of its own.
+          if (seg.length === 1) return json(data.goals);
+          if (seg.length >= 3 || seg[1] === 'drafts') return json([]);
+          return json(data.goals.find((g) => g.id === seg[1]) ?? null);
         case 'activity':    return json(data.activity);
+        case 'journal':
+          // /journal/projects is the REPO list the journal is keyed by — repo names, not the
+          // projects table. An empty answer here demos the journal as if nothing had ever run.
+          if (seg[1] === 'projects' && seg.length === 2) {
+            return json(data.agents.map((a) => ({
+              project: a.repoName, sessionCount: 3 + (a.repoName.length % 5), lastSeen: a.lastSeen,
+              lastSession: a.lastSeen,
+            })));
+          }
+          if (seg[1] === 'projects' && seg[3] === 'reports') return json(data.reports);
+          return json([]);
         case 'permissions': return json(seg[1] === 'pending' ? data.permissions : data.permissions);
-        // Everything else a screen might read: an empty collection renders as "nothing yet",
-        // which is a correct-looking demo rather than an error dialog.
+        // Everything else a screen might read is a COLLECTION, and an empty one renders as
+        // "nothing yet" — a correct-looking demo rather than an error dialog.
         default:            return json([]);
       }
     }
@@ -191,11 +226,68 @@ export function createDemoFetch(_realFetch: typeof fetch = fetch): typeof fetch 
   }) as unknown as typeof fetch;
 }
 
+
+/**
+ * The GETs that return an OBJECT rather than a collection.
+ *
+ * THIS LIST EXISTS BECAUSE ITS ABSENCE WAS A BLANK SCREEN. Demo mode answered every unknown GET
+ * with `[]`, and `useAgents` reads `roster.self.serverId` off GET /peers — so `.self` was
+ * undefined and the app died on boot with "Cannot read properties of undefined (reading
+ * 'serverId')". Absorbing a request safely is only half the job; the answer has to be usable.
+ *
+ * Completeness is not maintained by hand: a test reads every `request<T>('/path')` out of the
+ * client and fails when a demo answer disagrees with the declared shape, so an endpoint added
+ * later is caught there rather than in front of an audience.
+ *
+ * Returns undefined when the path is not object-shaped, so the caller falls through to the
+ * collection default.
+ */
+function objectShaped(seg: string[]): unknown | undefined {
+  const p = seg.join('/');
+
+  // Federation identity — the one that crashed the app.
+  if (p === 'peers') {
+    return {
+      self: { serverId: 'demo-server', name: 'Demo', url: '', version: 'demo' },
+      peers: [],
+    };
+  }
+  if (p === 'health') return { status: 'ok', timestamp: new Date().toISOString() };
+
+  // A run's autonomy posture — an object the run header reads fields off.
+  if (seg[0] === 'workflows' && seg[1] === 'v2' && seg[3] === 'autonomy') {
+    return { level: 'full', source: 'workflow', expiresAt: null };
+  }
+
+  // The queue is an object with lanes, not a bare list.
+  if (p === 'queue') return { items: [], lanes: [], paused: false };
+
+  if (p === 'activity/burn-rate') return { perHour: 0, perDay: 0, samples: [] };
+  if (p === 'activity/usage-series') return { series: [], total: 0, byCartridge: [], byProject: [] };
+  if (seg[0] === 'activity' && seg[1] === 'usage') return { totalTokens: 0, totalCostUsd: 0, sessions: [] };
+
+  if (p === 'repos/browse') return { path: '/demo', entries: [] };
+  // Git reads are objects: a status and a diff both describe one repo.
+  if (seg[0] === 'git' && (seg[2] === 'status' || seg[2] === 'diff' || seg[1] === 'status')) {
+    return seg[2] === 'diff'
+      ? { diff: '', files: [], additions: 0, deletions: 0 }
+      : { branch: 'main', dirty: false, ahead: 0, behind: 0, files: [] };
+  }
+  if (seg[0] === 'epics' && seg[1] === 'scan') return { epics: [], tasks: [] };
+  if (p === 'journal/search') return { sessions: [], knowledge: [] };
+  if (seg[0] === 'journal' && seg[1] === 'sessions') return null;
+
+  return undefined;
+}
+
 function demoWorkflows(seg: string[], data: Dataset): unknown {
   if (seg.length === 1) return data.workflows;
+  // /workflows/v2/:id/runs is the run history — a list, not the run itself.
+  if (seg[1] === 'v2' && seg[3] === 'runs') return data.workflows.filter((w) => w.templateId);
+  // GET /workflows/v2/:id returns { workflow, steps } — the canvas reads both.
   if (seg[1] === 'v2' && seg[2]) {
-    const wf = data.workflows.find((w) => w.id === seg[2]);
-    return { workflow: wf ?? null, steps: [] };
+    const wf = data.workflows.find((w) => w.id === seg[2]) ?? data.workflows[0] ?? null;
+    return { workflow: wf, steps: [] };
   }
   return data.workflows.find((w) => w.id === seg[1]) ?? null;
 }

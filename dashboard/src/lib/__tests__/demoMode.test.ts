@@ -152,3 +152,82 @@ describe('demo mode', () => {
     }));
   });
 });
+
+/**
+ * DEMO RESPONSES MUST BE THE SHAPE THE APP EXPECTS.
+ *
+ * Demo mode shipped and showed a blank screen:
+ *   Uncaught TypeError: Cannot read properties of undefined (reading 'serverId')
+ *
+ * `useAgents` reads `roster.self.serverId` from GET /peers, which returns an OBJECT. The demo
+ * fetch answered every unknown GET with `[]` — a fine "nothing" for a collection and garbage
+ * for an object, so `.self` was undefined and the app died on boot.
+ *
+ * The tests above all passed, because they exercised the TRANSPORT and never the app. Absorbing
+ * a request safely is only half the job; the answer has to be usable.
+ *
+ * SO THE SHAPE IS DERIVED FROM THE CLIENT ITSELF. Every `request<…>('/path')` in client.ts
+ * declares whether it returns an array or an object, and this reads that declaration and checks
+ * the demo answer against it. An endpoint added to the client later is covered without anyone
+ * remembering this file.
+ */
+describe('demo responses match the shapes the client declares', () => {
+  const CLIENT = '../../../../packages/client/src/client.ts';
+
+  /** Every GET the client declares, with whether its return type is an array. */
+  async function declaredGets(): Promise<{ path: string; isArray: boolean }[]> {
+    const { readFileSync } = await import('fs');
+    const { resolve } = await import('path');
+    const src = readFileSync(resolve(__dirname, CLIENT), 'utf8');
+    const out: { path: string; isArray: boolean }[] = [];
+    // request<TYPE>('/path')  — with no `{ method: … }`, i.e. a GET.
+    //
+    // The WHOLE path template is captured, interpolations included, and each `${…}` becomes a
+    // placeholder segment. Truncating at the first `$` gave `/goals/` for `/goals/${id}/tasks`
+    // and then asserted a shape for a request the app never makes — the scan has to produce
+    // the paths that are actually called or it tests fiction.
+    for (const m of src.matchAll(/request<([\s\S]*?)>\(\s*(['`])((?:\\.|(?!\2)[\s\S])*)\2/g)) {
+      const [, type, , rawPath] = m;
+      const tail = src.slice(m.index ?? 0, (m.index ?? 0) + 400);
+      if (/method:\s*'(POST|PUT|DELETE|PATCH)'/.test(tail)) continue;   // not a GET
+      // A simple `${id}` is one path segment. Anything more elaborate — `${days ? `?d=${days}`
+      // : ''}` — is a conditional QUERY suffix, and a query never changes which route answers,
+      // so the path is cut there rather than mangled into a fake segment.
+      const path = rawPath
+        .replace(/\$\{\s*[A-Za-z_$][\w$]*\s*\}/g, 'demo-id')
+        .split('${')[0]
+        .split('?')[0];
+      if (!path.startsWith('/')) continue;
+      out.push({ path, isArray: /\[\]\s*$/.test(type.trim()) });
+    }
+    return out;
+  }
+
+  it('the scan finds the client surface — an empty list would pass vacuously', async () => {
+    const gets = await declaredGets();
+    expect(gets.length, 'no GET endpoints parsed out of client.ts').toBeGreaterThan(15);
+  });
+
+  it('EVERY declared GET returns the declared shape — array vs object', async () => {
+    const demoFetch = createDemoFetch();
+    const wrong: string[] = [];
+    for (const { path, isArray } of await declaredGets()) {
+      const res = await demoFetch(`/api${path}`);
+      const body = await res.json();
+      const gotArray = Array.isArray(body);
+      if (isArray && !gotArray) wrong.push(`${path}: client expects an array, demo returned ${typeof body}`);
+      // An object-shaped endpoint answered with [] is the serverId crash exactly.
+      if (!isArray && gotArray) wrong.push(`${path}: client expects an object, demo returned an array`);
+    }
+    expect(wrong, `demo answers do not match the client's declared shapes:\n  ${wrong.join('\n  ')}`).toEqual([]);
+  });
+
+  it('/peers carries the identity useAgents reads on boot', async () => {
+    // The exact crash: roster.self.serverId, on the app's first render.
+    const body = await (await createDemoFetch()('/api/peers')).json();
+    expect(body.self, 'GET /peers has no `self` — this is the blank screen').toBeTruthy();
+    expect(typeof body.self.serverId).toBe('string');
+    expect(typeof body.self.name).toBe('string');
+    expect(Array.isArray(body.peers)).toBe(true);
+  });
+});
