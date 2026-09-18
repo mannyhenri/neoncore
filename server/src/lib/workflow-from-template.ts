@@ -19,14 +19,40 @@ import { DEFAULT_AUTONOMY } from './autonomy.js';
 import { layoutSteps } from './workflow-layout.js';
 import { resolveRunPlaceholders } from './workflow-report.js';
 
-/** Recent learnings for a project, as the scheduler has always injected them. */
-function learningsContext(projectId: string): string {
+/**
+ * What previous runs OF THIS WORKFLOW learned. THE ONE IMPLEMENTATION — both clone paths call
+ * it, because it used to exist twice.
+ *
+ * ── WHY IT IS SCOPED TO THE TEMPLATE AND NOT THE PROJECT ─────────────────────────────
+ * It used to take the last 3 learnings for the whole PROJECT. Project membership is not
+ * relevance: "Gridlight" holds a Daily AI Research Digest and a CUDA inference engine, and a
+ * run of one was handed the other's report as the first thing in its prompt. Reported as GPU
+ * quantisation notes appearing inside the research digest; measured at 19 runs across 5
+ * workflows, 16 step prompts.
+ *
+ * Two things made it worse than a stray paste. `project_learnings` stores WHOLE WORKFLOW
+ * REPORTS rather than distilled lessons, and the 600-character cut lands mid-sentence — so
+ * what arrived was a fragment reading "RECOMMENDATION CONTRADICTS THE RESEARCH, so the
+ * requested elimination was NOT performed", with nothing marking it as another repo's history.
+ * An agent has no way to tell that from its own brief.
+ *
+ * Scoping by `template_id` keeps the half that was actually useful — a digest run learning what
+ * the last digest run found out — and drops the half that was never relevant. A learning whose
+ * run has since been deleted is not carried: the join drops it, which errs toward less context
+ * rather than more, and that is the right direction for this bug.
+ */
+export function learningsContext(projectId: string, templateId: string): string {
+  if (!projectId || !templateId) return '';
   const learnings = db.prepare(
-    `SELECT content, workflow_name FROM project_learnings WHERE project_id = ? ORDER BY created_at DESC LIMIT 3`,
-  ).all(projectId) as { content: string; workflow_name: string }[];
+    `SELECT pl.content, pl.workflow_name
+       FROM project_learnings pl
+       JOIN workflows w ON w.id = pl.workflow_id
+      WHERE pl.project_id = ? AND w.template_id = ?
+      ORDER BY pl.created_at DESC LIMIT 3`,
+  ).all(projectId, templateId) as { content: string; workflow_name: string }[];
   if (learnings.length === 0) return '';
   return [
-    '## Recent Project Learnings',
+    '## What previous runs of this workflow learned',
     ...learnings.map((l, i) =>
       `### ${i + 1}. From "${l.workflow_name}"\n${l.content.slice(0, 600)}${l.content.length > 600 ? '...' : ''}`),
     '---',
@@ -99,7 +125,7 @@ export function cloneTemplateAsRun(
   // Context the run should open with. `extraContext` goes FIRST: the answers a person just typed
   // are more specific than historical learnings, and the first thing in the field is the thing
   // most likely to survive a long prompt.
-  const parts = [extraContext.trim(), projectId ? learningsContext(projectId) : ''].filter(Boolean);
+  const parts = [extraContext.trim(), projectId ? learningsContext(projectId, templateId) : ''].filter(Boolean);
   if (parts.length) {
     // The label is derived from what the PERSON typed, not from the assembled context: the
     // learnings appended after it are the same for every run in a project, so a label taken from
