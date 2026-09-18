@@ -10,6 +10,7 @@ import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
 import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
+import { learningsContext } from '../lib/workflow-from-template.js';
 import { workflowRepoTargets } from '../lib/workflow-cartridges.js';
 import { awaitsLaunchFill } from '../lib/cartridge-exists.js';
 import { workflowNeedsAttention } from '../lib/workflow-attention.js';
@@ -685,19 +686,13 @@ router.post('/v2/:id/start', (req, res) => {
     const projectId = (req.body?.projectId as string) || null;
     let initialContext = (req.body?.initialContext as string) || '';
 
-    // Auto-inject recent project learnings into initial context
-    if (projectId) {
-      const learnings = db.prepare(
-        `SELECT content, workflow_name FROM project_learnings WHERE project_id = ? ORDER BY created_at DESC LIMIT 3`
-      ).all(projectId) as { content: string; workflow_name: string }[];
-      if (learnings.length > 0) {
-        const learningsBlock = [
-          '## Recent Project Learnings',
-          ...learnings.map((l, i) => `### ${i + 1}. From "${l.workflow_name}"\n${l.content.slice(0, 600)}${l.content.length > 600 ? '...' : ''}`),
-          '---',
-        ].join('\n\n');
-        initialContext = learningsBlock + (initialContext ? '\n\n' + initialContext : '');
-      }
+    // What previous runs of THIS workflow learned. Scoped to the template, never the whole
+    // project — see learningsContext, which is now the single implementation. This block used
+    // to be a second copy of that query, and the two would have had to be turned down
+    // together; the copy in lib/ was the one anybody would have found.
+    const learningsBlock = learningsContext(projectId || '', templateId);
+    if (learningsBlock) {
+      initialContext = learningsBlock + (initialContext ? '\n\n' + initialContext : '');
     }
 
     db.prepare(`
