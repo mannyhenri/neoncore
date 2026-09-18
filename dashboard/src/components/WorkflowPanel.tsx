@@ -11,6 +11,7 @@ import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession
 import { AutonomyControl } from './AutonomyControl';
 import { workflowAgentOptions, isOfflineOption, offlineOptionCount } from '../lib/workflow-agent-options';
 import { launchBlockers } from '../lib/launchReadiness';
+import { searchTemplates } from '../lib/templateSearch';
 
 // ─── Browser notification helper ────────────────────
 
@@ -110,6 +111,7 @@ export function WorkflowPanel({ agents }: Props) {
   // default-open disclosure still lets one stray click hide them for the session.
   const [showRecentRuns, setShowRecentRuns] = useState(false);
   const [templateTab, setTemplateTab] = useState<TemplateTab>('all');
+  const [templateQuery, setTemplateQuery] = useState('');
 
   const loadWorkflows = useCallback(async () => {
     try {
@@ -206,6 +208,18 @@ export function WorkflowPanel({ agents }: Props) {
   const templates = workflows.filter((w) => !w.templateId);
   const runs = workflows.filter((w) => !!w.templateId);
   const activeRuns = runs.filter((w) => ['running', 'paused'].includes(w.status));
+  /**
+   * The template list, searched then filtered by tab — in that order.
+   *
+   * Search first and by the WHOLE library, so a match in another category is still found; the
+   * tab narrows what is shown afterwards. Reversing the two would make the active tab silently
+   * scope the search, which answers "we don't have one" for a workflow that exists.
+   */
+  const searchedTemplates = searchTemplates(templates.filter((t) => t.stepSummary), templateQuery);
+  const visibleTemplates = searchedTemplates.filter(
+    (t) => templateTab === 'all' || (TEMPLATE_CATEGORY[t.name] ?? 'development') === templateTab,
+  );
+
   const pendingRuns = runs.filter((w) => w.status === 'pending');
   const completedRuns = runs.filter((w) => !['running', 'paused', 'pending'].includes(w.status));
   const recentRunsAll = completedRuns;
@@ -326,13 +340,34 @@ export function WorkflowPanel({ agents }: Props) {
                 <span className="text-[11px] text-gray-600 ml-1">
                   {templates.filter((t) => t.stepSummary).length}
                 </span>
+                {/* Search. Deliberately OUTSIDE the category tabs: it spans the whole library,
+                    so typing "canary" on the Quality tab still finds the Ship workflow. */}
+                <input
+                  value={templateQuery}
+                  onChange={(e) => setTemplateQuery(e.target.value)}
+                  placeholder="Search templates…"
+                  aria-label="Search workflow templates"
+                  className="ml-auto text-xs glass-input text-gray-300 rounded-md px-2.5 py-1 w-44 focus:outline-none focus:w-56 transition-all placeholder:text-gray-600"
+                />
+                {templateQuery && (
+                  <button
+                    onClick={() => setTemplateQuery('')}
+                    className="text-gray-600 hover:text-gray-300 text-xs shrink-0"
+                    title="Clear search"
+                  >
+                    &times;
+                  </button>
+                )}
               </div>
                   {/* Category tabs */}
                   <div className="flex rounded-md overflow-hidden border border-white/10 w-fit">
                     {(Object.keys(TAB_LABELS) as TemplateTab[]).map((tab) => {
+                      // Counts are taken AFTER the search, so a tab never advertises rows the
+                      // list below will not show — a "Quality 6" chip over an empty list is the
+                      // same lie as a search that silently ignores you.
                       const count = tab === 'all'
-                        ? templates.filter((t) => t.stepSummary).length
-                        : templates.filter((t) => t.stepSummary && (TEMPLATE_CATEGORY[t.name] ?? 'development') === tab).length;
+                        ? searchedTemplates.length
+                        : searchedTemplates.filter((t) => (TEMPLATE_CATEGORY[t.name] ?? 'development') === tab).length;
                       return (
                         <button
                           key={tab}
@@ -350,9 +385,19 @@ export function WorkflowPanel({ agents }: Props) {
                     })}
                   </div>
                   {/* Filtered template list */}
-                  {templates
-                    .filter((t) => t.stepSummary)
-                    .filter((t) => templateTab === 'all' || (TEMPLATE_CATEGORY[t.name] ?? 'development') === templateTab)
+                  {visibleTemplates.length === 0 && (
+                    // Stated, not an empty container — an empty list looks identical to a
+                    // broken filter, which is how a search box loses trust.
+                    <p className="text-[13px] text-gray-500 py-3">
+                      No template matches “{templateQuery}”
+                      {templateTab !== 'all' && <> in {TAB_LABELS[templateTab]}</>}.{' '}
+                      <button onClick={() => { setTemplateQuery(''); setTemplateTab('all'); }}
+                        className="underline underline-offset-2 hover:text-gray-300">
+                        Clear
+                      </button>
+                    </p>
+                  )}
+                  {visibleTemplates
                     .map((wf) => (
                       <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
                         onRunCreated={handleRunCreated}
