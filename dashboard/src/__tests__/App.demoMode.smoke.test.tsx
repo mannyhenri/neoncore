@@ -51,12 +51,29 @@ describe('App mounts in demo mode', () => {
     vi.resetModules();                 // force lib/api to re-read IS_DEMO
     localStorage.setItem('neoncore.demoMode', '1');
 
-    // A tripwire in place of the real network. Demo mode must never reach it — and if it does,
-    // the test says which URL rather than hanging on a request jsdom cannot make.
+    /**
+     * A tripwire in place of the real network. Demo mode must never reach it — and if it does,
+     * the test says which URL rather than hanging on a request jsdom cannot make.
+     *
+     * IT RECORDS AND FAILS THE RESPONSE; IT DOES NOT THROW. Throwing here produced a 1-in-5
+     * flake in the FULL suite that never reproduced in isolation: the last test deliberately
+     * runs with demo mode off, so the app really does fetch, and a request still in flight when
+     * `cleanup()` unmounts its component has nobody left to catch the rejection. Vitest counts
+     * that as an unhandled error and fails the whole FILE, attributing it to whichever test
+     * happened to be running — which is why the name in the failure kept moving.
+     *
+     * A resolved not-ok response is also the more faithful stand-in: a real unreachable server
+     * is an error the client handles, not an exception thrown out of `fetch` itself. The
+     * assertions are on `networkHits`, so nothing is lost by not throwing.
+     */
     realFetch = globalThis.fetch;
     globalThis.fetch = (async (url: RequestInfo | URL) => {
       networkHits.push(String(url));
-      throw new Error(`demo mode reached the network: ${String(url)}`);
+      return {
+        ok: false, status: 503, statusText: 'demo tripwire: the network is not available in this test',
+        headers: new Headers(), redirected: false, type: 'basic' as ResponseType, url: String(url),
+        json: async () => ({}), text: async () => '', clone() { return this; },
+      } as unknown as Response;
     }) as typeof fetch;
 
     vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
