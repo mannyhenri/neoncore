@@ -127,13 +127,15 @@ The local HTML file IS the deliverable. Open exactly ONE window: do not also pub
 
 The two files you just wrote are on THIS cartridge's disk. NeonCore cannot see them, so a report that stops there is one nobody will ever find. POST the JSON to the journal, where it is kept per repo and can be read back later:
 
-PREFERRED — pass it on the call you are already making. When you complete this step with \`neoncore_report_step_done\` (section 5), include the parsed JSON as the \`report\` argument:
+DO BOTH OF THESE. They are idempotent — the second one replaces the first rather than storing a duplicate — and between them the report reaches the journal on any engine.
+
+1. RUN THE CURL. The exact command, with this run's real ids already filled in, is at the end of the Run Record above under "SENDING THE REPORT BACK". It prints an HTTP status: **201 means the report landed**. Put that status code in your \`verify\`. This is the path that works everywhere, so do not skip it.
+
+2. ALSO pass it on the completion call. When you complete this step with \`neoncore_report_step_done\` (section 5), include the parsed JSON as the \`report\` argument:
 
     neoncore_report_step_done(stepId: "…", result: "…", scope: "…", verify: "…", report: <the parsed contents of workflow-report.json>)
 
-That is one call instead of two, and it is the call you cannot skip — so the report cannot be left behind on this cartridge's disk.
-
-FALLBACK, only if your tooling cannot pass an object argument: the exact curl, with this run's real ids already filled in, is at the end of the Run Record above under "SENDING THE REPORT BACK".
+If your copy of the tool does not accept a \`report\` argument it will be ignored silently — which is exactly why step 1 is not optional and why its status code goes in your verify.
 
 Send the JSON you actually wrote, unmodified — the file is the source of truth and the stored copy has to match the HTML the reader is looking at. A 201 means it landed. Report the status code in your verify.
 
