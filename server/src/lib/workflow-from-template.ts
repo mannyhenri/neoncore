@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto';
 import { awaitsLaunchFill } from './cartridge-exists.js';
 import { DEFAULT_AUTONOMY } from './autonomy.js';
 import { layoutSteps } from './workflow-layout.js';
+import { resolveRunPlaceholders } from './workflow-report.js';
 
 /** Recent learnings for a project, as the scheduler has always injected them. */
 function learningsContext(projectId: string): string {
@@ -137,7 +138,11 @@ export function cloneTemplateAsRun(
       awaitsLaunchFill(String(s.executor_id ?? '')) && opts.agentId
         ? opts.agentId
         : (s.executor_id ?? ''),
-      s.executor_config ?? '{}',
+      // A run has an id; a template does not, which is why its stored prompt carries
+      // `<workflowRunId>`. Resolve it HERE too — this is the second clone path (scheduled runs
+      // and decompositions), and a fix applied only to the HTTP start handler would have left
+      // every scheduled report telling the agent to invent an id. See resolveRunPlaceholders.
+      resolveRunPlaceholders(String(s.executor_config ?? '{}'), runId),
       deps, s.auto_advance ?? 1, now,
     );
   }

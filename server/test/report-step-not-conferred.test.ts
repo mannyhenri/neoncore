@@ -40,6 +40,7 @@ import workflowsRouter, { backfillReportsFromDisk } from '../src/routes/workflow
 import journalRouter from '../src/routes/journal.ts';
 import { isReportStep, RUN_ID_PLACEHOLDER } from '../src/lib/workflow-report.ts';
 import { installStubIO } from './helpers/stub-io.ts';
+import { cloneTemplateAsRun } from '../src/lib/workflow-from-template.ts';
 
 const io = installStubIO();
 const iso = () => new Date().toISOString();
@@ -203,7 +204,7 @@ test('a legacy conferred report is recovered from disk — once, from a real rep
   db.prepare(
     `INSERT INTO workflow_steps (id, workflow_id, name, status, executor_type, executor_id, executor_config, position_x, position_y, created_at)
      VALUES (?, ?, 'Workflow Completion Report', 'completed', 'confer', '', ?, 300, 50, ?)`,
-  ).run(stepId, runId, JSON.stringify({ kind: 'workflow-report', conferAgentIds: ids, conferMode: 'divide' }), iso());
+  ).run(stepId, runId, JSON.stringify({ stepKind: 'workflow-report', conferAgentIds: ids, conferMode: 'divide' }), iso());
 
   // Both participants wrote one, which is the bug that produced the duplicates.
   for (const repo of repos) {
@@ -298,7 +299,7 @@ test('a report filed under the confer session id is still found', () => {
     `INSERT INTO workflow_steps (id, workflow_id, name, status, executor_type, executor_id, executor_config, position_x, position_y, created_at)
      VALUES (?, ?, 'Workflow Completion Report', 'completed', 'confer', '', ?, 300, 50, ?)`,
   ).run(stepId, runId, JSON.stringify({
-    kind: 'workflow-report', conferAgentIds: ids, conferSessionId: sessionId,
+    stepKind: 'workflow-report', conferAgentIds: ids, conferSessionId: sessionId,
   }), iso());
 
   // Named after the CONFER SESSION, not the run — exactly as found on disk.
@@ -316,4 +317,42 @@ test('a report filed under the confer session id is still found', () => {
   assert.ok(rows[0].html_path.includes(sessionId), 'stored the wrong file');
   const repoName = (db.prepare('SELECT repo_name FROM agents WHERE id = ?').get(ids[1]) as { repo_name: string }).repo_name;
   assert.equal(rows[0].project, repoName, 'filed under the wrong project, so the wrong journal shows it');
+});
+
+/**
+ * SET-BASED OVER THE CLONE PATHS, not over the templates.
+ *
+ * The first version of the placeholder test above launched every template through the HTTP
+ * start handler and passed — while `cloneTemplateAsRun` (lib/workflow-from-template.ts), the
+ * path EVERY SCHEDULED RUN and every decomposition takes, still copied the template's config
+ * through untouched. Scheduling was just added to every workflow's launch form, so the whole
+ * bug would have come back through the newest feature, invisibly, on a timer.
+ *
+ * Iterating the templates found nothing because the set that mattered was the set of ways a
+ * run gets created. There are two. A third must fail this test.
+ */
+test('every clone path resolves the run id — not just the one a human clicks', () => {
+  const tpl = db.prepare(
+    "SELECT id FROM workflows WHERE template_id IS NULL AND name = 'Bug Hunter'",
+  ).get() as { id: string };
+  const agentId = participants().ids[0];
+
+  const clonePaths: { name: string; run: () => string }[] = [
+    { name: 'cloneTemplateAsRun (scheduled runs, decompositions)',
+      run: () => cloneTemplateAsRun(tpl.id, null, '', { agentId })! },
+  ];
+
+  const offenders: string[] = [];
+  for (const p of clonePaths) {
+    const runId = p.run();
+    const steps = db.prepare(
+      'SELECT name, executor_config FROM workflow_steps WHERE workflow_id = ?',
+    ).all(runId) as { name: string; executor_config: string }[];
+    assert.ok(steps.length > 0, `${p.name} created no steps`);
+    for (const s of steps) {
+      if ((s.executor_config || '').includes(RUN_ID_PLACEHOLDER)) offenders.push(`${p.name} → ${s.name}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `these clone paths still hand the agent "${RUN_ID_PLACEHOLDER}":\n  ` + offenders.join('\n  '));
 });
