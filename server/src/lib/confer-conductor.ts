@@ -423,11 +423,42 @@ export function getConfer(id: string): ConferSession | null {
   return row ? hydrateSession(row) : null;
 }
 
+/**
+ * Which run owns each session, keyed by session id.
+ *
+ * `confer_sessions` holds no back-reference to the step that created it — the link lives the
+ * other way, in `workflow_steps.executor_config.conferSessionId` (written at
+ * lib/workflow-executor-v2.ts:687). Without it the client cannot tell a confer that IS a
+ * workflow step from a standalone one, so it lists both beside the runs and a workflow confer
+ * appears twice: once as its run, once as its session. Reported as "2 confers running at the
+ * same time for baseback and backend-interlag".
+ *
+ * One query for the whole list rather than one per session, and joined against `workflows` so
+ * a step whose run was deleted resolves to nothing. A dangling id would be worse than none:
+ * every surface hides owned sessions, so the confer would vanish with no run left to show it.
+ */
+function owningRuns(): Map<string, { workflowId: string; stepId: string }> {
+  const rows = db.prepare(
+    `SELECT s.id AS step_id, s.workflow_id, json_extract(s.executor_config, '$.conferSessionId') AS session_id
+       FROM workflow_steps s
+       JOIN workflows w ON w.id = s.workflow_id
+      WHERE session_id IS NOT NULL AND session_id != ''`,
+  ).all() as { step_id: string; workflow_id: string; session_id: string }[];
+  const out = new Map<string, { workflowId: string; stepId: string }>();
+  for (const r of rows) out.set(r.session_id, { workflowId: r.workflow_id, stepId: r.step_id });
+  return out;
+}
+
 export function listConfers(): ConferSession[] {
   const rows = db
     .prepare('SELECT * FROM confer_sessions ORDER BY created_at DESC LIMIT 50')
     .all() as Record<string, unknown>[];
-  return rows.map(hydrateSession);
+  const owners = owningRuns();
+  return rows.map((r) => {
+    const session = hydrateSession(r);
+    const owner = owners.get(session.id);
+    return { ...session, workflowId: owner?.workflowId ?? null, stepId: owner?.stepId ?? null };
+  });
 }
 
 function loadParticipants(ids: string[]): Participant[] {

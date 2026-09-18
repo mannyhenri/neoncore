@@ -378,9 +378,19 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
   // Confers and workflow runs are both "things you started that are working" — so they share
   // the ACTIVE / RECENT split rather than living in separate lists. Merged and re-sorted
   // newest-first by createdAt, since two independently-sorted sources would interleave wrong.
+  // A confer created BY a workflow step is already in this feed as its run — listing the
+  // session too shows one confer twice, which read as "2 confers running" for what was a
+  // single confer between two repos. Standalone confers have no run here, so they stay.
+  //
+  // The desk delegates this to standaloneConfers (@neoncore/client, confer-view.ts). This app
+  // cannot: metro resolves that package but cannot follow its NodeNext '.js' specifiers, so
+  // runtime imports from it fail (measured, see metro.config.js). The rule is restated here
+  // and mobile/src/__tests__/conferFeed.dedupe.test.ts pins it to the same behaviour.
+  const standaloneConfers = confers.filter((c) => !c.workflowId);
+
   const feed: FeedItem[] = [
     ...runs.map((r): FeedItem => ({ kind: 'run', id: r.id, createdAt: r.createdAt, run: r })),
-    ...confers.map((c): FeedItem => ({ kind: 'confer', id: c.id, createdAt: c.createdAt, confer: c })),
+    ...standaloneConfers.map((c): FeedItem => ({ kind: 'confer', id: c.id, createdAt: c.createdAt, confer: c })),
   ].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
   const isActive = (i: FeedItem) =>
