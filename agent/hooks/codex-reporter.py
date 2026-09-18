@@ -148,6 +148,33 @@ def build_events(hook_event: str, d: dict) -> list:
     }]
 
 
+QUESTION_TOOLS = ("request_user_input", "request_user_input_async")
+
+
+def question_request(d: dict):
+    """Adapt native Codex forms to the existing dashboard question schema."""
+    tool = d.get("tool_name", "").split(".")[-1]
+    if tool not in QUESTION_TOOLS:
+        return None
+    value = d.get("tool_input", {})
+    if isinstance(value, str):
+        value = json.loads(value)
+    questions = []
+    for i, raw in enumerate(value.get("questions", [])):
+        text = raw.get("question") or raw.get("title") or ""
+        if not text.strip():
+            continue
+        q = {**raw, "id": raw.get("id") or str(i), "question": text}
+        if "options" in raw:
+            q["options"] = [{"label": opt} if isinstance(opt, str) else opt for opt in raw["options"]]
+        questions.append(q)
+    if not questions:
+        return None
+    return {"toolName": tool, "toolInput": {"questions": questions},
+            "questionCallId": d.get("tool_use_id", ""),
+            "description": "\n".join(q["question"] for q in questions)}
+
+
 def main():
     try:
         d = json.load(sys.stdin)
@@ -215,6 +242,14 @@ def main():
             "toolResult": d.get("tool_response", d.get("tool_result", {})),
             "agentType": "codex",
         }))
+
+    if hook_event == "PostToolUse":
+        question = question_request(d)
+        if question:
+            post_json(f"{ORCHESTRATOR_URL}/api/permissions/request", json.dumps({
+                **question, "sessionId": session_id, "machine": machine,
+                "repoPath": cwd, "agentType": "codex",
+            }))
 
     # Ship transcript events — this is what makes the message feed render.
     raw_events = build_events(hook_event, d)

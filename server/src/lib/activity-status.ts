@@ -24,8 +24,15 @@
 
 export type ActivityStatus = 'working' | 'waiting';
 
-/** Events that are unambiguous evidence the cartridge is executing. */
-const WORKING_EVENTS = new Set([
+/**
+ * Events that are unambiguous evidence the cartridge is executing.
+ *
+ * EXPORTED because it is a registry, not an implementation detail. `closeQuestionsAnsweredElsewhere`
+ * (routes/permissions.ts) keys off `statusFromActivity(...) === 'working'` — a cartridge that is
+ * executing is not blocked on a question — and its test iterates these three sets rather than a
+ * copy of them, so a working event added here is covered the day it is added.
+ */
+export const WORKING_EVENTS = new Set([
   'PostToolUse',
   'PreToolUse',
   'tool_use',
@@ -38,7 +45,7 @@ const WORKING_EVENTS = new Set([
 ]);
 
 /** Events that ARE the question, regardless of payload. */
-const ASKING_EVENTS = new Set(['ask_user']);
+export const ASKING_EVENTS = new Set(['ask_user']);
 
 /**
  * The canonical Claude Code notification texts that mean the turn has stopped and a person
@@ -46,7 +53,7 @@ const ASKING_EVENTS = new Set(['ask_user']);
  * report merely mentioning waiting — "Confer is waiting on baseback to report" — does not
  * block the cartridge that sent it.
  */
-const BLOCKED_PATTERNS = [
+export const BLOCKED_PATTERNS = [
   /\bclaude\s+is\s+waiting\s+for\s+your\s+input\b/i,
   /\bclaude\s+needs\s+your\s+permission\b/i,
   /\bwaiting\s+for\s+your\s+input\b/i,

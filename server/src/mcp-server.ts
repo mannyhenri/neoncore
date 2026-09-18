@@ -164,6 +164,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           scope:     { type: 'string', description: 'Completed vs total items this step covered, e.g. "15/15 — 12 sections + 3 attachment types". Enumerate from the code, not the description.' },
           verify:    { type: 'string', description: 'The exact command you ran and its REAL output, e.g. "npm test -- report-copy → 15 passed". Never report verification you did not perform.' },
           deferred:  { type: 'string', description: 'Anything in scope you did not do, and why. "none" if nothing.' },
+          // The Workflow Completion Report step passes its workflow-report.json here, so the
+          // report rides along with the call that completes the step rather than needing a
+          // second one the agent may not make.
+          report:    { type: 'object', description: 'ONLY for the Workflow Completion Report step: the workflow-report.json object you wrote, so it is stored in the project journal.' },
         },
         required: ['stepId', 'result', 'scope', 'verify'],
       },
@@ -452,6 +456,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
   if (name === 'neoncore_report_step_done') {
     const { stepId, result, scope, verify, deferred } = args as Record<string, string>;
+    const report = (args as Record<string, unknown>).report;
     if (!stepId) return text('ERROR: stepId is required to report step completion.');
     try {
       // A panel member reports against a DIFFERENT route: every member shares one step, so
@@ -461,7 +466,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const route = panelAgentId
         ? `/api/workflows/webhook/${stepId}/panel/${panelAgentId}/complete`
         : `/api/workflows/webhook/${stepId}/complete`;
-      await post(route, { result: result || 'Completed.', scope, verify, deferred });
+      await post(route, { result: result || 'Completed.', scope, verify, deferred, ...(report ? { report } : {}) });
       log(`Step ${stepId} reported complete`);
       return text(`Step ${stepId} marked complete in NeonCore. The workflow will now advance.`);
     } catch (err) {

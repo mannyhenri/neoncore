@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SectionTitle } from './SectionTitle';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
@@ -7,9 +7,10 @@ import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
 import { isWaitingSession } from '../types';
-import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem } from '../types';
+import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem, Heartbeat } from '../types';
 import { AutonomyControl } from './AutonomyControl';
-import { workflowAgentOptions } from '../lib/workflow-agent-options';
+import { workflowAgentOptions, isOfflineOption, offlineOptionCount } from '../lib/workflow-agent-options';
+import { launchBlockers } from '../lib/launchReadiness';
 
 // ─── Browser notification helper ────────────────────
 
@@ -44,24 +45,31 @@ type TemplateTab = 'all' | 'strategy' | 'planning' | 'development' | 'quality' |
 const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Product Strategy Session':       'strategy',
   'Deep Research':                  'strategy',
+  'Daily AI Research Digest':       'strategy',
   'CE: Phase 1 — Interrogate':      'strategy',
   'Engineering Architecture Review':'planning',
   'CE: Phase 2 — Plan':             'planning',
-  'New Feature':                    'development',
+  // Planning, not development: the deliverable is the spec on disk, and building it is a
+  // decision step you have to say yes to.
+  'Spec Intake → Dev Spec':         'planning',
+  'Confer':                         'development',
   'Bug Investigation':              'development',
   'Epic: Task by Task':             'development',
   'Epic: Two Repos':                'development',
   'Epic: Confer Across Repos':      'development',
   'CE Develop and Optimize':        'development',
   'CE: Phase 3 — Implement':        'development',
+  'QA Testing Guide':               'quality',
   'Feature Validation':             'quality',
   'Code Review & Audit':            'quality',
   'Full QA Review':                 'quality',
   'Bug Hunter':                     'quality',
-  'CI/CD Pipeline':                 'quality',
   'Jira Tasks Validation':          'quality',
   'CE: Phase 4 — Review':           'quality',
   'CE: Phase 5 — QA':               'quality',
+  // The shippable half of delivery — the documents that go OUT with a release, as opposed to
+  // Document Release inside Phase 6, which keeps the internal ones current.
+  'Release Documentation':          'delivery',
   'CE: Phase 6 — Ship':             'delivery',
   'CE: Full Delivery':              'delivery',
   'CE: Phase 7 — Compound':         'learning',
@@ -412,6 +420,169 @@ export function WorkflowPanel({ agents }: Props) {
 
 // ─── WorkflowRunCard ────────────────────────────────
 
+/**
+ * The cartridge options, with the offline ones under their own heading.
+ *
+ * Both selectors in this file render the identical list, and it was written out twice — which
+ * is how one of them ended up without the offline grouping. `<optgroup>` rather than a sorted
+ * flat list because the complaint was not the order, it was that twenty-odd dead checkouts
+ * read as equal choices beside the ten live ones; a label is what makes the distinction
+ * survive a glance.
+ */
+/**
+ * The way back to a sleeping cartridge.
+ *
+ * The launch list is live-only so it agrees with the cartridge count on the app header. That
+ * exact filter was reverted once before (894144d) because a disconnected cartridge SILENTLY
+ * disappeared and launching onto it became impossible with no explanation. This is the
+ * difference: the offline ones are folded away behind a count, not missing.
+ */
+function OfflineReveal({ count, onShow }: { count: number; onShow: () => void }) {
+  if (count < 1) return null;
+  return (
+    <>
+      {' '}
+      <button
+        type="button"
+        onClick={onShow}
+        className="underline underline-offset-2 hover:text-gray-400"
+      >
+        Show {count} offline
+      </button>
+    </>
+  );
+}
+
+/**
+ * Put THIS template on a repeating schedule, from the template itself.
+ *
+ * Scheduling already existed, but only under Projects → Heartbeats — so automating a workflow
+ * meant knowing that heartbeats exist, that they live under a project, and that they take a
+ * template id. "Schedule or put on automation ALL workflow templates" is answered by the
+ * control being where the template is.
+ *
+ * A schedule needs a CARTRIDGE and nothing else. It deliberately does not require a project:
+ * requiring one would mean a template has to belong to something before it can repeat.
+ */
+function ScheduleControl({ templateId, templateName, agents, onClose }: {
+  templateId: string;
+  templateName: string;
+  agents?: Agent[];
+  onClose: () => void;
+}) {
+  const [cadence, setCadence] = useState<'daily' | 'weekly' | 'monthly' | 'quarterly' | 'hourly'>('daily');
+  const [time, setTime] = useState('09:00');
+  const [weekday, setWeekday] = useState(1);
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [agentId, setAgentId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [existing, setExisting] = useState<Heartbeat[]>([]);
+
+  const options = workflowAgentOptions(agents || []);
+
+  useEffect(() => {
+    api.getHeartbeats().then((hb) => setExisting(hb.filter((h) => h.templateId === templateId))).catch(() => {});
+  }, [templateId]);
+
+  async function save() {
+    // A scheduled run has nobody to ask at 09:00, so the cartridge is not optional — the
+    // server refuses a heartbeat without one rather than firing a run that cannot dispatch.
+    if (!agentId) { setError('Pick a cartridge — a scheduled run has nobody to ask at 09:00.'); return; }
+    setSaving(true); setError('');
+    try {
+      await api.createHeartbeat({
+        templateId,
+        agentId,
+        label: templateName,
+        schedule: {
+          type: cadence,
+          ...(cadence !== 'hourly' ? { time } : {}),
+          ...(cadence === 'weekly' ? { day: weekday } : {}),
+          ...(cadence === 'monthly' || cadence === 'quarterly' ? { dayOfMonth } : {}),
+        },
+      });
+      const hb = await api.getHeartbeats();
+      setExisting(hb.filter((h) => h.templateId === templateId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create the schedule.');
+    } finally { setSaving(false); }
+  }
+
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const sel = 'text-xs glass-input text-gray-300 rounded px-2 py-1 focus:outline-none';
+
+  return (
+    <div className="px-3 py-2 border-t border-white/[0.06] space-y-2">
+      {existing.length > 0 && (
+        <div className="space-y-1">
+          {existing.map((h) => (
+            <div key={h.id} className="flex items-center gap-2 text-[11px]">
+              <span className={h.active ? 'text-emerald-400' : 'text-gray-600'}>{h.active ? '●' : '○'}</span>
+              <span className="text-gray-400 flex-1">{h.scheduleLabel || 'scheduled'}</span>
+              <button
+                onClick={() => api.deleteHeartbeat(h.id).then(() => setExisting((p) => p.filter((x) => x.id !== h.id))).catch(() => {})}
+                className="text-gray-600 hover:text-red-400"
+              >remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select value={cadence} onChange={(e) => setCadence(e.target.value as typeof cadence)} className={sel}>
+          <option value="hourly">Hourly</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+        {cadence === 'weekly' && (
+          <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={sel}>
+            {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+          </select>
+        )}
+        {(cadence === 'monthly' || cadence === 'quarterly') && (
+          <select value={dayOfMonth} onChange={(e) => setDayOfMonth(Number(e.target.value))} className={sel}>
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>day {d}</option>)}
+          </select>
+        )}
+        {cadence !== 'hourly' && (
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={sel} />
+        )}
+        <select value={agentId} onChange={(e) => setAgentId(e.target.value)} className={sel}>
+          <option value="">Cartridge…</option>
+          {options.map((a) => <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>)}
+        </select>
+        <button onClick={save} disabled={saving}
+          className="text-xs px-2 py-1 rounded bg-emerald-600/80 hover:bg-emerald-500 text-white disabled:opacity-30">
+          {saving ? '…' : 'Schedule'}
+        </button>
+        <button onClick={onClose} className="text-xs px-2 py-1 text-gray-500 hover:text-gray-300">Close</button>
+      </div>
+      {error && <p className="text-[11px] text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+function CartridgeOptions({ live, offline }: {
+  live: { id: string; repoName?: string; name: string; agentType?: string }[];
+  offline: { id: string; repoName?: string; name: string; agentType?: string }[];
+}) {
+  const opt = (a: { id: string; repoName?: string; name: string; agentType?: string }) => (
+    <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
+  );
+  return (
+    <>
+      {live.map(opt)}
+      {offline.length > 0 && (
+        <optgroup label={`Offline — will queue until it reconnects (${offline.length})`}>
+          {offline.map(opt)}
+        </optgroup>
+      )}
+    </>
+  );
+}
+
 function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, templateName, onRunCreated, runCount }: {
   workflow: Workflow;
   onAction: () => void;
@@ -458,6 +629,13 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     encode: encodeAttachments,
   } = useAttachments();
 
+  // Off by default so this list matches the cartridge count on the app's own header. The
+  // reveal is a control, not a hidden behaviour — see workflow-agent-options.ts.
+  const [showOffline, setShowOffline] = useState(false);
+  // Scheduling lives on the template card itself — see ScheduleControl.
+  const [scheduling, setScheduling] = useState(false);
+  /** A TEMPLATE is a workflow with no templateId — a run points at the template it came from. */
+  const isTemplate = !wf.templateId;
   const isV2 = !!wf.stepSummary;
   const canRun = isV2 && !['running', 'paused'].includes(wf.status);
   /**
@@ -468,9 +646,26 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
    * "not sending". Offline is now a queueable state: the run waits for the cartridge to come
    * back, and the queue halts the lane with a reason if it never does. Sorted so live ones lead.
    */
-  const onlineAgents = workflowAgentOptions(agents || [])
-    .slice()
-    .sort((a, b) => Number(a.status === 'offline') - Number(b.status === 'offline'));
+  // Sorting, age-out, duplicate collapsing and the live-only default all live in
+  // workflowAgentOptions now — a second copy of any of it here is how the two selectors
+  // drifted into disagreeing about which cartridges exist.
+  //
+  // keepIds: whatever this run's steps are already pinned to stays listed even if it is
+  // offline, or the <select> renders blank and the next save unassigns the step.
+  const pinnedIds = useMemo(
+    () => Object.values(deferredAssignments).filter(Boolean),
+    [deferredAssignments],
+  );
+  const onlineAgents = useMemo(
+    () => workflowAgentOptions(agents || [], { includeOffline: showOffline, keepIds: pinnedIds }),
+    [agents, showOffline, pinnedIds],
+  );
+  const hiddenOfflineCount = useMemo(
+    () => (showOffline ? 0 : offlineOptionCount(agents || [], { keepIds: pinnedIds })),
+    [agents, showOffline, pinnedIds],
+  );
+  const liveAgents = onlineAgents.filter((a) => !isOfflineOption(a));
+  const offlineAgents = onlineAgents.filter(isOfflineOption);
 
   async function handleRunFromList() {
     if (!canRun || starting) return;
@@ -520,15 +715,37 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     finally { setStarting(false); }
   }
 
+  /**
+   * Everything standing between this launch and starting — ONE answer, used by both the button
+   * and the handler below.
+   *
+   * These were two separate expressions. The button's knew that a confer supplies its own
+   * cartridges; the handler's did not, and returned silently on its first line. That is the
+   * "turns green but doesn't start" bug: both halves working exactly as written, disagreeing.
+   */
+  const blockers = deferredPopup
+    ? launchBlockers({
+        projectId: selectedProjectId || '',
+        agentStepCount: deferredPopup.agentSteps.length,
+        perStepAgents,
+        assignments: deferredAssignments,
+        runAgentId,
+        conferAgents,
+        promptSteps: deferredPopup.promptSteps,
+        prompts: deferredPrompts,
+        requiresContext: wf.name === 'Feature Validation',
+        initialContext,
+      })
+    : [];
+
   async function handleDeferredRun() {
     if (!deferredPopup) return;
-    const allAgentsAssigned =
-      deferredPopup.agentSteps.length === 0 ||
-      (perStepAgents
-        ? deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])
-        : !!runAgentId);
-    const allPromptsAssigned = deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim());
-    if (!allAgentsAssigned || !allPromptsAssigned) return;
+    // Refuse OUT LOUD. The old guard was a bare `return` — correct often enough, and completely
+    // silent, which is why a dead button took three reports to diagnose.
+    if (blockers.length > 0) {
+      setRunError(blockers.join(' '));
+      return;
+    }
 
     setStarting(true);
     setAttachmentError('');
@@ -773,13 +990,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                     className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
                   >
                     <option value="">Select cartridge...</option>
-                    {onlineAgents.map((a) => (
-                      <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
-                    ))}
+                    <CartridgeOptions live={liveAgents} offline={offlineAgents} />
                   </select>
                   <p className="text-[11px] text-gray-600">
                     All {deferredPopup.agentSteps.length} step
                     {deferredPopup.agentSteps.length === 1 ? '' : 's'} run here.
+                    <OfflineReveal count={hiddenOfflineCount} onShow={() => setShowOffline(true)} />
                   </p>
                 </>
               ) : (
@@ -792,12 +1008,15 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                       className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
                     >
                       <option value="">Select cartridge...</option>
-                      {onlineAgents.map((a) => (
-                        <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
-                      ))}
+                      <CartridgeOptions live={liveAgents} offline={offlineAgents} />
                     </select>
                   </div>
                 ))
+              )}
+              {perStepAgents && (
+                <p className="text-[11px] text-gray-600">
+                  <OfflineReveal count={hiddenOfflineCount} onShow={() => setShowOffline(true)} />
+                </p>
               )}
             </div>
           )}
@@ -825,25 +1044,16 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           )}
         </div>
         {runError && <p className="px-4 pb-2 text-[13px] text-red-400">{runError}</p>}
+        {!runError && blockers.length > 0 && (
+          // A disabled button with nothing beside it is the same dead end as a silent handler:
+          // the user can see they cannot start and not why.
+          <p className="px-4 pb-2 text-[13px] text-gray-500">{blockers.join(' ')}</p>
+        )}
         <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
           <button
             onClick={handleDeferredRun}
-            disabled={
-              starting ||
-              !selectedProjectId ||
-              !(
-                deferredPopup.agentSteps.length === 0 ||
-                // Confer supplies the cartridges. The single-cartridge select is not even
-                // RENDERED in this mode, so demanding one left a fully-specified confer with
-                // no way to satisfy the gate and no message saying why.
-                conferAgents.length >= 2 ||
-                (perStepAgents
-                  ? deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])
-                  : !!runAgentId)
-              ) ||
-              !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim()) ||
-              (wf.name === 'Feature Validation' && !initialContext.trim())
-            }
+            disabled={starting || blockers.length > 0}
+            title={blockers.join(' ')}
             className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
           >
             {starting ? 'Starting…' : 'Run Workflow'}
@@ -905,6 +1115,15 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               {starting ? '...' : '▶'}
             </button>
           )}
+          {isTemplate && (
+            <button
+              onClick={() => setScheduling((v) => !v)}
+              className={`shrink-0 transition-all ${scheduling ? 'text-gl-purple' : 'text-gray-500 hover:text-gl-purple opacity-0 group-hover:opacity-100'}`}
+              title="Repeat this workflow on a schedule"
+            >
+              ⏱
+            </button>
+          )}
           {confirmDelete ? (
             <div className="flex items-center gap-1 shrink-0">
               <button onClick={handleDelete} className="text-[13px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/20">Delete</button>
@@ -920,6 +1139,14 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             </button>
           )}
         </div>
+        {scheduling && isTemplate && (
+          <ScheduleControl
+            templateId={wf.id}
+            templateName={wf.name}
+            agents={agents}
+            onClose={() => setScheduling(false)}
+          />
+        )}
         {deferredPopupEl}
       </>
     );

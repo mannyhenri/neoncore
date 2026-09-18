@@ -2,7 +2,8 @@ import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import db from '../db.js';
 import { libelleContexte } from './context-label.js';
-import { getIO } from '../ws.js';
+import { getIO, agentHasLiveSocket } from '../ws.js';
+import { inboxReachable } from './inbox-client.js';
 import { sendCommandToAgent } from './send-command.js';
 import { deliverToAgent, fetchPeerAgent } from './peer-forward.js';
 import { getServerBaseUrl } from './server-url.js';
@@ -56,13 +57,15 @@ const HARD_FAIL_MS = 4 * 60 * 60 * 1000;
  * done the work and gone idle was treated exactly like one that had crashed — and the first is
  * far more common. Eight sessions were failed this way before anyone looked.
  */
-function participantIsAlive(agentId: string, now: number): boolean {
-  const a = db.prepare('SELECT status, last_seen FROM agents WHERE id = ?').get(agentId) as
-    { status?: string; last_seen?: string } | undefined;
+export function participantIsAlive(agentId: string, now: number): boolean {
+  const a = db.prepare('SELECT status, last_seen, inbox_pid FROM agents WHERE id = ?').get(agentId) as
+    { status?: string; last_seen?: string; inbox_pid?: number } | undefined;
   if (!a || a.status === 'offline') return false;
   const seen = Date.parse(a.last_seen || '');
-  if (Number.isNaN(seen)) return false;
-  return now - seen < PARTICIPANT_DEAD_MS;
+  if (!Number.isNaN(seen) && now - seen < PARTICIPANT_DEAD_MS) return true;
+  // Hook activity is not a connection heartbeat. Idle sessions may be silent for hours while
+  // their relay or addressed inbox remains reachable and able to receive the next milestone.
+  return agentHasLiveSocket(agentId) || (process.platform !== 'win32' && inboxReachable(a.inbox_pid || 0));
 }
 
 /** Ceiling on build rounds. High enough for a 20-bug list, low enough that a typo'd 500 can't
@@ -624,6 +627,41 @@ export function cancelConfer(id: string): ConferSession | null {
     }
   }
   return emit(id);
+}
+
+/** Resume a failed confer at its active milestone, retaining every acknowledgement. */
+export async function resumeConfer(id: string): Promise<{ ok: true; session: ConferSession; delivered: number } | { ok: false; error: string }> {
+  const row = sessionRow(id);
+  if (!row) return { ok: false, error: 'confer not found' };
+  if (row.status !== 'failed') return { ok: false, error: `confer is ${row.status}, not failed` };
+  const session = hydrateSession(row);
+  const idx = session.currentMilestone;
+  const milestone = session.milestones?.[idx];
+  if (!milestone || milestone.status !== 'active') return { ok: false, error: 'no active milestone to resume' };
+  const pending = session.participantIds.filter(pid => !milestone.doneIds.includes(pid));
+  if (pending.length === 0) return { ok: false, error: 'all participants already reported; reconcile the milestone first' };
+  const missing = session.participantIds.filter(pid => !participantIsAlive(pid, Date.now()));
+  if (missing.length) return { ok: false, error: `participant(s) still unreachable: ${missing.join(', ')}` };
+
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    const changed = db.prepare("UPDATE confer_sessions SET status = 'running', error = '', completed_at = NULL WHERE id = ? AND status = 'failed'").run(id);
+    if (!changed.changes) throw new Error('confer changed during resume');
+    db.prepare('UPDATE confer_milestones SET dispatched_at = ?, nudged = 0 WHERE id = ?').run(now, milestone.id);
+  })();
+
+  let delivered = 0;
+  for (const pid of pending) {
+    const url = `${baseUrl()}/api/confer/${id}/milestone/${pid}/done`;
+    const text = `[NeonCore Confer · resumed] Continue ${milestone.name} (${idx + 1}/${session.milestones!.length}) on ${session.repoName}. Previous milestones and your peers' completion signals were preserved. Coordinate with your peer(s), then report YOUR result with: curl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"<brief summary>"}'`;
+    const out = await deliverToAgent(pid, text, (agentId, body) => sendCommandToAgent(agentId, body, false));
+    if (out.delivered) delivered++;
+  }
+  if (delivered !== pending.length) {
+    db.prepare('UPDATE confer_sessions SET error = ? WHERE id = ?').run(`Resume message reached ${delivered}/${pending.length} pending participant(s); the remainder will be nudged again`, id);
+  }
+  const updated = emit(id);
+  return { ok: true, session: updated!, delivered };
 }
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────

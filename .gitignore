@@ -51,6 +51,7 @@ agent/runner/node_modules/
 agent/runner/runner.config.json
 agent/runner/logs/
 .neoncore/attachments/
+.neoncore/reports/
 package-lock.json
 
 # Secrets. A bot token in a tracked file is a token you have to rotate — this is not a

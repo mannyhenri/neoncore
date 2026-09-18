@@ -220,6 +220,15 @@ export function getPrimarySocket(agentId: string): string | undefined {
   return agentPrimarySocket.get(agentId);
 }
 
+/** A quiet cartridge can retain a live relay even when its last tool hook is old. */
+export function agentHasLiveSocket(agentId: string): boolean {
+  if (!io) return false;
+  const primary = agentPrimarySocket.get(agentId);
+  if (primary && socketIsConnected(primary)) return true;
+  const room = io.sockets.adapter.rooms.get(`agent:${agentId}`);
+  return Boolean(room && [...room].some(socketIsConnected));
+}
+
 // ─── Machine runners ────────────────────────────────────────────
 
 /** Update a machine's status, persist last_seen, and broadcast to dashboards/mobile. */

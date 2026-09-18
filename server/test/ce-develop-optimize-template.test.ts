@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import db from '../src/db.ts';
 import { STANDARD_TEMPLATE_NAMES } from '../src/db.ts';
 import { completeStepFromSignal, isPassingGateVerdict } from '../src/lib/workflow-executor-v2.ts';
+import { REPORT_STEP_NAME } from '../src/lib/workflow-report.ts';
 import { installStubIO } from './helpers/stub-io.ts';
 
 installStubIO();
@@ -37,12 +38,16 @@ function steps(): Step[] {
 
 test('CE Develop and Optimize is a seeded standard template with the complete pipeline', () => {
   assert.ok((STANDARD_TEMPLATE_NAMES as readonly string[]).includes(TEMPLATE));
+  // The completion report is appended to EVERY template after seeding (lib/workflow-report.ts);
+  // it is asserted as a set over all templates in workflow-report-step.test.ts, so here it is
+  // only the tail of this template's own pipeline.
   assert.deepEqual(steps().map((s) => s.name), [
     'Load Work and Goals',
     'Develop and Optimize Every Task',
     'Verify Coverage and Evidence',
     'Goal Achievement Gate',
     'Notify',
+    REPORT_STEP_NAME,
   ]);
 });
 

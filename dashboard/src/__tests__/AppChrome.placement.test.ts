@@ -77,11 +77,6 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   { name: 'Machine launcher', marker: /<MachineLauncher/, region: 'header' },
   { name: 'New repo', marker: /setNewRepoOpen\(true\)/, region: 'header' },
 
-  // Confer is a GLOBAL start, so it belongs with the other two. It previously sat in the
-  // rail inside WorkflowPanel, which renders only on the Agents view — so it was silently
-  // unreachable from Goals and Tasks. Regional placement is what encodes "reachable from
-  // every view"; nothing else in this file would have caught that.
-  { name: 'Confer', marker: /setConferOpen\(true\)/, region: 'header' },
 
   // The fleet burn rate reads with the identity, not with the controls: it is the one
   // thing in the chrome you READ rather than invoke, and it was asked for immediately
@@ -250,9 +245,7 @@ describe('dashboard chrome placement', () => {
    */
   const HEADER_RIGHT: { name: string; marker: RegExp }[] = [
     // Start-a-session controls come first, immediately after the centred view switcher.
-    // Confer leads them: it is the one that just moved, so pinning its position is what
-    // stops it drifting back into the rail or landing among the chrome.
-    { name: 'Confer', marker: /setConferOpen\(true\)/ },
+    // (Confer used to lead them. It is a workflow template now — see the Confer test below.)
     { name: 'Machine launcher', marker: /<MachineLauncher/ },
     { name: 'New repo', marker: /setNewRepoOpen\(true\)/ },
     // Chrome. Settings is not named in the ask; it sits left of Guide so that GUIDE is the
@@ -532,48 +525,29 @@ describe('dashboard chrome placement', () => {
    * question — "which views can reach it" is the right one. So this asserts reachability
    * structurally, by requiring Confer to sit outside every view guard.
    */
-  it('Confer is not gated behind any view — it is a global start', () => {
-    // In the header, which renders unconditionally. The regional CONTROLS check above
-    // already pins it there; this pins the REASON, so a future move back into a
-    // view-guarded panel fails with the actual defect named.
-    const i = R.header.search(/setConferOpen\(true\)/);
-    expect(i, 'Confer is not in the header').toBeGreaterThan(-1);
-    // A conditional RENDER — `{activeView === 'x' && (` — is the thing that hides a control
-    // on other views. The switcher's own `activeView === 'x' ? …` className ternaries are
-    // not guards and must not trip this, which is why the `&&` is part of the pattern.
-    expect(
-      R.header.slice(0, i).match(/\{\s*activeView === '\w+' &&/g),
-      'Confer sits behind a view guard — it would be unreachable from the other views',
-    ).toBeNull();
-  });
+  it('Confer is NOT a header control — it is a workflow template', () => {
+    /**
+     * THE FOURTH MOVE, and the one that ended the argument.
+     *
+     * The history above is real and each move fixed the previous one's defect: orphaned ghost
+     * button → into WorkflowPanel (fixed styling, broke reachability) → into the header (fixed
+     * reachability). Every one of those was an argument about WHERE TO PUT THE BUTTON.
+     *
+     * The button was the wrong unit. Confer is cartridges working one task together — which is
+     * what a workflow IS. As a header control it was the only way of starting work in NeonCore
+     * with no run history, no project attribution, no completion report and no place on the
+     * canvas. As a template it gets all four for nothing, and the placement question dissolves.
+     *
+     * So this asserts the ABSENCE, with the reason attached, because an absence with no
+     * explanation is exactly what invites a fifth move.
+     */
+    expect(SRC, 'App.tsx still opens a confer modal from the chrome')
+      .not.toMatch(/setConferOpen/);
+    expect(SRC, 'App.tsx still imports ConferModal').not.toMatch(/ConferModal/);
 
-  it('no view-specific panel offers a competing Confer entry point', () => {
-    // Two entry points is how the reachability gap gets "fixed" by accident and then drifts:
-    // one of them keeps its styling and the other does not. There is exactly one.
+    // And no view-specific panel has quietly grown its own entry point to replace it.
     const panel = readFileSync(resolve(HERE, '../components/WorkflowPanel.tsx'), 'utf8');
-    expect(panel, 'WorkflowPanel still offers its own Confer').not.toMatch(/onConfer/);
-    expect(
-      (SRC.match(/setConferOpen\(true\)/g) || []).length,
-      'more than one Confer entry point in App',
-    ).toBe(1);
-  });
-
-  it('Confer keeps the secondary treatment beside the other start actions', () => {
-    // The original complaint was a control that read as out of place. It is a peer of
-    // Launch and New Repo, not the loudest thing in the bar.
-    const i = R.header.search(/setConferOpen\(true\)/);
-    const btn = R.header.slice(i - 200, i + 600);
-    expect(btn, 'Confer should not claim the primary gradient treatment').not.toMatch(/gl-gradient/);
-    expect(btn, 'Confer should share the bordered ghost treatment of its neighbours').toMatch(/border-white\/10/);
-  });
-
-  it('Confer no longer spans the rail width', () => {
-    // The width was the symptom, not the fix. An auto-width button beside its sibling reads
-    // as a control; a full-width one reads as a container.
-    const panel = readFileSync(resolve(HERE, '../components/WorkflowPanel.tsx'), 'utf8');
-    const i = panel.indexOf('onConfer');
-    const btn = panel.slice(i - 400, i + 400);
-    expect(btn, 'Confer is still full width').not.toMatch(/w-full/);
+    expect(panel, 'WorkflowPanel offers its own Confer again').not.toMatch(/onConfer/);
   });
 
   it('the type filter sits beside the Cartridges heading, not below the grid', () => {

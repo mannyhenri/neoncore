@@ -10,6 +10,7 @@ import {
   listConfers,
   getConfer,
   cancelConfer,
+  resumeConfer,
   clampBuildRounds,
 } from '../lib/confer-conductor.js';
 
@@ -157,6 +158,16 @@ router.post('/:id/cancel', (req, res) => {
   const session = cancelConfer(req.params.id);
   if (!session) return res.status(404).json({ error: 'Confer not found' });
   res.json(session);
+});
+
+router.post('/:id/resume', async (req, res) => {
+  try {
+    const result = await resumeConfer(req.params.id);
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 export default router;

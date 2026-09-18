@@ -55,6 +55,27 @@ export const AUTO_RESOLVABLE: Record<AutonomyLevel, AttentionReason[]> = {
 export const SETTABLE_LEVELS: AutonomyLevel[] = ['manual', 'advance', 'full'];
 
 /**
+ * The posture a NEW run starts in.
+ *
+ * `full`, not `manual`, on the owner's instruction: "I always turn it on anyways." A default
+ * that everybody overrides on every run is not a safety feature, it is a step.
+ *
+ * What that actually grants, stated plainly because it is a real delegation: over `advance`,
+ * `full` adds exactly two reasons — `decision` (it picks an option at a decision step) and
+ * `agent-waiting` (it answers the agent's own question). It cannot touch the five breakage
+ * reasons at any level: failed, interrupted, channel-lost, budget-exhaustion, autonomy-expiring.
+ * Every auto-resolution is written to `workflow_auto_resolutions` and stays reversible from the
+ * notification for OVERRIDE_WINDOW_MS.
+ *
+ * NOT a column default. SQLite cannot alter one on an existing column, so every database that
+ * already exists would keep `manual` and only fresh installs would see this. It is applied at
+ * the two places a run is created instead, which is also the only place it is meaningful — a
+ * TEMPLATE has no posture.
+ */
+export const DEFAULT_AUTONOMY: AutonomyLevel = 'full';
+
+
+/**
  * How long an auto-resolution stays reversible from the notification.
  *
  * "Work continues immediately, you still get a window. That's the difference between

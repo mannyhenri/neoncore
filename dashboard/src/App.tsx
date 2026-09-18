@@ -6,7 +6,6 @@ import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MachineLauncher } from './components/MachineLauncher';
 import { NewRepoModal } from './components/NewRepoModal';
-import { ConferModal } from './components/ConferModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GoalsProvider, GoalsRail, GoalsWorkspace } from './components/GoalsPage';
@@ -95,7 +94,6 @@ export default function App() {
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
-  const [conferOpen, setConferOpen] = useState(false);
   const [newRepoOpen, setNewRepoOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
@@ -189,18 +187,10 @@ export default function App() {
               with sit closest to the view switcher, then chrome, then status pinned to the
               far right where a glance goes for "is anything wrong" — bell last. */}
           <div className="flex items-center gap-2 md:gap-4 text-base ml-auto md:ml-0 md:pl-8 md:justify-self-end justify-end whitespace-nowrap">
-            {/* Confer — starting a conversation between cartridges is a global action, not a
-                property of whichever view you happen to be on. It lived in the rail beside
-                "+ New Workflow", and because that panel renders only on the Agents view it was
-                unreachable from Goals and Tasks. It sits with Launch and New Repo because all
-                three answer "start something", which is the same question. */}
-            <button
-              onClick={() => setConferOpen(true)}
-              className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
-              title="Start a conversation between cartridges"
-            >
-              <span aria-hidden="true">⇄</span> Confer
-            </button>
+            {/* Confer used to be a button here. It is a WORKFLOW TEMPLATE now ("Confer"), which
+                is what it always was: cartridges working one task together. As a header button
+                it was the only way of starting work with no run history, no project, no report
+                and no place on the canvas — every one of which it gets for free as a template. */}
             {/* Launch a cartridge on any registered machine (local or remote) */}
             <MachineLauncher servers={servers} />
             {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
@@ -403,9 +393,6 @@ export default function App() {
       </GoalsProvider>
 
       {/* Guide Modal */}
-      {conferOpen && (
-        <ConferModal agents={agents} onClose={() => setConferOpen(false)} />
-      )}
       {guideOpen && (
         <GuideModal onClose={() => setGuideOpen(false)} />
       )}

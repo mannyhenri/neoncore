@@ -13,6 +13,7 @@ import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { statusFromActivity } from '../lib/activity-status.js';
+import { closeQuestionsAnsweredElsewhere } from './permissions.js';
 import { detectLimitSignal, recordLimitEvent } from '../lib/limit-events.js';
 import { computeBurnRate, type UsageSample } from '../lib/burn-rate.js';
 import { buildSeries, BUCKETS, type Bucket } from '../lib/usage-series.js';
@@ -223,6 +224,24 @@ router.post('/', (req, res) => {
       .run(now, implied, resolvedAgentId);
   } else {
     db.prepare('UPDATE agents SET last_seen = ? WHERE id = ?').run(now, resolvedAgentId);
+  }
+
+  // A cartridge that is executing is not blocked on a question — so anything it had open
+  // before this event was answered somewhere else, which in practice means the human typed
+  // the answer into the terminal the agent is running in. Without this the row sits in the
+  // approvals inbox until a 15-minute TTL sweeps it, showing a question already answered.
+  //
+  // `implied === 'working'` is the whole test, and it is the SAME classification used two
+  // lines up — `ask_user` and a "Claude is waiting for your input" notification both come
+  // back 'waiting' and close nothing. See closeQuestionsAnsweredElsewhere for the two guards
+  // that keep a genuinely-live question open. Never let this break activity ingestion, which
+  // is a heartbeat as much as a log.
+  if (implied === 'working') {
+    try {
+      closeQuestionsAnsweredElsewhere(resolvedAgentId, { before: now, reason: eventType || 'activity' });
+    } catch (err) {
+      console.warn(`[activity] could not close answered questions: ${err instanceof Error ? err.message : err}`);
+    }
   }
   // A tool hook firing is the strongest proof this cartridge is alive. If the staleness sweep
   // declared it dead during a long tool call, this is the moment that verdict is wrong.

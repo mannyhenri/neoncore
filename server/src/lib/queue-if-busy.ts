@@ -28,8 +28,8 @@
 import db from '../db.js';
 import { enqueue, isCartridgeBusy } from './queue-runner.js';
 import type { QueueKind, QueueItem } from './queue-kinds.js';
-import { cartridgeExists } from './cartridge-exists.js';
 import { inboxReachable } from './inbox-client.js';
+import { workflowCartridges } from './workflow-cartridges.js';
 
 /**
  * Can this cartridge take a message while it is mid-turn? Only an addressed inbox can — the
@@ -126,32 +126,10 @@ export function resolveWorkflowTargets(
   workflowId: string,
   body: Record<string, unknown> | undefined,
 ): string[] {
-  const steps = db.prepare(
-    'SELECT executor_id FROM workflow_steps WHERE workflow_id = ?',
-  ).all(workflowId) as { executor_id: string }[];
-
-  // A cartridge that does not exist drives nothing and can never be busy. Counting a stale id
-  // as a target queues the run behind a ghost and, worse, disagrees with the launch guard about
-  // whether the run can start at all — both now ask cartridgeExists, from one place.
-  const targets = new Set<string>();
-  let anyDeferred = false;
-  for (const s of steps) {
-    const id = s.executor_id || '';
-    if (!id || id === '__deferred__') { anyDeferred = true; continue; }
-    if (cartridgeExists(id)) targets.add(id);
-  }
-
-  // Only count the launch agent when there is a step for it to fill. Adding it
-  // unconditionally would queue a fully-pinned run behind a cartridge it never touches.
-  const runAgentId = typeof body?.agentId === 'string' ? body.agentId.trim() : '';
-  if (runAgentId && anyDeferred && cartridgeExists(runAgentId)) targets.add(runAgentId);
-
-  const overrides = body?.agentOverrides;
-  if (overrides && typeof overrides === 'object') {
-    for (const v of Object.values(overrides as Record<string, unknown>)) {
-      if (typeof v === 'string' && cartridgeExists(v)) targets.add(v.trim());
-    }
-  }
-
-  return [...targets];
+  // Delegates to the shared resolver. This used to carry its own copy reading executor_id,
+  // body.agentId and body.agentOverrides — three of the seven sources — so a run-level CONFER
+  // resolved to NO targets and the busy guard happily started it on top of live work. The
+  // launch guard had been taught about confer and this had not, which is precisely the
+  // "satisfies one guard, fails the other" split the header warned about.
+  return workflowCartridges(workflowId, body);
 }

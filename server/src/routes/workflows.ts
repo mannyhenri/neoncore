@@ -7,7 +7,11 @@ import { sendCommandToAgent } from '../lib/send-command.js';
 import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
-import { unrunnableSteps } from '../lib/workflow-launch.js';
+import { unrunnableSteps, CONFER_FILL } from '../lib/workflow-launch.js';
+import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
+import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
+import { workflowRepoTargets } from '../lib/workflow-cartridges.js';
+import { awaitsLaunchFill } from '../lib/cartridge-exists.js';
 import { workflowNeedsAttention } from '../lib/workflow-attention.js';
 import { libelleContexte } from '../lib/context-label.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
@@ -17,6 +21,7 @@ import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload } from '../lib/work-standard.js';
+import { withReportStep } from '../lib/workflow-report.js';
 import { loopCountRequirements, validateUpstreamCount, configForRerun, LOOP_RUN_KEYS, type LoopConfig } from '../lib/workflow-loop.js';
 import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
@@ -324,16 +329,25 @@ export function withStandardGate(
       executorConfig: { gateType: 'standard', maxRetries: 1 },
       dependsOn: terminal.length > 0 ? terminal : [steps[steps.length - 1].id],
       autoAdvance: true,
-      positionX: 0,
-      positionY: 0,
+      positionX: STEP_X,
+      // Real coordinates rather than 0,0 — every gate used to stack at the top of the canvas.
+      // The final layout is recomputed by layoutSteps once the graph is complete.
+      positionY: STEP_START_Y,
     },
   ];
 }
 
 router.post('/v2/create', (req, res) => {
-  const { name, description, targetRepos, skipStandardGate } = req.body;
+  const { name, description, targetRepos, skipStandardGate, skipReportStep } = req.body;
+  // ORDER IS LOAD-BEARING. The gate goes on first so it is terminal, and the report is then
+  // appended depending on it — the run is audited and THEN reports itself. Reverse the two
+  // and withReportStep's terminal scan hands the gate a dependency on the report, so the
+  // workflow writes its completion report before the work-standard check has run.
   const steps = Array.isArray(req.body?.steps)
-    ? withStandardGate(req.body.steps, { skip: Boolean(skipStandardGate) })
+    ? withReportStep(
+        withStandardGate(req.body.steps, { skip: Boolean(skipStandardGate) }),
+        { skip: Boolean(skipReportStep) },
+      )
     : req.body?.steps;
 
   if (!name || !Array.isArray(steps) || steps.length === 0) {
@@ -384,10 +398,13 @@ router.post('/v2/create', (req, res) => {
     createdSteps.push(normalizeStep(row));
   }
 
+  layoutSteps(db, workflowId);
   const workflow = normalizeWorkflow(
     db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as Record<string, unknown>
   );
-  res.status(201).json({ workflow, steps: createdSteps });
+  const laidOut = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ? ORDER BY position_y')
+    .all(workflowId) as Record<string, unknown>[];
+  res.status(201).json({ workflow, steps: laidOut.map(normalizeStep) });
 });
 
 // Update V2 workflow (name, description, and full step replacement)
@@ -704,6 +721,10 @@ router.post('/v2/:id/start', (req, res) => {
       db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId, runId);
     }
 
+    // The run's posture. Explicit, because the column default cannot be changed on an existing
+    // SQLite table and every real database is an existing one — see DEFAULT_AUTONOMY.
+    db.prepare('UPDATE workflows SET autonomy = ? WHERE id = ?').run(DEFAULT_AUTONOMY, runId);
+
     // Clone steps with new IDs, remapping depends_on references
     const templateSteps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
       .all(templateId) as Record<string, unknown>[];
@@ -719,11 +740,8 @@ router.post('/v2/:id/start', (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', NULL, NULL)
     `);
 
-    // Recompute linear layout for the run — use fixed spacing so edges are always visible,
-    // regardless of how tightly the template steps may have been saved.
-    const STEP_SPACING = 230;
-    const START_Y = 80;
-    const FIXED_X = 300;
+    // Layout is recomputed for the run AFTER the rows land — see layoutSteps. This used to
+    // declare its own STEP_SPACING = 230, one of four different spacings in the codebase.
 
     for (let i = 0; i < templateSteps.length; i++) {
       const s = templateSteps[i];
@@ -733,12 +751,14 @@ router.post('/v2/:id/start', (req, res) => {
       insertStep.run(
         newStepId, runId,
         s.name, s.description,
-        FIXED_X, START_Y + i * STEP_SPACING,
+        STEP_X, STEP_START_Y + i * STEP_SPACING_Y,
         s.executor_type, s.executor_id, s.executor_config, s.auto_advance,
         JSON.stringify(remappedDeps), now,
       );
     }
 
+    // One authority for where a step sits, applied once the whole graph exists.
+    layoutSteps(db, runId);
     console.log(`[workflow] Cloned template ${templateId} → run ${runId} (#${runNum}, ${templateSteps.length} steps)`);
 
     // Remap overrides from template step IDs to cloned step IDs
@@ -955,50 +975,66 @@ router.post('/v2/:id/start', (req, res) => {
     }
 
     /**
-     * What run-level confer does to each executor type — as a Record keyed by the union, so
-     * adding a new type FAILS TO COMPILE until someone decides. A comment would have rotted;
-     * this cannot.
+     * What run-level confer gives each executor type comes from CONFER_FILL
+     * (lib/workflow-launch.ts) — the SAME registry the door checks a moment earlier.
      *
-     *   convert       the agent-work step — the whole point of the mode
-     *   verdict       a gate reads PASS/FAIL out of the result; a confer produces work, not a
-     *                 judgement, so converting breaks it AS a gate that never passes — which
-     *                 reads as the agents being bad rather than as a wiring mistake
-     *   already-multi has its own multi-agent semantics; leave them alone
-     *   no-agent      no cartridge involved, nothing to confer with
-     *   human         waits for YOUR judgement; converting would quietly replace it
+     * It used to be declared here as `CONFER_CONVERSION` while the door kept its own Set of
+     * four names, and the door runs first: 12 of 24 templates were refused for steps this
+     * block would have handled perfectly well. One registry, both halves.
      */
-    const CONFER_CONVERSION: Record<StepExecutorType, 'convert' | 'verdict' | 'already-multi' | 'no-agent' | 'human'> = {
-      'claude-code': 'convert',
-      'review-gate': 'verdict',
-      'quality-gate': 'verdict',
-      'deliberation': 'already-multi',
-      'confer': 'already-multi',
-      'command': 'no-agent',
-      'connector': 'no-agent',
-      'decision': 'human',
-    };
-    const CONVERTS = new Set(
-      (Object.keys(CONFER_CONVERSION) as StepExecutorType[]).filter((t) => CONFER_CONVERSION[t] === 'convert'),
-    );
-    const rows = db.prepare('SELECT id, executor_type, executor_config FROM workflow_steps WHERE workflow_id = ?')
-      .all(runId) as { id: string; executor_type: string; executor_config: string }[];
+    const rows = db.prepare('SELECT id, executor_type, executor_id, executor_config FROM workflow_steps WHERE workflow_id = ?')
+      .all(runId) as { id: string; executor_type: string; executor_id: string; executor_config: string }[];
+
+    // The judge for every single-cartridge step. First participant rather than a random one so
+    // two runs of the same template are comparable, and so the choice is explainable.
+    const judge = conferAllSteps[0];
 
     let converted = 0;
+    let assigned = 0;
     for (const r of rows) {
-      if (!CONVERTS.has(r.executor_type as StepExecutorType)) continue;
+      const fill = CONFER_FILL[r.executor_type as StepExecutorType];
+      if (!fill || fill === 'none') continue;
+
       const config = JSON.parse(r.executor_config || '{}') as Record<string, unknown>;
-      config.conferAgentIds = conferAllSteps;
-      config.conferMode = config.conferMode ?? 'divide';
-      config.conferIsolation = config.conferIsolation ?? 'shared';
-      config._wasDeferred = true;
-      // executor_id stops meaning anything for a confer step, and leaving a stale one behind
-      // makes the run look single-owner on every surface that reads it.
-      db.prepare('UPDATE workflow_steps SET executor_type = ?, executor_id = ?, executor_config = ? WHERE id = ?')
-        .run('confer', '', JSON.stringify(config), r.id);
-      converted += 1;
+      const awaiting = awaitsLaunchFill((r.executor_id ?? '').trim());
+
+      if (fill === 'confer-all') {
+        config.conferAgentIds = conferAllSteps;
+        config.conferMode = config.conferMode ?? 'divide';
+        config.conferIsolation = config.conferIsolation ?? 'shared';
+        config._wasDeferred = true;
+        // executor_id stops meaning anything for a confer step, and leaving a stale one behind
+        // makes the run look single-owner on every surface that reads it.
+        db.prepare('UPDATE workflow_steps SET executor_type = ?, executor_id = ?, executor_config = ? WHERE id = ?')
+          .run('confer', '', JSON.stringify(config), r.id);
+        converted += 1;
+        continue;
+      }
+
+      // Everything below fills only what is still AWAITING a cartridge. A pin someone made
+      // deliberately — or a stale one the door already refused — is never overwritten here.
+      if (!awaiting) continue;
+
+      if (fill === 'single') {
+        // A gate is a single-judge verdict and a command step dispatches to one cartridge;
+        // converting either would break what it is. They just need somebody.
+        if (r.executor_type === 'review-gate' && !config.reviewAgentId) config.reviewAgentId = judge;
+        db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+          .run(judge, JSON.stringify(config), r.id);
+        assigned += 1;
+      } else if (fill === 'multi-if-empty') {
+        // Already multi-agent. Its own roster wins; an EMPTY roster is what left the
+        // confer-across-repos template unable to launch its own confer step.
+        const key = r.executor_type === 'deliberation' ? 'panelAgentIds' : 'conferAgentIds';
+        const existing = Array.isArray(config[key]) ? (config[key] as unknown[]).filter(Boolean) : [];
+        if (existing.length < 2) config[key] = conferAllSteps;
+        db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+          .run('', JSON.stringify(config), r.id);
+        assigned += 1;
+      }
     }
     console.log(`[workflow] Run ${runId}: ${converted} step(s) converted to confer across `
-      + `${conferAllSteps.length} cartridges`);
+      + `${conferAllSteps.length} cartridges, ${assigned} given a cartridge from the set`);
   }
 
   /**
@@ -1060,12 +1096,15 @@ router.post('/v2/:id/start', (req, res) => {
   // run touches and can drop a copy of each file into each one. The resulting repoPath →
   // block map is appended to every prompt this run dispatches (see dispatchStepCommand).
   if (attachments.length > 0) {
-    const executorRows = db.prepare(
-      `SELECT DISTINCT a.repo_path AS repo_path, a.machine AS machine, a.repo_name AS repo_name
-         FROM workflow_steps s
-         JOIN agents a ON a.id = s.executor_id
-        WHERE s.workflow_id = ?`,
-    ).all(runId) as { repo_path: string; machine: string; repo_name: string }[];
+    // FROM THE SHARED RESOLVER, not an inline join on executor_id.
+    //
+    // That join is what produced "Cannot attach files: none of the selected cartridges has a
+    // repo path" on every confer run that carried an attachment: the confer conversion empties
+    // executor_id by design and puts the roster in executorConfig.conferAgentIds, so the join
+    // matched nothing while all the cartridges sat right there with valid repo paths.
+    const executorRows = workflowRepoTargets(runId).map((t) => ({
+      repo_path: t.repoPath, machine: t.machine, repo_name: t.repoName,
+    }));
 
     // An executor on another machine registered into this DB, but its repo_path lives on
     // that box. Writing files there is impossible from here, so say which machine rather
@@ -1267,8 +1306,92 @@ function validateResult(result: unknown): string | null {
 // This is THE completion path — steps are never completed by inferring it from agent idleness.
 // Gate verdicts (PASS/FAIL), retries and loop re-dispatch are all routed by completeStepFromSignal.
 // Usage: curl -X POST http://localhost:4040/api/workflows/webhook/<stepId>/complete -H 'Content-Type: application/json' -d '{"result": "done"}'
+/**
+ * The completion report, coming back from the cartridge.
+ *
+ * The report step writes `workflow-report.json` and `.html` to `.neoncore/reports/<runId>/` on
+ * the cartridge's own disk — which is the right place for the agent to work, and a place the
+ * app can never read. Without this endpoint NeonCore supplies the run record that goes INTO the
+ * report and then never learns what came out, which is why the reports appeared not to work.
+ *
+ * The JSON is stored verbatim. It is the structured half of a document whose whole design point
+ * is that the HTML is rendered FROM it, so summarising it here would throw away the reason it
+ * exists. The project is resolved from the executing cartridge's repo name, matching how
+ * project_knowledge and the journal routes are keyed.
+ */
+/**
+ * Store a completion report against its step. ONE implementation, both callers.
+ *
+ * Two of them reach here: the dedicated endpoint below (for an engine with no MCP) and the
+ * step-completion webhook, which is where `neoncore_report_step_done` posts. The second is the
+ * one that matters — the agent MUST call it or the step never completes, so carrying the report
+ * there makes delivery part of a call it cannot skip. The first version had only the dedicated
+ * endpoint and relied on the agent remembering a second, optional curl; a completed run proved
+ * the cost, with both files on disk and `workflow_reports` empty.
+ *
+ * Returns null when there is nothing storable. NEVER throws: a report riding along with a
+ * completion must not be able to fail the completion. Losing a report is recoverable; losing
+ * the completion strands the workflow.
+ */
+function storeStepReport(stepId: string, report: unknown): { id: string; project: string } | null {
+  if (!report || typeof report !== 'object' || Array.isArray(report)) return null;
+  try {
+    const step = db.prepare(
+      'SELECT id, workflow_id, executor_id FROM workflow_steps WHERE id = ?',
+    ).get(stepId) as { id: string; workflow_id: string; executor_id: string } | undefined;
+    if (!step) return null;
+
+    const wf = db.prepare('SELECT name, run_number FROM workflows WHERE id = ?')
+      .get(step.workflow_id) as { name: string; run_number: number } | undefined;
+    const agent = db.prepare('SELECT repo_name FROM agents WHERE id = ?')
+      .get(step.executor_id) as { repo_name: string } | undefined;
+
+    const header = (report as Record<string, unknown>).header as Record<string, unknown> | undefined;
+    const status = typeof header?.overallStatus === 'string' ? header.overallStatus : '';
+
+    // Replace on retry. A second attempt at the same step is a corrected report, not another.
+    db.prepare(
+      `INSERT INTO workflow_reports (id, project, workflow_id, step_id, workflow_name, run_number, status, report, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(step_id) DO UPDATE SET
+         report = excluded.report, status = excluded.status, created_at = excluded.created_at`,
+    ).run(
+      uuid(), agent?.repo_name || '', step.workflow_id, step.id,
+      wf?.name || '', wf?.run_number ?? 0, status, JSON.stringify(report), new Date().toISOString(),
+    );
+
+    const row = db.prepare('SELECT id FROM workflow_reports WHERE step_id = ?').get(step.id) as { id: string };
+    console.log(`[workflow] Report stored for ${wf?.name || step.workflow_id} → project "${agent?.repo_name || '(none)'}"`);
+    getIO().emit('workflow_report_stored', { id: row.id, project: agent?.repo_name || '', workflowId: step.workflow_id });
+    return { id: row.id, project: agent?.repo_name || '' };
+  } catch (err) {
+    console.error(`[workflow] Could not store report for step ${stepId}:`, err);
+    return null;
+  }
+}
+
+/**
+ * The dedicated report endpoint — the fallback for an engine with no MCP tooling, and the one
+ * the canned prompt's curl targets.
+ */
+router.post('/webhook/:stepId/report', (req, res) => {
+  const step = db.prepare('SELECT id FROM workflow_steps WHERE id = ?').get(req.params.stepId);
+  if (!step) return res.status(404).json({ error: 'Step not found' });
+
+  const stored = storeStepReport(req.params.stepId, req.body?.report);
+  if (!stored) {
+    return res.status(400).json({ error: 'report must be the workflow-report.json object' });
+  }
+  res.status(201).json(stored);
+});
+
 router.post('/webhook/:stepId/complete', (req, res) => {
   const { result, scope, verify, deferred } = req.body || {};
+
+  // A completion may CARRY the run's report. Stored best-effort and never allowed to fail the
+  // completion — see storeStepReport. This is the path neoncore_report_step_done uses, which is
+  // the call an agent cannot skip, so it is the reliable half of report delivery.
+  if (req.body?.report) storeStepReport(req.params.stepId, req.body.report);
   const invalid = validateResult(result);
   if (invalid) return res.status(400).json({ error: invalid });
 

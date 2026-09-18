@@ -805,3 +805,21 @@ export interface QueueView {
    */
   kinds: QueueKind[];
 }
+
+/**
+ * A run's completion report, as it comes back from the cartridge that produced it.
+ *
+ * `report` is the verbatim `workflow-report.json` the agent wrote — the HTML it also rendered
+ * is derived from this same object, which is why it is stored whole rather than summarised.
+ */
+export interface WorkflowReport {
+  id: string;
+  project: string;
+  workflowId: string;
+  stepId: string;
+  workflowName: string;
+  runNumber: number;
+  status: string;
+  createdAt: string;
+  report: Record<string, unknown>;
+}

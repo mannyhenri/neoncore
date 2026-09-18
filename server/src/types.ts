@@ -164,7 +164,11 @@ export interface PermissionRequest {
   toolName: string;
   toolInput: string; // JSON string
   description: string;
-  status: 'pending' | 'allowed' | 'denied' | 'timeout';
+  // 'expired'          — the TTL sweep in index.ts gave up waiting (was already written
+  //                       here and missing from this union).
+  // 'answered_elsewhere' — the human answered in the terminal; the agent moved on and the
+  //                       row was closed from the activity ingest.
+  status: 'pending' | 'allowed' | 'denied' | 'timeout' | 'expired' | 'answered_elsewhere';
   createdAt: string;
   decidedAt: string | null;
   response: string; // JSON string — answers for AskUserQuestion, feedback for ExitPlanMode
@@ -543,6 +547,8 @@ export type ServerToClientEvents = {
   agent_unstuck: (data: { agentId: string }) => void;
   memory_updated: (data: { agentId: string }) => void;
   permissions_expired: (data: { count: number }) => void;
+  // A completion report came back from a cartridge and is now readable in that repo's journal.
+  workflow_report_stored: (data: { id: string; project: string; workflowId: string }) => void;
   epic_updated: (run: EpicRun) => void;
   workflow_updated: (workflow: Workflow) => void;
   workflow_deleted: (data: { id: string }) => void;

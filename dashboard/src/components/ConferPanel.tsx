@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Agent, ConferSession } from '../types';
 import { api } from '../lib/api';
 
@@ -23,6 +23,8 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
   // sign anything happened; a stuck confer looked un-cancellable. 'confirm' is the armed state.
   const [cancelPhase, setCancelPhase] = useState<'idle' | 'confirm' | 'cancelling'>('idle');
   const [cancelError, setCancelError] = useState('');
+  const [resuming, setResuming] = useState(false);
+  useEffect(() => { if (c.status !== 'failed') setResuming(false); }, [c.status]);
   const doCancel = async () => {
     setCancelPhase('cancelling');
     setCancelError('');
@@ -33,6 +35,16 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
     } catch (err) {
       setCancelError(err instanceof Error ? err.message : 'Cancel failed');
       setCancelPhase('idle');
+    }
+  };
+  const doResume = async () => {
+    setResuming(true);
+    setCancelError('');
+    try {
+      await api.resumeConfer(c.id);
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Resume failed');
+      setResuming(false);
     }
   };
 
@@ -71,6 +83,12 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
               Cancel
             </button>
           )
+        )}
+        {c.status === 'failed' && (
+          <button onClick={doResume} disabled={resuming}
+            className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-300 disabled:opacity-50">
+            {resuming ? 'Resuming…' : 'Resume confer'}
+          </button>
         )}
       </div>
       {cancelError && <div className="text-[11px] text-red-400 mb-1.5">{cancelError}</div>}

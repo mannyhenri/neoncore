@@ -22,6 +22,7 @@
  */
 import db from '../db.js';
 import { cartridgeExists, awaitsLaunchFill } from './cartridge-exists.js';
+import type { StepExecutorType } from '../types.js';
 
 /** Why a step cannot run: nobody was picked, or the one that was picked no longer exists. */
 export type UnrunnableReason = 'no-cartridge' | 'cartridge-gone';
@@ -37,13 +38,50 @@ export type UnrunnableReason = 'no-cartridge' | 'cartridge-gone';
  *    rescue a stale pin — the dead id survives the fill and dies at dispatch.
  */
 /**
- * Step types that need no cartridge pinned when the run confers on every step: the one the
- * conversion rewrites, plus the three that dispatch to no agent in any mode.
+ * WHAT RUN-LEVEL CONFER GIVES EACH STEP TYPE. The single registry — the door checks it and the
+ * conversion applies it.
  *
- * Gates and deliberation are deliberately ABSENT — they still need their own agents, and a
- * confer run that silently launched with an unassigned gate would stall at it.
+ * This replaces a pair that had drifted: a Record over the union in routes/workflows.ts saying
+ * what the conversion DOES, and a hand-written Set of four names here saying what the door
+ * ACCEPTS. The door runs first, so the Set won every disagreement — and it had never heard of
+ * `quality-gate`, `review-gate`, `confer` or `deliberation`. Measured against the live database,
+ * 12 of 24 templates could not be launched in confer mode, `Epic: Confer Across Repos` among
+ * them, refused because of its own confer step.
+ *
+ * Keyed by `StepExecutorType`, so a ninth type fails to compile until someone decides what
+ * confer means for it. That is the property the Set could never have.
+ *
+ *   confer-all      the agent-work step — rewritten into a confer over every participant
+ *   single          needs exactly ONE cartridge; takes the first participant
+ *   multi-if-empty  carries its own agent list; filled from the participants only when unset
+ *   none            dispatches to no cartridge in any mode
+ *
+ * `command` is 'single' and that is a fix, not a transcription: the old pair both called it a
+ * no-agent step, while executeCommandStep opens with "Command step requires an agent ID". A
+ * confer run containing one passed the door and died at that step.
  */
-const CONFER_SATISFIED = new Set(['claude-code', 'connector', 'decision', 'command']);
+export type ConferFill = 'confer-all' | 'single' | 'multi-if-empty' | 'none';
+
+export const CONFER_FILL: Record<StepExecutorType, ConferFill> = {
+  'claude-code': 'confer-all',
+  // A gate reads PASS/FAIL out of a result. Converting it to a confer breaks it AS a gate —
+  // one that never passes, which reads as the agents being bad rather than as a wiring
+  // mistake. So it keeps its single-judge shape and simply gets a judge.
+  'quality-gate': 'single',
+  'review-gate': 'single',
+  // Not a no-agent step, whatever the old registries said. See the note above.
+  'command': 'single',
+  // Already multi-agent. Its own list wins when it has one; an unset list is what left the
+  // confer-across-repos template unlaunchable.
+  'confer': 'multi-if-empty',
+  'deliberation': 'multi-if-empty',
+  'connector': 'none',
+  // Waits for YOUR judgement. Nothing may fill that.
+  'decision': 'none',
+};
+
+/** Types the confer conversion supplies agents for, so the door must not refuse them. */
+const CONFER_SUPPLIES = new Set<ConferFill>(['confer-all', 'single', 'multi-if-empty', 'none']);
 
 export function unrunnableSteps(
   workflowId: string,
@@ -87,7 +125,13 @@ export function unrunnableSteps(
     // "unassigned" here because an ordinary run's run-level fill happens to stamp them too.
     // Scoped to confer mode deliberately: relaxing this for every run would change a check
     // that has been correct for every other path.
-    if (confersEveryStep && CONFER_SATISFIED.has(s.executor_type)) continue;
+    // In confer mode the conversion supplies agents for every type in the registry — so the
+    // door must not refuse a step merely for arriving unassigned. It still refuses a STALE
+    // pin below: the fill only touches steps awaiting one, so a dead id survives the mode and
+    // would die at dispatch. Hiding that behind confer would be the original bug inverted.
+    const fill = CONFER_FILL[s.executor_type as StepExecutorType];
+    if (confersEveryStep && fill && CONFER_SUPPLIES.has(fill)
+        && awaitsLaunchFill((s.executor_id ?? '').trim())) continue;
 
     let effective = (s.executor_id ?? '').trim();
 
