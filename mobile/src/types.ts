@@ -60,6 +60,16 @@ export interface ConferSession {
   isolation: ConferIsolation;
   worktrees?: Record<string, { path: string; branch: string }>;
   milestones?: ConferMilestone[];
+  /**
+   * The run whose step created this confer, or null when it was started on its own.
+   *
+   * A workflow's confer is already in the feed as its run, so listing the session too shows
+   * one confer twice. Mirrors ConferSession in @neoncore/client; it cannot be imported at
+   * runtime here (metro cannot follow that package's NodeNext '.js' specifiers — see
+   * metro.config.js), which is why this field is restated rather than shared.
+   */
+  workflowId?: string | null;
+  stepId?: string | null;
 }
 
 export interface Agent {

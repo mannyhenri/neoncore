@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
+import { activeStandaloneConfers, recentStandaloneConfers } from '@neoncore/client';
 import { isWaitingSession } from '../types';
 import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem, Heartbeat } from '../types';
 import { AutonomyControl } from './AutonomyControl';
@@ -228,8 +229,11 @@ export function WorkflowPanel({ agents }: Props) {
   // Also include V1 workflows (no steps, no templateId) that are running
   const activeV1 = templates.filter((w) => ['running', 'paused'].includes(w.status) && !w.stepSummary);
 
-  // Confers: running ones live under Active Runs; finished ones (last 10 min) archive under Recent Runs.
-  const activeConfers = confers.filter((c) => c.status === 'running');
+  // Confers: running ones live under Active Runs; finished ones (last 10 min) archive under
+  // Recent Runs. STANDALONE ones only — a confer created by a workflow step is already in this
+  // list as its run, and showing the session too made one confer read as two. See
+  // standaloneConfers (@neoncore/client, confer-view.ts), which the phone uses as well.
+  const activeConfers = activeStandaloneConfers(confers);
   // Waiting to start, because a target cartridge is busy. isWaitingSession keys on `handle`,
   // not status: a dispatched item carries the id of the session it created, and that session's
   // card owns the rendering from then on. Filtering on status alone showed one confer twice —
@@ -237,9 +241,7 @@ export function WorkflowPanel({ agents }: Props) {
   const waiting = queue.filter(isWaitingSession);
   const queuedConfers = waiting.filter((q) => q.kind === 'confer');
   const queuedWorkflows = waiting.filter((q) => q.kind === 'workflow');
-  const recentConfers = confers.filter(
-    (c) => c.status !== 'running' && c.completedAt && Date.now() - new Date(c.completedAt).getTime() < 10 * 60 * 1000,
-  );
+  const recentConfers = recentStandaloneConfers(confers);
 
   const totalActive = activeRuns.length + activeV1.length + activeConfers.length;
 

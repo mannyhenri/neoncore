@@ -651,6 +651,16 @@ export interface ConferSession {
   isolation: ConferIsolation;
   worktrees?: Record<string, { path: string; branch: string }>;
   milestones?: ConferMilestone[];
+  /**
+   * The run whose step created this confer, or null when it was started on its own.
+   *
+   * A workflow's confer is already represented by its run, so every list that shows runs and
+   * confers together must drop the owned ones or it counts one confer twice. Use
+   * `standaloneConfers` (confer-view.ts) rather than reading this field at each surface.
+   */
+  workflowId?: string | null;
+  /** The step that created it, for the same reason. Null when standalone. */
+  stepId?: string | null;
 }
 
 // Git types
