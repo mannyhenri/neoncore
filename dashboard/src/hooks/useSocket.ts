@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine, ServerEntry } from '../types';
+import { IS_DEMO } from '../lib/api';
 
 /**
  * One socket per server, always (D6).
@@ -64,6 +65,15 @@ export function useSockets(servers: ServerEntry[], handlers: SocketHandlers) {
   );
 
   useEffect(() => {
+    // DEMO MODE OPENS NO SOCKET.
+    //
+    // The API client is faked at the transport, but the socket is a SECOND route into this app
+    // and it carries live data: agent_updated, activity_logged, permission_requested. Left
+    // connected, a demo would show invented cartridges and then real ones arriving live beside
+    // them — which is both confusing and a leak of exactly the information the demo exists to
+    // hide. Nothing is missed: demo data changes only when the person clicks.
+    if (IS_DEMO) return;
+
     const sockets: Socket[] = [];
     const seenOnce = new Set<string>();
 

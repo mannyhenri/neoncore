@@ -17,6 +17,8 @@ import { BurnRate } from './components/BurnRate';
 import { TokensPage } from './components/TokensPage';
 import { api } from './lib/api';
 import type { AgentType, Activity, VirtualCartridge } from './types';
+import { IS_DEMO } from './lib/api';
+import { setDemoEnabled, resetDemoData } from './lib/demoMode';
 
 export default function App() {
   // Virtual cartridges
@@ -111,6 +113,21 @@ export default function App() {
     ),
   ];
 
+  // Demo mode is visible at all times. A person walking past a screen showing invented
+  // cartridges must be able to tell — and so must the operator, after the demo ends.
+  const demoBanner = IS_DEMO ? (
+    <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-1.5 flex items-center justify-center gap-3 text-[12px] text-amber-300">
+      <span aria-hidden="true">●</span>
+      <span>Demo mode — showing invented data. Your real cartridges and workflows are running normally.</span>
+      <button
+        onClick={() => { setDemoEnabled(false); resetDemoData(); window.location.reload(); }}
+        className="underline underline-offset-2 hover:text-amber-200"
+      >
+        Turn off
+      </button>
+    </div>
+  ) : null;
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -121,6 +138,7 @@ export default function App() {
 
   return (
     <div className="min-h-full text-white">
+      {demoBanner}
       {/* Header */}
       <header className="glass-light px-3 py-3 md:px-6 md:py-4 border-b border-white/[0.06] relative z-20">
         {/* THREE TRACKS, so the regions cannot collide.

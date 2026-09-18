@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
+import { isDemoEnabled, setDemoEnabled, resetDemoData } from '../lib/demoMode';
 
 interface Props {
   onClose: () => void;
@@ -20,7 +21,7 @@ const BADGE_STYLES: Record<string, string> = {
   violet: 'bg-violet-900/60 text-violet-300',
 };
 
-type SettingsTab = 'projects' | 'tools' | 'github';
+type SettingsTab = 'projects' | 'tools' | 'github' | 'demo';
 
 interface ToolStatus {
   label: string;
@@ -34,6 +35,7 @@ interface ToolStatus {
 }
 
 export function SettingsModal({ onClose }: Props) {
+  const [demoOn] = useState(isDemoEnabled);
   const [tab, setTab] = useState<SettingsTab>('projects');
   const [currentPath, setCurrentPath] = useState('');
   const [parentPath, setParentPath] = useState<string | null>(null);
@@ -184,12 +186,44 @@ export function SettingsModal({ onClose }: Props) {
               <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
               <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
               <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
+              <button onClick={() => setTab('demo')} className={tabClass('demo')}>Demo</button>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
         </div>
 
-        {tab === 'projects' ? (
+        {tab === 'demo' ? (
+          <div className="px-4 py-4 md:px-6 space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={demoOn}
+                onChange={(e) => {
+                  // Reload deliberately. The API clients pick their transport once at module
+                  // load, so flipping this without a reload would leave some clients on fake
+                  // data and some on live — the one state worse than either.
+                  setDemoEnabled(e.target.checked);
+                  resetDemoData();
+                  window.location.reload();
+                }}
+                className="accent-amber-500 mt-0.5"
+              />
+              <span>
+                <span className="text-sm font-medium text-gray-200">Demo mode</span>
+                <span className="block text-[13px] text-gray-500 mt-1">
+                  Shows invented data instead of your fleet, so you can demo the app safely.
+                  Clicking things works — creating, deleting and launching all appear to happen
+                  and none of them leave this browser tab.
+                </span>
+              </span>
+            </label>
+            <p className="text-[12px] text-gray-600 border-l-2 border-white/10 pl-3">
+              Your real cartridges, workflows and schedules keep running exactly as they are.
+              Demo mode changes what this tab shows, not what NeonCore does. Switching it on or
+              off reloads the page.
+            </p>
+          </div>
+        ) : tab === 'projects' ? (
           <>
             {savedDirs.length > 0 && (
               <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.06] space-y-1">
