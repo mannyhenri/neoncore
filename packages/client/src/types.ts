@@ -822,4 +822,11 @@ export interface WorkflowReport {
   status: string;
   createdAt: string;
   report: Record<string, unknown>;
+  /**
+   * Where the app can OPEN the rendered report, or '' when none was recorded.
+   *
+   * A server URL, not the file:// path on the cartridge — a browser refuses to follow one of
+   * those from an http page, which is how a finished report could sit on disk unreachable.
+   */
+  htmlUrl?: string;
 }

@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { normalizeSession, getProjectSessions } from '../lib/session-manager.js';
 import { KNOWLEDGE_FILES, isKnowledgeFile } from '../lib/knowledge-files.js';
+import fs from 'fs';
 
 const router = Router();
 
@@ -108,7 +109,7 @@ router.put('/projects/:project/knowledge/:filename', (req, res) => {
 router.get('/projects/:project/reports', (req, res) => {
   const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10) || 50, 200);
   const rows = db.prepare(
-    `SELECT id, project, workflow_id, step_id, workflow_name, run_number, status, report, created_at
+    `SELECT id, project, workflow_id, step_id, workflow_name, run_number, status, report, html_path, created_at
        FROM workflow_reports WHERE project = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`,
   ).all(req.params.project, limit) as Record<string, unknown>[];
 
@@ -121,12 +122,44 @@ router.get('/projects/:project/reports', (req, res) => {
     runNumber: r.run_number as number,
     status: r.status as string,
     createdAt: r.created_at as string,
+    // A URL the APP can open. Not the file:// path — a browser refuses to follow one of those
+    // from an http page, which is why a report could sit complete on disk and be unreachable
+    // from the journal. Empty when no HTML was recorded.
+    htmlUrl: (r.html_path as string) ? `/api/journal/reports/${r.id as string}/html` : '',
     // Parsed, not handed back as a string — every consumer would otherwise parse it itself,
     // and one of them would forget the try/catch.
     report: (() => {
       try { return JSON.parse((r.report as string) || '{}'); } catch { return {}; }
     })(),
   })));
+});
+
+/**
+ * Serve a report's rendered HTML.
+ *
+ * KEYED BY REPORT ID, NEVER BY A PATH FROM THE REQUEST. The only path this will ever open is
+ * one the server recorded itself when it ingested the report; accepting a path would make this
+ * an arbitrary file read wearing a report's clothes.
+ *
+ * It exists because a browser will not follow a file:// link from an http page — so a report
+ * written to the cartridge's disk was readable only by pasting its path into a new tab, which
+ * is exactly what was reported.
+ */
+router.get('/reports/:id/html', (req, res) => {
+  const row = db.prepare('SELECT html_path, workflow_name FROM workflow_reports WHERE id = ?')
+    .get(req.params.id) as { html_path: string; workflow_name: string } | undefined;
+  if (!row || !row.html_path) return res.status(404).json({ error: 'No rendered report for this run' });
+
+  if (!fs.existsSync(row.html_path)) {
+    // The run wrote it and something removed it since. Say which, rather than 500.
+    return res.status(404).json({
+      error: `The report file for "${row.workflow_name}" is no longer on disk (${row.html_path}). ` +
+        'The stored JSON is still in the journal.',
+    });
+  }
+  // Read and send rather than sendFile: the file lives outside this server's tree, and the
+  // content type is fixed because we know exactly what we wrote.
+  res.type('html').send(fs.readFileSync(row.html_path, 'utf8'));
 });
 
 // ── Project-scoped notes ──

@@ -28,6 +28,8 @@ import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
 } from '../lib/autonomy.js';
 import type { StepExecutorType } from '../types.js';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
@@ -1320,6 +1322,81 @@ function validateResult(result: unknown): string | null {
  * project_knowledge and the journal routes are keyed.
  */
 /**
+ * The report files a run wrote, on the cartridge's own disk.
+ *
+ * THE THIRD INGEST PATH, and the only one that needs no cooperation from the agent. A report
+ * was found sitting complete at
+ *   /Users/…/gl-dev-lane-b-gateway-api/.neoncore/reports/<runId>/workflow-report.html
+ * while the journal was empty, because delivery had been built entirely as "the agent must POST
+ * it" and that run's prompt predated the POST instruction. For a cartridge on THIS machine the
+ * server can simply read it.
+ *
+ * Local machines only: a cartridge registered from another box reports a repo_path that does
+ * not exist here, and fs would be answering about the wrong disk (see lib/machine-locality.ts).
+ */
+function reportDir(workflowId: string, executorId: string): string | null {
+  const agent = db.prepare('SELECT repo_path, machine FROM agents WHERE id = ?')
+    .get(executorId) as { repo_path?: string; machine?: string } | undefined;
+  const repo = (agent?.repo_path || '').trim();
+  if (!repo || !isLocalMachine(agent?.machine)) return null;
+  return path.join(repo, '.neoncore', 'reports', workflowId);
+}
+
+function findReportHtml(workflowId: string, executorId: string): string {
+  const dir = reportDir(workflowId, executorId);
+  if (!dir) return '';
+  const html = path.join(dir, 'workflow-report.html');
+  try { return fs.existsSync(html) ? html : ''; } catch { return ''; }
+}
+
+/**
+ * Read a run's report off disk when the agent did not send one.
+ *
+ * Called on step completion, AFTER any posted report — a posted report is the agent's own
+ * account and wins; this is the safety net, not the source of truth.
+ */
+export function backfillReportsFromDisk(): number {
+  // Every completed report step that never delivered. Reports written before the return path
+  // existed are sitting on disk complete — one was found at
+  // gl-dev-lane-b-gateway-api/.neoncore/reports/<runId>/workflow-report.html while the journal
+  // showed nothing. Nothing about them is unreachable; they were simply never asked for.
+  const steps = db.prepare(
+    `SELECT s.id FROM workflow_steps s
+      WHERE s.status = 'completed'
+        AND s.executor_config LIKE '%workflow-report%'
+        AND NOT EXISTS (SELECT 1 FROM workflow_reports r WHERE r.step_id = s.id)`,
+  ).all() as { id: string }[];
+  let found = 0;
+  for (const s of steps) {
+    ingestReportFromDisk(s.id);
+    if (db.prepare('SELECT 1 FROM workflow_reports WHERE step_id = ?').get(s.id)) found++;
+  }
+  return found;
+}
+
+function ingestReportFromDisk(stepId: string): void {
+  try {
+    const step = db.prepare('SELECT id, workflow_id, executor_id FROM workflow_steps WHERE id = ?')
+      .get(stepId) as { id: string; workflow_id: string; executor_id: string } | undefined;
+    if (!step) return;
+    if (db.prepare('SELECT 1 FROM workflow_reports WHERE step_id = ?').get(stepId)) return;
+
+    const dir = reportDir(step.workflow_id, step.executor_id);
+    if (!dir) return;
+    const jsonPath = path.join(dir, 'workflow-report.json');
+    if (!fs.existsSync(jsonPath)) return;
+
+    const parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    const stored = storeStepReport(stepId, parsed, findReportHtml(step.workflow_id, step.executor_id));
+    if (stored) console.log(`[workflow] Report read from disk for step ${stepId.slice(0, 8)} → ${dir}`);
+  } catch (err) {
+    // Never let this fail a completion. A missing or malformed report on disk is a report we
+    // do not have, not a step that did not finish.
+    console.warn(`[workflow] Could not read a report from disk for ${stepId}: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/**
  * Store a completion report against its step. ONE implementation, both callers.
  *
  * Two of them reach here: the dedicated endpoint below (for an engine with no MCP) and the
@@ -1333,7 +1410,7 @@ function validateResult(result: unknown): string | null {
  * completion must not be able to fail the completion. Losing a report is recoverable; losing
  * the completion strands the workflow.
  */
-function storeStepReport(stepId: string, report: unknown): { id: string; project: string } | null {
+function storeStepReport(stepId: string, report: unknown, htmlPath = ''): { id: string; project: string } | null {
   if (!report || typeof report !== 'object' || Array.isArray(report)) return null;
   try {
     const step = db.prepare(
@@ -1351,13 +1428,18 @@ function storeStepReport(stepId: string, report: unknown): { id: string; project
 
     // Replace on retry. A second attempt at the same step is a corrected report, not another.
     db.prepare(
-      `INSERT INTO workflow_reports (id, project, workflow_id, step_id, workflow_name, run_number, status, report, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO workflow_reports (id, project, workflow_id, step_id, workflow_name, run_number, status, report, html_path, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(step_id) DO UPDATE SET
-         report = excluded.report, status = excluded.status, created_at = excluded.created_at`,
+         report = excluded.report, status = excluded.status, created_at = excluded.created_at,
+         -- Keep a known html path when a later post does not carry one; losing the link to the
+         -- readable half because a retry omitted it would be a silent downgrade.
+         html_path = CASE WHEN excluded.html_path != '' THEN excluded.html_path ELSE workflow_reports.html_path END`,
     ).run(
       uuid(), agent?.repo_name || '', step.workflow_id, step.id,
-      wf?.name || '', wf?.run_number ?? 0, status, JSON.stringify(report), new Date().toISOString(),
+      wf?.name || '', wf?.run_number ?? 0, status, JSON.stringify(report),
+      htmlPath || findReportHtml(step.workflow_id, step.executor_id),
+      new Date().toISOString(),
     );
 
     const row = db.prepare('SELECT id FROM workflow_reports WHERE step_id = ?').get(step.id) as { id: string };
@@ -1392,6 +1474,9 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   // completion — see storeStepReport. This is the path neoncore_report_step_done uses, which is
   // the call an agent cannot skip, so it is the reliable half of report delivery.
   if (req.body?.report) storeStepReport(req.params.stepId, req.body.report);
+  // …and if nothing was posted, look on the cartridge's disk. This is the path that needs no
+  // agent cooperation at all, and the one that would have caught every report written so far.
+  ingestReportFromDisk(req.params.stepId);
   const invalid = validateResult(result);
   if (invalid) return res.status(400).json({ error: invalid });
 

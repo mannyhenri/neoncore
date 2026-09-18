@@ -309,6 +309,16 @@ startStuckDetector();
 startMemoryAnalyzer();
 startCleanupScheduler();
 startWorkflowExecutorV2();
+// Reports written before delivery existed are on the cartridge's disk, complete, and were
+// never asked for. One scan on boot brings them into the journal. Idempotent: a report already
+// stored is skipped, so this costs nothing on every subsequent start.
+try {
+  const recovered = backfillReportsFromDisk();
+  if (recovered > 0) console.log(`[reports] Recovered ${recovered} report(s) from cartridge disks`);
+} catch (err) {
+  console.error('[reports] disk backfill failed:', err);
+}
+
 startHeartbeatScheduler();
 startConferConductor();
   startQueueRunner();
@@ -344,6 +354,7 @@ import { registerRemoteCommands } from './lib/remote-commands.js';
 import { discordSource } from './lib/discord-bot.js';
 import { registerAttentionActions, startAttentionNotifier, stopAttentionNotifier } from './lib/attention-notifier.js';
 import { registerPermissionActions } from './routes/permissions.js';
+import { backfillReportsFromDisk } from './routes/workflows.js';
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces();
   for (const devName of Object.keys(interfaces)) {
