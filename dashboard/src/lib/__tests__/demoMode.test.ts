@@ -231,3 +231,37 @@ describe('demo responses match the shapes the client declares', () => {
     expect(Array.isArray(body.peers)).toBe(true);
   });
 });
+
+/**
+ * GETTING OUT WITHOUT THE APP.
+ *
+ * "I'm unable to restore it." Demo mode's only exits were the banner button and the Settings
+ * checkbox, both inside the app — so when a bad demo response crashed the first render, every
+ * exit went blank with it. A recovery control that lives inside the thing it recovers is not a
+ * recovery control.
+ */
+describe('escaping demo mode without a working app', () => {
+  it('main.tsx applies ?demo=off BEFORE React mounts', async () => {
+    const { readFileSync } = await import('fs');
+    const { resolve } = await import('path');
+    const src = readFileSync(resolve(__dirname, '../../main.tsx'), 'utf8');
+
+    const applyAt = src.indexOf('applyDemoOverrideFromUrl()');
+    const renderAt = src.indexOf('createRoot(');
+    expect(applyAt, 'no URL override in main.tsx').toBeGreaterThan(-1);
+    expect(applyAt, 'the override runs AFTER React mounts — useless if the first render throws')
+      .toBeLessThan(renderAt);
+
+    expect(src, '?demo=off does not clear the flag').toMatch(/removeItem\(['"]neoncore\.demoMode/);
+    expect(src, 'the query string is not cleaned up, so a refresh re-applies it')
+      .toMatch(/replaceState/);
+  });
+
+  it('the flag it clears is the one demo mode reads', () => {
+    // Two different key strings would look correct in both files and fix nothing.
+    setDemoEnabled(true);
+    expect(localStorage.getItem('neoncore.demoMode')).toBe('1');
+    localStorage.removeItem('neoncore.demoMode');   // what ?demo=off does
+    expect(isDemoEnabled()).toBe(false);
+  });
+});
