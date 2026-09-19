@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
 import { SectionTitle } from './SectionTitle';
 import { api } from '../lib/api';
+import { CADENCES, CADENCE_LABEL, formFieldsFromSchedule, scheduleFromFormFields, type Cadence } from '../lib/heartbeatForm';
 import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, ProjectLearning, Heartbeat, Task, Agent, PortfolioSummary } from '../types';
 import { GoalDraftPanel } from './GoalDraftPanel';
@@ -880,15 +881,19 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 interface HeartbeatFormData {
   templateId: string;
   agentId: string;
-  scheduleType: 'hourly' | 'daily' | 'weekly';
+  // Derived from the shared Heartbeat type, never restated: this field used to name three
+  // cadences while the server had six, so the edit form rewrote monthly schedules as hourly.
+  // See lib/heartbeatForm.ts.
+  scheduleType: Cadence;
   scheduleTime: string;
   scheduleDay: number;
+  scheduleDayOfMonth: number;
   label: string;
   active: boolean;
 }
 
 const EMPTY_FORM: HeartbeatFormData = {
-  templateId: '', agentId: '', scheduleType: 'daily',
+  templateId: '', agentId: '', scheduleType: 'daily', scheduleDayOfMonth: 1,
   scheduleTime: '09:00', scheduleDay: 1, label: '', active: true,
 };
 
@@ -919,9 +924,7 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
 
   async function handleSave() {
     const schedule = {
-      type: form.scheduleType,
-      ...(form.scheduleType !== 'hourly' && { time: form.scheduleTime }),
-      ...(form.scheduleType === 'weekly' && { day: form.scheduleDay }),
+      ...scheduleFromFormFields(form),
     };
     try {
       if (editingId) {
@@ -969,9 +972,7 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
     setForm({
       templateId: h.templateId,
       agentId: h.agentId,
-      scheduleType: h.schedule.type,
-      scheduleTime: h.schedule.time || '09:00',
-      scheduleDay: h.schedule.day ?? 1,
+      ...formFieldsFromSchedule(h.schedule),
       label: h.label,
       active: h.active,
     });
@@ -1077,9 +1078,9 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
                 onChange={(e) => setForm((f) => ({ ...f, scheduleType: e.target.value as HeartbeatFormData['scheduleType'] }))}
                 className="bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
               >
-                <option value="hourly">Hourly</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
+                {CADENCES.map((c) => (
+                  <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
+                ))}
               </select>
             </div>
             {form.scheduleType !== 'hourly' && (
@@ -1091,6 +1092,20 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
                   onChange={(e) => setForm((f) => ({ ...f, scheduleTime: e.target.value }))}
                   className="bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
                 />
+              </div>
+            )}
+            {(form.scheduleType === 'monthly' || form.scheduleType === 'quarterly') && (
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Day of month</label>
+                <select
+                  value={form.scheduleDayOfMonth}
+                  onChange={(e) => setForm((f) => ({ ...f, scheduleDayOfMonth: Number(e.target.value) }))}
+                  className="bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                >
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
               </div>
             )}
             {form.scheduleType === 'weekly' && (

@@ -517,7 +517,20 @@ export interface Heartbeat {
   templateName: string | null;
   agentId: string;
   agentName: string | null;
-  schedule: { type: 'hourly' | 'daily' | 'weekly'; time?: string; day?: number };
+  /**
+   * Mirrors SCHEDULE_TYPES (server/src/lib/heartbeat-scheduler.ts), all SIX of them.
+   *
+   * This union used to read 'hourly' | 'daily' | 'weekly'. The server has grown `once`,
+   * `monthly` and `quarterly` since, and a hand-copied union that drifts STRICTER than the
+   * server does not fail the build — it quietly removes the cases, so a monthly schedule is
+   * not merely unrendered, it is unrepresentable. `dayOfMonth` was missing for the same reason.
+   */
+  schedule: {
+    type: 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'quarterly';
+    time?: string;
+    day?: number;
+    dayOfMonth?: number;
+  };
   scheduleLabel: string;
   label: string;
   active: boolean;

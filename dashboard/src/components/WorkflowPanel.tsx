@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
-import { activeStandaloneConfers, recentStandaloneConfers } from '@neoncore/client';
+import { activeStandaloneConfers, recentStandaloneConfers, armedSchedules, untilNextRun } from '@neoncore/client';
 import { isWaitingSession } from '../types';
 import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem, Heartbeat } from '../types';
 import { AutonomyControl } from './AutonomyControl';
@@ -103,6 +103,7 @@ const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 
 export function WorkflowPanel({ agents }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
   const [confers, setConfers] = useState<ConferSession[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [expanded, setExpanded] = useState(true);
@@ -137,6 +138,24 @@ export function WorkflowPanel({ agents }: Props) {
     const load = () => api.getConfers().then((c) => { if (alive) setConfers(c); }).catch(() => {});
     load();
     const t = setInterval(load, 4000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  /**
+   * Poll schedules, so a run you set for later is visible HERE.
+   *
+   * Reported as "I tried to start a daily scheduled task with repeat on, but it doesn't even
+   * show in the list". Nothing was broken: the heartbeat was created, armed, fired on time and
+   * re-armed. It was invisible — schedules were listed only in a per-project modal on
+   * GoalsPage and in the per-template popover that made them, and neither is the list you are
+   * looking at after clicking Run. Slower than the 4s confer poll on purpose: a schedule
+   * changes when it fires, not continuously.
+   */
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.getHeartbeats().then((h) => { if (alive) setHeartbeats(h); }).catch(() => {});
+    load();
+    const t = setInterval(load, 30000);
     return () => { alive = false; clearInterval(t); };
   }, []);
 
@@ -243,6 +262,10 @@ export function WorkflowPanel({ agents }: Props) {
   const queuedWorkflows = waiting.filter((q) => q.kind === 'workflow');
   const recentConfers = recentStandaloneConfers(confers);
 
+  // Schedules that will still fire, soonest first. Deliberately NOT part of `totalActive`:
+  // "3 active" must keep meaning "3 things running right now", and a schedule is not running.
+  const upcoming = armedSchedules(heartbeats);
+
   const totalActive = activeRuns.length + activeV1.length + activeConfers.length;
 
   // Helper to open a run in the canvas (view-only) or template (edit)
@@ -307,6 +330,31 @@ export function WorkflowPanel({ agents }: Props) {
                     {q.description || (q.payload?.task as string) || q.kind}
                   </p>
                   <p className="text-[10px] text-gray-600 mt-1 font-mono truncate">{q.lane}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Scheduled — set for later, nothing running yet. This is the section whose absence
+              made a freshly created schedule look like it had not been created at all. */}
+          {upcoming.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Scheduled</div>
+              {upcoming.map((h) => (
+                <div key={h.id} className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[13px] text-gray-200 flex-1 truncate">
+                      {h.label || h.templateName || 'Scheduled run'}
+                    </span>
+                    <span className="text-[11px] text-emerald-300/80 whitespace-nowrap">
+                      {untilNextRun(h) || 'scheduled'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    {h.scheduleLabel}
+                    {h.agentName ? ` · ${h.agentName}` : ''}
+                    {h.lastRunAt ? ` · last ran ${new Date(h.lastRunAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ' · not run yet'}
+                  </p>
                 </div>
               ))}
             </div>
