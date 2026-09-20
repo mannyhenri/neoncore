@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
 import { SectionTitle } from './SectionTitle';
+import { ConferModePicker, type ConferMode } from './ConferModePicker';
 import { api } from '../lib/api';
+import { workflowAgentOptions, conferOptionLabel } from '../lib/workflow-agent-options';
 import { CADENCES, CADENCE_LABEL, formFieldsFromSchedule, scheduleFromFormFields, type Cadence } from '../lib/heartbeatForm';
 import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, ProjectLearning, Heartbeat, Task, Agent, PortfolioSummary } from '../types';
@@ -724,6 +726,16 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
    * a step, and sending both would leave the outcome depending on which the server wrote last.
    */
   const [conferAgents, setConferAgents] = useState<string[]>([]);
+  const [conferMode, setConferMode] = useState<ConferMode>('divide');
+  /**
+   * The cartridges offered for a confer: the SAME set the rest of the app shows. This mapped
+   * the raw `agents` array, so it listed dismissed rows and superseded duplicates no other
+   * selector shows. Already-picked ids are kept so a selection cannot vanish mid-edit.
+   */
+  const conferCandidates = useMemo(
+    () => workflowAgentOptions(agents, { keepIds: conferAgents }),
+    [agents, conferAgents],
+  );
   const [note, setNote] = useState('');
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
@@ -758,6 +770,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
         conferAgents.length >= 2 ? undefined : (agentId || undefined),
         undefined,
         conferAgents.length >= 2 ? conferAgents : undefined,
+        conferAgents.length >= 2 ? conferMode : undefined,
       );
       onClose(result?.workflow?.id);
     } catch (e: unknown) {
@@ -806,7 +819,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
               Or confer across repos
             </label>
             <div className="flex flex-wrap gap-1">
-              {agents.map((a) => {
+              {conferCandidates.map((a) => {
                 const on = conferAgents.includes(a.id);
                 return (
                   <button
@@ -820,11 +833,15 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
                         : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
                     }`}
                   >
-                    {a.repoName || a.name}
+                    {conferOptionLabel(a)}
                   </button>
                 );
               })}
-            </div>
+            
+                        {conferAgents.length >= 2 && (
+                          <ConferModePicker value={conferMode} onChange={setConferMode} />
+                        )}
+                        </div>
             {conferAgents.length === 1 && (
               <p className="text-[11px] text-amber-400/70 mt-1">
                 Pick one more. A single-cartridge confer is an ordinary run.

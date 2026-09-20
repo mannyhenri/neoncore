@@ -579,7 +579,7 @@ export function createClient(config: ClientConfig = {}) {
   // `conferAllSteps` is the RUN-LEVEL confer mode: name two or more cartridges and every
   // agent step of ANY workflow is worked by all of them together, whichever repo owns the
   // code taking that piece. Distinct from `agentOverrides`, which pins ONE cartridge per step.
-  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null, agentId?: string, attachments?: import('./types').CommandAttachmentInput[], conferAllSteps?: string[]) =>
+  startWorkflowV2: (workflowId: string, agentOverrides?: Record<string, string>, promptOverrides?: Record<string, Record<string, string>>, initialContext?: string, projectId?: string | null, agentId?: string, attachments?: import('./types').CommandAttachmentInput[], conferAllSteps?: string[], conferMode?: 'divide' | 'collaborate') =>
     // A 202 means the run was QUEUED behind a busy cartridge rather than started, and the body
     // is {queued, item, note} with no workflow. Callers must check `queued` before reaching for
     // `workflow` — typing it as always-present is what turns a queued run into a silent no-op.
@@ -591,7 +591,7 @@ export function createClient(config: ClientConfig = {}) {
       note?: string;
     }>(`/workflows/v2/${workflowId}/start`, {
       method: 'POST',
-      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId, agentId, attachments, conferAllSteps }),
+      body: JSON.stringify({ agentOverrides, promptOverrides, initialContext, projectId, agentId, attachments, conferAllSteps, conferMode }),
     }),
   completeWorkflowStep: (workflowId: string, stepId: string, result?: string) =>
     request<import('./types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/complete`, {

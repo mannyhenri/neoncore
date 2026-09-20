@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SectionTitle } from './SectionTitle';
+import { ConferModePicker, type ConferMode } from './ConferModePicker';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
@@ -10,7 +11,7 @@ import { activeStandaloneConfers, recentStandaloneConfers, armedSchedules, until
 import { isWaitingSession } from '../types';
 import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession, CommandAttachmentInput, QueueItem, Heartbeat } from '../types';
 import { AutonomyControl } from './AutonomyControl';
-import { workflowAgentOptions, isOfflineOption, offlineOptionCount } from '../lib/workflow-agent-options';
+import { workflowAgentOptions, isOfflineOption, offlineOptionCount, conferOptionLabel } from '../lib/workflow-agent-options';
 import { launchBlockers } from '../lib/launchReadiness';
 import { searchTemplates } from '../lib/templateSearch';
 import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
@@ -710,6 +711,19 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
    * decide per step which repo owns the code.
    */
   const [conferAgents, setConferAgents] = useState<string[]>([]);
+  const [conferMode, setConferMode] = useState<ConferMode>('divide');
+  /**
+   * The cartridges offered for a confer: the SAME set the rest of the app shows.
+   *
+   * This used to map the raw `agents` array, so the confer picker listed dismissed rows, stale
+   * checkouts and superseded duplicates that no other selector shows — "the list of items
+   * available for confer in the workflow should reflect what I see in the app, nothing more
+   * nothing less". Anything already picked is kept, so a selection cannot vanish mid-edit.
+   */
+  const conferCandidates = useMemo(
+    () => workflowAgentOptions(agents ?? [], { keepIds: conferAgents }),
+    [agents, conferAgents],
+  );
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
   const [initialContext, setInitialContext] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -904,6 +918,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         conferAgents.length >= 2 ? undefined : (!perStepAgents ? runAgentId || undefined : undefined),
         payloads.length > 0 ? payloads : undefined,
         conferAgents.length >= 2 ? conferAgents : undefined,
+        conferAgents.length >= 2 ? conferMode : undefined,
       );
       setDeferredPopup(null);
       // Queued, not started: the cartridge was mid-task. Say so — without this the modal just
@@ -1076,7 +1091,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   Confer across repos — pick 2+ cartridges to work every step together
                 </label>
                 <div className="flex flex-wrap gap-1">
-                  {(agents ?? []).map((a) => {
+                  {conferCandidates.map((a) => {
                     const on = conferAgents.includes(a.id);
                     return (
                       <button
@@ -1089,11 +1104,14 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                             : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
                         }`}
                       >
-                        {a.repoName || a.name}
+                        {conferOptionLabel(a)}
                       </button>
                     );
                   })}
                 </div>
+                {conferAgents.length >= 2 && (
+                  <ConferModePicker value={conferMode} onChange={setConferMode} />
+                )}
                 {conferAgents.length === 1 && (
                   <p className="text-[11px] text-amber-400/70 mt-1">
                     Pick at least one more — a one-cartridge confer is an ordinary run.

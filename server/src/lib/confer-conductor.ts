@@ -272,6 +272,27 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
   },
 ];
 
+/**
+ * THE MODE REGISTRY. Both ways two cartridges can work one task.
+ *
+ *   divide      — split the work. Opens by agreeing who owns what so the peers do not collide.
+ *   collaborate — work together. Both work the same thing and reconcile.
+ *
+ * Exported because the choice belongs to the caller. Run-level confer used to hardcode
+ * `divide`, so a workflow confer silently split work that should have been done together —
+ * reported as "the old confer had two modes ... restore these modes into the confer workflows".
+ * A registry rather than a union check at each call site: a third mode is then offered
+ * everywhere at once instead of in whichever validator someone remembered.
+ */
+export function isConferMode(v: unknown): v is ConferMode {
+  return typeof v === 'string' && (CONFER_MODES as readonly string[]).includes(v);
+}
+
+/** How many milestones a mode runs. Zero would mean the mode is a label with nothing behind it. */
+export function conferMilestoneCount(mode: string): number {
+  return milestonesFor(mode).length;
+}
+
 const MILESTONE_SETS: Record<ConferMode, MilestoneDef[]> = {
   divide: DIVIDE_MILESTONES,
   collaborate: COLLABORATE_MILESTONES,

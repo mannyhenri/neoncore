@@ -8,6 +8,7 @@ import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
 import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
+import { CONFER_MODES, isConferMode } from '../lib/confer-conductor.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
 import { learningsContext } from '../lib/workflow-from-template.js';
@@ -635,6 +636,30 @@ router.post('/v2/:id/start', (req, res) => {
     });
   }
 
+  /**
+   * CONFER REQUEST SHAPE — validated BEFORE the busy-cartridge queue below.
+   *
+   * These checks used to sit with the conversion, several hundred lines down. On an idle fleet
+   * the request reached them and a bad mode was refused; on a BUSY fleet the queue guard
+   * returned `queued: true` first and the malformed request was parked, to be applied later
+   * with no one watching. Found by launching against the real server rather than a test whose
+   * cartridges happened to be idle: `conferMode: "telepathy"` came back 202 Queued.
+   *
+   * A request is well-formed or it is not; that does not depend on how busy the machines are.
+   */
+  const conferAllRequested = (req.body?.conferAllSteps as string[] | undefined)?.filter(Boolean) ?? [];
+  const conferModeRequested = req.body?.conferMode;
+  if (conferAllRequested.length > 0 && conferAllRequested.length < 2) {
+    return res.status(400).json({
+      error: 'conferAllSteps needs at least 2 cartridges — a one-person confer is an ordinary dispatch.',
+    });
+  }
+  if (conferModeRequested !== undefined && !isConferMode(conferModeRequested)) {
+    return res.status(400).json({
+      error: `Unknown confer mode "${String(conferModeRequested)}" — expected one of ${CONFER_MODES.join(', ')}.`,
+    });
+  }
+
   if (req.body?.queueIfBusy !== false) {
     // Targets come from resolveWorkflowTargets, NOT from the step rows alone. A template's
     // steps are '__deferred__' until launch, so reading only pinned executors made this check
@@ -956,13 +981,19 @@ router.post('/v2/:id/start', (req, res) => {
    * express: the Workflow Completion Report is a `claude-code` step that must never be
    * conferred — see the note on that function.
    */
-  const conferAllSteps = (req.body?.conferAllSteps as string[] | undefined)?.filter(Boolean) ?? [];
+  // Shape already validated above the queue guard; this is the conversion, not a second check.
+  const conferAllSteps = conferAllRequested;
   if (conferAllSteps.length > 0) {
-    if (conferAllSteps.length < 2) {
-      return res.status(400).json({
-        error: 'conferAllSteps needs at least 2 cartridges — a one-person confer is an ordinary dispatch.',
-      });
-    }
+    /**
+     * WHICH MODE. Divide splits the work; collaborate has both work the same thing. This used
+     * to be hardcoded to divide, so a workflow confer could not be told to work together —
+     * the choice existed in the conductor and nowhere a caller could reach.
+     *
+     * An unknown mode is REFUSED rather than falling back to divide: silently substituting is
+     * the same defect the hardcode was, only harder to notice.
+     */
+    const conferMode: string = isConferMode(conferModeRequested) ? conferModeRequested : 'divide';
+
     const known = db.prepare(
       `SELECT id FROM agents WHERE id IN (${conferAllSteps.map(() => '?').join(',')})`,
     ).all(...conferAllSteps) as { id: string }[];
@@ -997,7 +1028,9 @@ router.post('/v2/:id/start', (req, res) => {
 
       if (fill === 'confer-all') {
         config.conferAgentIds = conferAllSteps;
-        config.conferMode = config.conferMode ?? 'divide';
+        // The requested mode wins over whatever the template happened to carry: the person
+        // launching chose it for this run's work, the template author chose it in general.
+        config.conferMode = conferMode;
         config.conferIsolation = config.conferIsolation ?? 'shared';
         config._wasDeferred = true;
         // executor_id stops meaning anything for a confer step, and leaving a stale one behind
@@ -1025,6 +1058,9 @@ router.post('/v2/:id/start', (req, res) => {
         const key = r.executor_type === 'deliberation' ? 'panelAgentIds' : 'conferAgentIds';
         const existing = Array.isArray(config[key]) ? (config[key] as unknown[]).filter(Boolean) : [];
         if (existing.length < 2) config[key] = conferAllSteps;
+        // A template's own confer step takes the run's mode too, or "work together" would
+        // apply to the converted steps and not to the one that was already a confer.
+        if (r.executor_type === 'confer') config.conferMode = conferMode;
         db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
           .run('', JSON.stringify(config), r.id);
         assigned += 1;
