@@ -135,8 +135,12 @@ test('Daily AI Research reaches the WEB and renders an HTML artifact', () => {
 
   assert.match(all, /WebSearch/, 'no WebSearch — a research digest that cannot reach the web is a summary of nothing');
   assert.match(all, /WebFetch/, 'no WebFetch — headlines without the articles behind them');
-  assert.match(all, /self-contained/i, 'the HTML must be self-contained or it renders blank from file://');
+  // Self-containment used to be a PROMISE in the prompt. It is now a property of the fixed
+  // renderer (lib/digest-template.ts) and asserted directly in daily-digest-newspaper.test.ts,
+  // which is a stronger check than hoping an agent honoured a sentence.
+  assert.match(all, /api\/digest\/render/, 'the digest no longer goes through the fixed template, so it will look different every morning');
   assert.match(all, /\.html/, 'produces no HTML file');
+  assert.match(all, /reddit/i, 'no AI noise section — the digest reports what shipped but not what people are saying');
 });
 
 test('Confer is a template — two or more cartridges on one task', () => {

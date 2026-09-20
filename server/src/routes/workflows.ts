@@ -11,7 +11,7 @@ import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
 import { learningsContext } from '../lib/workflow-from-template.js';
-import { workflowRepoTargets } from '../lib/workflow-cartridges.js';
+import { workflowConferParticipants, workflowRepoTargets } from '../lib/workflow-cartridges.js';
 import { awaitsLaunchFill } from '../lib/cartridge-exists.js';
 import { workflowNeedsAttention } from '../lib/workflow-attention.js';
 import { libelleContexte } from '../lib/context-label.js';
@@ -649,6 +649,8 @@ router.post('/v2/:id/start', (req, res) => {
     const guard = guardBusy({
       kind: 'workflow',
       targets,
+      // A run with a confer in it owns its repos, the same rule as a direct confer.
+      repoScoped: workflowConferParticipants(req.params.id, req.body).length > 0,
       payload: { workflowId: req.params.id, repoPath, startOptions: req.body ?? {} },
     });
     if ('error' in guard) return res.status(400).json({ error: guard.error });

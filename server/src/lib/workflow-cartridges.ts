@@ -101,6 +101,23 @@ export function workflowCartridges(
 }
 
 /**
+ * The cartridges this run will CONFER with — the two confer sources in CARTRIDGE_SOURCES. A run
+ * with any is repo-scoped at launch (see guardBusy `repoScoped`): a confer owns its repos.
+ */
+export function workflowConferParticipants(
+  workflowId: string,
+  body?: Record<string, unknown> | undefined,
+): string[] {
+  const out = new Set<string>();
+  const steps = db.prepare(
+    'SELECT executor_config FROM workflow_steps WHERE workflow_id = ?',
+  ).all(workflowId) as { executor_config: string }[];
+  for (const s of steps) addIds(out, parseConfig(s.executor_config).conferAgentIds);
+  if (body) addIds(out, body.conferAllSteps);
+  return [...out];
+}
+
+/**
  * The distinct repo paths this run touches, with the cartridge each belongs to.
  *
  * What the attachment path needs: a file has to be materialized into every checkout the run

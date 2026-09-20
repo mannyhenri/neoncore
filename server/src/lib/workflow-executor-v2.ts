@@ -17,6 +17,7 @@ import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
 import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
 import { startConfer, getConfer } from './confer-conductor.js';
+import { busyRepoSiblings, isCartridgeBusyExcept, queueItemsForRun } from './queue-runner.js';
 import type { ConferSession } from '../types.js';
 import {
   explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
@@ -634,6 +635,15 @@ function conferSummary(session: ConferSession): string {
  * asked for. `collaborate` produces one shared solution and is the right choice when the
  * step is a single artefact rather than split work.
  */
+/** Human names for cartridges in a log line: repo name, else name, else a short id. */
+function cartridgeLabels(ids: string[]): string {
+  return [...new Set(ids)].map((id) => {
+    const r = db.prepare('SELECT name, repo_name FROM agents WHERE id = ?').get(id) as
+      { name?: string; repo_name?: string } | undefined;
+    return r?.repo_name ? `${r.repo_name} (${r.name || id.slice(0, 8)})` : (r?.name || id.slice(0, 8));
+  }).join(', ');
+}
+
 async function executeConfer(step: WorkflowStep): Promise<void> {
   const cfg = step.executorConfig as Record<string, unknown>;
   const participantIds = (cfg.conferAgentIds as string[] | undefined)?.filter(Boolean) ?? [];
@@ -654,6 +664,31 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   const unknown = participantIds.filter((id) => !rows.some((r) => r.id === id));
   if (unknown.length > 0) {
     throw new Error(`Confer step "${step.name}": no such cartridge(s): ${unknown.join(', ')}`);
+  }
+
+  // THE LAUNCH GUARD IS NOT ENOUGH. It checked these cartridges when the run started, which
+  // may have been hours and several steps ago; anything sent to them since (a prompt from the
+  // dashboard, another run) is running now. So the confer re-applies the confer rule here —
+  // participants AND their repos — and, if anything is busy, the step goes back to pending and
+  // is retried next tick instead of starting on top of live work. The run's OWN queue stamp
+  // is not "busy": a queued run stamps its cartridges for its whole duration.
+  const own = queueItemsForRun(step.workflowId);
+  const busy = [
+    ...participantIds.filter((id) => isCartridgeBusyExcept(id, own)),
+    ...busyRepoSiblings(participantIds, own),
+  ];
+  if (busy.length > 0) {
+    db.prepare("UPDATE workflow_steps SET status = 'pending', started_at = NULL WHERE id = ?").run(step.id);
+    emitStepUpdate(step.id);
+    // Log once per change in who is blocking, not every tick.
+    const waitingOn = [...new Set(busy)].sort().join(',');
+    if (cfg.conferWaitingOn !== waitingOn) {
+      db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+        .run(JSON.stringify({ ...cfg, conferWaitingOn: waitingOn }), step.id);
+      emitStepLog(step.workflowId, step.id, step.name,
+        `Confer waiting — busy in its repos: ${cartridgeLabels(busy)}. It starts when they are free.`, 'info');
+    }
+    return;
   }
 
   // The session's home repo. Participants keep their own; this only names where the shared

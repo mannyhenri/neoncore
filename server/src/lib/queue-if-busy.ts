@@ -26,7 +26,7 @@
  * rather than "the queue is subtly wrong".
  */
 import db from '../db.js';
-import { enqueue, isCartridgeBusy } from './queue-runner.js';
+import { enqueue, isCartridgeBusy, busyRepoSiblings } from './queue-runner.js';
 import type { QueueKind, QueueItem } from './queue-kinds.js';
 import { inboxReachable } from './inbox-client.js';
 import { workflowCartridges } from './workflow-cartridges.js';
@@ -73,6 +73,12 @@ export interface BusyGuardSpec {
    * this is set. The flag asks for "now"; it cannot manufacture a road.
    */
   deliverNow?: boolean;
+  /**
+   * The work must own its REPOS, not just its cartridges — a confer. Busy then also means
+   * another cartridge in a target's checkout is busy (busyRepoSiblings). Stored on the payload
+   * so the runner's dispatch re-check applies the same rule.
+   */
+  repoScoped?: boolean;
 }
 
 export type BusyGuardResult =
@@ -88,7 +94,10 @@ export type BusyGuardResult =
  */
 export function guardBusy(spec: BusyGuardSpec): BusyGuardResult {
   const targets = [...new Set(spec.targets.filter(Boolean))];
-  const busy = targets.filter(isCartridgeBusy);
+  const busy = [
+    ...targets.filter(isCartridgeBusy),
+    ...(spec.repoScoped ? busyRepoSiblings(targets) : []),
+  ];
   if (busy.length === 0) return { queued: false };
 
   // ADX-007: an explicit "now" skips the wait, but only where every busy target can actually be
@@ -97,7 +106,8 @@ export function guardBusy(spec: BusyGuardSpec): BusyGuardResult {
   // one that waited for all of them.
   if (spec.deliverNow && busy.every(hasAddressedInbox)) return { queued: false };
 
-  const out = enqueue({ kind: spec.kind, payload: spec.payload, targets });
+  const payload = spec.repoScoped ? { ...spec.payload, repoScoped: true } : spec.payload;
+  const out = enqueue({ kind: spec.kind, payload, targets });
   if (!out.ok) return { error: out.error };
   return { queued: true, item: out.item, busy };
 }

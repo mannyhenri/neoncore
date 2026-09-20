@@ -333,6 +333,13 @@ function unstampFor(itemId: string): void {
  */
 function busyTargets(item: QueueItem): string[] {
   if (item.targets.length === 0) return [];
+  // The route applied the repo rule at enqueue (guardBusy repoScoped); dispatch must apply the
+  // same one, or the item waits on its participants and then lands beside a busy sibling.
+  const siblings = item.payload?.repoScoped === true ? busyRepoSiblings(item.targets, [item.id]) : [];
+  return [...participantBusyTargets(item), ...siblings];
+}
+
+function participantBusyTargets(item: QueueItem): string[] {
   const placeholders = item.targets.map(() => '?').join(',');
   const rows = db.prepare(
     `SELECT id, status, active_queue_item_id, pending_question FROM agents WHERE id IN (${placeholders})`
@@ -368,12 +375,25 @@ function busyTargets(item: QueueItem): string[] {
  * absence of evidence is not evidence of work.
  */
 export function isCartridgeBusy(agentId: string): boolean {
+  return isCartridgeBusyExcept(agentId, []);
+}
+
+/**
+ * isCartridgeBusy, except that a stamp from one of `ownItemIds` does not count. A workflow run
+ * dispatched from the queue stamps its cartridges with its own item for the whole run, so a
+ * check made FROM INSIDE that run (a confer step reached mid-run) would otherwise see the run
+ * itself as the thing it is waiting for, and wait forever.
+ *
+ * A separate function rather than an optional parameter: isCartridgeBusy is passed straight to
+ * `targets.filter(...)`, which would hand it the array index as that parameter.
+ */
+export function isCartridgeBusyExcept(agentId: string, ownItemIds: readonly string[]): boolean {
   if (!agentId) return false;
   const row = db.prepare('SELECT status, active_queue_item_id, pending_question FROM agents WHERE id = ?')
     .get(agentId) as { status?: string; active_queue_item_id?: string; pending_question?: string } | undefined;
   if (!row) return false;
   // Already carrying queued work, whatever its status claims.
-  if (row.active_queue_item_id) return true;
+  if (row.active_queue_item_id && !ownItemIds.includes(row.active_queue_item_id)) return true;
   if (row.status === 'working') return true;
 
   /**
@@ -406,6 +426,51 @@ export function isCartridgeBusy(agentId: string): boolean {
   if (row.status === 'offline') return true;
 
   return false;
+}
+
+/**
+ * REPO-SCOPED BUSY — for work that must own its repos, i.e. a confer.
+ *
+ * "Busy" is otherwise per cartridge. But two cartridges can share one checkout (same machine,
+ * same repo_path), and a confer started on an idle participant while its sibling is mid-edit in
+ * that same working tree is two agents writing one repo — the collision the confer's own align
+ * milestone exists to prevent, between cartridges that never agreed anything.
+ *
+ * Returns the OTHER cartridges in any participant's checkout that are busy right now. Offline
+ * siblings are not working in the repo and never hold. A stamp from one of `ownItemIds` does
+ * not count (see isCartridgeBusyExcept). Participants themselves are the caller's existing
+ * per-cartridge check — this adds only what that check cannot see.
+ */
+export function busyRepoSiblings(participantIds: readonly string[], ownItemIds: readonly string[] = []): string[] {
+  const ids = [...new Set(participantIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const marks = ids.map(() => '?').join(',');
+  const checkouts = db.prepare(
+    `SELECT DISTINCT machine, repo_path FROM agents WHERE id IN (${marks}) AND repo_path != ''`,
+  ).all(...ids) as { machine: string; repo_path: string }[];
+
+  const busy = new Set<string>();
+  for (const c of checkouts) {
+    const siblings = db.prepare(
+      `SELECT id, status, active_queue_item_id, pending_question FROM agents
+        WHERE machine = ? AND repo_path = ? AND id NOT IN (${marks})`,
+    ).all(c.machine, c.repo_path, ...ids) as
+      { id: string; status: string; active_queue_item_id: string; pending_question: string }[];
+    for (const r of siblings) {
+      if (r.status === 'offline') continue;
+      const held = r.active_queue_item_id && !ownItemIds.includes(r.active_queue_item_id);
+      const asking = r.status === 'waiting' && (r.pending_question || '').trim().length > 0;
+      if (held || r.status === 'working' || asking) busy.add(r.id);
+    }
+  }
+  return [...busy];
+}
+
+/** The queue items a workflow run is executing under (its dispatch handle is the run id). */
+export function queueItemsForRun(runId: string): string[] {
+  return (db.prepare(
+    "SELECT id FROM queue_items WHERE kind = 'workflow' AND status = 'running' AND handle = ?",
+  ).all(runId) as { id: string }[]).map((r) => r.id);
 }
 
 function finish(item: QueueItem, status: QueueStatus, detail: string): void {
