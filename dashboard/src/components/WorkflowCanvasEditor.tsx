@@ -40,6 +40,7 @@ import '@xyflow/react/dist/style.css';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowExecutionLog } from './WorkflowExecutionLog';
+import { ConferModePicker, type ConferMode } from './ConferModePicker';
 import type {
   Agent,
   AgentType,
@@ -48,7 +49,7 @@ import type {
   StepStatus,
 } from '../types';
 import { pickFocusStep } from '../lib/currentStep';
-import { workflowAgentOptions, offlineOptionCount } from '../lib/workflow-agent-options';
+import { workflowAgentOptions, offlineOptionCount, conferOptionLabel } from '../lib/workflow-agent-options';
 import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
 
 // ─── Types ──────────────────────────────────────────
@@ -603,6 +604,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
    * assignments below: no single cartridge owns a step when the run confers on all of them.
    */
   const [conferAgents, setConferAgents] = useState<string[]>([]);
+  const [conferMode, setConferMode] = useState<ConferMode>('divide');
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
 
   // Run mode: if this workflow is a run (has templateId), it's read-only
@@ -1366,6 +1368,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         undefined,
         undefined,
         confering ? conferAgents : undefined,
+        confering ? conferMode : undefined,
       );
       // Queued behind a busy cartridge: nothing to switch to yet.
       if (result?.queued || !result?.workflow || !result?.steps) { setDeferredPopup(null); onSaved?.(); return; }
@@ -1801,11 +1804,15 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                                   : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
                               }`}
                             >
-                              {a.repoName || a.name}
+                              {conferOptionLabel(a)}
                             </button>
                           );
                         })}
-                      </div>
+                      
+                        {conferAgents.length >= 2 && (
+                          <ConferModePicker value={conferMode} onChange={setConferMode} />
+                        )}
+                        </div>
                       {conferAgents.length === 1 && (
                         <p className="text-[13px] text-amber-400/70 mt-1">
                           Pick one more. A single-cartridge confer is an ordinary run.

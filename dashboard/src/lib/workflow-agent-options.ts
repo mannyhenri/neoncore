@@ -160,3 +160,23 @@ export function offlineOptionCount<T extends AgentLike & { id?: string }>(
   return workflowAgentOptions(agents, { ...opts, includeOffline: true })
     .filter(isOfflineOption).length;
 }
+
+/**
+ * How a cartridge reads in a confer picker.
+ *
+ * ONE REPO CAN HOLD TWO CARTRIDGES. `checkoutKey` above is `repoPath|agentType` precisely so a
+ * claude cartridge and a codex cartridge on the same checkout both survive the collapse — but
+ * every picker rendered `{a.repoName || a.name}`, so the two arrived as two identical chips
+ * and choosing between them was guesswork. Reported as "we should see also with the repo name
+ * (cartridge) if it's claude or codex ... so I can pick the right instance".
+ *
+ * Shared rather than inlined because there are three pickers. The confer LAUNCH GATE lived in
+ * three places too and was reported three separate times, each fix landing on whichever
+ * surface the reporter happened to be looking at.
+ */
+export function conferOptionLabel(a: AgentLike & { repoName?: string; name?: string }): string {
+  const repo = (a.repoName || '').trim() || (a.name || '').trim() || 'cartridge';
+  const engine = (a.agentType || '').trim();
+  // No engine on pre-column rows. "baseback · undefined" is worse than "baseback".
+  return engine ? `${repo} · ${engine}` : repo;
+}
