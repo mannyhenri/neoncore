@@ -6,6 +6,7 @@ import { getIO, agentHasLiveSocket } from '../ws.js';
 import { inboxReachable } from './inbox-client.js';
 import { sendCommandToAgent } from './send-command.js';
 import { deliverToAgent, fetchPeerAgent } from './peer-forward.js';
+import { busyRepoSiblings } from './queue-runner.js';
 import { getServerBaseUrl } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { blockForRepo, parseAttachmentBlocks, type AttachmentBlocks } from './attachments.js';
@@ -673,6 +674,24 @@ export async function resumeConfer(id: string): Promise<{ ok: true; session: Con
   if (pending.length === 0) return { ok: false, error: 'all participants already reported; reconcile the milestone first' };
   const missing = session.participantIds.filter(pid => !participantIsAlive(pid, Date.now()));
   if (missing.length) return { ok: false, error: `participant(s) still unreachable: ${missing.join(', ')}` };
+  // Same rule as every other way a confer starts — nothing lands beside a busy cartridge in one
+  // of its repos, or on a participant holding OTHER queued work — with one deliberate
+  // difference: a participant's bare `working` status does not hold a resume. The usual reason
+  // to resume is that participants dropped and came back, and they come back working on THIS
+  // confer's milestone (confer-liveness-recovery.test.ts); `working` cannot say whose work it
+  // is, so refusing on it would refuse exactly the resume this exists for. A queue stamp can
+  // say, so that is what counts. Resume is a person pressing a button, so it refuses with the
+  // reason (409) rather than queueing behind work they may not know about.
+  const ownItems = (db.prepare(
+    "SELECT id FROM queue_items WHERE kind = 'confer' AND handle = ?",
+  ).all(id) as { id: string }[]).map((r) => r.id);
+  const heldElsewhere = session.participantIds.filter((pid) => {
+    const r = db.prepare('SELECT active_queue_item_id FROM agents WHERE id = ?').get(pid) as
+      { active_queue_item_id?: string } | undefined;
+    return !!r?.active_queue_item_id && !ownItems.includes(r.active_queue_item_id);
+  });
+  const busy = [...heldElsewhere, ...busyRepoSiblings(session.participantIds, ownItems)];
+  if (busy.length) return { ok: false, error: `busy in the confer's repos: ${[...new Set(busy)].join(', ')} — resume when they are free` };
 
   const now = new Date().toISOString();
   db.transaction(() => {

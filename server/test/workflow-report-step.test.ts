@@ -40,6 +40,7 @@ import {
 import { withStandardGate } from '../src/routes/workflows.ts';
 import workflowsRouter from '../src/routes/workflows.ts';
 import { installStubIO } from './helpers/stub-io.ts';
+import { REPORT_EXEMPT_TEMPLATES } from '../src/lib/digest-template.ts';
 
 installStubIO();
 
@@ -73,10 +74,20 @@ test('EVERY template in the database ends in a Workflow Completion Report', () =
 
   let covered = 0;
   let skippedNoWork = 0;
+  let exempt = 0;
 
   for (const wf of all) {
     const steps = stepsOf(wf.id as string);
     const reports = steps.filter((s) => isReportStep(cfg(s)));
+
+    // A workflow whose own output IS the document gets no report about having produced it.
+    // See REPORT_EXEMPT_TEMPLATES — the rule is "one deliverable per run", not "always a report".
+    if (REPORT_EXEMPT_TEMPLATES.includes(wf.name as string)) {
+      assert.equal(reports.length, 0,
+        `"${wf.name}" is report-exempt but still carries a completion report step`);
+      exempt++;
+      continue;
+    }
 
     if (!hasWorkStep(steps)) {
       // Nothing to report on and no cartridge to inherit — must be left alone, not given a
@@ -121,10 +132,15 @@ test('EVERY template in the database ends in a Workflow Completion Report', () =
   }
 
   console.log(`[set] ${covered}/${all.length} templates carry a report step `
-    + `(${skippedNoWork} skipped: no work step)`);
-  assert.equal(covered + skippedNoWork, all.length);
-  assert.ok(covered >= STANDARD_TEMPLATE_NAMES.length,
-    `only ${covered} templates covered; expected at least ${STANDARD_TEMPLATE_NAMES.length}`);
+    + `(${skippedNoWork} skipped: no work step, ${exempt} exempt: the run's own output is the deliverable)`);
+  // THREE categories now, not two. Every template is accounted for by exactly one of them —
+  // a template falling through all three would be silently uncovered, which is the failure
+  // this whole file exists to catch.
+  assert.equal(covered + skippedNoWork + exempt, all.length);
+  assert.equal(exempt, REPORT_EXEMPT_TEMPLATES.filter((n) => all.some((w) => w.name === n)).length,
+    'an exempt template was counted somewhere other than the exempt branch');
+  assert.ok(covered >= STANDARD_TEMPLATE_NAMES.length - exempt,
+    `only ${covered} templates covered; expected at least ${STANDARD_TEMPLATE_NAMES.length - exempt}`);
 });
 
 test('the pass is idempotent — re-seeding and re-running adds nothing', () => {

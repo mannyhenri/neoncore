@@ -34,6 +34,7 @@
  * lib/work-standard.ts.
  */
 import type { Database as DatabaseType } from 'better-sqlite3';
+import { REPORT_EXEMPT_TEMPLATES } from './digest-template.js';
 import { randomUUID } from 'crypto';
 import { RUN_REPORT_RESULT_MAX_CHARS, RUN_REPORT_TOTAL_MAX_CHARS } from './context-budget.js';
 import { STEP_X, STEP_SPACING_Y } from './workflow-layout.js';
@@ -42,6 +43,17 @@ export const REPORT_STEP_NAME = 'Workflow Completion Report';
 
 /** The marker. Detection is by this, never by step name — see the header. */
 export const REPORT_STEP_KIND = 'workflow-report';
+
+/**
+ * A work step whose output belongs INSIDE the report, as its last section, instead of in a
+ * window of its own: `executorConfig.reportAppendix = { title, path }`, with `path` relative
+ * to the repo. The Daily AI Research Digest's render step is the case that forced it — one
+ * run was landing as the digest window, a notification and the report window.
+ *
+ * Read at RUN time by buildRunReportContext, never baked into the report step's prompt: that
+ * prompt is rewritten on every boot by ensureReportStepOnTemplates, which would erase it.
+ */
+export const REPORT_APPENDIX_KEY = 'reportAppendix';
 
 export const REPORT_STEP_DESCRIPTION =
   'Renders the run as a self-contained HTML report (plus its JSON source) and opens it.';
@@ -319,6 +331,35 @@ function addReportSteps(db: DatabaseType): number {
     ).all(tpl.id) as Record<string, unknown>[];
     if (rows.length === 0) continue;
 
+    /**
+     * Some workflows ARE their document. A completion report on top of one is a second
+     * document about having produced the first — reported as "we only want to see the digest
+     * at the end, not the report that we do for all the other workflows on top of it".
+     *
+     * REMOVES an existing step, not merely skips adding one: this function runs on every boot,
+     * so a template that was given the step before the exemption existed would otherwise keep
+     * it forever, and deleting the row by hand would be undone by the next restart.
+     */
+    if (REPORT_EXEMPT_TEMPLATES.includes(tpl.name)) {
+      for (const r of rows) {
+        let cfg: Record<string, unknown> = {};
+        try { cfg = JSON.parse((r.executor_config as string) || '{}') || {}; } catch { cfg = {}; }
+        if (!isReportStep(cfg)) continue;
+        // Anything that depended on the report step must not be left pointing at a hole.
+        const gone = r.id as string;
+        for (const other of rows) {
+          if (other.id === gone) continue;
+          let deps: string[] = [];
+          try { deps = JSON.parse((other.depends_on as string) || '[]') || []; } catch { deps = []; }
+          if (!deps.includes(gone)) continue;
+          db.prepare('UPDATE workflow_steps SET depends_on = ? WHERE id = ?')
+            .run(JSON.stringify(deps.filter((x) => x !== gone)), other.id);
+        }
+        db.prepare('DELETE FROM workflow_steps WHERE id = ?').run(gone);
+      }
+      continue;
+    }
+
     const parsed = rows.map((r) => {
       let cfg: Record<string, unknown> = {};
       try { cfg = JSON.parse((r.executor_config as string) || '{}') || {}; } catch { cfg = {}; }
@@ -417,7 +458,7 @@ export function buildRunReportContext(
   if (!wf) return '';
 
   const steps = db.prepare(
-    `SELECT id, name, executor_type, status, result, error, started_at, completed_at, depends_on
+    `SELECT id, name, executor_type, executor_config, status, result, error, started_at, completed_at, depends_on
        FROM workflow_steps WHERE workflow_id = ? ORDER BY position_y ASC, created_at ASC`,
   ).all(workflowId) as Record<string, unknown>[];
 
@@ -477,6 +518,8 @@ export function buildRunReportContext(
       + '\n\n…[run record truncated — some step results above are incomplete. Say so in the report rather than guessing at what they contained.]';
   }
 
+  const appendix = buildAppendixInstruction(others);
+
   // The POST command, with the real step id and the URL that actually reaches this server from
   // wherever the cartridge is. The canned prompt cannot carry these — it is one static string
   // shared by every run — and an agent asked to guess its own callback URL will guess
@@ -493,5 +536,48 @@ export function buildRunReportContext(
     '',
   ].join('\n');
 
-  return `${head.join('\n')}\n${joined}\n\n${send}\n---\n\n`;
+  return `${head.join('\n')}\n${joined}\n\n${appendix}${send}\n---\n\n`;
+}
+
+/**
+ * The "put this at the end" instruction for every step that declared a reportAppendix, or ''
+ * when none did. The file is read by the report agent, on the cartridge that wrote it — the
+ * server cannot see that disk.
+ */
+function buildAppendixInstruction(steps: Record<string, unknown>[]): string {
+  const items: { step: string; title: string; path: string }[] = [];
+  for (const s of steps) {
+    let cfg: Record<string, unknown> = {};
+    try { cfg = JSON.parse(String(s.executor_config || '{}')) || {}; } catch { cfg = {}; }
+    const a = cfg[REPORT_APPENDIX_KEY] as { title?: unknown; path?: unknown } | undefined;
+    if (!a || typeof a.path !== 'string' || !a.path.trim()) continue;
+    const title = typeof a.title === 'string' && a.title.trim() ? a.title.trim() : String(s.name);
+    items.push({ step: String(s.name), title, path: a.path.trim() });
+  }
+  if (items.length === 0) return '';
+
+  const list = items.map((a) =>
+    `- "${a.title}" — the file step "${a.step}" wrote at \`${a.path}\`. If the path has a date `
+    + 'placeholder (YYYY-MM-DD), use the exact path that step reports in its result above.').join('\n');
+
+  return [
+    '### APPENDIX — THE RUN\'S DELIVERABLE GOES AT THE END OF THIS REPORT',
+    '',
+    'This run produced a document the reader wants to READ, not just hear about. It was',
+    'deliberately NOT opened in a window of its own: your report is the one window. After',
+    'section 9 (Technical Details), add one final section per item below, in this order:',
+    '',
+    list,
+    '',
+    'For each: read the file from disk and embed its CONTENT in the report HTML — the body',
+    'markup, not a link and not an <iframe>, so it reads with no network. Keep it EXPANDED',
+    '(not inside <details>). Carry its styles over scoped under the section\'s own wrapper',
+    '(e.g. `#appendix-1 …`) so they cannot restyle the report, keep it legible in light and',
+    'dark, and keep every source link. End the section with the file path, for the standalone',
+    'copy. Record it in the JSON as `appendix: [{ title, path, embedded: true }]`.',
+    '',
+    'If a file is missing or empty, the section says so plainly, `embedded` is false, and it',
+    'is listed under Validation & Issues. Never write the appendix content yourself.',
+    '',
+  ].join('\n');
 }

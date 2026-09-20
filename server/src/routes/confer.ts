@@ -116,6 +116,8 @@ router.post('/start', async (req, res) => {
     const guard = guardBusy({
       kind: 'confer',
       targets: ids,
+      // A confer owns its repos: a busy sibling in a participant's checkout holds it too.
+      repoScoped: true,
       payload: { repoName, repoPath, participantIds: ids, task: task.trim(), mode, isolation, buildRounds },
     });
     if ('error' in guard) return res.status(400).json({ error: guard.error });
@@ -123,7 +125,7 @@ router.post('/start', async (req, res) => {
       return res.status(202).json({
         queued: true,
         item: guard.item,
-        note: `${guard.busy.length} of ${ids.length} cartridge(s) busy — the confer was queued and starts when they are free`,
+        note: `${guard.busy.length} cartridge(s) busy in the confer's repos — the confer was queued and starts when they are free`,
       });
     }
   }

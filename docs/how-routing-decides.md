@@ -19,7 +19,7 @@ Right now, of 44 known functions: **15 local, 29 cloud.**
 
 ## The decision, in the order it actually executes
 
-It runs in exactly one place: `server/src/routes/workflows.ts:847`, when a workflow step is
+It runs in exactly one place: `server/src/routes/workflows.ts:849`, when a workflow step is
 dispatched.
 
 1. **What is this step?** `executor_type` on the step IS the function id — `read_file`,

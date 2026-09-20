@@ -41,10 +41,12 @@ for (const mode of conductor.CONFER_MODES) {
   });
 
   test(`${mode}: resuming a failed milestone preserves every completed step and acknowledgement`, async () => {
-    const first = agent(mode,'working',fresh());
-    const second = agent(mode,'working',fresh());
+    // Its own checkout: the liveness test above leaves a WORKING cartridge in /tmp/recovery-<mode>,
+    // and a confer is held by a busy sibling in its repo (queue-runner busyRepoSiblings).
+    const first = agent(`${mode}-resume`,'working',fresh());
+    const second = agent(`${mode}-resume`,'working',fresh());
     io.connect(second); io.connectSocket(`sock-${second}`);
-    const session = conductor.startConfer({repoName:'recovery',repoPath:`/tmp/recovery-${mode}`,participantIds:[first,second],task:'recover',mode,buildRounds:2});
+    const session = conductor.startConfer({repoName:'recovery',repoPath:`/tmp/recovery-${mode}-resume`,participantIds:[first,second],task:'recover',mode,buildRounds:2});
     await new Promise(resolve => setTimeout(resolve, 10));
     db.prepare("UPDATE confer_milestones SET status='done',done_ids=?,completed_at=? WHERE session_id=? AND idx=0")
       .run(JSON.stringify([first,second]),fresh(),session.id);
