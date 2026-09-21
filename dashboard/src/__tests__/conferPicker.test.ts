@@ -98,3 +98,46 @@ describe('workflowAgentOptions keeps both engines on one repo', () => {
     expect(workflowAgentOptions(rows, { now }).map((a) => a.id).sort()).toEqual(['a', 'b']);
   });
 });
+
+/**
+ * SPLIT OR SHARED must be offered at launch, on every surface that launches a confer.
+ *
+ * It was hardcoded to `shared` server-side, so the only way to get a worktree each was to edit
+ * the run's rows by hand — done twice in one week. Asked for as "the template should give that
+ * option, split or shared".
+ *
+ * The worktree choice is deliberately NOT offered under `collaborate`: the server refuses that
+ * combination (both agents on the same thing in separate trees produce two answers), and a
+ * control that offers something the server rejects is a trap rather than a choice.
+ */
+describe('isolation is a launch choice, not a constant', () => {
+  const root2 = path.resolve(__dirname, '../..');
+  const code2 = (f: string) => fs.readFileSync(f, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  function conferSurfaces(): string[] {
+    const out: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '__tests__') walk(p); continue; }
+        if (!/\.tsx?$/.test(e.name)) continue;
+        if (/setConferAgents\s*\(/.test(code2(p))) out.push(p);
+      }
+    };
+    walk(path.join(root2, 'src'));
+    return out;
+  }
+
+  it('every confer surface offers the isolation choice and sends it', () => {
+    const found = conferSurfaces();
+    expect(found.length).toBeGreaterThanOrEqual(3);
+    const noPicker = found.filter((f) => !/onIsolationChange\s*=/.test(code2(f)));
+    expect(noPicker.map((f) => path.relative(root2, f)),
+      'these surfaces let you pick a confer but not whether it is split or shared').toEqual([]);
+    const noSend = found.filter((f) => !/conferIsolation/.test(code2(f)));
+    expect(noSend.map((f) => path.relative(root2, f)),
+      'these surfaces show the choice but never send it, so it silently does nothing').toEqual([]);
+  });
+});

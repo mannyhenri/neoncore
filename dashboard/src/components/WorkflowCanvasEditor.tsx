@@ -40,7 +40,7 @@ import '@xyflow/react/dist/style.css';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowExecutionLog } from './WorkflowExecutionLog';
-import { ConferModePicker, type ConferMode } from './ConferModePicker';
+import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import type {
   Agent,
   AgentType,
@@ -605,6 +605,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
    */
   const [conferAgents, setConferAgents] = useState<string[]>([]);
   const [conferMode, setConferMode] = useState<ConferMode>('divide');
+  const [conferIsolation, setConferIsolation] = useState<ConferIsolation>('shared');
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
 
   // Run mode: if this workflow is a run (has templateId), it's read-only
@@ -1369,6 +1370,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         undefined,
         confering ? conferAgents : undefined,
         confering ? conferMode : undefined,
+        confering ? conferIsolation : undefined,
       );
       // Queued behind a busy cartridge: nothing to switch to yet.
       if (result?.queued || !result?.workflow || !result?.steps) { setDeferredPopup(null); onSaved?.(); return; }
@@ -1810,7 +1812,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                         })}
                       
                         {conferAgents.length >= 2 && (
-                          <ConferModePicker value={conferMode} onChange={setConferMode} />
+                          <ConferModePicker value={conferMode} onChange={setConferMode} isolation={conferIsolation} onIsolationChange={setConferIsolation} />
                         )}
                         </div>
                       {conferAgents.length === 1 && (

@@ -284,6 +284,23 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
  * A registry rather than a union check at each call site: a third mode is then offered
  * everywhere at once instead of in whichever validator someone remembered.
  */
+/**
+ * How two cartridges share the repo while they work.
+ *
+ *   shared   — one checkout between them. Simple, and the git index and build locks are shared.
+ *   worktree — a git worktree each, so neither can disturb the other's tree.
+ *
+ * WORKTREE ONLY MEANS ANYTHING UNDER `divide`. Agents working the SAME thing in separate trees
+ * produce two divergent answers with nothing to reconcile them, which is why createConfer
+ * downgrades it below. The LAUNCH refuses that combination instead, because silently doing
+ * something other than what was asked is the defect the conferMode hardcode already was.
+ */
+export const CONFER_ISOLATIONS: readonly ConferIsolation[] = ['shared', 'worktree'];
+
+export function isConferIsolation(v: unknown): v is ConferIsolation {
+  return typeof v === 'string' && (CONFER_ISOLATIONS as readonly string[]).includes(v);
+}
+
 export function isConferMode(v: unknown): v is ConferMode {
   return typeof v === 'string' && (CONFER_MODES as readonly string[]).includes(v);
 }

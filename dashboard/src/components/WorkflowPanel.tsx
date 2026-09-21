@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SectionTitle } from './SectionTitle';
-import { ConferModePicker, type ConferMode } from './ConferModePicker';
+import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
@@ -712,6 +712,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
    */
   const [conferAgents, setConferAgents] = useState<string[]>([]);
   const [conferMode, setConferMode] = useState<ConferMode>('divide');
+  const [conferIsolation, setConferIsolation] = useState<ConferIsolation>('shared');
   /**
    * The cartridges offered for a confer: the SAME set the rest of the app shows.
    *
@@ -919,6 +920,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         payloads.length > 0 ? payloads : undefined,
         conferAgents.length >= 2 ? conferAgents : undefined,
         conferAgents.length >= 2 ? conferMode : undefined,
+        conferAgents.length >= 2 ? conferIsolation : undefined,
       );
       setDeferredPopup(null);
       // Queued, not started: the cartridge was mid-task. Say so — without this the modal just
@@ -1110,7 +1112,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   })}
                 </div>
                 {conferAgents.length >= 2 && (
-                  <ConferModePicker value={conferMode} onChange={setConferMode} />
+                  <ConferModePicker value={conferMode} onChange={setConferMode} isolation={conferIsolation} onIsolationChange={setConferIsolation} />
                 )}
                 {conferAgents.length === 1 && (
                   <p className="text-[11px] text-amber-400/70 mt-1">

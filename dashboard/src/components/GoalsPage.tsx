@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
 import { SectionTitle } from './SectionTitle';
-import { ConferModePicker, type ConferMode } from './ConferModePicker';
+import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import { api } from '../lib/api';
 import { workflowAgentOptions, conferOptionLabel } from '../lib/workflow-agent-options';
 import { CADENCES, CADENCE_LABEL, formFieldsFromSchedule, scheduleFromFormFields, type Cadence } from '../lib/heartbeatForm';
@@ -727,6 +727,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
    */
   const [conferAgents, setConferAgents] = useState<string[]>([]);
   const [conferMode, setConferMode] = useState<ConferMode>('divide');
+  const [conferIsolation, setConferIsolation] = useState<ConferIsolation>('shared');
   /**
    * The cartridges offered for a confer: the SAME set the rest of the app shows. This mapped
    * the raw `agents` array, so it listed dismissed rows and superseded duplicates no other
@@ -771,6 +772,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
         undefined,
         conferAgents.length >= 2 ? conferAgents : undefined,
         conferAgents.length >= 2 ? conferMode : undefined,
+        conferAgents.length >= 2 ? conferIsolation : undefined,
       );
       onClose(result?.workflow?.id);
     } catch (e: unknown) {
@@ -839,7 +841,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
               })}
             
                         {conferAgents.length >= 2 && (
-                          <ConferModePicker value={conferMode} onChange={setConferMode} />
+                          <ConferModePicker value={conferMode} onChange={setConferMode} isolation={conferIsolation} onIsolationChange={setConferIsolation} />
                         )}
                         </div>
             {conferAgents.length === 1 && (
