@@ -8,7 +8,7 @@ import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
 import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
-import { CONFER_MODES, isConferMode } from '../lib/confer-conductor.js';
+import { CONFER_MODES, isConferMode, CONFER_ISOLATIONS, isConferIsolation } from '../lib/confer-conductor.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
 import { learningsContext } from '../lib/workflow-from-template.js';
@@ -659,6 +659,24 @@ router.post('/v2/:id/start', (req, res) => {
       error: `Unknown confer mode "${String(conferModeRequested)}" — expected one of ${CONFER_MODES.join(', ')}.`,
     });
   }
+  /**
+   * Split or shared. Validated here, beside the mode and ABOVE the queue guard, for the same
+   * reason: a request is well-formed or it is not, whatever the fleet is doing.
+   */
+  const conferIsolationRequested = req.body?.conferIsolation;
+  if (conferIsolationRequested !== undefined && !isConferIsolation(conferIsolationRequested)) {
+    return res.status(400).json({
+      error: `Unknown confer isolation "${String(conferIsolationRequested)}" — expected one of ${CONFER_ISOLATIONS.join(', ')}.`,
+    });
+  }
+  // A worktree each only makes sense when each owns a different slice. createConfer would
+  // quietly downgrade this to shared; refusing is honest, and the caller can pick again.
+  if (conferIsolationRequested === 'worktree' && conferModeRequested === 'collaborate') {
+    return res.status(400).json({
+      error: 'worktree isolation needs mode "divide" — under "collaborate" both cartridges work '
+        + 'the same thing, and separate trees would produce two answers with nothing to reconcile them.',
+    });
+  }
 
   if (req.body?.queueIfBusy !== false) {
     // Targets come from resolveWorkflowTargets, NOT from the step rows alone. A template's
@@ -993,6 +1011,7 @@ router.post('/v2/:id/start', (req, res) => {
      * the same defect the hardcode was, only harder to notice.
      */
     const conferMode: string = isConferMode(conferModeRequested) ? conferModeRequested : 'divide';
+    const conferIsolation: string = isConferIsolation(conferIsolationRequested) ? conferIsolationRequested : 'shared';
 
     const known = db.prepare(
       `SELECT id FROM agents WHERE id IN (${conferAllSteps.map(() => '?').join(',')})`,
@@ -1031,7 +1050,7 @@ router.post('/v2/:id/start', (req, res) => {
         // The requested mode wins over whatever the template happened to carry: the person
         // launching chose it for this run's work, the template author chose it in general.
         config.conferMode = conferMode;
-        config.conferIsolation = config.conferIsolation ?? 'shared';
+        config.conferIsolation = conferIsolation;
         config._wasDeferred = true;
         // executor_id stops meaning anything for a confer step, and leaving a stale one behind
         // makes the run look single-owner on every surface that reads it.
@@ -1060,7 +1079,10 @@ router.post('/v2/:id/start', (req, res) => {
         if (existing.length < 2) config[key] = conferAllSteps;
         // A template's own confer step takes the run's mode too, or "work together" would
         // apply to the converted steps and not to the one that was already a confer.
-        if (r.executor_type === 'confer') config.conferMode = conferMode;
+        if (r.executor_type === 'confer') {
+          config.conferMode = conferMode;
+          config.conferIsolation = conferIsolation;
+        }
         db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
           .run('', JSON.stringify(config), r.id);
         assigned += 1;
