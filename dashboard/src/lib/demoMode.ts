@@ -1,3 +1,4 @@
+import { DEMO_TEMPLATES } from './demoTemplates';
 /**
  * DEMO MODE — fake data in the app, nothing at all behind it.
  *
@@ -63,9 +64,51 @@ function seed() {
       { id: 'demo-a4', name: 'pulse-mobile', repoName: 'pulse-mobile', repoPath: '/demo/pulse-mobile', machine: 'demo-host', agentType: 'claude', status: 'idle', lastSeen: ago(11), sessionId: 'demo-s4', branch: 'main', dismissedAt: '', pendingQuestion: '', agentMode: 'manual' },
     ],
     workflows: [
-      { id: 'demo-w1', name: 'New Feature', description: 'Research → architect → tests → build → verify.', status: 'running', templateId: 'demo-t1', runNumber: 7, createdAt: ago(38), startedAt: ago(38), projectId: 'demo-p1', contextLabel: 'Rate limits on the public API', stepSummary: { total: 8, completed: 5, running: 1, failed: 0, pending: 2, stepNames: ['Research', 'Architecture', 'Define Tests', 'Develop', 'Run Tests', 'Security & Lint', 'Summary', 'Workflow Completion Report'], projects: ['atlas-api'] } },
-      { id: 'demo-w2', name: 'Full QA Review', description: 'Golden path → edge cases → performance → accessibility.', status: 'completed', templateId: 'demo-t2', runNumber: 3, createdAt: ago(190), startedAt: ago(190), completedAt: ago(120), projectId: 'demo-p1', contextLabel: 'Checkout flow', stepSummary: { total: 9, completed: 9, running: 0, failed: 0, pending: 0, stepNames: ['Golden Path Testing', 'Edge Case Testing', 'QA Report'], projects: ['atlas-web'] } },
-      { id: 'demo-w3', name: 'Bug Investigation', description: 'Reproduce → root cause → fix → verify.', status: 'waiting', templateId: 'demo-t3', runNumber: 12, createdAt: ago(62), startedAt: ago(62), projectId: 'demo-p2', contextLabel: 'Duplicate ledger entries', stepSummary: { total: 8, completed: 3, running: 0, failed: 0, pending: 5, stepNames: ['Reproduce the Bug', 'Root Cause Analysis', 'Fix Plan'], projects: ['ledger-svc'] } },
+      /**
+       * THE TEMPLATE LIBRARY FIRST. `/api/workflows` returns templates and runs in one list —
+       * a template is the row with `templateId: null` — so the demo has to do the same or the
+       * workflow picker comes up empty, which is what it did. Real names and step sequences,
+       * from demoTemplates.ts; see the note there.
+       */
+      ...DEMO_TEMPLATES.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        status: 'pending',
+        templateId: null as string | null,
+        runNumber: 0,
+        createdAt: ago(60 * 24 * 30),
+        /**
+         * `phases` IS REQUIRED and must be an array, even though a template has none. The
+         * workflow card falls back to `w.phases.length` for any row that is not a run with a
+         * step summary, so omitting it threw "Cannot read properties of undefined (reading
+         * 'length')" and blanked the app the moment templates were added — the same failure
+         * the autonomy fake had. Mirror normalizeWorkflow (routes/workflows.ts), not a subset.
+         */
+        phases: [] as unknown[],
+        players: [] as unknown[],
+        currentPhase: 0,
+        iteration: 1,
+        maxIterations: 3,
+        needsAttention: false,
+        jiraTaskId: '',
+        sharedContext: '',
+        initialContext: '',
+        contextLabel: '',
+        startedAt: '',
+        error: '',
+        stepSummary: {
+          total: t.stepNames.length,
+          completed: 0, running: 0, failed: 0,
+          pending: t.stepNames.length,
+          stepNames: t.stepNames,
+          projects: [] as string[],
+        },
+      })),
+
+      { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w1', name: 'New Feature', description: 'Research → architect → tests → build → verify.', status: 'running', templateId: 'demo-t1', runNumber: 7, createdAt: ago(38), startedAt: ago(38), projectId: 'demo-p1', contextLabel: 'Rate limits on the public API', stepSummary: { total: 8, completed: 5, running: 1, failed: 0, pending: 2, stepNames: ['Research', 'Architecture', 'Define Tests', 'Develop', 'Run Tests', 'Security & Lint', 'Summary', 'Workflow Completion Report'], projects: ['atlas-api'] } },
+      { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w2', name: 'Full QA Review', description: 'Golden path → edge cases → performance → accessibility.', status: 'completed', templateId: 'demo-t2', runNumber: 3, createdAt: ago(190), startedAt: ago(190), completedAt: ago(120), projectId: 'demo-p1', contextLabel: 'Checkout flow', stepSummary: { total: 9, completed: 9, running: 0, failed: 0, pending: 0, stepNames: ['Golden Path Testing', 'Edge Case Testing', 'QA Report'], projects: ['atlas-web'] } },
+      { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w3', name: 'Bug Investigation', description: 'Reproduce → root cause → fix → verify.', status: 'waiting', templateId: 'demo-t3', runNumber: 12, createdAt: ago(62), startedAt: ago(62), projectId: 'demo-p2', contextLabel: 'Duplicate ledger entries', stepSummary: { total: 8, completed: 3, running: 0, failed: 0, pending: 5, stepNames: ['Reproduce the Bug', 'Root Cause Analysis', 'Fix Plan'], projects: ['ledger-svc'] } },
     ],
     tasks: [
       { id: 'demo-k1', title: 'Add rate-limit headers to the public API', prompt: '', status: 'in_progress', priority: 2, projectId: 'demo-p1', createdAt: ago(80), dependsOn: [] },
@@ -73,11 +116,102 @@ function seed() {
       { id: 'demo-k3', title: 'Ship the pricing page redesign', prompt: '', status: 'done', priority: 3, projectId: 'demo-p1', createdAt: ago(600), dependsOn: [] },
     ],
     projects: [
-      { id: 'demo-p1', name: 'Atlas', description: 'Customer-facing API and web app.', primaryRepo: '/demo/atlas-api', color: '#a855f7', createdAt: ago(9000), updatedAt: ago(30) },
-      { id: 'demo-p2', name: 'Ledger', description: 'Billing and reconciliation.', primaryRepo: '/demo/ledger-svc', color: '#38bdf8', createdAt: ago(9000), updatedAt: ago(60) },
+      /**
+       * `goalId` LIVES ON THE PROJECT, not as `projectIds` on the goal — that is the direction
+       * the goals screen resolves (a goal's reach is the projects pointing AT it). Without it
+       * every goal rendered "0 projects · reaches nothing" and the page warned that no project
+       * had a goal, which is a demo showing the empty state of its own headline feature.
+       */
+      { id: 'demo-p1', name: 'Atlas', description: 'Customer-facing API and web app.', primaryRepo: '/demo/atlas-api', color: '#a855f7', goalId: 'demo-g2', cartridges: ['/demo/atlas-api', '/demo/atlas-web'], createdAt: ago(9000), updatedAt: ago(30) },
+      { id: 'demo-p2', name: 'Ledger', description: 'Billing and reconciliation.', primaryRepo: '/demo/ledger-svc', color: '#38bdf8', goalId: 'demo-g1', cartridges: ['/demo/ledger-svc'], createdAt: ago(9000), updatedAt: ago(60) },
+      { id: 'demo-p3', name: 'Pulse', description: 'Field mobile app — visits, offline capture.', primaryRepo: '/demo/pulse-mobile', color: '#34d399', goalId: 'demo-g3', cartridges: ['/demo/pulse-mobile'], createdAt: ago(7000), updatedAt: ago(90) },
     ],
+    /**
+     * More than one goal, because a goals screen with a single row shows the shape but not the
+     * point: goals differ by status, by how many projects they span, and by whether anyone is
+     * moving on them. One of these is deliberately stalled and one is done.
+     */
     goals: [
-      { id: 'demo-g1', title: 'Ship metered billing by Q3', successMetric: 'First paying customer on metered plan', status: 'active', createdAt: ago(20000), projectIds: ['demo-p1', 'demo-p2'] },
+      {
+        id: 'demo-g1', name: 'Ship metered billing by Q3', status: 'active',
+        successMetric: 'First paying customer on a metered plan',
+        description: 'Usage is already metered internally; customers still pay a flat fee, so heavy accounts are subsidised by light ones.',
+        acceptanceCriteria: 'WHEN a billing period closes THE SYSTEM SHALL invoice on recorded usage within 1%. WHEN usage is disputed THE SYSTEM SHALL show the per-event ledger behind the total.',
+        invariants: 'No customer is billed twice for one event. Historical invoices never change after issue.',
+        noGos: 'No pricing-page changes. No migration of existing flat-fee contracts in this phase.',
+        rabbitHoles: 'Rebuilding the events pipeline. Proration edge cases for mid-cycle plan changes — defer.',
+        createdAt: ago(20000),
+        updatedAt: ago(60),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '2026-09-30', owner: 'demo@neoncore.local', investmentCategory: '', autonomy: '',
+        projectCount: 1, runCount: 12, reach: 1, tokensUsed: 486_000, costUsd: 7.31,
+        progress: { completedSteps: 44, totalSteps: 80, fraction: 0.55, runsCounted: 12 },
+        health: null,
+        schedule: { targetDate: '2026-09-30', daysRemaining: 8, state: 'due-soon', detail: '8 days to target, 55% complete.' },
+      },
+      {
+        id: 'demo-g2', name: 'Cut p95 checkout latency below 400ms', status: 'active',
+        successMetric: 'p95 under 400ms for seven consecutive days',
+        description: 'Checkout p95 sits at 1.2s and cart abandonment tracks it closely.',
+        acceptanceCriteria: 'WHEN a checkout request completes THE SYSTEM SHALL record server timing per stage.',
+        invariants: 'No payment is captured twice. Latency work never weakens the idempotency key.',
+        noGos: 'No change to the payment provider. No caching of authorisation responses.',
+        rabbitHoles: 'A frontend rewrite. Micro-optimising the JSON serialiser before profiling.',
+        createdAt: ago(9000),
+        updatedAt: ago(60),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '', owner: 'demo@neoncore.local', investmentCategory: '', autonomy: '',
+        projectCount: 1, runCount: 8, reach: 2, tokensUsed: 312_400, costUsd: 4.88,
+        progress: { completedSteps: 18, totalSteps: 45, fraction: 0.4, runsCounted: 8 },
+        health: { reason: 'agent-waiting', runId: 'demo-w1', runName: 'Checkout latency sweep', stepName: 'Profile the hot path', detail: 'The cartridge stopped to ask which trace window to use.', blockedRuns: 1 },
+        schedule: null,
+      },
+      {
+        id: 'demo-g3', name: 'Offline-first mobile sync', status: 'active',
+        successMetric: 'A flight-mode session reconciles with no lost edits',
+        description: 'Field users lose connectivity mid-visit and currently lose whatever they typed.',
+        acceptanceCriteria: 'WHEN the device reconnects THE SYSTEM SHALL reconcile local edits without prompting the user.',
+        invariants: 'A local edit is never silently discarded. Conflicts are surfaced, not resolved by timestamp alone.',
+        noGos: 'No new sync engine dependency. No schema change to the visit record.',
+        rabbitHoles: 'CRDTs for a case that is last-write-wins in practice.',
+        createdAt: ago(4000),
+        updatedAt: ago(60),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '2026-09-05', owner: 'demo@neoncore.local', investmentCategory: '', autonomy: '',
+        projectCount: 1, runCount: 5, reach: 1, tokensUsed: 190_200, costUsd: 2.64,
+        progress: { completedSteps: 7, totalSteps: 28, fraction: 0.25, runsCounted: 5 },
+        health: null,
+        schedule: { targetDate: '2026-09-05', daysRemaining: -17, state: 'overdue', detail: '17 days past target, 25% complete.' },
+      },
+      {
+        id: 'demo-g4', name: 'Retire the legacy ledger importer', status: 'paused',
+        successMetric: 'No traffic on the v1 import endpoint for 30 days',
+        description: 'Two importers exist and the old one has no tests; every ledger bug starts with working out which ran.',
+        acceptanceCriteria: 'WHEN a v1 import is attempted THE SYSTEM SHALL redirect it to v2 and log the caller.',
+        invariants: 'No historical import is re-run. Ledger balances are unchanged by the migration.',
+        noGos: 'No backfill of pre-2024 records.',
+        rabbitHoles: 'Chasing the two customers still on v1 before the redirect is in place.',
+        createdAt: ago(30000),
+        updatedAt: ago(60),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '2026-08-15', owner: 'demo@neoncore.local', investmentCategory: '', autonomy: '',
+        projectCount: 0, runCount: 0, reach: 0, tokensUsed: 0, costUsd: 0,
+        progress: { completedSteps: 0, totalSteps: 0, fraction: null, runsCounted: 0 },
+        health: null,
+        schedule: { targetDate: '2026-08-15', daysRemaining: -38, state: 'overdue', detail: '38 days past target, and no work has run against this goal.' },
+      },
+      {
+        id: 'demo-g5', name: 'SOC 2 evidence automation', status: 'achieved',
+        successMetric: 'Quarterly evidence pack generated without manual steps',
+        description: 'Evidence collection took nine engineer-days last quarter, mostly screenshots.',
+        acceptanceCriteria: 'WHEN a quarter closes THE SYSTEM SHALL produce the pack with no human step.',
+        invariants: 'Evidence is generated from source systems, never hand-edited.',
+        noGos: 'No new vendor. No access changes to production.',
+        rabbitHoles: 'Automating the policy documents, which change once a year.',
+        createdAt: ago(60000),
+        updatedAt: ago(60),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '2026-07-01', owner: 'demo@neoncore.local', investmentCategory: '', autonomy: '',
+        projectCount: 0, runCount: 21, reach: 0, tokensUsed: 902_800, costUsd: 13.47,
+        progress: { completedSteps: 96, totalSteps: 96, fraction: 1, runsCounted: 21 },
+        health: null,
+        schedule: { targetDate: '2026-07-01', daysRemaining: 3, state: 'met', detail: 'Finished with 3 days to spare.' },
+      },
     ],
     activity: [
       { id: 'demo-ac1', agentId: 'demo-a1', eventType: 'PostToolUse', toolName: 'Edit', toolInput: '{"file_path":"/demo/atlas-api/src/rate-limit.ts"}', toolResult: '{}', timestamp: ago(1) },
