@@ -254,9 +254,18 @@ function objectShaped(seg: string[]): unknown | undefined {
   }
   if (p === 'health') return { status: 'ok', timestamp: new Date().toISOString() };
 
-  // A run's autonomy posture — an object the run header reads fields off.
+  /**
+   * A run's autonomy posture.
+   *
+   * `resolutions` IS REQUIRED and must be an array. AutonomyControl declares it non-optional
+   * and reads `state.resolutions.length` three times without guarding, so omitting it threw
+   * "Cannot read properties of undefined (reading 'length')" and unmounted the whole app —
+   * a white screen whose only exit is the ?demo=off URL. The real route returns
+   * `{ ...effectiveAutonomy(id), resolutions: listAutoResolutions(id, 10) }`
+   * (routes/workflows.ts:1753); this mirrors that, not a subset of it.
+   */
   if (seg[0] === 'workflows' && seg[1] === 'v2' && seg[3] === 'autonomy') {
-    return { level: 'full', source: 'workflow', expiresAt: null };
+    return { level: 'full', source: 'workflow', expiresAt: null, resolutions: [] };
   }
 
   // The queue is an object with lanes, not a bare list.
