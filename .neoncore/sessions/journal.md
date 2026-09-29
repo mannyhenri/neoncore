@@ -3078,3 +3078,15 @@
 
 ### ⏱ 2026-09-29T10:26:26Z — heartbeat
 - branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+
+## 2026-09-29 06:43 EDT — GUI crash (WindowServer watchdog), sessions restored
+- No reboot. llama-server (llama.cpp comparator launched by gl-dev `scripts/qa/guided-local-run.sh`,
+  run output/qa-local/20260929T102207Z, started 06:20 from a user terminal) hung the AMD Vega II
+  under Metal → GPU resets 06:42:50 + 06:43:23 → WindowServer unresponsive 40s → killed → login
+  session torn down, all terminals/Claude sessions died.
+- Resumed 7 sessions: neoncore bd098958, gl-dev 91bd96ef, gl-dev-b cd88d23d, gl-dev-lane-ops 86a6fd9f,
+  gl-dev-media eaaa91bf, film-engine 92f2a433, gridlight-manager d2640c3d. Not reopened: backend-interlag
+  74f5c4c3, baseback 68697d58 (cancelled confers, Sep 26), gridlight-work 0cce0da0 (done).
+
+### ⏱ 2026-09-29T10:52:15Z — heartbeat
+- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
