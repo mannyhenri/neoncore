@@ -113,6 +113,14 @@ if (Test-Path $srcRelay) {
   Get-ChildItem -Path $srcRelay | Where-Object { $_.Name -ne "node_modules" } |
     Copy-Item -Destination $RelayDir -Recurse -Force
 }
+# The runner and relay import ..\lib\*.mjs, so lib lives beside them (~\.neoncore\lib);
+# without it both die on start with ERR_MODULE_NOT_FOUND.
+$srcLib = Join-Path (Split-Path -Parent $SourceDir) "lib"
+if (Test-Path $srcLib) {
+  $LibDir = Join-Path $env:USERPROFILE ".neoncore\lib"
+  New-Item -ItemType Directory -Force -Path $LibDir | Out-Null
+  Get-ChildItem -Path $srcLib | Copy-Item -Destination $LibDir -Recurse -Force
+}
 # Bundle the hooks installer (status/activity/approvals) so the runner is self-contained.
 $AgentDir = Join-Path $env:USERPROFILE ".neoncore\agent"
 $srcAgent = Join-Path (Split-Path -Parent $SourceDir) "agent"          # zip: runner/ + agent/ siblings

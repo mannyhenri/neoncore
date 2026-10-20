@@ -16,7 +16,7 @@ ZIP="$OUT_DIR/neoncore-runner.zip"
 
 echo "[package-runner] Staging in $STAGE"
 rm -rf "$STAGE" "$ZIP"
-mkdir -p "$STAGE/runner" "$STAGE/relay" "$STAGE/agent/hooks"
+mkdir -p "$STAGE/runner" "$STAGE/relay" "$STAGE/lib" "$STAGE/agent/hooks"
 
 copy() { # src dst
   if command -v rsync >/dev/null 2>&1; then
@@ -30,6 +30,7 @@ copy() { # src dst
 
 copy "$ROOT/agent/runner" "$STAGE/runner"
 copy "$ROOT/agent/relay"  "$STAGE/relay"
+copy "$ROOT/agent/lib"    "$STAGE/lib"   # runner + relay import ../lib/*.mjs
 # Bundle the hooks installer so setup can install status/activity/approval hooks — the
 # runner is then fully self-contained (no separate agent install needed).
 cp "$ROOT/agent/install.py" "$STAGE/agent/install.py"

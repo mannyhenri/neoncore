@@ -188,6 +188,12 @@ copy "$SOURCE_DIR" "$INSTALL_DIR"
 if [[ -d "$SOURCE_DIR/../relay" ]]; then
   link_or_copy "$SOURCE_DIR/../relay" "$INSTALL_DIR/../relay"
 fi
+# The runner and relay import ../lib/*.mjs, so lib lives beside them (~/.neoncore/lib);
+# without it both die on start with ERR_MODULE_NOT_FOUND and launchd restarts them forever.
+if [[ -d "$SOURCE_DIR/../lib" ]]; then
+  mkdir -p "$INSTALL_DIR/../lib"
+  copy "$SOURCE_DIR/../lib" "$INSTALL_DIR/../lib"
+fi
 HOOKS_SRC=""
 if [[ -f "$SOURCE_DIR/../agent/install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/../agent"; fi   # runner zip: runner/ + agent/ siblings
 if [[ -z "$HOOKS_SRC" && -f "$SOURCE_DIR/../install.py" ]]; then HOOKS_SRC="$SOURCE_DIR/.."; fi  # in-repo: agent/runner → agent/
@@ -225,8 +231,9 @@ if [[ -f "$INSTALL_DIR/runner.config.json" ]]; then
   MACHINE_ID="$(node -e 'try{process.stdout.write((require(process.argv[1]).machineId)||"")}catch(e){}' "$INSTALL_DIR/runner.config.json" 2>/dev/null || true)"
 fi
 
-# Build repos JSON from the --repo list.
-SCAN_ROOTS_JSON="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' "${SCANS[@]}" 2>/dev/null || echo "[]")"
+# Build repos JSON from the --repo list. SCANS is empty without --scan — guarded for bash 3.2
+# (see expand_scans).
+SCAN_ROOTS_JSON="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' ${SCANS[@]+"${SCANS[@]}"} 2>/dev/null || echo "[]")"
 REPOS_JSON="$(node -e '
   const path = require("path");
   const repos = process.argv.slice(1).map(p => ({ path: p, name: path.basename(p.replace(/[\\/]+$/,"")) || p }));
