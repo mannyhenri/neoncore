@@ -10,6 +10,7 @@
 #   5. On error/timeout → exit 0 (fall back to normal Claude Code behavior)
 
 ORCHESTRATOR_URL="${NEONCORE_URL:-http://localhost:4040}"
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POLL_TIMEOUT=120  # seconds per poll attempt
 MAX_POLL_RETRIES=5  # retry up to 5 times (total ~10 minutes for plan reviews)
 
@@ -165,7 +166,7 @@ line = sys.stdin.readline()  # line 2 (permission body)
 d = json.loads(line)
 print(d.get('toolName', ''))
 " 2>/dev/null)
-if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "AskUserQuestion" ]; then
+if [ "$TRUST_MODE" = "True" ] && [ "$TOOL_NAME" != "AskUserQuestion" ] && [ "$TOOL_NAME" != "ExitPlanMode" ]; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Auto-approved by NeonCore trust mode"}}'
   exit 0
 fi
@@ -194,198 +195,10 @@ while [ $RETRY -lt $MAX_POLL_RETRIES ]; do
     continue
   fi
 
-  # Parse decision + response and construct appropriate hook output
-  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 -c "
-import sys, json, os, traceback, datetime
-
-DEBUG_LOG = '/tmp/neoncore-hook-debug.log'
-def debug(msg):
-    try:
-        with open(DEBUG_LOG, 'a') as f:
-            f.write('[%s] %s\n' % (datetime.datetime.now().isoformat(), msg))
-    except:
-        pass
-
-poll = json.load(sys.stdin)
-decision = poll.get('decision', '')
-response_str = poll.get('response', '')
-tool_name = os.environ.get('NC_TOOL_NAME', '')
-
-# Read tool input from temp file (avoids bash variable expansion issues)
-tool_input_raw = '{}'
-tool_input_file = os.environ.get('NC_TOOL_INPUT_FILE', '')
-if tool_input_file and os.path.exists(tool_input_file):
-    try:
-        with open(tool_input_file, 'r') as f:
-            tool_input_raw = f.read().strip() or '{}'
-    except Exception as e:
-        debug('Failed to read tool input file %s: %s' % (tool_input_file, e))
-
-debug('Poll result: decision=%s tool=%s response_len=%d tool_input_len=%d' % (
-    decision, tool_name, len(response_str), len(tool_input_raw)))
-
-if decision == 'allowed':
-    output = {
-        'hookSpecificOutput': {
-            'hookEventName': 'PreToolUse',
-            'permissionDecision': 'allow',
-            'permissionDecisionReason': 'Approved via NeonCore dashboard'
-        }
-    }
-
-    def extract_question_entries(tool_input):
-        entries = []
-        raw_questions = tool_input.get('questions')
-
-        if isinstance(raw_questions, list):
-            for idx, raw in enumerate(raw_questions):
-                if not isinstance(raw, dict):
-                    continue
-                question_text = str(raw.get('question', '')).strip() or str(raw.get('prompt', '')).strip()
-                if not question_text:
-                    continue
-                entries.append({
-                    'index': idx,
-                    'id': str(raw.get('id', '')).strip(),
-                    'text': question_text,
-                })
-        else:
-            question_text = str(tool_input.get('question', '')).strip() or str(tool_input.get('prompt', '')).strip()
-            if question_text:
-                entries.append({
-                    'index': 0,
-                    'id': str(tool_input.get('id', '')).strip(),
-                    'text': question_text,
-                })
-        return entries
-
-    def stringify_answer_value(value):
-        if isinstance(value, list):
-            items = [str(v).strip() for v in value if str(v).strip()]
-            return ', '.join(items)
-        if value is None:
-            return ''
-        return str(value).strip()
-
-    def normalize_answers(answers, tool_input):
-        if not isinstance(answers, dict):
-            return {}
-        entries = extract_question_entries(tool_input)
-        normalized = {}
-
-        for raw_key, raw_value in answers.items():
-            value = stringify_answer_value(raw_value)
-            if not value:
-                continue
-
-            key = str(raw_key).strip()
-            question_text = ''
-
-            if key.isdigit():
-                idx = int(key)
-                for entry in entries:
-                    if entry['index'] == idx:
-                        question_text = entry['text']
-                        break
-            else:
-                for entry in entries:
-                    if entry['id'] and entry['id'] == key:
-                        question_text = entry['text']
-                        break
-                if not question_text:
-                    for entry in entries:
-                        if entry['text'] == key:
-                            question_text = entry['text']
-                            break
-
-            if not question_text:
-                if len(entries) == 1:
-                    question_text = entries[0]['text']
-                elif key:
-                    question_text = key
-
-            if question_text:
-                normalized[question_text] = value
-
-        return normalized
-
-    # For AskUserQuestion, deny the tool and pass answers in the reason text.
-    # updatedInput does NOT work for AskUserQuestion (interactive tool, not hookable).
-    # Denying prevents the interactive prompt from showing; the model gets the answers
-    # via permissionDecisionReason and can proceed without re-asking.
-    if tool_name == 'AskUserQuestion' and response_str:
-        try:
-            resp = json.loads(response_str) if isinstance(response_str, str) else response_str
-            debug('AskUserQuestion response parsed: keys=%s' % list(resp.keys()))
-
-            try:
-                original_input = json.loads(tool_input_raw)
-                debug('Original tool input parsed OK: keys=%s' % list(original_input.keys()))
-            except Exception as e:
-                debug('Failed to parse tool_input_raw: %s (raw=%s)' % (e, tool_input_raw[:200]))
-                original_input = {}
-
-            answers = normalize_answers(resp.get('answers', {}), original_input)
-            debug('Normalized answers: %s' % json.dumps(answers))
-
-            # Backward-compat: support single-answer payloads from older UI versions
-            if not answers and isinstance(resp.get('result'), str):
-                entries = extract_question_entries(original_input)
-                if entries:
-                    answers = {entries[0]['text']: resp.get('result', '').strip()}
-                    debug('Used backward-compat single answer: %s' % json.dumps(answers))
-
-            if answers:
-                answer_lines = []
-                for question, answer in answers.items():
-                    answer_lines.append('- %s: %s' % (question, answer))
-                answers_text = '\n'.join(answer_lines)
-
-                output = {
-                    'hookSpecificOutput': {
-                        'hookEventName': 'PreToolUse',
-                        'permissionDecision': 'deny',
-                        'permissionDecisionReason': (
-                            'The user already answered these questions via an external dashboard (NeonCore). '
-                            'Here are their answers:\n\n%s\n\n'
-                            'Use these answers and continue your work. '
-                            'Do NOT call AskUserQuestion again for the same questions — the user has already responded.'
-                        ) % answers_text
-                    }
-                }
-                debug('AskUserQuestion DENIED with %d answer(s) in reason text' % len(answers))
-            else:
-                debug('WARNING: No answers produced - allowing tool to proceed normally')
-        except Exception as e:
-            debug('EXCEPTION in AskUserQuestion answer injection: %s\n%s' % (e, traceback.format_exc()))
-
-    debug('Hook output: %s' % json.dumps(output)[:500])
-    print(json.dumps(output))
-
-elif decision == 'denied':
-    output = {
-        'hookSpecificOutput': {
-            'hookEventName': 'PreToolUse',
-            'permissionDecision': 'deny',
-            'permissionDecisionReason': 'Denied via NeonCore dashboard'
-        }
-    }
-    # For ExitPlanMode, include rejection feedback in the reason
-    if tool_name == 'ExitPlanMode' and response_str:
-        try:
-            resp = json.loads(response_str) if isinstance(response_str, str) else response_str
-            feedback = resp.get('feedback', '')
-            if feedback:
-                output['hookSpecificOutput']['permissionDecisionReason'] = 'Plan rejected via NeonCore dashboard: ' + feedback
-        except Exception:
-            pass
-    print(json.dumps(output))
-
-else:
-    debug('Poll returned unknown decision: %s' % decision)
-    # timeout or unknown — print nothing, outer loop retries
-    pass
-" 2>/dev/null)
+  # Decision → hook JSON. Delegated to permission-proxy.py so the two hooks cannot drift: this
+  # copy once sent a bare allow for ExitPlanMode and DENIED AskUserQuestion, so Claude Code kept
+  # its own dialog up and the human approved everything twice (see INTERACTIVE_TOOLS there).
+  HOOK_OUTPUT=$(printf '%s' "$POLL_RESULT" | /usr/bin/env python3 "$HOOK_DIR/permission-proxy.py" --decide 2>/dev/null)
 
   if [ -n "$HOOK_OUTPUT" ]; then
     printf '%s\n' "$HOOK_OUTPUT"

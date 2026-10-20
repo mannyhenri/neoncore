@@ -31,6 +31,12 @@ WAIT_SECONDS = int(os.environ.get("NEONCORE_PERMISSION_WAIT", "3300"))
 ERROR_BACKOFF = 5     # seconds between polls when the server is unreachable
 MAX_POLL_ERRORS = 12  # ~1 minute of consecutive failures: nobody can answer from the app
 
+# Tools whose terminal dialog a bare `allow` does NOT dismiss. Claude Code's hooks reference:
+# "`allow` skips the permission prompt, except ... for `AskUserQuestion` and `ExitPlanMode`,
+# which need `updatedInput` paired with it." Approving one of these in NeonCore without
+# updatedInput left the dialog up, so the human approved twice and the app's choices were lost.
+INTERACTIVE_TOOLS = ("AskUserQuestion", "ExitPlanMode")
+
 
 def post_json(url: str, body: str, timeout: int = 5) -> dict | None:
     """POST JSON and return parsed response."""
@@ -208,6 +214,85 @@ def wait_for_decision(request_id: str, wait_seconds: int | None = None, get=None
     return None
 
 
+def answers_from_response(resp: object, tool_input: dict) -> dict[str, str]:
+    """AskUserQuestion answers from whichever shape the deciding UI sent.
+
+    `answers` is the question cards (dashboard + mobile); `response` is the approvals inbox's
+    free-text box; `result` is an older UI. The free-text forms carry one answer, which goes
+    to the first question.
+    """
+    if not isinstance(resp, dict):
+        return {}
+    answers = normalize_ask_user_answers(resp.get("answers", {}), tool_input)
+    if answers:
+        return answers
+    for key in ("response", "result"):
+        text = resp.get(key)
+        if isinstance(text, str) and text.strip():
+            entries = extract_question_entries(tool_input)
+            if entries:
+                return {entries[0]["text"]: text.strip()}
+    return {}
+
+
+def decision_output(tool_name: str, tool_input: dict, decision: str, response_str: object) -> dict | None:
+    """The PreToolUse JSON for a dashboard decision, or None for timeout/unknown (keep polling).
+
+    Shared by permission-proxy.sh (`--decide`), so the two hooks cannot drift apart again.
+    """
+    try:
+        resp = json.loads(response_str) if isinstance(response_str, str) and response_str else response_str
+    except Exception:
+        resp = None
+
+    if decision == "allowed":
+        hso: dict = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "Approved via NeonCore dashboard",
+        }
+        if tool_name == "ExitPlanMode":
+            # The plan unchanged — updatedInput replaces the whole input, and its presence is
+            # what tells Claude Code the approval already happened.
+            hso["updatedInput"] = dict(tool_input)
+        elif tool_name == "AskUserQuestion":
+            answers = answers_from_response(resp, tool_input)
+            if answers:
+                hso["updatedInput"] = {**tool_input, "answers": answers}
+            # No usable answer (an empty free-text submit): a bare allow leaves the terminal
+            # dialog up, which is the honest fallback — the question is still unanswered.
+        return {"hookSpecificOutput": hso}
+
+    if decision == "denied":
+        reason = "Denied via NeonCore dashboard"
+        if tool_name == "ExitPlanMode" and isinstance(resp, dict) and resp.get("feedback"):
+            reason = f"Plan rejected via NeonCore dashboard: {resp['feedback']}"
+        return {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }}
+
+    return None
+
+
+def decide_cli() -> None:
+    """`permission-proxy.py --decide`: poll JSON on stdin → hook JSON on stdout (for the .sh)."""
+    try:
+        poll = json.load(sys.stdin)
+        tool_input: dict = {}
+        path = os.environ.get("NC_TOOL_INPUT_FILE", "")
+        if path and os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                tool_input = json.loads(fh.read().strip() or "{}")
+        out = decision_output(os.environ.get("NC_TOOL_NAME", ""), tool_input,
+                              poll.get("decision", ""), poll.get("response", ""))
+        if out:
+            print(json.dumps(out))
+    except Exception:
+        pass
+
+
 def main():
     try:
         d = json.load(sys.stdin)
@@ -321,55 +406,9 @@ def main():
 
     poll_result = wait_for_decision(request_id)
     if poll_result:
-        decision = poll_result.get("decision", "")
-        response_str = poll_result.get("response", "")
-
-        if decision == "allowed":
-            output: dict = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "permissionDecisionReason": "Approved via NeonCore dashboard",
-                }
-            }
-            # For AskUserQuestion, inject answers into updatedInput
-            if tool_name == "AskUserQuestion" and response_str:
-                try:
-                    resp = json.loads(response_str) if isinstance(response_str, str) else response_str
-                    answers = normalize_ask_user_answers(resp.get("answers", {}), tool_input)
-
-                    # Backward-compat: support single-answer payloads from older UI versions
-                    if not answers and isinstance(resp.get("result"), str):
-                        entries = extract_question_entries(tool_input)
-                        if entries:
-                            answers = {entries[0]["text"]: resp.get("result", "").strip()}
-
-                    if answers:
-                        updated = dict(tool_input)
-                        updated["answers"] = answers
-                        output["hookSpecificOutput"]["updatedInput"] = updated
-                except Exception:
-                    pass
-            print(json.dumps(output))
-            sys.exit(0)
-
-        elif decision == "denied":
-            output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": "Denied via NeonCore dashboard",
-                }
-            }
-            # For ExitPlanMode, include rejection feedback in the reason
-            if tool_name == "ExitPlanMode" and response_str:
-                try:
-                    resp = json.loads(response_str) if isinstance(response_str, str) else response_str
-                    feedback = resp.get("feedback", "")
-                    if feedback:
-                        output["hookSpecificOutput"]["permissionDecisionReason"] = f"Plan rejected via NeonCore dashboard: {feedback}"
-                except Exception:
-                    pass
+        output = decision_output(tool_name, tool_input,
+                                 poll_result.get("decision", ""), poll_result.get("response", ""))
+        if output:
             print(json.dumps(output))
             sys.exit(0)
 
@@ -378,6 +417,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--decide" in sys.argv[1:]:
+        decide_cli()
+        sys.exit(0)
     try:
         main()
     except Exception:
