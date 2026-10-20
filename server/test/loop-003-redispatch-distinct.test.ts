@@ -75,7 +75,9 @@ function loopedTemplateSteps(): LoopedStep[] {
  * reader uses — a pattern this cannot sample fails the test loudly instead of quietly skipping.
  */
 function sampleFor(pattern: string): string {
-  const line = pattern.replace(/\\s\*/g, ' ').replace(/\(\\d\+\)/g, String(COUNT)).replace(/\\/g, '');
+  // An optional literal (`TASKS:?`) is written as present — the documented form of the line.
+  const line = pattern.replace(/(\\?[^\\()])\?/g, '$1')
+    .replace(/\\s\*/g, ' ').replace(/\(\\d\+\)/g, String(COUNT)).replace(/\\/g, '');
   assert.ok(new RegExp(pattern).test(line), `could not build a sample for /${pattern}/ — got "${line}"`);
   return line;
 }

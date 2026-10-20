@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { CommandAttachmentInput } from '../types';
 import { AttachmentList, useAttachments } from './AttachmentPicker';
+import { focusIfIdle } from '../lib/focus';
 
 const MAX_HISTORY = 50;
 
@@ -59,8 +60,10 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
     }
   }, [agentId]);
 
+  // Cards mount whenever an agent comes online or a cartridge is restored — never pull the
+  // caret out of a field the user is already typing in.
   useEffect(() => {
-    inputRef.current?.focus();
+    focusIfIdle(inputRef.current);
   }, []);
 
   // Auto-resize textarea to fit content

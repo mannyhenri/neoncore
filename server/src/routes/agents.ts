@@ -6,7 +6,7 @@ import { getIO, upgradeSocketsToAgentRoom, hasActiveSocket } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
-import { sendCommandToAgent } from '../lib/send-command.js';
+import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { deleteAgentCascade } from '../lib/agent-cleanup.js';
 import { handleAgentInterrupted } from '../lib/recovery.js';
@@ -851,7 +851,7 @@ router.post('/:id/recover-session', (req, res) => {
   const prompt = renderAgentRecoveryPrompt(agent, rows, sessionId);
   const command = sendCommandToAgent(req.params.id, prompt, true, undefined, { trackObjective: false });
   if (!command) return res.status(404).json({ error: 'Agent not found' });
-  if (command.delivered === false) {
+  if (noChannel(command)) {
     db.prepare(
       `UPDATE agents SET recovery_status = 'interrupted', recovery_session_id = ? WHERE id = ?`,
     ).run(sessionId, req.params.id);
@@ -873,6 +873,14 @@ router.post('/:id/recover-session', (req, res) => {
   const updated = db.prepare('SELECT * FROM agents WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   const normalized = normalizeAgent(updated);
   getIO().emit('agent_updated', normalized);
+  // Handed to the inbox: recovered unless the inbox turns it down, which puts the offer back.
+  if (inboxPending(command)) {
+    void whenInboxSettles(command.id)?.then((out) => {
+      if (out.ok) return;
+      db.prepare(`UPDATE agents SET recovery_status = 'interrupted' WHERE id = ? AND recovery_status = 'recovered'`)
+        .run(req.params.id);
+    });
+  }
   res.json({ ok: true, reason: 'dispatched transcript replay', sessionId, promptChars: prompt.length });
 });
 

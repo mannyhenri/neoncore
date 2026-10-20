@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { KIND_IDS, getKind, type QueueKind, type QueueItem } from '../lib/queue-kinds.js';
-import { enqueue, listQueue, cancelItem, retryItem, removeItem, haltLane, resumeLane, tickQueue, startNow, moveItem, pauseItem, resumeItem } from '../lib/queue-runner.js';
+import { enqueue, listQueue, cancelItem, retryItem, removeItem, haltLane, resumeLane, tickQueue, startNow, moveItem, pauseItem, resumeItem, publicQueueItem } from '../lib/queue-runner.js';
 
 const router = Router();
 
@@ -24,7 +24,7 @@ const router = Router();
  * enqueue without a description renders as a uuid until the next poll replaces it, which reads
  * as a bug in the queue rather than in the serializer.
  */
-const toWire = (i: QueueItem) => ({ ...i, description: getKind(i.kind).describe(i) });
+const toWire = (i: QueueItem) => ({ ...publicQueueItem(i), description: getKind(i.kind).describe(i) });
 
 router.get('/', (_req, res) => {
   const items = listQueue().map(toWire);

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
-import type { Goal } from '../types.js';
+import type { Command, Goal } from '../types.js';
 import { goalCostUsd } from '../lib/goal-cost.js';
 import { goalReach } from '../lib/goal-reach.js';
 import { goalProgress } from '../lib/goal-progress.js';
@@ -21,8 +21,24 @@ import {
   DecompositionError,
 } from '../lib/goal-decomposition.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
-import { sendCommandToAgent } from '../lib/send-command.js';
+import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
 import { releaseReadyTasks } from './tasks.js';
+
+
+/**
+ * A request handed to the cartridge's inbox is in flight, so the route answers 202 like any
+ * other delivery. If the inbox then turns it down, fail the request here, as the no-channel path
+ * does, so it does not sit "pending" forever. Only while it is still pending: an answer that
+ * arrived in the meantime wins.
+ */
+function failIfInboxRefuses(cmd: Command, table: 'goal_drafts' | 'goal_decompositions', id: string): void {
+  if (!inboxPending(cmd)) return;
+  void whenInboxSettles(cmd.id)?.then((out) => {
+    if (out.ok) return;
+    db.prepare(`UPDATE ${table} SET status = 'failed', error = ?, completed_at = ? WHERE id = ? AND status = 'pending'`)
+      .run(`the cartridge's inbox refused the request (${out.detail}) — is it connected?`, new Date().toISOString(), id);
+  });
+}
 
 const router = Router();
 
@@ -245,12 +261,13 @@ router.post('/drafts', (req, res) => {
   if (guard.queued) return res.status(202).json({ draft: getDraft(draft.id), queued: true });
 
   const cmd = sendCommandToAgent(agentId, prompt, false);
-  if (!cmd || cmd.delivered === false) {
+  if (noChannel(cmd)) {
     // Queued into the void: nothing was listening. Failing the draft here is what stops it
     // sitting "pending" forever with no cartridge ever having seen it.
     failDraft(draft.id, 'the cartridge did not receive the request — is it connected?');
     return res.status(502).json({ error: 'the cartridge did not receive the request', draft: getDraft(draft.id) });
   }
+  failIfInboxRefuses(cmd!, 'goal_drafts', draft.id);
   res.status(202).json({ draft: getDraft(draft.id), queued: false });
 });
 
@@ -328,10 +345,11 @@ router.post('/:goalId/decompositions', (req, res) => {
   if (guard.queued) return res.status(202).json({ decomposition: getDecomposition(dec.id), queued: true });
 
   const cmd = sendCommandToAgent(agentId, prompt, false);
-  if (!cmd || cmd.delivered === false) {
+  if (noChannel(cmd)) {
     failDecomposition(dec.id, 'the cartridge did not receive the request — is it connected?');
     return res.status(502).json({ error: 'the cartridge did not receive the request', decomposition: getDecomposition(dec.id) });
   }
+  failIfInboxRefuses(cmd!, 'goal_decompositions', dec.id);
   res.status(202).json({ decomposition: getDecomposition(dec.id), queued: false });
 });
 

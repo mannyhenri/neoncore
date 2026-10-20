@@ -19,18 +19,18 @@ Right now, of 44 known functions: **15 local, 29 cloud.**
 
 ## The decision, in the order it actually executes
 
-It runs in exactly one place: `server/src/routes/workflows.ts:850`, when a workflow step is
+It runs in exactly one place: `server/src/routes/workflows.ts:987`, when a workflow step is
 dispatched.
 
 1. **What is this step?** `executor_type` on the step IS the function id — `read_file`,
-   `review-gate`, `git_commit` (`workflows.ts:854`). No guessing.
+   `review-gate`, `git_commit` (`workflows.ts:997`). No guessing.
 2. **Which model would run it?** Read from the live cartridge in that repo
-   (`workflows.ts:860`). A cartridge that is offline yields no model.
+   (`workflows.ts:1000-1002`). A cartridge that is offline yields no model.
 3. **What can that model do?** `loadProfile(modelId)` fetches the measured capability vector.
    Never measured → no profile.
 4. **Decide.** `routeFunction()` compares the vector against the bar for that function's tier.
 5. **Act.** If the answer is cloud, the step's engine is rewritten to `claude` and the reason is
-   recorded in `routing_note` so you can see why (`workflows.ts:876-876`).
+   recorded in `routing_note` so you can see why (`workflows.ts:1005-1015`).
 
 ---
 

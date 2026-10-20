@@ -143,6 +143,7 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
 
   setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
 
+  // `bash <script>`, not the bare path: a fresh executable waits on macOS's malware scan (and can be killed).
   if (process.platform === 'darwin') {
     let iterm2Running = false;
     try { execSync('pgrep -x iTerm2', { stdio: 'ignore', timeout: 1000 }); iterm2Running = true; } catch { /* no */ }
@@ -154,7 +155,7 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
           ` -e 'tell application "iTerm2"'` +
           ` -e 'set w to (create window with default profile)'` +
           ` -e 'tell current session of w'` +
-          ` -e 'write text ${JSON.stringify(scriptPath)}'` +
+          ` -e 'write text ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}'` +
           ` -e 'end tell'` +
           ` -e 'end tell'`,
           { timeout: 8000 }
@@ -167,7 +168,7 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
       execSync(
         `osascript` +
         ` -e 'tell application "Terminal"'` +
-        ` -e 'do script ${JSON.stringify(scriptPath)}'` +
+        ` -e 'do script ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}'` +
         ` -e 'activate'` +
         ` -e 'end tell'`,
         { timeout: 8000 }

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { focusIfIdle } from '../lib/focus';
 import type { PermissionRequest, StuckAlert, Agent, WorkflowNotification } from '../types';
 
 interface Props {
@@ -16,6 +17,8 @@ function agentLabel(agentId: string, agents: Agent[]): string {
   return a?.repoName || a?.name || agentId.slice(0, 8);
 }
 
+const isQuestionTool = (toolName: string) => toolName === 'AskUserQuestion';
+
 function PermissionItem({
   perm,
   agents,
@@ -26,7 +29,13 @@ function PermissionItem({
   onDecide: Props['onDecide'];
 }) {
   const [response, setResponse] = useState('');
-  const isQuestion = perm.toolName === 'AskUserQuestion';
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Questions arrive on their own (and auto-open the panel) — don't steal the caret.
+  useEffect(() => {
+    if (isQuestionTool(perm.toolName)) focusIfIdle(inputRef.current);
+  }, [perm.toolName]);
+  const isQuestion = isQuestionTool(perm.toolName);
   const isPlan = perm.toolName === 'ExitPlanMode';
   const label = agentLabel(perm.agentId, agents);
 
@@ -62,12 +71,12 @@ function PermissionItem({
       {/* Response input for AskUserQuestion */}
       {isQuestion && (
         <input
+          ref={inputRef}
           type="text"
           value={response}
           onChange={(e) => setResponse(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleAllow(); }}
           placeholder="Type your answer…"
-          autoFocus
           className="w-full text-xs glass-input text-gray-200 rounded px-2.5 py-1.5 focus:outline-none placeholder-gray-600"
         />
       )}

@@ -3722,7 +3722,11 @@ function SidePanel({
             router silently changes engines and nothing in the UI ever says so. */}
         {step.routingNote && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Routing</label>
+            {/* The confer executor also parks a waiting step here ("Waiting since …") so a run
+                blocked on a busy cartridge does not look dead. */}
+            <label className="block text-xs text-gray-500 mb-1.5">
+              {step.routingNote.startsWith('Waiting since') ? 'Waiting' : 'Routing'}
+            </label>
             <div className="text-[13px] text-cyan-300/90 bg-cyan-500/10 border border-cyan-500/20 rounded px-2.5 py-1.5 whitespace-pre-wrap font-mono">
               {step.routingNote}
             </div>

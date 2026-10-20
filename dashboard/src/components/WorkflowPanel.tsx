@@ -15,6 +15,11 @@ import { workflowAgentOptions, isOfflineOption, offlineOptionCount, conferOption
 import { launchBlockers } from '../lib/launchReadiness';
 import { searchTemplates } from '../lib/templateSearch';
 import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
+import {
+  buildLaunchContext, defaultLaunchOptionValues, findWorkflowLaunchConfig, isLaunchOptionVisible,
+  launchOptionErrors, renderLaunchCommand,
+  type WorkflowLaunchConfig, type WorkflowLaunchOption, type WorkflowLaunchValues,
+} from '../lib/workflowLaunchOptions';
 
 // ─── Browser notification helper ────────────────────
 
@@ -50,6 +55,7 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Product Strategy Session':       'strategy',
   'Deep Research':                  'strategy',
   'Daily AI Research Digest':       'strategy',
+  'Daily AI Filmmaking Digest':     'strategy',
   'CE: Phase 1 — Interrogate':      'strategy',
   'Engineering Architecture Review':'planning',
   'CE: Phase 2 — Plan':             'planning',
@@ -71,6 +77,9 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Jira Tasks Validation':          'quality',
   'CE: Phase 4 — Review':           'quality',
   'CE: Phase 5 — QA':               'quality',
+  'Gridlight Local QA':             'quality',
+  'Gridlight Full Release QA':      'quality',
+  'Gridlight Performance Improvement': 'quality',
   // The shippable half of delivery — the documents that go OUT with a release, as opposed to
   // Document Release inside Phase 6, which keeps the internal ones current.
   'Release Documentation':          'delivery',
@@ -78,6 +87,9 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'CE: Full Delivery':              'delivery',
   'CE: Phase 7 — Compound':         'learning',
 };
+
+/** Templates that cannot start without launch context — the Jira key, or the feature to validate. */
+const REQUIRES_CONTEXT: readonly string[] = ['Feature Validation', 'Gridlight Performance Improvement'];
 
 const TAB_LABELS: Record<TemplateTab, string> = {
   all:      'All',
@@ -680,6 +692,65 @@ function CartridgeOptions({ live, offline }: {
   );
 }
 
+function WorkflowLaunchOptionField({ option, value, onChange }: {
+  option: WorkflowLaunchOption;
+  value: string | boolean | string[];
+  onChange: (value: string | boolean | string[]) => void;
+}) {
+  switch (option.type) {
+    case 'boolean':
+      return (
+        <label className="flex items-start gap-2 text-[13px] text-gray-300 cursor-pointer">
+          <input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)}
+            className="mt-0.5 accent-emerald-500" />
+          <span>{option.label}{option.description && <small className="block text-gray-600">{option.description}</small>}</span>
+        </label>
+      );
+    case 'select':
+      return (
+        <>
+          <label className="text-[12px] text-gray-400">{option.label}</label>
+          <select value={String(value)} onChange={(event) => onChange(event.target.value)}
+            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none">
+            {option.choices?.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+          </select>
+          {option.description && <p className="text-[11px] text-gray-600">{option.description}</p>}
+        </>
+      );
+    case 'multi-select':
+      return (
+        <fieldset>
+          <legend className="text-[12px] text-gray-400 mb-1">{option.label}</legend>
+          <div className="grid grid-cols-2 gap-1.5">
+            {option.choices?.map((choice) => {
+              const selected = Array.isArray(value) && value.includes(choice.value);
+              return (
+                <label key={choice.value} className="flex items-center gap-2 text-[12px] text-gray-300 cursor-pointer">
+                  <input type="checkbox" checked={selected} onChange={() => {
+                    const before = Array.isArray(value) ? value : [];
+                    onChange(selected ? before.filter((item) => item !== choice.value) : [...before, choice.value]);
+                  }} className="accent-emerald-500" />
+                  {choice.label}
+                </label>
+              );
+            })}
+          </div>
+          {option.description && <p className="text-[11px] text-gray-600 mt-1">{option.description}</p>}
+        </fieldset>
+      );
+    case 'text':
+      return (
+        <>
+          <label className="text-[12px] text-gray-400">{option.label}{option.required ? ' *' : ''}</label>
+          <input type="text" value={String(value)} placeholder={option.placeholder}
+            onChange={(event) => onChange(event.target.value)}
+            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono" />
+          {option.description && <p className="text-[11px] text-gray-600">{option.description}</p>}
+        </>
+      );
+  }
+}
+
 function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, templateName, onRunCreated, runCount }: {
   workflow: Workflow;
   onAction: () => void;
@@ -696,6 +767,8 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   const [deferredPopup, setDeferredPopup] = useState<{
     agentSteps: { stepId: string; stepName: string }[];
     promptSteps: { stepId: string; stepName: string; field: string; label: string }[];
+    launchConfig: WorkflowLaunchConfig | null;
+    launchConfigError: string | null;
   } | null>(null);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
   // One cartridge for the whole run — the common case. Per-step assignment is the opt-in
@@ -726,6 +799,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     [agents, conferAgents],
   );
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
+  const [launchOptionValues, setLaunchOptionValues] = useState<WorkflowLaunchValues>({});
   const [initialContext, setInitialContext] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
@@ -814,10 +888,21 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         }
       }
 
+      const { config: launchConfig, error: launchConfigError } = findWorkflowLaunchConfig(
+        steps.map((workflowStep) => workflowStep.executorConfig as Record<string, unknown>),
+      );
+      const launchOptions = launchConfig?.options ?? [];
+
       // Always show the popup — either for deferred fields or just for the context input
-      setDeferredPopup({ agentSteps, promptSteps });
+      setDeferredPopup({
+        agentSteps,
+        promptSteps,
+        launchConfig,
+        launchConfigError,
+      });
       setDeferredAssignments({});
       setDeferredPrompts({});
+      setLaunchOptionValues(defaultLaunchOptionValues(launchOptions));
       setInitialContext('');
       setSelectedProjectId('');
       setRunError('');
@@ -837,7 +922,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
    * "turns green but doesn't start" bug: both halves working exactly as written, disagreeing.
    */
   const blockers = deferredPopup
-    ? launchBlockers({
+    ? [...launchBlockers({
         projectId: selectedProjectId || '',
         agentStepCount: deferredPopup.agentSteps.length,
         perStepAgents,
@@ -846,9 +931,10 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         conferAgents,
         promptSteps: deferredPopup.promptSteps,
         prompts: deferredPrompts,
-        requiresContext: wf.name === 'Feature Validation',
+        requiresContext: REQUIRES_CONTEXT.includes(wf.name),
         initialContext,
-      })
+      }), ...(deferredPopup.launchConfigError ? [deferredPopup.launchConfigError] : []),
+        ...launchOptionErrors(deferredPopup.launchConfig?.options ?? [], launchOptionValues)]
     : [];
 
   async function handleDeferredRun() {
@@ -858,6 +944,20 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     if (blockers.length > 0) {
       setRunError(blockers.join(' '));
       return;
+    }
+
+    let effectiveInitialContext = initialContext.trim();
+    if (deferredPopup.launchConfig) {
+      try {
+        const command = renderLaunchCommand(deferredPopup.launchConfig, launchOptionValues);
+        effectiveInitialContext = [
+          effectiveInitialContext,
+          buildLaunchContext(command, deferredPopup.launchConfig.options, launchOptionValues),
+        ].filter(Boolean).join('\n\n');
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : 'The QA command could not be built.');
+        return;
+      }
     }
 
     setStarting(true);
@@ -888,7 +988,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           agentId,
           projectId: selectedProjectId || null,
           label: wf.name,
-          initialContext: initialContext.trim() || undefined,
+          initialContext: effectiveInitialContext || undefined,
           ...req,
         });
         setDeferredPopup(null);
@@ -912,7 +1012,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           ? undefined
           : perStepAgents && deferredPopup.agentSteps.length > 0 ? deferredAssignments : undefined,
         deferredPopup.promptSteps.length > 0 ? deferredPrompts : undefined,
-        initialContext.trim() || undefined,
+        effectiveInitialContext || undefined,
         selectedProjectId || null,
         // The run-level cartridge fills every unassigned step server-side, so we don't have to
         // fan it out into a per-step map here.
@@ -1004,6 +1104,18 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   placeholder="docs/plans/EPIC-search.md   ·   or   GRD-1712"
                 />
               </>
+            ) : wf.name === 'Gridlight Performance Improvement' ? (
+              <>
+                <span className="text-[13px] text-gray-300 font-medium">Which Jira task?</span>
+                <p className="text-[12px] text-gray-600">The ticket key to improve. Add any extra notes on the metric or target below it; the QA options further down set the 7B run.</p>
+                <textarea
+                  value={initialContext}
+                  onChange={(e) => setInitialContext(e.target.value)}
+                  rows={2}
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  placeholder="GRD-1234"
+                />
+              </>
             ) : wf.name === 'Jira Tasks Validation' ? (
               <>
                 <span className="text-[13px] text-gray-300 font-medium">Which Jira epic?</span>
@@ -1030,6 +1142,25 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               </>
             )}
           </div>
+          {(deferredPopup.launchConfig?.options.length ?? 0) > 0 && (
+            <div className="space-y-3 border border-emerald-500/20 bg-emerald-500/[0.04] rounded-lg p-3">
+              <div>
+                <span className="text-[13px] text-emerald-300 font-medium">Gridlight QA options</span>
+                <p className="text-[12px] text-gray-500 mt-0.5">These selections are passed directly to the QA script.</p>
+              </div>
+              {deferredPopup.launchConfig!.options
+                .filter((option) => isLaunchOptionVisible(option, launchOptionValues))
+                .map((option) => (
+                  <div key={option.key} className="space-y-1.5">
+                    <WorkflowLaunchOptionField
+                      option={option}
+                      value={launchOptionValues[option.key] ?? option.defaultValue}
+                      onChange={(value) => setLaunchOptionValues((current) => ({ ...current, [option.key]: value }))}
+                    />
+                  </div>
+                ))}
+            </div>
+          )}
           {/* Project assignment — required */}
           <div className="space-y-1.5">
             <span className="text-[13px] text-gray-500 uppercase tracking-wider">Project</span>

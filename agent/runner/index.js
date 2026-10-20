@@ -171,9 +171,10 @@ function launchCartridge({ repoPath, agentType, sessionId, context, resumeSessio
       fs.chmodSync(scriptPath, '755');
       setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
 
+      // `bash <script>`, not the bare path: a fresh executable waits on macOS's malware scan (and can be killed).
       if (process.platform === 'darwin') {
         execSync(
-          `osascript -e 'tell application "Terminal"' -e 'do script ${JSON.stringify(scriptPath)}' -e 'activate' -e 'end tell'`,
+          `osascript -e 'tell application "Terminal"' -e 'do script ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}' -e 'activate' -e 'end tell'`,
           { timeout: 8000 },
         );
       } else {

@@ -55,7 +55,9 @@ const KINDS = [
   {
     kind: 'prompt',
     route: 'routes/commands.ts',
-    required: ['text'],
+    // sendCommandToAgent(agentId, text, includeMemory, attachments) — a picture attached to a
+    // prompt for a busy cartridge used to be dropped right here: the item stored `text` only.
+    required: ['text', 'attachments', 'includeMemory'],
   },
 ];
 

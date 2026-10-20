@@ -27,6 +27,27 @@ const agentPrimarySocket = new Map<string, string>(); // agentId → socketId
 const socketIsConnected = (socketId: string): boolean =>
   io.sockets.sockets.get(socketId)?.connected === true;
 
+/**
+ * How long a cartridge may be without a relay socket before it is treated as gone.
+ *
+ * A disconnect used to be final the instant it arrived. But relays reconnect on their own in
+ * well under a second, so one network hiccup (all ten sockets dropped at once on Sep 27, the
+ * server stayed up) marked every cartridge offline, interrupted its session and ended its
+ * session record — and since nothing on rejoin undid that, every idle cartridge vanished from
+ * the dashboard until it next ran a tool. A relay that is really gone is still gone after this.
+ */
+function disconnectGraceMs(): number {
+  const v = Number(process.env.NEONCORE_DISCONNECT_GRACE_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 15_000;
+}
+
+/**
+ * Cartridges whose `interrupted` flag THIS module set because their socket went away. Only
+ * those are cleared when the relay rejoins; an interruption recorded for any other reason (a
+ * crashed session, a server restart) may really need resuming and is left alone.
+ */
+const interruptedByDisconnect = new Set<string>();
+
 export function initWebSocket(server: HTTPServer) {
   io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(server, {
     cors: {
@@ -60,6 +81,7 @@ export function initWebSocket(server: HTTPServer) {
           socketToAgent.set(socket.id, agent.id);
           agentPrimarySocket.set(agent.id, socket.id);
           console.log(`[ws] Socket ${socket.id} also joined agent room ${agentRoom} (primary)`);
+          markAgentBackOnline(agent.id);
         } else {
           console.log(`[ws] No agent found for ${machine}:${repoPath} (type=${agentType}) — path room only`);
         }
@@ -75,6 +97,7 @@ export function initWebSocket(server: HTTPServer) {
       socketToAgent.set(socket.id, agentId);
       agentPrimarySocket.set(agentId, socket.id);
       console.log(`[ws] Socket ${socket.id} joined agent room ${agentRoom} (post-registration, primary)`);
+      markAgentBackOnline(agentId);
     });
 
     // Runner daemon claims its machine room after REST registration. The newest claim wins
@@ -110,7 +133,11 @@ export function initWebSocket(server: HTTPServer) {
         if (agentPrimarySocket.get(agentId) === socket.id) {
           agentPrimarySocket.delete(agentId);
         }
-        markAgentOffline(agentId);
+        // Not yet: a relay that reconnects inside the grace window never went away.
+        const timer = setTimeout(() => {
+          if (!agentHasLiveSocket(agentId)) markAgentOffline(agentId);
+        }, disconnectGraceMs());
+        timer.unref?.();
       }
       const machineId = releaseMachineSocket(socket.id);
       if (machineId) {
@@ -127,11 +154,35 @@ export function initWebSocket(server: HTTPServer) {
 }
 
 function markAgentOffline(agentId: string) {
-  markAgentSessionInterrupted(agentId, 'disconnect');
+  if (markAgentSessionInterrupted(agentId, 'disconnect')) interruptedByDisconnect.add(agentId);
   endSession(agentId);
   const now = new Date().toISOString();
   db.prepare("UPDATE agents SET status = 'offline', last_seen = ? WHERE id = ?").run(now, agentId);
+  broadcastAgent(agentId, now);
+  console.log(`[ws] Agent ${agentId} marked offline (extension disconnected)`);
+}
 
+/**
+ * A relay rejoined. If the cartridge was marked offline, it is back: idle, and without the
+ * `interrupted` flag its own disconnect set. A status that is not `offline` (working, waiting)
+ * belongs to the session and is never touched here.
+ */
+function markAgentBackOnline(agentId: string) {
+  const row = db.prepare('SELECT status FROM agents WHERE id = ?').get(agentId) as { status: string } | undefined;
+  if (!row || row.status !== 'offline') return;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?").run(now, agentId);
+  if (interruptedByDisconnect.delete(agentId)) {
+    db.prepare(
+      "UPDATE agents SET recovery_status = '', interrupted_at = NULL, recovery_session_id = '' WHERE id = ? AND recovery_status = 'interrupted'",
+    ).run(agentId);
+  }
+  broadcastAgent(agentId, now);
+  console.log(`[ws] Agent ${agentId} back online (relay rejoined)`);
+}
+
+/** Push the cartridge's current row to every dashboard. */
+export function broadcastAgent(agentId: string, now: string) {
   const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
   if (row) {
     const mode = ((row.agent_mode as string) ?? 'manual') as import('./types.js').AgentMode;
@@ -143,7 +194,7 @@ function markAgentOffline(agentId: string) {
       repoName: (row.repo_name as string) ?? '',
       branch: (row.branch as string) ?? '',
       currentTask: (row.current_task as string) ?? '',
-      status: 'offline',
+      status: row.status as import('./types.js').Agent['status'],
       trustMode: mode === 'trust',
       plansIncluded: Boolean(row.plans_included),
       mode,
@@ -158,7 +209,6 @@ function markAgentOffline(agentId: string) {
       activeObjective: (row.active_objective as string) ?? '',
       standardState: ((row.standard_state as string) ?? '') as '' | 'needs_review',
     });
-    console.log(`[ws] Agent ${agentId} marked offline (extension disconnected)`);
   }
 }
 
