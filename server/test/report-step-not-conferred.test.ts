@@ -273,9 +273,11 @@ test('the TEMPLATES keep the placeholder — there is no run id to bake in yet',
   const tpl = db.prepare(
     `SELECT executor_config FROM workflow_steps
       WHERE workflow_id IN (SELECT id FROM workflows WHERE template_id IS NULL)
-        AND executor_config LIKE '%workflow-report%' LIMIT 1`,
+        AND executor_config LIKE '%.neoncore/reports/%' LIMIT 1`,
   ).get() as { executor_config: string } | undefined;
-  assert.ok(tpl, 'no template has a report step');
+  // The generic report names no directory (it is delivered through report_step_done); a
+  // template whose report writes a file there — Gridlight QA's scorecard — still does.
+  assert.ok(tpl, 'no template report names a reports directory');
   assert.ok(tpl!.executor_config.includes(RUN_ID_PLACEHOLDER),
     'the substitution was pushed back into the template, where the id it names does not exist');
 });

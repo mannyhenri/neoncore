@@ -128,3 +128,61 @@ test('the MCP tool can actually complete a PANEL step, or the panel instruction 
   const mcp = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/mcp-server.ts'), 'utf8');
   assert.match(mcp, /panel/i, 'the MCP tool has no panel support, so panel steps cannot report through it');
 });
+
+// ── Phase 1: the tool schema is the contract ──────────────────────────────────────────────
+// The rules for each field live in neoncore_report_step_done's schema, which an engine loads
+// once per session (often lazily), instead of being restated in every step prompt. So every
+// field the completion webhooks read must be described there, with its rule.
+test('EVERY field the completion webhooks read is described in the tool schema', () => {
+  const mcp = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/mcp-server.ts'), 'utf8');
+  const routes = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/routes/workflows.ts'), 'utf8');
+  const tool = mcp.slice(mcp.indexOf("name: 'neoncore_report_step_done'"), mcp.indexOf("name: 'neoncore_my_queue'"));
+  const read = new Set<string>();
+  for (const m of routes.matchAll(/router\.post\('\/webhook\/:stepId\/(?:panel\/:agentId\/)?complete'[\s\S]*?const \{([^}]*)\} = req\.body/g)) {
+    for (const f of m[1].split(',')) read.add(f.trim());
+  }
+  read.add('report'); // read as req.body?.report
+  assert.ok(read.has('scope') && read.has('verify') && read.has('next'), `parsed ${[...read].join(', ')}`);
+  const undescribed = [...read].filter((f) => !new RegExp(`\\b${f}:\\s*\\{[^}]*description:`).test(tool));
+  assert.deepEqual(undescribed, [], `fields with no rule in the schema: ${undescribed.join(', ')}`);
+  for (const [field, rule] of [['scope', /enumerat|set|total/i], ['verify', /real output|actually ran|never report/i], ['next', /next step/i]] as const) {
+    const desc = tool.match(new RegExp(`\\b${field}:\\s*\\{[^}]*description:\\s*'([^']*)'`))?.[1] ?? '';
+    assert.match(desc, rule, `${field}: its rule is not in the schema`);
+  }
+});
+
+test('the work instruction defers the field rules to the tool instead of restating them', () => {
+  const work = INSTRUCTIONS.find((i) => i.requiresVerification)!;
+  const prose = work.text.split('Fallback')[0];
+  assert.ok(prose.length <= 330, `${prose.length} chars before the fallback`);
+  assert.doesNotMatch(prose, /<done>\/<total>|<command run>/, 'the field templates are restated in the prompt');
+});
+
+// ── Phase 0 token budget ──────────────────────────────────────────────────────────────────
+// These ride on EVERY step dispatch and stay in the session's context for every turn after.
+// The work instruction was ~1,000 chars and repeated what the work-standard block also asked
+// for; now it is the only contract on a step (see one-completion-contract.test.ts).
+const BUDGET: Record<string, number> = {
+  'gate step (verdict only, no scope/verify)': 450,
+  'work step (work standard: scope + verify)': 700,
+  'panel member (per-agent channel)': 500,
+};
+
+test('EVERY instruction fits its character budget', () => {
+  const over = INSTRUCTIONS
+    .filter((i) => i.text.length > (BUDGET[i.label] ?? 0))
+    .map((i) => `${i.label}: ${i.text.length} > ${BUDGET[i.label]}`);
+  assert.deepEqual(over, [], over.join('\n  '));
+});
+
+test('EVERY curl fallback authenticates — it must still work once auth is strict', () => {
+  const bare = INSTRUCTIONS.filter((i) => i.text.includes('curl ')
+    && !i.text.includes('Authorization: Bearer $(cat ~/.neoncore/token)'));
+  assert.deepEqual(bare.map((i) => i.label), []);
+});
+
+test('the work instruction asks for the handoff in `next`, separate from the result', () => {
+  const work = INSTRUCTIONS.find((i) => i.requiresVerification)!;
+  // Named among the fields to fill; its rule ("what the next step should focus on") is in the schema.
+  assert.match(work.text, /\([^)]*\bnext\b[^)]*\)/);
+});

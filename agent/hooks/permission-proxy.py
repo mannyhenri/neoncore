@@ -16,13 +16,20 @@ import json
 import os
 import platform
 import subprocess
+import time
 from urllib.request import Request, urlopen
 
 from _fleet import auth_headers
 
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
-POLL_TIMEOUT = 120  # seconds per poll attempt
-MAX_POLL_RETRIES = 5  # retry up to 5 times (total ~10 minutes for plan reviews)
+POLL_TIMEOUT = 120  # seconds per long-poll window
+# Claude Code kills this hook at the timeout install.py registers for it (3600s). The wait ends
+# well before that so the give-up path still runs: with the old 120s x 5 retries the hook was
+# killed at Claude Code's 600s default, the terminal menu took over, and an answer given from
+# the dashboard after that was silently lost.
+WAIT_SECONDS = int(os.environ.get("NEONCORE_PERMISSION_WAIT", "3300"))
+ERROR_BACKOFF = 5     # seconds between polls when the server is unreachable
+MAX_POLL_ERRORS = 12  # ~1 minute of consecutive failures: nobody can answer from the app
 
 
 def post_json(url: str, body: str, timeout: int = 5) -> dict | None:
@@ -165,6 +172,42 @@ def normalize_ask_user_answers(answers: object, tool_input: dict) -> dict[str, s
     return normalized
 
 
+def wait_for_decision(request_id: str, wait_seconds: int | None = None, get=None, post=None,
+                      clock=time.monotonic, sleep=time.sleep) -> dict | None:
+    """Long-poll until the dashboard decides. Returns the allowed/denied poll result, or None.
+
+    None means fall back to the terminal: the server closed the question (expired, or answered
+    in the terminal), it stayed unreachable, or the deadline passed. Only in the last two cases
+    is the server told we gave up — so the app drops the question instead of offering an
+    answer that would go nowhere.
+    """
+    get = get or get_json
+    post = post or post_json
+    deadline = clock() + (WAIT_SECONDS if wait_seconds is None else wait_seconds)
+    errors = 0
+    while True:
+        remaining = deadline - clock()
+        if remaining < 1:
+            break
+        window = int(min(POLL_TIMEOUT, remaining))
+        result = get(f"{ORCHESTRATOR_URL}/api/permissions/poll/{request_id}?timeout={window * 1000}",
+                     timeout=window + 5)
+        if not result:
+            errors += 1
+            if errors >= MAX_POLL_ERRORS:
+                break
+            sleep(min(ERROR_BACKOFF, max(0, deadline - clock())))
+            continue
+        errors = 0
+        decision = result.get("decision", "")
+        if decision in ("allowed", "denied"):
+            return result
+        if decision != "timeout":
+            return None  # closed server-side; nothing left to wait for
+    post(f"{ORCHESTRATOR_URL}/api/permissions/{request_id}/abandon", "{}")
+    return None
+
+
 def main():
     try:
         d = json.load(sys.stdin)
@@ -276,15 +319,8 @@ def main():
     if not request_id:
         sys.exit(0)
 
-    # Long-poll for decision (with retries so plan reviews aren't rushed)
-    poll_url = f"{ORCHESTRATOR_URL}/api/permissions/poll/{request_id}?timeout={POLL_TIMEOUT * 1000}"
-
-    for _retry in range(MAX_POLL_RETRIES):
-        poll_result = get_json(poll_url, timeout=POLL_TIMEOUT + 5)
-
-        if not poll_result:
-            continue  # timeout or error — retry
-
+    poll_result = wait_for_decision(request_id)
+    if poll_result:
         decision = poll_result.get("decision", "")
         response_str = poll_result.get("response", "")
 
@@ -337,9 +373,7 @@ def main():
             print(json.dumps(output))
             sys.exit(0)
 
-        # else: timeout — continue retry loop
-
-    # All retries exhausted — fall back to normal Claude Code permission behavior
+    # No decision — fall back to Claude Code's own prompt in the terminal
     sys.exit(0)
 
 

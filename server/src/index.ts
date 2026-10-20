@@ -39,6 +39,7 @@ import peersRouter from './routes/peers.js';
 import { fleetAuth, ensureFleetToken, getAuthMode, writeTokenFile, TOKEN_FILE } from './lib/auth.js';
 import { startPeerScheduler, stopPeerScheduler } from './lib/peer-scheduler.js';
 import { findZombies } from './lib/zombie-reaper.js';
+import { findDeadInboxes, markUnreachable } from './lib/dead-inbox.js';
 import { startStuckDetector } from './stuck-detector.js';
 import { startMemoryAnalyzer } from './memory-analyzer.js';
 import { startWorkflowExecutorV2 } from './lib/workflow-executor-v2.js';
@@ -192,6 +193,10 @@ setInterval(() => {
   // Zombie reaper. Sessions that died without firing any of the real death signals would
   // otherwise sit in the grid until the threshold expires — for hooks-only agents that
   // cannot report death at all, that used to mean a full day of ghosts.
+  // Proof rather than a timer: a cartridge whose inbox process is gone and that holds no relay
+  // socket cannot receive work, however recently it was seen. See lib/dead-inbox.ts.
+  for (const id of findDeadInboxes(db, { hasActiveSocket })) markUnreachable(id, 'dead-inbox');
+
   for (const zombie of findZombies(db, { hasActiveSocket })) {
     markAgentSessionInterrupted(zombie.id, 'zombie');
     endSession(zombie.id);
@@ -212,12 +217,12 @@ setInterval(() => {
 
 // Expire pending permissions that no agent is waiting on any more.
 //
-// This MUST outlive the agent's own wait. The hook (agent/hooks/permission-proxy.py)
-// long-polls for POLL_TIMEOUT(120s) x MAX_POLL_RETRIES(5) ~= 10 minutes. This sweep
-// used to expire at 2 minutes, so from minute 2 to minute 10 the agent sat blocked on
-// a question that had already vanished from /api/permissions/pending — unanswerable
-// from the dashboard OR the phone. Keep this comfortably above the hook's max wait.
-const PERMISSION_TTL_MS = 15 * 60 * 1000;
+// This MUST outlive the agent's own wait. Claude Code kills the permission hook at the timeout
+// agent/install.py registers (PERMISSION_HOOK_TIMEOUT_SECONDS, 3600s); the hook gives up a little
+// before that and POSTs /api/permissions/:id/abandon, which closes the question at once. This
+// sweep is the backstop for a hook that died without saying so. It used to be 15 minutes over a
+// 10-minute hook: a question swept while a hook still waits is unanswerable from the app.
+const PERMISSION_TTL_MS = 65 * 60 * 1000;
 
 /**
  * `agents.pending_question` is set by the hook when AskUserQuestion fires. Nothing used

@@ -1,0 +1,228 @@
+{
+ "Bug Hunter": {
+  "Static & Lint Analysis": 669,
+  "Dead Code Scan": 1087,
+  "Bug Pattern Hunt": 1695,
+  "Prioritize & Plan Fixes": 1120,
+  "Implement Fixes": 794
+ },
+ "Bug Investigation": {
+  "Reproduce the Bug": 1628,
+  "Root Cause Analysis": 1618,
+  "Impact Assessment": 1809,
+  "Fix Plan": 1223,
+  "Implement Fix": 899
+ },
+ "CE Develop and Optimize": {
+  "Load Work and Goals": 1400,
+  "Develop and Optimize Every Task": 6200,
+  "Verify Coverage and Evidence": 1030,
+  "Goal Achievement Gate": 1005
+ },
+ "CE: Full Delivery": {
+  "[P1] Load Prior Work": 709,
+  "[P1] Office Hours": 1229,
+  "[P1] CE Brainstorm": 977,
+  "[P1] Write Brainstorm Doc": 939,
+  "[P2] Load Brainstorm": 401,
+  "[P2] /plan-ceo-review": 813,
+  "[P2] /plan-eng-review": 622,
+  "[P2] CE Plan Research": 842,
+  "[P2] Write Plan Doc": 790,
+  "[P3] Load Plan + Worktree": 406,
+  "[P3] Write Failing Tests": 1770,
+  "[P3] CE Implement": 865,
+  "[P3] Build Summary": 401,
+  "[P4] Load Diff + Build": 322,
+  "[P4] Security Sentinel": 500,
+  "[P4] CSO / STRIDE": 299,
+  "[P4] Performance Oracle": 321,
+  "[P4] Architecture Review": 381,
+  "[P4] Code Quality Review": 404,
+  "[P4] Codex": 518,
+  "[P4] Triage P1/P2/P3": 497,
+  "[P4] Resolve Findings": 502,
+  "[P4] Open PR": 567,
+  "[P5] QA Browser Run": 404,
+  "[P5] CE Three Questions": 320,
+  "[P5] Investigate": 207,
+  "[P5] QA Report": 262,
+  "[P6] Document Release": 215,
+  "[P6] Merge Gate": 263,
+  "[P6] Land & Deploy": 243,
+  "[P6] Canary Watch": 278,
+  "[P6] Recovery Action": 564,
+  "[P7] CE Compound": 599,
+  "[P7] Update CLAUDE.md": 431,
+  "[P7] Retro": 267,
+  "[P7] Learn & Final Review": 619
+ },
+ "CE: Phase 1 — Interrogate": {
+  "Load Prior Work": 709,
+  "Office Hours — Interrogate": 1229,
+  "CE Brainstorm": 1060,
+  "Write Brainstorm Doc": 950
+ },
+ "CE: Phase 2 — Plan": {
+  "Load Brainstorm": 481,
+  "/plan-ceo-review": 813,
+  "/plan-eng-review": 622,
+  "CE Plan Research": 1043,
+  "Write Plan Doc": 919
+ },
+ "CE: Phase 3 — Implement": {
+  "Load Plan + Worktree": 610,
+  "Write Failing Tests": 1770,
+  "CE Implement": 995,
+  "Build Summary": 615
+ },
+ "CE: Phase 4 — Review": {
+  "Load Diff + Build Summary": 525,
+  "Security Sentinel": 692,
+  "CSO / STRIDE Review": 730,
+  "Performance Oracle": 815,
+  "Architecture Review": 977,
+  "Code Quality Review": 842,
+  "Codex — Cross-Model Review": 776,
+  "Triage — P1 / P2 / P3": 940,
+  "Resolve P1s + P2s": 596,
+  "Open PR": 805
+ },
+ "CE: Phase 5 — QA": {
+  "QA Browser Run": 991,
+  "CE Three Questions": 674,
+  "Investigate Uncertainties": 807,
+  "QA Report": 718
+ },
+ "CE: Phase 6 — Ship": {
+  "Document Release": 895,
+  "Merge Gate": 567,
+  "Land & Deploy": 593,
+  "Canary Watch": 591,
+  "Recovery Action": 748
+ },
+ "CE: Phase 7 — Compound": {
+  "CE Compound": 1203,
+  "Update CLAUDE.md": 733,
+  "Retro": 614,
+  "Learn & Final Review": 970
+ },
+ "Code Review & Audit": {
+  "Code Reading": 1346,
+  "Logic Review": 1689,
+  "Test Coverage Check": 1280,
+  "Review Report": 1097
+ },
+ "Confer": {
+  "Confer & Build": 495,
+  "Verify Together": 515
+ },
+ "Daily AI Filmmaking Digest": {
+  "Scan the Web": 5225,
+  "Filter for Relevance": 2750,
+  "Render the Digest": 2578,
+  "Archive Note": 613
+ },
+ "Daily AI Research Digest": {
+  "Scan the Web": 2482,
+  "Filter for Relevance": 1280,
+  "Render the Digest": 2295,
+  "Archive Note": 462
+ },
+ "Deep Research": {
+  "Deep Research": 825,
+  "Idea Synthesis": 641,
+  "Your Review": 618,
+  "Epic Planning": 1078,
+  "Save Epic": 497,
+  "Create in Jira?": 1993
+ },
+ "Engineering Architecture Review": {
+  "Architecture Mapping": 1295,
+  "Bottleneck & Risk Analysis": 1413,
+  "Alternative Approaches": 1178,
+  "Architecture Recommendation": 1279,
+  "Implementation Roadmap": 1008
+ },
+ "Epic: Confer Across Repos": {
+  "Read the Epic": 1275,
+  "Confer & Build": 1025,
+  "Verify Across Repos": 1367
+ },
+ "Epic: Task by Task": {
+  "Load Epic": 880,
+  "Work Every Task": 3018,
+  "Verify Coverage": 887
+ },
+ "Epic: Two Repos": {
+  "Scope & Partition": 1514,
+  "Work Repo A": 3708,
+  "Work Repo B": 3708,
+  "Verify Both Repos": 1764
+ },
+ "Feature Validation": {
+  "Feature Specification": 1544,
+  "Test Discovery & Creation": 2750,
+  "Code Evaluation": 2011,
+  "Code Implementation": 1409,
+  "Final Report": 1394
+ },
+ "Full QA Review": {
+  "Golden Path Testing": 1134,
+  "Edge Case Testing": 1338,
+  "Error Handling Review": 1539,
+  "Performance Assessment": 1398,
+  "Accessibility Review": 1742,
+  "QA Report": 1070
+ },
+ "Gridlight Full Release QA": {
+  "Run Full Release QA": 1014
+ },
+ "Gridlight Local QA": {
+  "Run Local QA": 994
+ },
+ "Gridlight Performance Improvement": {
+  "Load Jira Task": 1222,
+  "Write Performance Target": 1430,
+  "Develop Improvement": 1285,
+  "Run Local QA (7B)": 1178,
+  "Compare Against Target": 1439,
+  "Targets Met?": 937,
+  "Write Performance Report": 879,
+  "Mark Jira Task Done": 873
+ },
+ "Jira Tasks Validation": {
+  "Fetch & Save Tasks": 2248,
+  "Validate & Save Results": 2305,
+  "Summary Report": 1115
+ },
+ "Product Strategy Session": {
+  "Context & Premise": 1338,
+  "Alternatives Analysis": 1303,
+  "Dream State": 1176,
+  "Dual Voice Analysis": 1174,
+  "Strategy Review": 2278,
+  "Action Plan": 1081
+ },
+ "QA Testing Guide": {
+  "Map What Can Be Tested": 814,
+  "Write the Steps for Each Flow": 897,
+  "Edge Cases and Data Setup": 826,
+  "Write the Guide": 983
+ },
+ "Release Documentation": {
+  "Establish What Shipped": 921,
+  "Release Notes": 798,
+  "Upgrade & Migration": 923,
+  "Install & Configure": 946,
+  "Support Runbook": 768,
+  "Assemble the Release Bundle": 718
+ },
+ "Spec Intake → Dev Spec": {
+  "Read the Document": 1085,
+  "Map to This Codebase": 940,
+  "State Your Understanding": 1339,
+  "Write the Dev Spec": 1199,
+  "Build It": 933
+ }
+}

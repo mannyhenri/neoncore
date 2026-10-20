@@ -130,6 +130,15 @@ deferred: audit-log section — copying it needs a retention decision (see #412)
 completion block, or one where `verify:` has no real command output, is not — that is the
 half-done state this standard exists to make impossible.
 
+**Workflow steps and claimed tasks report through the tool instead.** A step's completion
+call (`neoncore_report_step_done`) or a task's (`neoncore_report_task_done`) carries the same
+`scope` / `verify` / `deferred` fields, and the endpoint rejects it without real verification.
+An *accepted* report closes the objective and disarms the stop gate (`disarmOnReport`), so a
+step agent is never asked for the same block twice. That is why workflow steps are dispatched
+with the standard *silent* (`standard: 'silent'`): the gate is offered and arms on the first
+edit, but the short form below is not appended — the step's completion instruction and the
+tool's schema already carry the contract.
+
 ---
 
 ## The short form

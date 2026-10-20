@@ -105,103 +105,30 @@ export function resolveRunPlaceholders(config: string, runId: string): string {
   return config.split(RUN_ID_PLACEHOLDER).join(runId);
 }
 
-export const WORKFLOW_REPORT_PROMPT = `Produce the WORKFLOW COMPLETION REPORT for this run. This is the final step of the workflow.
+// Compact on purpose. This was ~8.8k chars asking for a JSON file, a 9-section HTML page
+// rendered from it, a browser window, a curl POST and the same JSON again on the completion
+// call. The dashboard's Reports tab renders the JSON; the HTML was a second copy nobody read.
+// It also never named the fields the app reads, so the status and counters were guesses.
+// test/report-prompt-compact.test.ts derives the required fields from their consumers.
+export const WORKFLOW_REPORT_PROMPT = `Produce the WORKFLOW COMPLETION REPORT for this run (the final step). Record what happened; do not start new work or fix what you find.
 
-This is a REPORTING step, not a work step. Do not start new feature work and do not fix problems you find — record them. "The workflow finished" and "the workflow succeeded" are different claims, and only the evidence decides which one this report makes.
+Evidence: the run record above, plus the repo itself (\`git status\`, \`git log\`, real build/test output). Never invent a result. "Finished" is not "succeeded" — the evidence decides.
 
-The full run record is supplied above: every step, its status, its timings and its result. Treat it as the record of what happened. Anything it does not cover, check against the repository itself — \`git status\`, \`git log\`, the files on disk, and the real output of the build/test commands. Never invent a result you did not see.
+Build ONE JSON object, concise and scannable in under a minute:
+{
+  "header": { "overallStatus": "SUCCESS" | "PARTIAL" | "FAILED" | "BLOCKED", "branch": "…", "commit": "…" },
+  "executiveSummary": "2-4 plain sentences: what was asked, what was done, the biggest risk, what's next",
+  "outcome": { "tasksCompleted": n, "tasksTotal": n, "testsPassed": n, "testsTotal": n, "issues": n, "humanActionsRequired": n },
+  "whatChanged": ["<area>: <one line>", …],
+  "issues": [{ "severity": "LOW|MEDIUM|HIGH|CRITICAL", "description": "…", "status": "…" }],
+  "nextSteps": ["[HUMAN|AGENT] <specific action>", … at most 3],
+  "humanActionRequired": "<what is needed from a person>" or null,
+  "jira": null, or { "epic": "…", "tickets": [{ "key": "…", "relation": "Completed|Partial|Touched|Blocked" }] } only if tickets are linked
+}
+overallStatus reflects the real state of the work. Something NOT RUN is never counted as passed. Never mark a ticket Completed unless its acceptance criteria were met.
 
-═══════════ 1. WRITE THE DATA FIRST ═══════════
-
-Build the report as STRUCTURED DATA first, then render the HTML from that same data. Two hand-written documents drift; one rendered from the other cannot contradict it.
-
-Write both files to \`.neoncore/reports/<workflowRunId>/\` in the repo, using the run id from the run record above:
-
-  .neoncore/reports/<workflowRunId>/workflow-report.json
-  .neoncore/reports/<workflowRunId>/workflow-report.html
-
-Do NOT commit them. Confirm \`.neoncore/\` is in \`.gitignore\` and add it if it is not.
-
-The JSON is the source of truth and must carry every section below as data (\`schema\`, \`header\`, \`jira\`, \`executiveSummary\`, \`outcome\`, \`whatChanged\`, \`validation\`, \`issues\`, \`nextSteps\`, \`humanActionRequired\`, \`technical\`). Sections that legitimately do not apply are \`null\`, not omitted silently.
-
-═══════════ 2. THE HTML ═══════════
-
-One self-contained file: no external CSS, JS, fonts or images. It must render correctly opened from \`file://\`, and be legible in both light and dark (use \`prefers-color-scheme\` and set an explicit background on \`body\`).
-
-It is written for an executive or project owner to scan in UNDER A MINUTE, with a developer able to expand the detail. Keep the default visible page to roughly one or two screens; everything deep goes into collapsed \`<details>\` sections. No walls of text. Never reproduce raw chain-of-thought — summarize decisions and their reasoning instead.
-
-Status indicators, used consistently throughout:
-  ✓ passed / completed     ⚠ warning / partial / blocked     ✕ failed     ○ not run / not started
-
-REQUIRED SECTIONS, IN THIS ORDER:
-
-1. HEADER — project, workflow/run name, the agent used (Claude Code / Codex / …), run id, overall status, start and end (or duration), environment if relevant, git branch, final commit if any.
-   Overall status is exactly one of SUCCESS / PARTIAL / FAILED / BLOCKED and must reflect the real final state of the work, not merely that the agent finished executing.
-
-2. JIRA CONTEXT — ONLY if Jira tickets or an Epic are associated with this run; omit the section entirely otherwise. Epic key, title, status, link. Then per ticket: key, title, type, Jira status, and its relationship to this workflow — one of Completed / Partial / Touched / Blocked / Not Started — plus a coverage line such as "2 Completed · 1 Partial · 1 Blocked". Never mark a ticket Completed unless its acceptance criteria were actually satisfied.
-
-3. EXECUTIVE SUMMARY — 3–6 sentences of plain language, no implementation detail: what was asked, what was actually accomplished, whether the objective was met, the most important issue or risk, and what should happen next. Someone who reads only this section must understand the outcome.
-
-4. OUTCOME / STATUS SUMMARY — a compact scorecard: tasks completed/total, tests passed/total, issues, warnings, human actions required. A "task" is a meaningful unit of work; do not inflate the count with internal steps.
-
-5. WHAT CHANGED — grouped by functional area (Backend, Frontend, Database, API, Infrastructure, Configuration, Security, Tests, Documentation), listing only the areas actually touched. Short descriptions of what was done and why it matters. File-level detail belongs in Technical Details, not here.
-
-6. VALIDATION & ISSUES — answers "how confident should we be that this is correct?". Show build, type check, unit tests, integration tests and lint each with an explicit status, then every meaningful issue with severity (INFO / LOW / MEDIUM / HIGH / CRITICAL), description, impact and current status. Distinguish Failed, Blocked, Not Run and Passed — something that was NOT RUN is never shown as passed.
-
-7. NEXT STEPS — 3–5 prioritized, specific, actionable items, each labelled [HUMAN], [AGENT] or [EITHER]. "Run the authentication E2E suite against staging", not "continue testing". If nothing remains, say "No further action required."
-
-8. HUMAN ACTION REQUIRED — ONLY when human intervention is genuinely needed, and then visually unmissable: credentials, deployment approval, a product decision, missing requirements, a migration review, infrastructure permissions, conflicting Jira requirements. Omit the section entirely otherwise.
-
-9. TECHNICAL DETAILS — collapsed by default, with expandable subsections:
-   · Files Changed — path, change type (Modified / Added / Deleted), short purpose.
-   · Git — starting branch, starting commit, ending commit, commits created, PR if any, whether uncommitted changes remain.
-   · Commands Executed — the meaningful ones with result, exit code and duration where known. Skip trivial exploratory commands.
-   · Test Details — per suite: passed, failed, skipped, blocked.
-   · Agent Decisions — only decisions that materially affected implementation or architecture: decision, reason, alternatives considered, impact.
-   · Assumptions — assumptions that influenced the work. Any assumption that creates risk must ALSO appear in Validation & Issues.
-   · Execution Log / Timeline — chronological, collapsed.
-
-A reader must be able to answer, immediately: What were we trying to do? Did it work? What actually changed? How was it validated? Is anything broken or risky? Is someone waiting on me? What happens next? Which Jira work does this relate to?
-
-═══════════ 3. OPEN IT — ONE WINDOW ═══════════
-
-Open the local file with the platform opener, and report the command you used:
-  macOS   open .neoncore/reports/<workflowRunId>/workflow-report.html
-  Linux   xdg-open .neoncore/reports/<workflowRunId>/workflow-report.html
-  Windows start .neoncore/reports/<workflowRunId>/workflow-report.html
-
-The local HTML file IS the deliverable. Open exactly ONE window: do not also publish the page as a hosted artifact, upload it, or open a second copy anywhere. If the reader asks for a shareable link afterwards, that is a separate request.
-
-═══════════ 4. SEND THE JSON BACK ═══════════
-
-The two files you just wrote are on THIS cartridge's disk. NeonCore cannot see them, so a report that stops there is one nobody will ever find. POST the JSON to the journal, where it is kept per repo and can be read back later:
-
-DO BOTH OF THESE. They are idempotent — the second one replaces the first rather than storing a duplicate — and between them the report reaches the journal on any engine.
-
-1. RUN THE CURL. The exact command, with this run's real ids already filled in, is at the end of the Run Record above under "SENDING THE REPORT BACK". It prints an HTTP status: **201 means the report landed**. Put that status code in your \`verify\`. This is the path that works everywhere, so do not skip it.
-
-2. ALSO pass it on the completion call. When you complete this step with \`neoncore_report_step_done\` (section 5), include the parsed JSON as the \`report\` argument:
-
-    neoncore_report_step_done(stepId: "…", result: "…", scope: "…", verify: "…", report: <the parsed contents of workflow-report.json>)
-
-If your copy of the tool does not accept a \`report\` argument it will be ignored silently — which is exactly why step 1 is not optional and why its status code goes in your verify.
-
-Send the JSON you actually wrote, unmodified — the file is the source of truth and the stored copy has to match the HTML the reader is looking at. A 201 means it landed. Report the status code in your verify.
-
-═══════════ 5. COMPLETING THIS STEP ═══════════
-
-This is a work step, so NeonCore requires a real \`scope\` and \`verify\` from you. For a reporting step they mean:
-
-  scope:  which of the 9 required sections you rendered, and which you legitimately omitted
-          (Jira Context / Human Action Required) with the reason. e.g.
-          "8/9 sections — Jira omitted, no tickets associated with this run"
-  verify: the commands you actually ran and their real output — that the JSON parses, that
-          both files exist, the POST's status code, and the command you used to open the HTML.
-          e.g. "python3 -m json.tool .neoncore/reports/<id>/workflow-report.json > /dev/null → ok;
-           ls -l .neoncore/reports/<id>/ → 2 files; POST …/report → 201;
-           open …/workflow-report.html → exit 0"
-
-Do not report verification you did not run.`;
+Deliver it ONCE: pass the object as the \`report\` argument of \`neoncore_report_step_done\`. Unless instructions above ask for a document, write no files and POST nothing else — the dashboard renders the JSON.
+For this step, scope = "<n>/8 fields filled — <which are null and why>"; verify = the commands you ran to establish build/test status, with their real output.`;
 
 /** The executorConfig every report step carries. The marker lives here. */
 export function reportStepConfig(): Record<string, unknown> {
@@ -320,6 +247,9 @@ function addReportSteps(db: DatabaseType): number {
        SET executor_config = ?, depends_on = ?, position_y = ?, name = ?, description = ?
      WHERE id = ?
   `);
+  const updateCustom = db.prepare(`
+    UPDATE workflow_steps SET depends_on = ?, position_y = ? WHERE id = ?
+  `);
 
   const now = new Date().toISOString();
   let added = 0;
@@ -397,6 +327,13 @@ function addReportSteps(db: DatabaseType): number {
     // was a month behind. The step is machinery, not user content, so its config is ours to
     // keep current; its ID and its pinned cartridge are not, and survive.
     if (existing) {
+      // A few templates use the report transport and journal contract but intentionally own
+      // their report's content. Refreshing those with the generic prompt destroys the very
+      // specialization their workflow exists to provide.
+      if (existing.cfg.reportPromptManaged === false) {
+        updateCustom.run(deps, lastY + STEP_SPACING_Y, existing.id);
+        continue;
+      }
       update.run(JSON.stringify(reportStepConfig()), deps, lastY + 175, REPORT_STEP_NAME,
         REPORT_STEP_DESCRIPTION, existing.id);
       refreshed++;
@@ -446,8 +383,11 @@ export function buildRunReportContext(
    * called ensureReportStepOnTemplates while this module's own consts were still in TDZ:
    * "Cannot access 'REPORT_STEP_KIND' before initialization", at import, on a fresh database.
    * The executor already holds this value.
+   *
+   * Unused since the report is delivered only through report_step_done (no curl block); kept so
+   * callers and the import-cycle note above stay valid if a URL is ever needed here again.
    */
-  baseUrl = '',
+  _baseUrl = '',
 ): string {
   const wf = db.prepare(
     `SELECT w.id, w.name, w.description, w.status, w.run_number, w.initial_context,
@@ -520,23 +460,7 @@ export function buildRunReportContext(
 
   const appendix = buildAppendixInstruction(others);
 
-  // The POST command, with the real step id and the URL that actually reaches this server from
-  // wherever the cartridge is. The canned prompt cannot carry these — it is one static string
-  // shared by every run — and an agent asked to guess its own callback URL will guess
-  // localhost, which on an off-box cartridge is itself. Same reasoning as buildCompletionSuffix.
-  const base = baseUrl || '${NEONCORE_URL}';
-  const send = [
-    '### SENDING THE REPORT BACK',
-    '',
-    'Run this once both files are written. A 201 means the report reached the journal:',
-    '',
-    `    curl -s -o /dev/null -w '%{http_code}\\n' -X POST "\${NEONCORE_URL:-${base}}/api/workflows/webhook/${stepId}/report" \\`,
-    "      -H 'Content-Type: application/json' \\",
-    `      -d "$(python3 -c 'import json,sys; print(json.dumps({\"report\": json.load(open(sys.argv[1]))}))' .neoncore/reports/${wf.id}/workflow-report.json)"`,
-    '',
-  ].join('\n');
-
-  return `${head.join('\n')}\n${joined}\n\n${appendix}${send}\n---\n\n`;
+  return `${head.join('\n')}\n${joined}\n\n${appendix}---\n\n`;
 }
 
 /**
@@ -561,23 +485,13 @@ function buildAppendixInstruction(steps: Record<string, unknown>[]): string {
     + 'placeholder (YYYY-MM-DD), use the exact path that step reports in its result above.').join('\n');
 
   return [
-    '### APPENDIX — THE RUN\'S DELIVERABLE GOES AT THE END OF THIS REPORT',
-    '',
-    'This run produced a document the reader wants to READ, not just hear about. It was',
-    'deliberately NOT opened in a window of its own: your report is the one window. After',
-    'section 9 (Technical Details), add one final section per item below, in this order:',
+    '### APPENDIX — THIS RUN PRODUCED A DOCUMENT',
     '',
     list,
     '',
-    'For each: read the file from disk and embed its CONTENT in the report HTML — the body',
-    'markup, not a link and not an <iframe>, so it reads with no network. Keep it EXPANDED',
-    '(not inside <details>). Carry its styles over scoped under the section\'s own wrapper',
-    '(e.g. `#appendix-1 …`) so they cannot restyle the report, keep it legible in light and',
-    'dark, and keep every source link. End the section with the file path, for the standalone',
-    'copy. Record it in the JSON as `appendix: [{ title, path, embedded: true }]`.',
-    '',
-    'If a file is missing or empty, the section says so plainly, `embedded` is false, and it',
-    'is listed under Validation & Issues. Never write the appendix content yourself.',
+    'Confirm each file exists and is non-empty, and list it in the report JSON as',
+    '`appendix: [{ title, path, exists }]`. A missing or empty file is also an issue.',
+    'Do not rewrite or embed its content.',
     '',
   ].join('\n');
 }

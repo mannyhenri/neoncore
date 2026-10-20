@@ -97,7 +97,7 @@ test('the promptless shells are retired AND deprecated, not merely unlisted', ()
   // Unlisting alone is not removal: seedDefaultTemplates' delete loop only visits declared
   // names, so an unlisted template lingers in every EXISTING database forever. That is what
   // `deprecatedNames` is for, and forgetting it is invisible on a fresh database.
-  const src = read('server/src/db.ts');
+  const src = read('server/src/lib/templates/index.ts');
   const dep = src.slice(src.indexOf('const deprecatedNames'), src.indexOf(']', src.indexOf('const deprecatedNames')));
   for (const name of RETIRED_TEMPLATES) {
     assert.ok(dep.includes(name),

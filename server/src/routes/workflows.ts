@@ -8,7 +8,7 @@ import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
 import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
-import { CONFER_MODES, isConferMode, CONFER_ISOLATIONS, isConferIsolation } from '../lib/confer-conductor.js';
+import { CONFER_MODES, isConferMode, CONFER_ISOLATIONS, isConferIsolation, cancelConfer } from '../lib/confer-conductor.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
 import { learningsContext } from '../lib/workflow-from-template.js';
@@ -22,8 +22,8 @@ import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-execu
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
-import { validateCompletionPayload } from '../lib/work-standard.js';
-import { withReportStep, resolveRunPlaceholders } from '../lib/workflow-report.js';
+import { validateCompletionPayload, disarmOnReport } from '../lib/work-standard.js';
+import { withReportStep, isReportStep, resolveRunPlaceholders } from '../lib/workflow-report.js';
 import { loopCountRequirements, validateUpstreamCount, configForRerun, LOOP_RUN_KEYS, type LoopConfig } from '../lib/workflow-loop.js';
 import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
@@ -249,6 +249,27 @@ router.post('/:id/resume', (req, res) => {
   res.json(normalizeWorkflow(updated));
 });
 
+/**
+ * End every confer this run started that is still running.
+ *
+ * A run only OWNS its confers through `workflow_steps.executor_config.conferSessionId`, and the
+ * confer knows nothing of the run. So ending a run by flipping its status left its confer
+ * running: run 79 was cancelled and its "Load Epic" confer kept both cartridges busy, and run 80
+ * waited behind it as "busy". cancelConfer also tells the participants to stop.
+ */
+function cancelOwnedConfers(runId: string): void {
+  const owned = db.prepare(
+    `SELECT DISTINCT json_extract(s.executor_config, '$.conferSessionId') AS sid
+       FROM workflow_steps s
+       JOIN confer_sessions c ON c.id = json_extract(s.executor_config, '$.conferSessionId')
+      WHERE s.workflow_id = ? AND c.status = 'running'`,
+  ).all(runId) as { sid: string }[];
+  for (const { sid } of owned) {
+    cancelConfer(sid);
+    console.log(`[workflow] ${runId} ended — cancelled its confer ${sid}`);
+  }
+}
+
 // Cancel
 router.post('/:id/cancel', (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
@@ -259,6 +280,7 @@ router.post('/:id/cancel', (req, res) => {
 
   const now = new Date().toISOString();
   db.prepare("UPDATE workflows SET status = 'cancelled', completed_at = ? WHERE id = ?").run(now, req.params.id);
+  cancelOwnedConfers(req.params.id);
   console.log(`[workflow] Cancelled ${req.params.id}`);
   emitWorkflowUpdate(req.params.id);
 
@@ -271,6 +293,8 @@ router.delete('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
 
+  // Before the steps go: they are the only record of which confers this run owns.
+  cancelOwnedConfers(req.params.id);
   db.prepare('DELETE FROM workflow_steps WHERE workflow_id = ?').run(req.params.id);
   db.prepare('DELETE FROM workflows WHERE id = ?').run(req.params.id);
   console.log(`[workflow] Deleted ${req.params.id}`);
@@ -338,6 +362,51 @@ export function withStandardGate(
       positionY: STEP_START_Y,
     },
   ];
+}
+
+/**
+ * Add the system-owned standard gate while cloning a persisted two-step template.
+ * The report stays last and is rewired to wait for the gate, so authored templates
+ * remain script + report while every launched run is audited before it reports.
+ */
+export function withStandardGateOnTemplateRows(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const gateTypes = new Set(['quality-gate', 'review-gate']);
+  if (rows.some((row) => gateTypes.has(String(row.executor_type || '')))) return rows;
+
+  const reports = rows.filter((row) => {
+    const config = JSON.parse(String(row.executor_config || '{}')) as Record<string, unknown>;
+    return isReportStep(config);
+  });
+  const workRows = rows.filter((row) => !reports.includes(row)
+    && ['claude-code', 'command', ''].includes(String(row.executor_type || '')));
+  if (workRows.length === 0) return rows;
+
+  const nonReportRows = rows.filter((row) => !reports.includes(row));
+  const dependedOn = new Set<string>();
+  for (const row of nonReportRows) {
+    for (const dependency of JSON.parse(String(row.depends_on || '[]')) as string[]) dependedOn.add(dependency);
+  }
+  const terminal = nonReportRows
+    .filter((row) => !dependedOn.has(String(row.id)))
+    .map((row) => String(row.id));
+  const gateId = `standard-gate-${uuid().slice(0, 8)}`;
+  const lastWork = workRows[workRows.length - 1];
+  const gate: Record<string, unknown> = {
+    id: gateId,
+    name: 'Work Standard Check',
+    description: 'Verifies the work covered the complete set and is proven by a set-based test.',
+    position_x: STEP_X,
+    position_y: STEP_START_Y,
+    executor_type: 'quality-gate',
+    executor_id: lastWork.executor_id || '',
+    executor_config: JSON.stringify({ gateType: 'standard', maxRetries: 1 }),
+    auto_advance: 1,
+    depends_on: JSON.stringify(terminal.length > 0 ? terminal : [String(lastWork.id)]),
+  };
+  const rewiredReports = reports.map((row) => ({ ...row, depends_on: JSON.stringify([gateId]) }));
+  return [...nonReportRows, gate, ...rewiredReports];
 }
 
 router.post('/v2/create', (req, res) => {
@@ -767,8 +836,10 @@ router.post('/v2/:id/start', (req, res) => {
     db.prepare('UPDATE workflows SET autonomy = ? WHERE id = ?').run(DEFAULT_AUTONOMY, runId);
 
     // Clone steps with new IDs, remapping depends_on references
-    const templateSteps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
-      .all(templateId) as Record<string, unknown>[];
+    const templateSteps = withStandardGateOnTemplateRows(
+      db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
+        .all(templateId) as Record<string, unknown>[],
+    );
     const oldToNew = new Map<string, string>();
     for (const s of templateSteps) {
       oldToNew.set(s.id as string, uuid());
@@ -1606,8 +1677,24 @@ router.post('/webhook/:stepId/report', (req, res) => {
   res.status(201).json(stored);
 });
 
+/**
+ * Put the agent's handoff (`next`) at the TOP of the stored result. The next step sees only the
+ * first DEP_RESULT_MAX_CHARS (1,500) of it, and 45% of results ran longer — guidance written at
+ * the end, where agents were told to put it, was the part that got cut. A gate's PASS/FAIL stays
+ * on line 1, because the verdict is read from there.
+ */
+function withHandoff(stored: string, next: unknown): string {
+  const handoff = typeof next === 'string' ? next.trim().slice(0, 600) : '';
+  if (!handoff) return stored;
+  const line = `NEXT: ${handoff}`;
+  const [first, ...rest] = stored.split('\n');
+  return /^(PASS|FAIL)\b/i.test(first.trim())
+    ? [first, line, ...rest].join('\n')
+    : `${line}\n\n${stored}`;
+}
+
 router.post('/webhook/:stepId/complete', (req, res) => {
-  const { result, scope, verify, deferred } = req.body || {};
+  const { result, scope, verify, deferred, next } = req.body || {};
 
   // A completion may CARRY the run's report. Stored best-effort and never allowed to fail the
   // completion — see storeStepReport. This is the path neoncore_report_step_done uses, which is
@@ -1650,9 +1737,9 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   // Prepend captured plan content (from ExitPlanMode with plansIncluded) if present
   const planContent = (row.plan_content as string) || '';
   const baseResult = (result || 'Completed via webhook') + standardNote;
-  const finalResult = planContent
+  const finalResult = withHandoff(planContent
     ? `[Plan]\n${planContent}\n\n[Implementation Summary]\n${baseResult}`
-    : baseResult;
+    : baseResult, next);
 
   const tokensIn = Math.round(((row.dispatched_prompt as string) || '').length / 4);
   const tokensOut = Math.round(finalResult.length / 4);
@@ -1689,6 +1776,7 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   if (!completeStepFromSignal(step.id, finalResult)) {
     return res.status(409).json({ error: 'Step could not be completed (no longer running)' });
   }
+  disarmOnReport(db, (row.dispatch_agent_id as string) || step.executorId);
 
   const updated = normalizeStep(
     db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>
@@ -1715,6 +1803,7 @@ router.post('/webhook/:stepId/panel/:agentId/complete', (req, res) => {
       error: 'Not an active deliberation step awaiting this panel member',
     });
   }
+  disarmOnReport(db, req.params.agentId);
 
   const updated = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown>;
   res.json(normalizeStep(updated));

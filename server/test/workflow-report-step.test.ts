@@ -34,10 +34,11 @@ import {
   REPORT_STEP_KIND,
   WORKFLOW_REPORT_PROMPT,
   isReportStep,
+  reportStepConfig,
   withReportStep,
   ensureReportStepOnTemplates,
 } from '../src/lib/workflow-report.ts';
-import { withStandardGate } from '../src/routes/workflows.ts';
+import { withStandardGate, withStandardGateOnTemplateRows } from '../src/routes/workflows.ts';
 import workflowsRouter from '../src/routes/workflows.ts';
 import { installStubIO } from './helpers/stub-io.ts';
 import { REPORT_EXEMPT_TEMPLATES } from '../src/lib/digest-template.ts';
@@ -125,8 +126,22 @@ test('EVERY template in the database ends in a Workflow Completion Report', () =
 
     assert.equal(report.name, REPORT_STEP_NAME);
     assert.equal(report.executor_type, 'claude-code');
-    assert.equal(cfg(report).prompt, WORKFLOW_REPORT_PROMPT);
-    assert.equal(cfg(report).reportContext, true,
+    const reportConfig = cfg(report);
+    if (reportConfig.reportPromptManaged === false) {
+      assert.match(String(reportConfig.prompt || ''), /Produce the WORKFLOW COMPLETION REPORT/,
+        `"${wf.name}": customized report dropped the shared report delivery contract`);
+      if (wf.name === 'Gridlight Local QA') {
+        assert.match(String(reportConfig.prompt || ''), /GRIDLIGHT LOCAL QA report/,
+          'local QA lost its engine comparison scorecard');
+      }
+      if (wf.name === 'Gridlight Full Release QA') {
+        assert.match(String(reportConfig.prompt || ''), /GRIDLIGHT FULL RELEASE QA report/,
+          'release QA lost its artifact and installation matrix');
+      }
+    } else {
+      assert.equal(reportConfig.prompt, WORKFLOW_REPORT_PROMPT);
+    }
+    assert.equal(reportConfig.reportContext, true,
       `"${wf.name}": without reportContext the report only sees its direct dependencies`);
     covered++;
   }
@@ -227,8 +242,14 @@ test('EVERY template carries the CURRENT prompt, not whatever it was seeded with
   for (const wf of all) {
     for (const s of stepsOf(wf.id as string)) {
       if (!isReportStep(cfg(s))) continue;
-      assert.equal(cfg(s).prompt, WORKFLOW_REPORT_PROMPT,
-        `"${wf.name}" is running a stale copy of the report prompt`);
+      const reportConfig = cfg(s);
+      if (reportConfig.reportPromptManaged === false) {
+        assert.match(String(reportConfig.prompt || ''), /Produce the WORKFLOW COMPLETION REPORT/,
+          `"${wf.name}" customized report dropped the shared report delivery contract`);
+      } else {
+        assert.equal(reportConfig.prompt, WORKFLOW_REPORT_PROMPT,
+          `"${wf.name}" is running a stale copy of the report prompt`);
+      }
       checked++;
     }
   }
@@ -303,6 +324,20 @@ test('the report sits AFTER the work-standard gate when both are applied', () =>
     'the report must wait for the standard gate');
   assert.ok(!(gate.dependsOn as string[]).includes(report.id as string),
     'the gate must not depend on the report — that would put the audit last, not the report');
+});
+
+test('template cloning inserts the system gate between authored work and report', () => {
+  const rows = [
+    { id: 'run', executor_type: 'claude-code', executor_id: 'agent-1', executor_config: '{}', depends_on: '[]' },
+    { id: 'report', executor_type: 'claude-code', executor_id: 'agent-1',
+      executor_config: JSON.stringify(reportStepConfig()), depends_on: JSON.stringify(['run']) },
+  ];
+  const composed = withStandardGateOnTemplateRows(rows);
+  assert.equal(composed.length, 3);
+  assert.equal(composed[1].executor_type, 'quality-gate');
+  assert.deepEqual(JSON.parse(String(composed[1].depends_on)), ['run']);
+  assert.deepEqual(JSON.parse(String(composed[2].depends_on)), [composed[1].id]);
+  assert.equal(isReportStep(JSON.parse(String(composed[2].executor_config))), true);
 });
 
 // ── The order through the real route, which is where it can silently invert ─────────────

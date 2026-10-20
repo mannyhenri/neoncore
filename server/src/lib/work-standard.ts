@@ -272,6 +272,22 @@ export function armOnWork(
   return changed > 0;
 }
 
+/**
+ * An ACCEPTED completion report ends the agent's objective — through the tool or webhook, not
+ * only through a NEONCORE-DONE block at Stop.
+ *
+ * Without this the block was load-bearing on top of the tool call: a step agent that had edited
+ * files and reported through neoncore_report_step_done was still refused at Stop until it also
+ * printed the block, so every step prompt had to ask for the same scope/verify twice. Called by
+ * every endpoint that accepts a completion (see test/one-completion-contract.test.ts).
+ */
+export function disarmOnReport(db: DatabaseType, agentId: string | undefined | null): void {
+  if (!agentId) return;
+  db.prepare(
+    `UPDATE agents SET active_objective = '', standard_armed = 0, standard_offered = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
+  ).run(agentId);
+}
+
 export type StopDecision =
   | { decision: 'allow'; cleared: boolean }
   | { decision: 'block'; reason: string };
@@ -362,7 +378,7 @@ export function buildBlockReason(objective: string, attempt: number, maxBlocks: 
     `1. SCOPE — did you enumerate the COMPLETE set this ask covers (from the registry/schema/call sites, not from the description), and handle every member? If you fixed the cases you happened to see rather than the whole set, go finish it now.\n` +
     `2. VERIFY — did you actually RUN a test that fails on a partial fix, and see it pass? If not, run it. Do not claim verification you did not perform.\n` +
     `3. DEFERRALS — is there anything you decided not to do? It must be named explicitly, not dropped.\n\n` +
-    `Then end your message with the block, verbatim:\n` +
+    `If you were given a stepId or taskId, finish by calling neoncore_report_step_done / neoncore_report_task_done with scope + verify — an accepted report closes this too. Otherwise, end your message with the block, verbatim:\n` +
     `${COMPLETION_MARKER}\n` +
     `scope: <done>/<total> — <what the set was>\n` +
     `verify: <exact command run> → <actual result>\n` +

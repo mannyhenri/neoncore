@@ -164,8 +164,8 @@ test('every appendix reaches the report prompt; templates without one get none',
       assert.ok(context.includes(a.title), `${tpl.name}: appendix title "${a.title}" missing`);
       assert.ok(context.includes(a.path), `${tpl.name}: appendix path "${a.path}" missing`);
     }
-    // The appendix instruction must come before the send-back block, which ends the context.
-    assert.ok(context.indexOf('### APPENDIX') < context.indexOf('### SENDING THE REPORT BACK'));
+    // The appendix instruction closes the run record (there is no send-back block any more).
+    assert.ok(context.indexOf('### APPENDIX') > context.indexOf('## Run Record'));
   }
   assert.ok(withCount > 0,
     'no template with an appendix produced a run record — the mechanism is untested, not merely unused');

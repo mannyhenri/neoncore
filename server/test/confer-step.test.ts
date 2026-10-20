@@ -50,7 +50,7 @@ const INTEGRATION_POINTS = [
     why: 'the SHARED union the dashboard and phone import — without it every comparison is dead code' },
   { file: 'server/src/lib/engine-capability.ts',     marker: /f\('confer'/,
     why: 'the capability registry decides which engines can run the step' },
-  { file: 'server/src/db.ts',                        marker: /DEFERRED_TYPES[\s\S]{0,160}'confer'/,
+  { file: 'server/src/lib/templates/index.ts',        marker: /DEFERRED_TYPES[\s\S]{0,160}'confer'/,
     why: 'DEFERRED_TYPES, or the step has no cartridges and the run hangs at launch' },
   { file: 'server/src/lib/workflow-executor-v2.ts',  marker: /executorType === 'confer'/,
     why: 'dispatch, per-tick advance, and completion' },

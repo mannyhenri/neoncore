@@ -1,0 +1,198 @@
+{
+ "Bug Hunter": {
+  "Static & Lint Analysis": [
+   "ISSUE:",
+   "SEVERITY:"
+  ],
+  "Dead Code Scan": [
+   "DETAIL:",
+   "TYPE:"
+  ],
+  "Bug Pattern Hunt": [
+   "DETAIL:",
+   "PATTERN:",
+   "SEVERITY:"
+  ]
+ },
+ "CE Develop and Optimize": {
+  "Develop and Optimize Every Task": [
+   "SWITCHED to [id] — [blocked-id] depends on it"
+  ]
+ },
+ "CE: Full Delivery": {
+  "[P3] Build Summary": [
+   "STATUS:"
+  ],
+  "[P4] Codex": [
+   "CODEX:"
+  ],
+  "[P5] QA Browser Run": [
+   "STATUS:"
+  ],
+  "[P5] QA Report": [
+   "QA STATUS:"
+  ],
+  "[P6] Merge Gate": [
+   "PR:",
+   "QA:"
+  ],
+  "[P6] Canary Watch": [
+   "CANARY:"
+  ]
+ },
+ "CE: Phase 3 — Implement": {
+  "Build Summary": [
+   "STATUS:"
+  ]
+ },
+ "CE: Phase 4 — Review": {
+  "Codex — Cross-Model Review": [
+   "CODEX:"
+  ]
+ },
+ "CE: Phase 5 — QA": {
+  "QA Browser Run": [
+   "STATUS:"
+  ],
+  "QA Report": [
+   "STATUS:"
+  ]
+ },
+ "CE: Phase 6 — Ship": {
+  "Merge Gate": [
+   "PR:",
+   "QA:"
+  ],
+  "Land & Deploy": [
+   "CI:"
+  ],
+  "Canary Watch": [
+   "CANARY STATUS:"
+  ]
+ },
+ "Daily AI Filmmaking Digest": {
+  "Archive Note": [
+   "- YYYY-MM-DD | <title> | <url>"
+  ]
+ },
+ "Daily AI Research Digest": {
+  "Archive Note": [
+   "- YYYY-MM-DD | <title> | <url>"
+  ]
+ },
+ "Epic: Confer Across Repos": {
+  "Read the Epic": [
+   "OBJECTIVE:",
+   "ORDERING:",
+   "REPOS:",
+   "TASKS:",
+   "VERIFY:"
+  ],
+  "Verify Across Repos": [
+   "BY REPO:",
+   "COVERAGE:",
+   "INTERFACE:"
+  ]
+ },
+ "Epic: Task by Task": {
+  "Load Epic": [
+   "EPIC:",
+   "ROOT:",
+   "STATE:",
+   "TASKS:",
+   "TESTS:"
+  ],
+  "Work Every Task": [
+   "ALL TASKS COMPLETE",
+   "BLOCKED",
+   "BLOCKED [task-id] · [k] remaining",
+   "CYCLE: [a] and [b] depend on each other",
+   "DONE [task-id] · commit [hash] · [k] remaining",
+   "FAILED",
+   "SKIPPED",
+   "SKIPPED [task-id] · [k] remaining",
+   "SWITCHED to [id] — [blocked-id] depends on it",
+   "WAITING ON [id]"
+  ],
+  "Verify Coverage": [
+   "COMMITS:",
+   "COVERAGE:",
+   "SUITE:"
+  ]
+ },
+ "Epic: Two Repos": {
+  "Scope & Partition": [
+   "BLOCKED_BY_A:",
+   "EPIC:",
+   "REPO_A:",
+   "REPO_B:",
+   "ROOT_A:",
+   "ROOT_B:",
+   "STATE:",
+   "TASKS_A:",
+   "TASKS_B:",
+   "TESTS_A:",
+   "TESTS_B:"
+  ],
+  "Work Repo A": [
+   "ALL A TASKS COMPLETE",
+   "BLOCKED",
+   "BLOCKED [task-id] · [k] remaining",
+   "DONE [task-id] · commit [hash] · [k] remaining",
+   "FAILED",
+   "SKIPPED",
+   "SKIPPED [task-id] · [k] remaining",
+   "SWITCHED to [id] — [blocked-id] depends on it",
+   "WAITING ON B",
+   "WAITING ON [id]",
+   "WAITING [task-id] · [k] remaining"
+  ],
+  "Work Repo B": [
+   "ALL B TASKS COMPLETE",
+   "BLOCKED",
+   "BLOCKED [task-id] · [k] remaining",
+   "DONE [task-id] · commit [hash] · [k] remaining",
+   "FAILED",
+   "SKIPPED",
+   "SKIPPED [task-id] · [k] remaining",
+   "SWITCHED to [id] — [blocked-id] depends on it",
+   "WAITING ON A",
+   "WAITING ON [id]",
+   "WAITING [task-id] · [k] remaining"
+  ],
+  "Verify Both Repos": [
+   "COMMITS:",
+   "CROSS-REPO EDITS:",
+   "REPO_A:",
+   "REPO_B:",
+   "SUITE_A:",
+   "SUITE_B:"
+  ]
+ },
+ "Feature Validation": {
+  "Code Implementation": [
+   "IMPLEMENTED [file:line] — [brief description of what was changed and why]"
+  ]
+ },
+ "Gridlight Performance Improvement": {
+  "Load Jira Task": [
+   "QA COMMAND:",
+   "REPO:",
+   "TICKET:"
+  ],
+  "Run Local QA (7B)": [
+   "QA COMMAND:"
+  ]
+ },
+ "Jira Tasks Validation": {
+  "Validate & Save Results": [
+   "REASON:",
+   "VERDICT:"
+  ]
+ },
+ "Release Documentation": {
+  "Support Runbook": [
+   "[heartbeat] SKIPPED"
+  ]
+ }
+}
