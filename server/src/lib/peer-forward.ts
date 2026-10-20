@@ -17,6 +17,7 @@
  */
 
 import { listPeers } from './federation.js';
+import { noChannel } from './delivery.js';
 import { getFleetToken } from './auth.js';
 
 /** Peer calls are best-effort and must never hold up a caller; a sleeping laptop is normal. */
@@ -106,7 +107,12 @@ export interface ForwardResult {
  * Returns ok:false rather than throwing — callers are dispatch paths that must keep going
  * for the other participants when one machine is asleep.
  */
-export async function forwardMessageToOwner(agentId: string, message: string): Promise<ForwardResult> {
+export async function forwardMessageToOwner(
+  agentId: string,
+  message: string,
+  /** Carried as-is: the owning server writes them into the cartridge's checkout on ITS disk. */
+  attachments?: import('../types.js').CommandAttachmentInput[],
+): Promise<ForwardResult> {
   const owner = await findAgentOwner(agentId);
   if (!owner) return { ok: false, reason: 'no peer in the fleet owns this agent' };
 
@@ -117,7 +123,7 @@ export async function forwardMessageToOwner(agentId: string, message: string): P
     const res = await fetch(`${owner}/api/commands/send`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ agentId, text: message, includeMemory: false }),
+      body: JSON.stringify({ agentId, text: message, includeMemory: false, ...(attachments?.length ? { attachments } : {}) }),
       signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
     });
     if (!res.ok) {
@@ -126,8 +132,9 @@ export async function forwardMessageToOwner(agentId: string, message: string): P
     }
     // The peer accepted it, but "accepted" is not "delivered": it still needs a live relay
     // on its side. Pass that distinction through instead of flattening it to success.
-    const cmd = (await res.json().catch(() => ({}))) as { delivered?: boolean };
-    if (cmd?.delivered === false) {
+    const cmd = (await res.json().catch(() => ({}))) as { delivered?: boolean; transport?: string };
+    // A peer on an older build sends no transport; noChannel then reads its `false` as before.
+    if (noChannel(cmd)) {
       return { ok: false, origin: owner, reason: 'the owning server has no live command channel for it' };
     }
     return { ok: true, origin: owner };
@@ -168,10 +175,11 @@ export async function fetchPeerAgent(agentId: string): Promise<Record<string, un
 export async function deliverToAgent(
   agentId: string,
   text: string,
-  sendLocal: (id: string, body: string) => { delivered?: boolean } | null,
+  sendLocal: (id: string, body: string) => { delivered?: boolean; transport?: string } | null,
 ): Promise<{ delivered: boolean; origin?: string; reason?: string }> {
   const local = sendLocal(agentId, text);
-  if (local && local.delivered !== false) return { delivered: true, origin: '' };
+  // An inbox hand-off counts: it reaches this cartridge, and the row records the outcome.
+  if (local && !noChannel(local)) return { delivered: true, origin: '' };
 
   // Known locally but with no live channel: forwarding cannot help, and pretending
   // otherwise would hide a dead relay behind a healthy-looking fleet.

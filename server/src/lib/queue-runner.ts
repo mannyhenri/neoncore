@@ -121,7 +121,27 @@ export function rowToItem(r: Record<string, unknown>): QueueItem {
 }
 
 function emit(): void {
-  try { getIO().emit('queue_updated', listQueue() as never); } catch { /* no socket in tests */ }
+  try { getIO().emit('queue_updated', listQueue().map(publicQueueItem) as never); } catch { /* no socket in tests */ }
+}
+
+/**
+ * The item as clients see it. A queued prompt stores its attachments' bytes so the dispatcher
+ * can deliver them later; clients only need to know they are there. Without this a queued
+ * screenshot went to every open dashboard, as base64, on every queue change.
+ */
+export function publicQueueItem(item: QueueItem): QueueItem {
+  const atts = item.payload?.attachments;
+  if (!Array.isArray(atts) || atts.length === 0) return item;
+  return {
+    ...item,
+    payload: {
+      ...item.payload,
+      attachments: atts.map((a) => {
+        const { dataBase64: _bytes, ...meta } = (a ?? {}) as Record<string, unknown>;
+        return meta;
+      }),
+    },
+  };
 }
 
 export function listQueue(): QueueItem[] {

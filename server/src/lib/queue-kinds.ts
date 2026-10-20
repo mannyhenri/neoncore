@@ -183,11 +183,17 @@ export const QUEUE_KINDS: QueueKindDef[] = [
     dispatch: async (item) => {
       const { sendCommandToAgent } = await import('./send-command.js');
       const text = str(item.payload, 'text');
+      // Stored by routes/commands.ts when the cartridge was busy. Items queued before this was
+      // stored carry neither, and behave as they always did.
+      const attachments = Array.isArray(item.payload.attachments)
+        ? item.payload.attachments as import('../types.js').CommandAttachmentInput[]
+        : undefined;
+      const includeMemory = item.payload.includeMemory === true;
       const delivered: string[] = [];
       for (const agentId of item.targets) {
         // standard: true — a queued prompt is dispatched work, so it carries the work-standard
         // contract. That contract is also what produces the completion report we advance on.
-        const cmd = sendCommandToAgent(agentId, text, false, undefined, { standard: true, trackObjective: true });
+        const cmd = sendCommandToAgent(agentId, text, includeMemory, attachments, { standard: true, trackObjective: true });
         // A command is PERSISTED even when no socket is attached, and the relay drains pending
         // commands on reconnect — so `delivered:false` means "not yet", not "never". Treating it
         // as a dispatch failure conflated liveness with handoff and turned a reconnect into a

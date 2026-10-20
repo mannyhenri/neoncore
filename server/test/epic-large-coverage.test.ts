@@ -67,7 +67,8 @@ function loopSteps(): LoopStep[] {
  * testing a string nothing matches.
  */
 function upstreamReporting(n: number, pattern: string): string {
-  const label = pattern.replace(/\\s\*\(\\d\+\)\s*$/, '');
+  // An optional literal (`TASKS:?`) is written as present — the documented form of the line.
+  const label = pattern.replace(/(\\?[^\\()])\?/g, '$1').replace(/\\s\*\(\\d\+\)\s*$/, '');
   return `EPIC: GRD-3502\nSTATE: docs/epic-state.md\n${label} ${n}\n`;
 }
 

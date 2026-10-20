@@ -104,7 +104,7 @@ export interface PostToInboxInput {
  * question. EPERM means it exists but belongs to someone else, and that is a REFUSAL, not a pass:
  * a socket owned by another user's process is precisely the case worth stopping for.
  */
-function pidIsOurs(pid: number): boolean {
+export function pidIsOurs(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);

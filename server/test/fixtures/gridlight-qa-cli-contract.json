@@ -1,0 +1,57 @@
+{
+  "sourceRepo": "gl-dev-b",
+  "sourceCommit": "c767c200d",
+  "models": [
+    "qwen3-coder-30b-a3b-q4", "lfm2.5-2.6b-q4", "gpt-oss-20b-q4", "gemma3-4b-q4",
+    "qwen2.5-7b-q4", "qwen2.5-1.5b-fp16", "qwen2.5-1.5b-q8", "qwen2.5-1.5b-q4_0",
+    "qwen2.5-1.5b-q5_0", "qwen2.5-1.5b-q4", "qwen2.5-1.5b-q6_k", "qwen2.5-1.5b-iq4_xs",
+    "qwen2.5-1.5b-q2_k", "qwen2.5-coder-7b-q4", "mistral-7b-v0.3-q4", "phi3-mini-4k-q4"
+  ],
+  "workflows": {
+    "Gridlight Local QA": {
+      "script": "scripts/qa/guided-local-run.sh",
+      "fixedArgs": ["--non-interactive"],
+      "options": {
+        "modelProfile": { "type": "select", "defaultValue": "qwen2.5-1.5b-q8", "flag": "--model-profile", "choices": "$models" },
+        "engines": { "type": "select", "defaultValue": "gridlight", "flag": "--engines", "choices": ["gridlight", "gridlight,llama", "gridlight,vllm", "gridlight,llama,vllm"] },
+        "metrics": { "type": "select", "defaultValue": "yes", "flag": "--metrics", "choices": ["yes", "no"] },
+        "manager": { "type": "select", "defaultValue": "no", "flag": "--manager", "choices": ["yes", "no"] },
+        "downloadModel": { "type": "boolean", "defaultValue": false, "enabledArgs": ["--download-model"] },
+        "syncComparators": { "type": "boolean", "defaultValue": false, "enabledArgs": ["--sync-comparators"] },
+        "build": { "type": "select", "defaultValue": "yes", "flag": "--build", "choices": ["yes", "no"] },
+        "mediaAgents": { "type": "multi-select", "defaultValue": [], "flag": "--media-agents", "joinWith": ",", "emptyValue": "none", "choices": ["image", "audio", "video", "3d", "stt", "voice", "stem-split"] },
+        "envFile": { "type": "text", "defaultValue": "", "flag": "--env-file" },
+        "backend": { "type": "text", "defaultValue": "metal", "flag": "--backend" },
+        "quick": { "type": "boolean", "defaultValue": false, "enabledArgs": ["--quick"] }
+      }
+    },
+    "Gridlight Full Release QA": {
+      "script": "scripts/qa/full-release-run.sh",
+      "fixedArgs": [],
+      "options": {
+        "scope": { "type": "select", "defaultValue": "build-and-qa", "choices": [
+          { "value": "build-and-qa", "args": [] }, { "value": "build-only", "args": ["--build-only"] }, { "value": "qa-only", "args": ["--qa-only"] }
+        ] },
+        "modelProfile": { "type": "select", "defaultValue": "qwen2.5-7b-q4", "flag": "--model-profile", "choices": "$models" },
+        "engines": { "type": "select", "defaultValue": "gridlight", "flag": "--engines", "choices": ["gridlight", "gridlight,llama", "gridlight,vllm", "gridlight,llama,vllm"] },
+        "metrics": { "type": "select", "defaultValue": "yes", "flag": "--metrics", "choices": ["yes", "no"] },
+        "manager": { "type": "select", "defaultValue": "no", "flag": "--manager", "choices": ["yes", "no"] },
+        "cacheS3": { "type": "text", "defaultValue": "", "flag": "--cache-s3" },
+        "mediaAgents": { "type": "multi-select", "defaultValue": [], "flag": "--media-agents", "joinWith": ",", "emptyValue": "none", "choices": ["image", "audio", "video", "3d", "stt", "voice", "stem-split"] },
+        "envFile": { "type": "text", "defaultValue": "", "flag": "--env-file" },
+        "dryRun": { "type": "boolean", "defaultValue": false, "enabledArgs": ["--dry-run"] },
+        "flavours": { "type": "multi-select", "defaultValue": ["deb", "rpm", "helm", "docker"], "flag": "--flavours", "joinWith": " ", "required": true, "choices": ["deb", "rpm", "helm", "docker"] },
+        "buildLocation": { "type": "select", "defaultValue": "provision", "choices": [
+          { "value": "provision", "args": ["--provision-build"] }, { "value": "existing", "args": [] }
+        ] },
+        "buildHost": { "type": "text", "defaultValue": "", "flag": "--build-host", "required": true, "visibleWhen": { "key": "buildLocation", "value": "existing" } },
+        "qaLocation": { "type": "select", "defaultValue": "provision", "choices": [
+          { "value": "provision", "args": ["--provision-qa"] }, { "value": "local", "args": ["--local-qa"] },
+          { "value": "existing", "args": [], "env": { "QA_ALLOW_REUSED_HOST": "1" } }
+        ] },
+        "qaHost": { "type": "text", "defaultValue": "", "flag": "--qa-host", "required": true, "visibleWhen": { "key": "qaLocation", "value": "existing" } },
+        "keep": { "type": "boolean", "defaultValue": false, "enabledArgs": ["--keep"] }
+      }
+    }
+  }
+}

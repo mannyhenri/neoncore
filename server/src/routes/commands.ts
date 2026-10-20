@@ -3,6 +3,7 @@ import db from '../db.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
 import { forwardMessageToOwner } from '../lib/peer-forward.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
+import { publicQueueItem } from '../lib/queue-runner.js';
 import type { Command, CommandAttachmentInput } from '../types.js';
 
 const router = Router();
@@ -40,7 +41,11 @@ router.post('/send', async (req, res) => {
   // system delivery does not.
   if (queueIfBusy === true) {
     const guard = guardBusy({
-      kind: 'prompt', targets: [agentId], payload: { text },
+      // Everything sendCommandToAgent takes, not just the text: the item dispatches later, and
+      // an attachment that was validated here and not stored is simply gone — a picture sent to
+      // a busy cartridge used to arrive as text alone.
+      kind: 'prompt', targets: [agentId],
+      payload: { text, attachments: validAttachments, includeMemory: includeMemory !== false },
       /*
        * ADX-007 — the operator asked for "now". guardBusy honours it only where
        * every busy target has a REACHABLE inbox, so this cannot become "drop the
@@ -51,7 +56,7 @@ router.post('/send', async (req, res) => {
     if ('error' in guard) return res.status(400).json({ error: guard.error });
     if (guard.queued) return res.status(202).json({
       queued: true,
-      item: guard.item,
+      item: publicQueueItem(guard.item),
       // The caller must be able to tell "it ran" from "it is next", or the UI reports a
       // dispatch that has not happened yet.
       note: 'the cartridge is busy — this was added to its queue',
@@ -68,7 +73,7 @@ router.post('/send', async (req, res) => {
   // missing here is routinely alive on a peer; before this, that was simply a 404 and any
   // cross-machine coordination (a confer, an agent messaging its peer) died right here.
   if (!command) {
-    const forwarded = await forwardMessageToOwner(agentId, text);
+    const forwarded = await forwardMessageToOwner(agentId, text, validAttachments);
     if (forwarded.ok) {
       return res.status(201).json({ forwardedTo: forwarded.origin, delivered: true });
     }

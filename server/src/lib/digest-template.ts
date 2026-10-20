@@ -32,7 +32,32 @@
  */
 export const REPORT_EXEMPT_TEMPLATES: readonly string[] = [
   'Daily AI Research Digest',
+  'Daily AI Filmmaking Digest',
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editions — one paper, more than one beat
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The same template on a different beat. Only the NAMES change between editions — masthead,
+ * the Reddit section's heading, the colophon. The layout, the running order and the data shape
+ * are shared, so a fix to the paper reaches every edition at once instead of being copied.
+ *
+ * 'ai' is the default and renders byte-identically to the pre-edition paper.
+ */
+export const DIGEST_EDITIONS = {
+  ai:   { masthead: 'AI Daily',      noiseHeading: 'AI NOISE',   colophon: 'Daily AI Research Digest' },
+  film: { masthead: 'AI Film Daily', noiseHeading: 'FILM NOISE', colophon: 'Daily AI Filmmaking Digest' },
+} as const;
+
+export type DigestEdition = keyof typeof DIGEST_EDITIONS;
+
+/** An unknown or missing edition is the AI Daily — a typo must not cost the reader the paper. */
+export function editionOf(e: unknown) {
+  return Object.prototype.hasOwnProperty.call(DIGEST_EDITIONS, String(e))
+    ? DIGEST_EDITIONS[e as DigestEdition] : DIGEST_EDITIONS.ai;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The section registry — the paper's running order
@@ -71,18 +96,27 @@ export interface KnowItem { title: string; what: string; url: string }
 export interface BackgroundItem { title: string; url: string }
 export interface DroppedItem { title: string; why: string }
 
-/** One Reddit thread. `score` is what ranks it — "by number of most popular" was the ask. */
+/**
+ * One Reddit thread. `score` is what ranks it — "by number of most popular" was the ask.
+ *
+ * `score` and `comments` are null when the source cannot see them (Reddit's RSS feed), and
+ * then `rank` — the thread's place in Reddit's own top-of-the-window list — is what ranks it.
+ * The paper prints the rank rather than inventing a number.
+ */
 export interface NoiseItem {
   subreddit: string;
   title: string;
-  score: number;
-  comments: number;
+  score: number | null;
+  comments: number | null;
+  rank?: number;
   url: string;
   /** One line on why it matters, so the section is not just a leaderboard. */
   takeaway: string;
 }
 
 export interface DigestData {
+  /** Which paper this is. Omitted means the AI Daily. */
+  edition?: DigestEdition;
   date: string;
   throughLine: string;
   itemCount: number;
@@ -119,9 +153,17 @@ function link(url: unknown, text: string): string {
 
 const num = (n: number) => Number(n || 0).toLocaleString('en-US');
 
-function sectionShell(s: DigestSection, body: string, empty: boolean): string {
+/** Real numbers when the source had them; otherwise the rank Reddit gave it, never a guess. */
+function noiseMeta(i: NoiseItem): string {
+  if (typeof i.score === 'number') {
+    return `${num(i.score)} points${typeof i.comments === 'number' ? ` · ${num(i.comments)} comments` : ''}`;
+  }
+  return typeof i.rank === 'number' ? `#${num(i.rank)} on Reddit's top list` : 'on Reddit\'s top list';
+}
+
+function sectionShell(s: DigestSection, body: string, empty: boolean, heading = s.heading): string {
   return `<section class="sec" id="${s.id}">
-  <h2>${esc(s.heading)}</h2>
+  <h2>${esc(heading)}</h2>
   ${empty ? `<p class="quiet">${esc(s.emptyNote)}</p>` : body}
 </section>`;
 }
@@ -146,15 +188,18 @@ function renderSection(s: DigestSection, d: DigestData): string {
     case 'ai-noise': {
       // Ranked HERE, not trusted from the input: "by number of most popular" is the ask, and
       // the scan collects in whatever order it happened to search.
-      const items = [...(d.aiNoise || [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+      const scored = (d.aiNoise || []).some((i) => typeof i.score === 'number');
+      const items = [...(d.aiNoise || [])].sort(scored
+        ? (a, b) => Number(b.score || 0) - Number(a.score || 0)
+        : (a, b) => Number(a.rank ?? Infinity) - Number(b.rank ?? Infinity));
       return sectionShell(s, `<ol class="noise">${items.map((i, n) => `<li>
     <span class="rank">${n + 1}</span>
     <div>
       <h4>${link(i.url, esc(i.title))}</h4>
-      <p class="meta"><b>${esc(i.subreddit)}</b> · ${num(i.score)} points · ${num(i.comments)} comments</p>
+      <p class="meta"><b>${esc(i.subreddit)}</b> · ${noiseMeta(i)}</p>
       <p>${esc(i.takeaway)}</p>
     </div>
-  </li>`).join('\n')}</ol>`, items.length === 0);
+  </li>`).join('\n')}</ol>`, items.length === 0, editionOf(d.edition).noiseHeading);
     }
     case 'background': {
       const items = d.background || [];
@@ -182,12 +227,13 @@ function renderSection(s: DigestSection, d: DigestData): string {
 export function renderDigestHtml(d: DigestData): string {
   const body = DIGEST_SECTIONS.map((s) => renderSection(s, d)).join('\n\n');
   const dateLabel = esc(d.date);
+  const ed = editionOf(d.edition);
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Daily — ${dateLabel}</title>
+<title>${esc(ed.masthead)} — ${dateLabel}</title>
 <style>
 :root {
   --paper:#f7f4ed; --ink:#14120f; --dim:#5d574c; --rule:#cfc7b6; --accent:#8c2f1e;
@@ -261,13 +307,13 @@ details > *:not(summary) { margin-top:12px; }
 </head>
 <body>
 <div class="wrap">
-  <header class="masthead"><h1>AI Daily</h1></header>
+  <header class="masthead"><h1>${esc(ed.masthead)}</h1></header>
   <div class="dateline"><span>${dateLabel}</span><span>${num(d.itemCount)} items</span></div>
   <p class="through">${esc(d.throughLine)}</p>
 
 ${body}
 
-  <p class="colophon">NeonCore · Daily AI Research Digest · rendered from digest.json</p>
+  <p class="colophon">NeonCore · ${esc(ed.colophon)} · rendered from digest.json</p>
 </div>
 </body>
 </html>`;

@@ -118,7 +118,12 @@ router.post('/start', async (req, res) => {
       targets: ids,
       // A confer owns its repos: a busy sibling in a participant's checkout holds it too.
       repoScoped: true,
-      payload: { repoName, repoPath, participantIds: ids, task: task.trim(), mode, isolation, buildRounds },
+      // attachmentBlocks travels WITH the queued payload. The files are materialized above,
+      // before this guard, so a queued confer already has its bytes on disk; dropping the
+      // blocks here meant it dispatched hours later with no idea they were there — breaking
+      // the rule stated directly above, that what we enqueue must equal what we would have
+      // dispatched.
+      payload: { repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks, mode, isolation, buildRounds },
     });
     if ('error' in guard) return res.status(400).json({ error: guard.error });
     if (guard.queued) {
