@@ -5,6 +5,7 @@ import type { Activity, Agent, Command, CommandAttachmentInput, DeliveryTranspor
 import { MEMORY_MAX_ITEMS, MEMORY_ITEM_MAX_CHARS, MEMORY_MAX_TOTAL_CHARS } from './context-budget.js';
 import { materializeAttachments } from './attachments.js';
 import { postToInbox, inboxReachable } from './inbox-client.js';
+import { markUnreachable } from './dead-inbox.js';
 import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
 import { goalBriefForAgent } from './goal-brief.js';
@@ -46,12 +47,38 @@ import { noteBudgetOnDispatch } from './goal-budget.js';
  */
 
 
+export { noChannel, inboxPending } from './delivery.js';
+
+/**
+ * The outcome of every inbox hand-off still in flight, by command id. `sendCommandToAgent` has
+ * to return before the inbox answers, so a caller that needs the answer (a workflow step, a goal
+ * draft) collects it here instead of reading `delivered: false` as a failure. Entries are removed
+ * once they settle; callers pick theirs up synchronously, right after the send.
+ */
+const inboxOutcomes = new Map<string, Promise<{ ok: boolean; detail: string }>>();
+
+function trackInbox(cmdId: string, outcome: Promise<{ ok: boolean; kind?: string; detail?: string }>): void {
+  const settled = outcome.then(
+    (res) => ({ ok: res.ok, detail: res.ok ? '' : `${res.kind}: ${res.detail}` }),
+    (err) => ({ ok: false, detail: err instanceof Error ? err.message : String(err) }),
+  );
+  inboxOutcomes.set(cmdId, settled);
+  void settled.finally(() => inboxOutcomes.delete(cmdId));
+}
+
+/** The pending inbox hand-off for this command, or undefined if it went another way or has settled. */
+export function whenInboxSettles(cmdId: string): Promise<{ ok: boolean; detail: string }> | undefined {
+  return inboxOutcomes.get(cmdId);
+}
+
 export function sendCommandToAgent(
   agentId: string,
   text: string,
   includeMemory = false,
   attachments?: CommandAttachmentInput[],
-  opts: { trackObjective?: boolean; standard?: boolean; deliverNow?: boolean } = {},
+  // standard: 'silent' offers the contract (the stop gate can arm) without injecting its text —
+  // for dispatches that carry their own completion contract, i.e. workflow steps.
+  opts: { trackObjective?: boolean; standard?: boolean | 'silent'; deliverNow?: boolean } = {},
 ): Command | null {
   const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id, machine, inbox_pid, inbox_token FROM agents WHERE id = ?')
     .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string; machine: string; inbox_pid: number; inbox_token: string } | undefined;
@@ -203,7 +230,7 @@ export function sendCommandToAgent(
     status: agentCheck.status,
     pendingQuestion: agentCheck.pending_question,
   })) {
-    finalText = `${finalText}\n\n${WORK_STANDARD_SHORT}`;
+    if (opts.standard !== 'silent') finalText = `${finalText}\n\n${WORK_STANDARD_SHORT}`;
     db.prepare(
       `UPDATE agents SET standard_offered = 1, standard_armed = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
     ).run(agentId);
@@ -283,7 +310,7 @@ export function sendCommandToAgent(
   if (opts.deliverNow && inboxReachable(agentCheck.inbox_pid)) {
     conclude('inbox-socket', false);
     const cmdId = command.id;
-    void postToInbox({
+    trackInbox(cmdId, postToInbox({
       pid: agentCheck.inbox_pid,
       token: agentCheck.inbox_token || null,
       text: finalText,
@@ -295,7 +322,8 @@ export function sendCommandToAgent(
       } else {
         console.error(`[cmd] deliverNow failed for ${agentCheck.repo_name} (${res.kind}): ${res.detail}`);
       }
-    });
+      return res;
+    }));
     return command;
   }
 
@@ -337,7 +365,7 @@ export function sendCommandToAgent(
        */
       conclude('inbox-socket', false);
       const cmdId = command.id;
-      void postToInbox({
+      trackInbox(cmdId, postToInbox({
         pid: agentCheck.inbox_pid,
         token: agentCheck.inbox_token || null,
         text: finalText,
@@ -350,8 +378,13 @@ export function sendCommandToAgent(
           // Named, not swallowed: 'no-socket' means the session exited, 'stale-pid' means the
           // pid was recycled and we refused to write to a stranger. Those are different repairs.
           console.error(`[cmd] Inbox delivery failed for ${agentCheck.repo_name} (${res.kind}): ${res.detail}`);
+          // Both mean the session behind this inbox is gone, and no relay is connected (this
+          // branch only runs without one). Stop offering the cartridge as available now,
+          // rather than after the 24h silence rule — see lib/dead-inbox.ts.
+          if (res.kind === 'stale-pid' || res.kind === 'no-socket') markUnreachable(agentId, 'inbox-refused');
         }
-      });
+        return res;
+      }));
     } else {
       // Nothing is listening. The command row stays 'pending' and will drain if a socket
       // reconnects — but nothing guarantees that, and callers must be able to tell the

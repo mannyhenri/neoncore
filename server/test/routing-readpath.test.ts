@@ -89,6 +89,9 @@ const INTERNAL_STEP_COLUMNS: Record<string, string> = {
     'agent\'s CURRENT session to detect a prompt delivered into a session that has since been ' +
     'replaced (see lib/step-session-guard.ts). Purely a recovery signal — a client shows the ' +
     'step status, not the plumbing that keeps it alive.',
+  dispatch_agent_id:
+    'which cartridge that prompt went to (a review gate may use a reviewer, not the executor). ' +
+    'Recovery plumbing for lib/step-session-guard.ts, like dispatch_session_id.',
 };
 
 const INTERNAL_AGENT_COLUMNS: Record<string, string> = {

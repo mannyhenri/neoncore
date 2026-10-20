@@ -118,3 +118,9 @@ export function getServerIdentity(): { serverId: string; name: string; url: stri
  * partitions the whole fleet — strictly worse than a degraded merge.
  */
 export const SERVER_VERSION = '1';
+
+/**
+ * The auth header for any curl an agent is told to run against the API. Same token file the hooks
+ * read (agent/hooks/_fleet.py); without it every such curl is a 401 once auth is strict.
+ */
+export const AUTH_CURL_HEADER = '-H "Authorization: Bearer $(cat ~/.neoncore/token)"';

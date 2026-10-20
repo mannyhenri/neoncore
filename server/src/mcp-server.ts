@@ -32,6 +32,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import os from 'os';
 import { getServerBaseUrl } from './lib/server-url.js';
+import { noChannel, inboxPending } from './lib/delivery.js';
 
 // NEONCORE_URL wins (correct for remote agents pointing at the server's LAN URL);
 // otherwise derive from the machine's network name — for a same-machine setup that
@@ -160,7 +161,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           sessionId: { type: 'string', description: 'Session identifier from neoncore_register' },
           stepId:    { type: 'string', description: 'The workflow step id (given in the task instructions)' },
           panelAgentId: { type: 'string', description: 'Only for a PANEL step: your agent id, given in the task instructions. Omit for a normal step.' },
-          result:    { type: 'string', description: 'Summary of what was done + guidance for the next step' },
+          result:    { type: 'string', description: 'Summary of what was done' },
+          next:      { type: 'string', description: 'What the next step should focus on (short). Stored first so it survives truncation.' },
           scope:     { type: 'string', description: 'Completed vs total items this step covered, e.g. "15/15 — 12 sections + 3 attachment types". Enumerate from the code, not the description.' },
           verify:    { type: 'string', description: 'The exact command you ran and its REAL output, e.g. "npm test -- report-copy → 15 passed". Never report verification you did not perform.' },
           deferred:  { type: 'string', description: 'Anything in scope you did not do, and why. "none" if nothing.' },
@@ -455,7 +457,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === 'neoncore_report_step_done') {
-    const { stepId, result, scope, verify, deferred } = args as Record<string, string>;
+    const { stepId, result, scope, verify, deferred, next } = args as Record<string, string>;
     const report = (args as Record<string, unknown>).report;
     if (!stepId) return text('ERROR: stepId is required to report step completion.');
     try {
@@ -466,12 +468,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const route = panelAgentId
         ? `/api/workflows/webhook/${stepId}/panel/${panelAgentId}/complete`
         : `/api/workflows/webhook/${stepId}/complete`;
-      await post(route, { result: result || 'Completed.', scope, verify, deferred, ...(report ? { report } : {}) });
+      await post(route, { result: result || 'Completed.', next, scope, verify, deferred, ...(report ? { report } : {}) });
       log(`Step ${stepId} reported complete`);
       return text(`Step ${stepId} marked complete in NeonCore. The workflow will now advance.`);
     } catch (err) {
       log(`report_step_done failed: ${err}`);
-      return text(`Could not mark step complete via NeonCore (${err}). As a fallback, run: curl -s -X POST ${BASE_URL}/api/workflows/webhook/${stepId}/complete -H 'Content-Type: application/json' -d '{"result":"..."}'`);
+      return text(`Could not mark step complete via NeonCore (${err}). As a fallback, run: curl -s -X POST ${BASE_URL}/api/workflows/webhook/${stepId}/complete -H "Authorization: Bearer $(cat ~/.neoncore/token)" -H 'Content-Type: application/json' -d '{"result":"..."}'`);
     }
   }
 
@@ -589,7 +591,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         text: message,
         includeMemory: false,
       }) as Record<string, unknown>;
-      if (cmd && cmd.delivered === false) {
+      if (cmd && inboxPending(cmd)) {
+        return text(`Message handed to ${targetAgentId}'s inbox (no relay connected) — delivery not yet confirmed.`);
+      }
+      if (cmd && noChannel(cmd)) {
         return text(`Message queued but NOT delivered to ${targetAgentId} — no live command channel (is that cartridge running?).`);
       }
       return text(`Message delivered to agent ${targetAgentId}.`);

@@ -4,7 +4,7 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import { resolveAgentId, projectIdsForAgent, agentIdsForProject } from '../lib/resolve-agent.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
-import { validateCompletionPayload } from '../lib/work-standard.js';
+import { validateCompletionPayload, disarmOnReport } from '../lib/work-standard.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
 import { blockedReason, readyTaskIds, taskIsReady, nextTaskToward } from '../lib/task-dependencies.js';
 import { decompositionContextFor } from '../lib/goal-decomposition.js';
@@ -393,6 +393,7 @@ router.post('/:id/complete', (req, res) => {
   const now = new Date().toISOString();
   db.prepare('UPDATE tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
     .run(finalStatus, (result || '') + completionNote, error || '', now, req.params.id);
+  disarmOnReport(db, agentId);
   const updated = getTask(req.params.id)!;
   getIO().emit('task_updated', updated);
   // A finished prerequisite is the ONLY thing that unblocks its dependents, so every path that

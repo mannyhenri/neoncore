@@ -7,12 +7,12 @@
  */
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import { sendCommandToAgent } from './send-command.js';
+import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
 import { notifyWorkflowFinished } from './notices.js';
 import { notifyAll } from './channels.js';
 import { DEP_RESULT_MAX_CHARS, DEP_TOTAL_MAX_CHARS } from './context-budget.js';
-import { getServerBaseUrl } from './server-url.js';
+import { getServerBaseUrl, AUTH_CURL_HEADER } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { recordJournal } from './workflow-journal.js';
 import { blockForRepo, parseAttachmentBlocks } from './attachments.js';
@@ -25,6 +25,7 @@ import {
 import { normalizeStep } from './workflow-normalize.js';
 import { buildRunReportContext } from './workflow-report.js';
 import { buildLaunchContext } from './workflow-context.js';
+import { markStepPrompt } from './step-session-guard.js';
 // Re-exported for the modules that already import it from here. The DEFINITION lives in
 // lib/workflow-normalize.ts — a serializer is not the executor's to own, and it having been
 // owned by two modules at once is what let the copies drift.
@@ -56,30 +57,32 @@ const POLL_INTERVAL_MS = 12_000;
  * there and demanding one would break every existing gate.
  */
 function buildCompletionSuffix(stepId: string, structured = true): string {
-  const baseUrl = getServerBaseUrl();
-  const url = `"\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/complete"`;
+  const fallback = curlFallback(`/api/workflows/webhook/${stepId}/complete`,
+    structured ? '{"result":"…","scope":"…","verify":"…"}' : '{"result":"…"}');
 
   if (!structured) {
-    return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by calling the\n`
-      + `MCP tool \`neoncore_report_step_done\` with:\n`
-      + `    stepId: "${stepId}"\n`
-      + `    result: "<Summarize what you did and what the next step should focus on>"\n`
-      + `This step stays "running" until you call it — silence is never a completion signal.\n`
-      + `Fallback, ONLY if the neoncore MCP server is unavailable to you:\n`
-      + `curl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "<summary>"}'`;
+    return `\n\n[Completion] When done, call MCP tool \`neoncore_report_step_done\`(stepId: "${stepId}", result: "<your verdict>"). `
+      + `The step stays running until you do.\n${fallback}`;
   }
 
-  return `\n\nIMPORTANT: When you have fully completed this task, you MUST signal completion by calling the\n`
-    + `MCP tool \`neoncore_report_step_done\` with:\n`
-    + `    stepId:   "${stepId}"\n`
-    + `    result:   "<what you did + what the next step should focus on>"\n`
-    + `    scope:    "<done>/<total> — <what the complete set was>"\n`
-    + `    verify:   "<exact command run> → <actual output>"\n`
-    + `    deferred: "<anything in scope you did not do, and why; \"none\" if nothing>"\n`
-    + `\`scope\` and \`verify\` are REQUIRED and are checked: a completion with no real verification output is rejected and this step stays running. Do not report verification you did not actually run.\n`
-    + `Do NOT signal completion until all work is finished.\n`
-    + `Fallback, ONLY if the neoncore MCP server is unavailable to you:\n`
-    + `curl -s -X POST ${url} -H 'Content-Type: application/json' -d '{"result": "...", "scope": "...", "verify": "...", "deferred": "none"}'`;
+  // ~1,000 chars of this used to repeat what the work-standard block also demanded. It is now
+  // the step's ONLY contract (the dispatch carries the standard silently, and an accepted report
+  // disarms the stop gate), and the rule for each field lives in the tool's own schema, which the
+  // engine loads once per session — test/step-completion-instruction.test.ts holds both halves.
+  return `\n\n[Completion] When done, call MCP tool \`neoncore_report_step_done\` with stepId: "${stepId}" and fill `
+    + `every field its schema describes (result, next, scope, verify, deferred). scope and verify are checked: `
+    + `an unverified completion is rejected and the step stays running.\n${fallback}`;
+}
+
+/**
+ * The curl that works when the agent has no MCP server. Authenticated: once the fleet runs with
+ * NEONCORE_AUTH_MODE=strict an unauthenticated webhook is refused, and this line is the agent's
+ * only way out. Same token file the hooks read (agent/hooks/_fleet.py).
+ */
+function curlFallback(route: string, body: string): string {
+  const url = `"\${NEONCORE_URL:-${getServerBaseUrl()}}${route}"`;
+  return `Fallback ONLY if that tool is unavailable: curl -s -X POST ${url} `
+    + `${AUTH_CURL_HEADER} -H 'Content-Type: application/json' -d '${body}'`;
 }
 
 /**
@@ -88,18 +91,11 @@ function buildCompletionSuffix(stepId: string, structured = true): string {
  * everyone. Their verdicts land in executor_config.panelResults[agentId].
  */
 function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
-  const baseUrl = getServerBaseUrl();
   // panelAgentId is what keeps members apart: they all report against the SAME step, so
   // without it the first responder would complete the step for everyone.
-  return `\n\nIMPORTANT: When you have fully finished, you MUST submit your response by calling the\n`
-    + `MCP tool \`neoncore_report_step_done\` with:\n`
-    + `    stepId:       "${stepId}"\n`
-    + `    panelAgentId: "${agentId}"\n`
-    + `    result:       "<your full response>"\n`
-    + `You are one member of a panel; the deliberation cannot advance until you submit.\n`
-    + `Do NOT submit until your work is finished.\n`
-    + `Fallback, ONLY if the neoncore MCP server is unavailable to you:\n`
-    + `curl -s -X POST "\${NEONCORE_URL:-${baseUrl}}/api/workflows/webhook/${stepId}/panel/${agentId}/complete" -H 'Content-Type: application/json' -d '{"result": "<your full response>"}'`;
+  return `\n\n[Completion] You are one member of a panel. When done, call MCP tool \`neoncore_report_step_done\` `
+    + `with stepId: "${stepId}", panelAgentId: "${agentId}", result: <your full response>. The panel cannot advance until you do.\n`
+    + curlFallback(`/api/workflows/webhook/${stepId}/panel/${agentId}/complete`, '{"result":"…"}');
 }
 
 /** Test seams — the instruction text is the product here, so it is asserted directly. */
@@ -153,21 +149,44 @@ function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, 
 
   const finalText = withWorktree + attachmentBlockForStep(step.workflowId, agentId);
 
-  const command = sendCommandToAgent(agentId, finalText, includeMemory);
+  // Silent standard: the step's completion instruction IS its contract (report_step_done with
+  // scope + verify, enforced by the webhook), and an accepted report disarms the stop gate.
+  // Injecting the NEONCORE-DONE block as well asked for the same thing twice.
+  const command = sendCommandToAgent(agentId, finalText, includeMemory, undefined, { standard: 'silent' });
 
-  if (!command || command.delivered === false) {
-    const reason = !command
+  if (noChannel(command)) {
+    failUndelivered(step, !command
       ? `agent ${agentId} not found`
-      : `no command channel for "${getAgentName(agentId)}" — nothing is listening (start a relay for that cartridge)`;
-    const now = new Date().toISOString();
-    db.prepare('UPDATE workflow_steps SET status = ?, error = ?, completed_at = ? WHERE id = ?')
-      .run('failed', `Command not delivered: ${reason}`, now, step.id);
-    emitStepUpdate(step.id);
-    emitStepLog(step.workflowId, step.id, step.name, `Command not delivered: ${reason}`, 'error');
-    console.error(`[workflow-v2] Step "${step.name}" failed — ${reason}`);
+      : `no command channel for "${getAgentName(agentId)}" — nothing is listening (start a relay for that cartridge)`);
     return false;
   }
+
+  // Handed to the cartridge's inbox: the step is in flight, not failed (run 81 failed here in 4ms
+  // while the inbox was still delivering). Fail it only if the inbox turns the hand-off down, and
+  // only if the step is still waiting on THIS dispatch. A re-dispatch since then owns the step.
+  if (inboxPending(command)) {
+    const startedAt = (db.prepare('SELECT started_at FROM workflow_steps WHERE id = ?')
+      .get(step.id) as { started_at?: string } | undefined)?.started_at ?? null;
+    emitStepLog(step.workflowId, step.id, step.name,
+      `No relay for "${getAgentName(agentId)}" — handed to its inbox; waiting for the inbox to confirm`, 'info');
+    void whenInboxSettles(command!.id)?.then((out) => {
+      if (out.ok) return;
+      const now = db.prepare('SELECT status, started_at FROM workflow_steps WHERE id = ?')
+        .get(step.id) as { status?: string; started_at?: string } | undefined;
+      if (now?.status !== 'running' || (now.started_at ?? null) !== startedAt) return;
+      failUndelivered(step, `the inbox of "${getAgentName(agentId)}" refused it (${out.detail}) and no relay is connected`);
+    });
+  }
   return true;
+}
+
+function failUndelivered(step: WorkflowStep, reason: string): void {
+  const now = new Date().toISOString();
+  db.prepare('UPDATE workflow_steps SET status = ?, error = ?, completed_at = ? WHERE id = ?')
+    .run('failed', `Command not delivered: ${reason}`, now, step.id);
+  emitStepUpdate(step.id);
+  emitStepLog(step.workflowId, step.id, step.name, `Command not delivered: ${reason}`, 'error');
+  console.error(`[workflow-v2] Step "${step.name}" failed — ${reason}`);
 }
 
 /** Expert role prompt prefixes — keyed by role ID */
@@ -406,6 +425,13 @@ function isMemoryEnabled(_agentId: string): boolean {
   return true;
 }
 
+/** Typed output format instructions, keyed by executorConfig.outputSchema. */
+const OUTPUT_FORMAT_INSTRUCTIONS: Record<string, string> = {
+  test_results: `\n\nOUTPUT FORMAT: After completing all work, end your response with a structured test results block (copy this format exactly):\n\n---TEST RESULTS---\nSTATUS: PASS\nPASSED: N\nFAILED: N\nFAILED_TESTS:\n- test name: error message\n---END TEST RESULTS---\n\nReplace N with actual counts. List each failed test on its own "- name: error" line. If all pass, omit FAILED_TESTS.`,
+  code_review: `\n\nOUTPUT FORMAT: After completing your review, end your response with a structured code review block (copy this format exactly):\n\n---CODE REVIEW---\nSTATUS: PASS\nCRITICAL: N\nHIGH: N\nMEDIUM: N\nLOW: N\nISSUES:\n- [SEVERITY] file:line — description\n---END CODE REVIEW---\n\nSTATUS is PASS if no critical/high issues, FAIL otherwise. List each issue on its own line.`,
+  design_doc: `\n\nOUTPUT FORMAT: Structure your response as a markdown design document with clear sections (## headings). Include: Overview, Problem, Solution, Architecture, Trade-offs, and Next Steps.`,
+};
+
 /** Standard step execution — dispatches prompt to agent with role prefix, memory, webhook */
 async function executeStandardStep(step: WorkflowStep): Promise<void> {
   const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
@@ -421,7 +447,9 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   // If workflowContext: true, prepend the workflow name + description so the agent
   // knows what feature/task it is validating (set on first steps with no deps).
   let workflowCtx = '';
-  if (step.executorConfig.workflowContext) {
+  // buildLaunchContext (below) already gives a first step the description; saying it again here
+  // put the same paragraph in the prompt twice. Only a step with dependencies still needs this.
+  if (step.executorConfig.workflowContext && step.dependsOn.length > 0) {
     const wf = db.prepare('SELECT name, description FROM workflows WHERE id = ?')
       .get(step.workflowId) as { name: string; description: string } | undefined;
     if (wf?.description) {
@@ -443,13 +471,7 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     runReportCtx = buildRunReportContext(db, step.workflowId, step.id, getServerBaseUrl());
   }
 
-  // Typed output format instructions
   const outputSchema = step.executorConfig.outputSchema as string | undefined;
-  const OUTPUT_FORMAT_INSTRUCTIONS: Record<string, string> = {
-    test_results: `\n\nOUTPUT FORMAT: After completing all work, end your response with a structured test results block (copy this format exactly):\n\n---TEST RESULTS---\nSTATUS: PASS\nPASSED: N\nFAILED: N\nFAILED_TESTS:\n- test name: error message\n---END TEST RESULTS---\n\nReplace N with actual counts. List each failed test on its own "- name: error" line. If all pass, omit FAILED_TESTS.`,
-    code_review: `\n\nOUTPUT FORMAT: After completing your review, end your response with a structured code review block (copy this format exactly):\n\n---CODE REVIEW---\nSTATUS: PASS\nCRITICAL: N\nHIGH: N\nMEDIUM: N\nLOW: N\nISSUES:\n- [SEVERITY] file:line — description\n---END CODE REVIEW---\n\nSTATUS is PASS if no critical/high issues, FAIL otherwise. List each issue on its own line.`,
-    design_doc: `\n\nOUTPUT FORMAT: Structure your response as a markdown design document with clear sections (## headings). Include: Overview, Problem, Solution, Architecture, Trade-offs, and Next Steps.`,
-  };
   const formatSuffix = outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[outputSchema] || '') : '';
 
   // Always append completion instructions so the agent signals when done. There is no
@@ -488,15 +510,18 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   emitStepLog(step.workflowId, step.id, step.name, `Prompt composed: ${parts.join(' + ')} (${finalPrompt.length} chars)`, 'info');
   console.log(`[workflow-v2] Step "${step.name}" prompt (${finalPrompt.length} chars): role=${role}, webhook=true, memory=${includeMemory}, deps=${step.dependsOn.length}`);
 
+  // Line 1 marks this dispatch so the session guard can see the engine received it.
+  const markedFinalPrompt = markStepPrompt(step.id, finalPrompt);
   db.prepare(
     // The session is recorded WITH the prompt: a dispatch the guard cannot attribute to a
     // session is a dispatch it can never judge (see lib/step-session-guard.ts).
     `UPDATE workflow_steps
         SET dispatched_prompt = ?,
-            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = workflow_steps.executor_id), '')
+            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = ?), ''),
+            dispatch_agent_id = ?
       WHERE id = ?`,
-  ).run(finalPrompt, step.id);
-  if (!dispatchStepCommand(step, step.executorId, finalPrompt, includeMemory)) return;
+  ).run(markedFinalPrompt, step.executorId, step.executorId, step.id);
+  if (!dispatchStepCommand(step, step.executorId, markedFinalPrompt, includeMemory)) return;
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
 }
@@ -552,16 +577,19 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const agentName = getAgentName(reviewAgentId);
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching critic review to "${agentName}" (retry ${currentRetry}/${maxRetries})`, 'info');
 
+  // Line 1 marks this dispatch so the session guard can see the engine received it.
+  const markedReviewPrompt = markStepPrompt(step.id, reviewPrompt);
   db.prepare(
     // The session is recorded WITH the prompt: a dispatch the guard cannot attribute to a
     // session is a dispatch it can never judge (see lib/step-session-guard.ts).
     `UPDATE workflow_steps
         SET dispatched_prompt = ?,
-            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = workflow_steps.executor_id), '')
+            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = ?), ''),
+            dispatch_agent_id = ?
       WHERE id = ?`,
-  ).run(reviewPrompt, step.id);
+  ).run(markedReviewPrompt, reviewAgentId, reviewAgentId, step.id);
   const includeMemory = isMemoryEnabled(reviewAgentId);
-  dispatchStepCommand(step, reviewAgentId, reviewPrompt, includeMemory);
+  dispatchStepCommand(step, reviewAgentId, markedReviewPrompt, includeMemory);
 }
 
 /** Find online agents matching a repo path */
@@ -605,13 +633,31 @@ function conferSummary(session: ConferSession): string {
       return r?.repo_name || r?.name || id.slice(0, 8);
     });
   const repos = [...new Set(names)];
+  // WHAT THEY REPORTED, not what they were asked. This used to end with `session.task` — the
+  // prompt — so every step after a confer received its predecessor's INSTRUCTIONS as that
+  // step's result. Run 86's Load Epic handed on the placeholder "TASKS: [count of tasks not
+  // yet done]" while the participants' "TASKS 14" sat unread in the milestones, and the work
+  // loop ran once for a 14-task epic. The prompt is also actively harmful here: it contains
+  // the loop's own stop phrase. The last finished milestone holds each participant's answer.
+  const last = db.prepare(
+    `SELECT name, results FROM confer_milestones WHERE session_id = ? AND status = 'done' ORDER BY idx DESC LIMIT 1`,
+  ).get(session.id) as { name: string; results: string } | undefined;
+  let reports: Record<string, string> = {};
+  try { reports = JSON.parse(last?.results || '{}') as Record<string, string>; } catch { reports = {}; }
+  const reportLines = Object.entries(reports).map(([agentId, text]) => {
+    const r = db.prepare('SELECT name, repo_name FROM agents WHERE id = ?').get(agentId) as
+      { name?: string; repo_name?: string } | undefined;
+    return `### ${r?.repo_name || r?.name || agentId.slice(0, 8)}\n${String(text).trim()}`;
+  });
   return [
     `CONFER: ${session.id}`,
     `MODE: ${session.mode}`,
     `PARTICIPANTS: ${session.participantIds.length} across ${repos.length} repo(s) — ${repos.join(', ')}`,
     `MILESTONES: completed through ${session.currentMilestone}`,
     '',
-    session.task,
+    reportLines.length > 0
+      ? `## What the participants reported (${last?.name ?? 'final milestone'})\n\n${reportLines.join('\n\n')}`
+      : '## No participant report was recorded for the final milestone',
   ].join('\n');
 }
 
@@ -642,6 +688,36 @@ function cartridgeLabels(ids: string[]): string {
       { name?: string; repo_name?: string } | undefined;
     return r?.repo_name ? `${r.repo_name} (${r.name || id.slice(0, 8)})` : (r?.name || id.slice(0, 8));
   }).join(', ');
+}
+
+/**
+ * A waiting step says so ON THE STEP. The executor parks a confer back to `pending` while a
+ * participant is busy — the same state as a step never dispatched — so without this a waiting
+ * run and a dead run look identical on the canvas (runs 75, 78 and 84 were cancelled that way).
+ * `routing_note` is what the canvas prints under a step. The wait owns ONE line, starting
+ * "Waiting since"; every other note on the step is left alone.
+ */
+function setWaitNote(stepId: string, line: string | null): void {
+  const row = db.prepare('SELECT routing_note FROM workflow_steps WHERE id = ?').get(stepId) as
+    { routing_note: string } | undefined;
+  const kept = (row?.routing_note || '').split('\n').filter((l) => l && !l.startsWith('Waiting since'));
+  const next = (line ? [line, ...kept] : kept).join('\n');
+  if (next !== (row?.routing_note || '')) {
+    db.prepare('UPDATE workflow_steps SET routing_note = ? WHERE id = ?').run(next, stepId);
+  }
+}
+
+/** Who is blocking and what each is doing — the part a person needs to decide whether to wait. */
+function blockerSummary(ids: string[]): string {
+  return [...new Set(ids)].map((id) => {
+    const r = db.prepare('SELECT name, repo_name, status, current_task, pending_question FROM agents WHERE id = ?').get(id) as
+      { name?: string; repo_name?: string; status?: string; current_task?: string; pending_question?: string } | undefined;
+    const who = r?.repo_name || r?.name || id.slice(0, 8);
+    const doing = r?.pending_question ? 'waiting on your answer'
+      : r?.current_task ? `${r.status || 'busy'}: ${r.current_task.replace(/\s+/g, ' ').slice(0, 80)}`
+      : (r?.status || 'busy');
+    return `${who} (${doing})`;
+  }).join('; ');
 }
 
 async function executeConfer(step: WorkflowStep): Promise<void> {
@@ -679,17 +755,26 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   ];
   if (busy.length > 0) {
     db.prepare("UPDATE workflow_steps SET status = 'pending', started_at = NULL WHERE id = ?").run(step.id);
-    emitStepUpdate(step.id);
     // Log once per change in who is blocking, not every tick.
     const waitingOn = [...new Set(busy)].sort().join(',');
-    if (cfg.conferWaitingOn !== waitingOn) {
+    const since = (cfg.conferWaitingSince as string) || new Date().toISOString();
+    if (cfg.conferWaitingOn !== waitingOn || !cfg.conferWaitingSince) {
       db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
-        .run(JSON.stringify({ ...cfg, conferWaitingOn: waitingOn }), step.id);
+        .run(JSON.stringify({ ...cfg, conferWaitingOn: waitingOn, conferWaitingSince: since }), step.id);
       emitStepLog(step.workflowId, step.id, step.name,
         `Confer waiting — busy in its repos: ${cartridgeLabels(busy)}. It starts when they are free.`, 'info');
+      setWaitNote(step.id, `Waiting since ${since.slice(11, 16)} UTC for: ${blockerSummary(busy)}. `
+        + 'It starts when they are free.');
     }
+    emitStepUpdate(step.id);
     return;
   }
+  // Not waiting (any more): the note and the clock go, so a started confer never reads as stuck.
+  if (cfg.conferWaitingSince || cfg.conferWaitingOn) {
+    const { conferWaitingOn: _on, conferWaitingSince: _since, ...rest } = cfg;
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(rest), step.id);
+  }
+  setWaitNote(step.id, null);
 
   // The session's home repo. Participants keep their own; this only names where the shared
   // record lives, so the first participant's repo is as good an answer as any and better
@@ -703,11 +788,21 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   const task = buildLaunchContext(db, step) + context
     + ((cfg.prompt as string) || step.description || step.name);
 
+  // A confer step must carry the RUN'S attachments, which are already materialized into every
+  // participant's checkout at launch and stored on the workflow as repoPath → prompt block.
+  // Omitting them here was invisible in the worst way: the bytes DID land on disk, so the files
+  // were there and nothing errored — but no participant was ever told they existed, and an
+  // agent reads files, not intentions. Reported as "the attached pictures don't get to
+  // interlag"; run #26 held the block on its workflow row while the confer it spawned stored {}.
+  const wfRow = db.prepare('SELECT attachments FROM workflows WHERE id = ?')
+    .get(step.workflowId) as { attachments?: string } | undefined;
+
   const session = startConfer({
     repoName: home.repo_name || '',
     repoPath: home.repo_path || '',
     participantIds,
     task,
+    attachmentBlocks: parseAttachmentBlocks(wfRow?.attachments),
     mode: (cfg.conferMode as 'divide' | 'collaborate') === 'collaborate' ? 'collaborate' : 'divide',
     isolation: (cfg.conferIsolation as 'worktree' | 'shared') === 'worktree' ? 'worktree' : 'shared',
     buildRounds: typeof cfg.buildRounds === 'number' ? cfg.buildRounds : 1,
@@ -1059,7 +1154,15 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
     : '';
 
   const depContext = gatherDependencyContext(step);
-  const finalPrompt = depContext + feedbackBlock + basePrompt
+  // Name where a FAIL sends the work. A retry otherwise resets only the gate's direct
+  // dependencies — for the auto-appended Work Standard gate that is Notify, so run 86's retry
+  // re-sent a notification and re-audited unchanged work. See retryTargets().
+  const upstream = upstreamStepNames(step);
+  const retryHint = upstream.length > 0
+    ? `\n\nIf FAIL: add a line \`RETRY FROM: <step name>\` naming the step in this run that must redo the work — `
+      + `it and every step after it re-run with your feedback. Choose from: ${upstream.map((s) => `"${s}"`).join(', ')}.`
+    : '';
+  const finalPrompt = depContext + feedbackBlock + basePrompt + retryHint
     + buildCompletionSuffix(step.id, false)
     + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
@@ -1067,16 +1170,113 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
   const gateLabel = preset?.label ?? gateType;
   emitStepLog(step.workflowId, step.id, step.name, `Dispatching quality gate [${gateLabel}] to "${agentName}" (attempt ${currentRetry + 1}/${maxRetries + 1})`, 'info');
 
+  // Line 1 marks this dispatch so the session guard can see the engine received it.
+  const markedFinalPrompt = markStepPrompt(step.id, finalPrompt);
   db.prepare(
     // The session is recorded WITH the prompt: a dispatch the guard cannot attribute to a
     // session is a dispatch it can never judge (see lib/step-session-guard.ts).
     `UPDATE workflow_steps
         SET dispatched_prompt = ?,
-            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = workflow_steps.executor_id), '')
+            dispatch_session_id = COALESCE((SELECT session_id FROM agents WHERE id = ?), ''),
+            dispatch_agent_id = ?
       WHERE id = ?`,
-  ).run(finalPrompt, step.id);
+  ).run(markedFinalPrompt, agentId, agentId, step.id);
   const includeMemory = isMemoryEnabled(agentId);
-  dispatchStepCommand(step, agentId, finalPrompt, includeMemory);
+  dispatchStepCommand(step, agentId, markedFinalPrompt, includeMemory);
+}
+
+/** Steps the work cannot be redone in: they only report or notify. */
+const PASS_THROUGH_TYPES = new Set(['connector']);
+
+/** Every step upstream of `step`, in run order. What a gate may name in RETRY FROM. */
+function upstreamStepNames(step: WorkflowStep): string[] {
+  const rows = db.prepare('SELECT id, name, depends_on, position_y FROM workflow_steps WHERE workflow_id = ?')
+    .all(step.workflowId) as { id: string; name: string; depends_on: string; position_y: number }[];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const seen = new Set<string>();
+  const walk = (ids: string[]) => {
+    for (const id of ids) {
+      if (seen.has(id) || !byId.has(id)) continue;
+      seen.add(id);
+      walk(JSON.parse(byId.get(id)!.depends_on || '[]') as string[]);
+    }
+  };
+  walk(step.dependsOn);
+  return rows.filter((r) => seen.has(r.id)).sort((a, b) => a.position_y - b.position_y).map((r) => r.name);
+}
+
+/**
+ * Which steps a failed gate resets, and which of them receive its feedback.
+ *
+ * Always at least the old behaviour — the gate's direct dependencies — so a template that loops
+ * through its gate (the performance template resets its approval step this way) is never
+ * narrowed. Two additions:
+ *  - a dependency that only notifies (a connector) is passed through to ITS dependencies, so the
+ *    retry reaches a step that does work (run 86's gate reset only Notify);
+ *  - `RETRY FROM: <name>` in the verdict, if that step is upstream of the gate, resets it and
+ *    every step between it and the gate, feedback on the named step. A name that is not
+ *    upstream is ignored: the gate may choose where to go back to, not invent a step.
+ */
+function retryTargets(gate: WorkflowStep, verdict: string, allSteps: WorkflowStep[]):
+  { reset: string[]; feedbackOn: Set<string>; named: string | null } {
+  const byId = new Map(allSteps.map((s) => [s.id, s]));
+  const reset = new Set<string>();
+  const feedbackOn = new Set<string>();
+
+  const climb = (ids: string[]) => {
+    for (const id of ids) {
+      const s = byId.get(id);
+      if (!s || reset.has(id)) continue;
+      reset.add(id);
+      if (PASS_THROUGH_TYPES.has(s.executorType)) climb(s.dependsOn);
+      else feedbackOn.add(id);
+    }
+  };
+  climb(gate.dependsOn);
+
+  let named: string | null = null;
+  const m = verdict.match(/^\s*RETRY FROM:\s*"?([^"\n]+?)"?\s*$/im);
+  if (m) {
+    const want = m[1].trim().toLowerCase();
+    const upstream = new Set<string>();
+    const walk = (ids: string[]) => {
+      for (const id of ids) {
+        if (upstream.has(id) || !byId.has(id)) continue;
+        upstream.add(id);
+        walk(byId.get(id)!.dependsOn);
+      }
+    };
+    walk(gate.dependsOn);
+    const target = allSteps.find((s) => upstream.has(s.id) && s.name.trim().toLowerCase() === want);
+    if (target) {
+      named = target.name;
+      // target + every upstream step that depends (transitively) on it: the path to the gate.
+      const onPath = (id: string, seen = new Set<string>()): boolean => {
+        if (id === target.id) return true;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return (byId.get(id)?.dependsOn ?? []).some((d) => onPath(d, seen));
+      };
+      for (const id of upstream) if (onPath(id)) reset.add(id);
+      feedbackOn.add(target.id);
+    }
+  }
+  return { reset: [...reset], feedbackOn, named };
+}
+
+/**
+ * A reset step starts over, not from where its last run stopped: the loop re-reads its count,
+ * a confer starts a new session (the old, completed one would otherwise complete the step on
+ * the next tick), and a confer wait note is cleared.
+ */
+function freshRunConfig(cfg: Record<string, unknown>): Record<string, unknown> {
+  const {
+    _resolvedLoopCount, _currentLoop, _loopExtensions, _lastLoopResult,
+    conferSessionId, conferWaitingOn, conferWaitingSince, ...rest
+  } = cfg;
+  void _resolvedLoopCount; void _currentLoop; void _loopExtensions; void _lastLoopResult;
+  void conferSessionId; void conferWaitingOn; void conferWaitingSince;
+  return rest;
 }
 
 /** Handle quality-gate result: PASS completes, FAIL triggers retry or fails */
@@ -1113,23 +1313,30 @@ function processQualityGateResult(
       .run('pending', '', updatedConfig, step.id);
     emitStepUpdate(step.id);
 
-    // Also reset dependency steps so the agent can re-do the work with feedback
-    for (const depId of step.dependsOn) {
+    // Reset the work the gate is judging, so the retry can actually redo it — see retryTargets.
+    const { reset, feedbackOn, named } = retryTargets(step, result, allSteps);
+    if (named) {
+      emitStepLog(workflowId, step.id, step.name, `Retrying from "${named}", as the gate asked`, 'warn');
+    }
+    for (const depId of reset) {
       const dep = allSteps.find((s) => s.id === depId);
       if (!dep) continue;
-
-      const updatedDepConfig = JSON.stringify({
+      const gets = feedbackOn.has(depId);
+      const updatedDepConfig = JSON.stringify(freshRunConfig({
         ...dep.executorConfig,
-        retryFeedback: `[Quality gate "${gateLabel}" feedback from attempt ${nextRetry}]\n${result}`,
-        prompt: dep.executorConfig.prompt
-          ? `${dep.executorConfig.prompt}\n\n[QUALITY GATE FEEDBACK — please address these issues]\n${result}`
-          : dep.executorConfig.prompt,
-      });
+        ...(gets ? {
+          retryFeedback: `[Quality gate "${gateLabel}" feedback from attempt ${nextRetry}]\n${result}`,
+          prompt: dep.executorConfig.prompt
+            ? `${dep.executorConfig.prompt}\n\n[QUALITY GATE FEEDBACK — please address these issues]\n${result}`
+            : dep.executorConfig.prompt,
+        } : {}),
+      }));
 
       db.prepare('UPDATE workflow_steps SET status = ?, result = ?, error = ?, started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?')
         .run('pending', '', '', updatedDepConfig, depId);
       emitStepUpdate(depId);
-      emitStepLog(workflowId, depId, dep.name, `Reset for quality gate retry ${nextRetry} with feedback`, 'warn');
+      emitStepLog(workflowId, depId, dep.name,
+        gets ? `Reset for quality gate retry ${nextRetry} with feedback` : `Reset for quality gate retry ${nextRetry}`, 'warn');
     }
   } else {
     const failure = `Quality gate [${gateLabel}] failed after ${maxRetries} retries`;
@@ -2024,6 +2231,48 @@ function processWorkflow(workflowId: string) {
     });
   }
 
+  // STRANDED STEPS. A step whose dependency FAILED can never become ready, and a run only
+  // finishes when every step is terminal — so without this a failure anywhere but the last
+  // step left the run `running` forever (run 86: Work Standard Check failed at 04:50, the run
+  // still "running" hours later with its completion report pending, and no one told). Only
+  // judged when nothing is running and nothing is about to start, so a retry loop, a waiting
+  // confer or an independent branch still working can never be cut short.
+  if (readySteps.length === 0 && !currentSteps.some((s) => s.status === 'running')) {
+    const byId = new Map(currentSteps.map((s) => [s.id, s]));
+    const strandedBy = new Map<string, string>(); // stepId -> name of the failed step behind it
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const s of currentSteps) {
+        if (s.status !== 'pending' || strandedBy.has(s.id)) continue;
+        for (const depId of s.dependsOn) {
+          const dep = byId.get(depId);
+          const cause = dep?.status === 'failed' ? dep.name : strandedBy.get(depId);
+          if (cause) { strandedBy.set(s.id, cause); changed = true; break; }
+        }
+      }
+    }
+    if (strandedBy.size > 0) {
+      const now = new Date().toISOString();
+      for (const [stepId, cause] of strandedBy) {
+        db.prepare("UPDATE workflow_steps SET status = 'skipped', error = ?, completed_at = ? WHERE id = ? AND status = 'pending'")
+          .run(`Skipped: it depends on "${cause}", which failed`, now, stepId);
+        emitStepUpdate(stepId);
+        const s = byId.get(stepId)!;
+        s.status = 'skipped';
+      }
+      const failedStep = currentSteps.find((s) => s.status === 'failed');
+      if (failedStep) {
+        emitStepLog(workflowId, failedStep.id, failedStep.name,
+          `Run ended: ${strandedBy.size} step(s) depended on this failure and cannot run`, 'error');
+        try {
+          notifyNeedsAttention(failedStep, `${failedStep.name} failed`,
+            failedStep.error || 'The run stopped here; the steps after it were skipped.', 'workflow_failed');
+        } catch { /* notification is best-effort; ending the run is not */ }
+      }
+    }
+  }
+
   // Check if all steps are done (completed, failed, or skipped)
   const terminalStatuses = ['completed', 'failed', 'skipped'];
   const allDone = currentSteps.every((s) => terminalStatuses.includes(s.status));
@@ -2140,4 +2389,16 @@ export function tickWorkflowsOnce(): void {
 export function startWorkflowExecutorV2() {
   setInterval(tick, POLL_INTERVAL_MS);
   console.log(`[workflow-v2] Executor started (polling every ${POLL_INTERVAL_MS / 1000}s)`);
+}
+
+/** Every value that changes a dispatch's fixed text — test/prompt-overhead-budget.test.ts measures each. */
+export function __promptVariantsForTests(): {
+  roles: string[]; formats: string[]; gatePresets: string[]; gatePrompt(type: string): string;
+} {
+  return {
+    roles: Object.keys(ROLE_PROMPTS),
+    formats: Object.keys(OUTPUT_FORMAT_INSTRUCTIONS),
+    gatePresets: Object.keys(QUALITY_GATE_PRESETS),
+    gatePrompt: (type) => QUALITY_GATE_PRESETS[type].prompt,
+  };
 }

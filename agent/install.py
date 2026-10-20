@@ -35,6 +35,13 @@ def make_output_unicode_safe() -> None:
             pass  # not a reconfigurable text stream; nothing to do
 
 
+# Claude Code kills a hook at its `timeout` (default 600s). permission-proxy.py waits for an
+# answer from the dashboard; at the default, any question left more than ten minutes was taken
+# over by the terminal menu and a later dashboard answer was lost. The proxy's own wait
+# (WAIT_SECONDS) stays under this so it can tell the server it gave up.
+PERMISSION_HOOK_TIMEOUT_SECONDS = 3600
+
+
 def get_settings_path() -> str:
     """Get Claude Code settings.json path for current OS."""
     if platform.system() == "Windows":
@@ -109,6 +116,13 @@ def atomic_write_json(path, data) -> None:
         except OSError:
             pass
         raise
+
+
+def make_hook_entry(command: str, timeout: int | None = None) -> dict:
+    hook: dict = {"type": "command", "command": command}
+    if timeout:
+        hook["timeout"] = timeout
+    return {"matcher": "", "hooks": [hook]}
 
 
 def build_hook_command(hooks_dir: str, script_name: str, orchestrator_url: str) -> str:
@@ -205,16 +219,13 @@ def main():
 
     hooks = settings.get("hooks", {})
 
-    def make_hook_entry(command: str) -> dict:
-        return {"matcher": "", "hooks": [{"type": "command", "command": command}]}
-
     # PostToolUse → reporter
     hooks["PostToolUse"] = [h for h in hooks.get("PostToolUse", []) if not is_neoncore_hook(h)]
     hooks["PostToolUse"].append(make_hook_entry(reporter_cmd))
 
     # PreToolUse → permission proxy
     hooks["PreToolUse"] = [h for h in hooks.get("PreToolUse", []) if not is_neoncore_hook(h)]
-    hooks["PreToolUse"].append(make_hook_entry(permission_cmd))
+    hooks["PreToolUse"].append(make_hook_entry(permission_cmd, timeout=PERMISSION_HOOK_TIMEOUT_SECONDS))
 
     # Stop → reporter (final assistant turn + token usage, via transcript parse)
     hooks["Stop"] = [h for h in hooks.get("Stop", []) if not is_neoncore_hook(h)]

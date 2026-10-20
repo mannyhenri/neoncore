@@ -245,6 +245,33 @@ router.get('/poll/:id', (req, res) => {
   });
 });
 
+/**
+ * The hook stopped waiting (deadline, or the server stayed unreachable) and handed the question
+ * to Claude Code's own terminal prompt. Close it here at once: an answer given in the app after
+ * this point reaches no hook, and used to be silently dropped while the banner cleared as if it
+ * had worked. The cartridge stays `waiting` — it is, on the terminal.
+ */
+router.post('/:id/abandon', (req, res) => {
+  const row = db.prepare('SELECT * FROM permissions WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: 'Permission request not found' });
+  const changed = db.prepare(
+    `UPDATE permissions SET status = 'expired', decided_at = ? WHERE id = ? AND status = 'pending'`,
+  ).run(new Date().toISOString(), req.params.id).changes;
+  if (changed) {
+    const agentId = row.agent_id as string;
+    const stillOpen = db.prepare(
+      `SELECT tool_input FROM permissions
+        WHERE agent_id = ? AND status = 'pending' AND tool_name = 'AskUserQuestion'
+        ORDER BY created_at`,
+    ).get(agentId) as { tool_input: string } | undefined;
+    db.prepare('UPDATE agents SET pending_question = ? WHERE id = ?').run(stillOpen?.tool_input ?? '', agentId);
+    const fresh = normalizePermission(db.prepare('SELECT * FROM permissions WHERE id = ?').get(req.params.id) as Record<string, unknown>);
+    getIO().emit('permission_decided', fresh);
+    console.log(`[permissions] Hook gave up on ${req.params.id} (${row.tool_name}) — moved to the terminal`);
+  }
+  res.json({ ok: true, closed: changed > 0 });
+});
+
 // Decide on a permission (called from dashboard)
 /**
  * Record a decision. ONE implementation, called by the route and by the channel buttons.

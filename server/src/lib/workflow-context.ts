@@ -32,6 +32,17 @@ export interface LaunchContextTarget {
   dependsOn: readonly string[];
 }
 
+/**
+ * A template description talks to TWO readers: the person launching it ("Set the workflow
+ * description to the system under review…") and the agent. Only the second belongs in a prompt.
+ * The operator lead-in is the first sentence and always opens with an imperative to the launcher.
+ */
+const OPERATOR_LEAD_IN = /^(Set|Put|Paste|Enter|Type) the (workflow description|launch context|workflow context)\b[^.]*\.\s*/i;
+
+export function forTheAgent(description: string): string {
+  return description.trim().replace(OPERATOR_LEAD_IN, '').trim();
+}
+
 export function buildLaunchContext(db: DatabaseType, step: LaunchContextTarget): string {
   if (step.dependsOn.length > 0) return '';
 
@@ -40,7 +51,7 @@ export function buildLaunchContext(db: DatabaseType, step: LaunchContextTarget):
   if (!wf) return '';
 
   const typed = (wf.initial_context ?? '').trim();
-  const described = (wf.description ?? '').trim();
+  const described = forTheAgent(wf.description ?? '');
 
   const parts: string[] = [];
   // What the person typed at launch comes FIRST: it is specific to this run, where the

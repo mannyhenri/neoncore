@@ -7,7 +7,7 @@ import { inboxReachable } from './inbox-client.js';
 import { sendCommandToAgent } from './send-command.js';
 import { deliverToAgent, fetchPeerAgent } from './peer-forward.js';
 import { busyRepoSiblings } from './queue-runner.js';
-import { getServerBaseUrl } from './server-url.js';
+import { getServerBaseUrl, AUTH_CURL_HEADER } from './server-url.js';
 import { createWorktree } from './worktree.js';
 import { blockForRepo, parseAttachmentBlocks, type AttachmentBlocks } from './attachments.js';
 import type { ConferSession, ConferMilestone } from '../types.js';
@@ -741,7 +741,7 @@ export async function resumeConfer(id: string): Promise<{ ok: true; session: Con
   let delivered = 0;
   for (const pid of pending) {
     const url = `${baseUrl()}/api/confer/${id}/milestone/${pid}/done`;
-    const text = `[NeonCore Confer · resumed] Continue ${milestone.name} (${idx + 1}/${session.milestones!.length}) on ${session.repoName}. Previous milestones and your peers' completion signals were preserved. Coordinate with your peer(s), then report YOUR result with: curl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"<brief summary>"}'`;
+    const text = `[NeonCore Confer · resumed] Continue ${milestone.name} (${idx + 1}/${session.milestones!.length}) on ${session.repoName}. Previous milestones and your peers' completion signals were preserved. Coordinate with your peer(s), then report YOUR result with: curl -s -X POST "${url}" ${AUTH_CURL_HEADER} -H "Content-Type: application/json" -d '{"result":"<brief summary>"}'`;
     const out = await deliverToAgent(pid, text, (agentId, body) => sendCommandToAgent(agentId, body, false));
     if (out.delivered) delivered++;
   }
@@ -878,7 +878,7 @@ export function buildMilestonePrompt(
     `COORDINATE: use neoncore_message_agent to talk to your peer(s) and neoncore_read_agent to see their work.`,
     ``,
     `WHEN THIS MILESTONE IS DONE, you MUST signal completion by running:`,
-    `curl -s -X POST "${doneUrl}" -H "Content-Type: application/json" -d '{"result":"<1-2 line summary of what you did this milestone>"}'`,
+    `curl -s -X POST "${doneUrl}" ${AUTH_CURL_HEADER} -H "Content-Type: application/json" -d '{"result":"<1-2 line summary of what you did this milestone>"}'`,
     `The confer will NOT advance to the next milestone until every participant has signalled. After you signal, wait for the next milestone prompt.`,
   ].join('\n') + attachmentBlock;
 }
@@ -1005,7 +1005,7 @@ export function reconcileConfers(now = Date.now()): void {
         const url = `${baseUrl()}/api/confer/${row.id}/milestone/${pid}/done`;
         sendCommandToAgent(
           pid,
-          `[NeonCore Confer · reminder] You are on milestone ${idx + 1}/${total} (${ms.name}) of the confer on ${session.repoName}. When you've finished it, signal done:\ncurl -s -X POST "${url}" -H "Content-Type: application/json" -d '{"result":"done"}'`,
+          `[NeonCore Confer · reminder] You are on milestone ${idx + 1}/${total} (${ms.name}) of the confer on ${session.repoName}. When you've finished it, signal done:\ncurl -s -X POST "${url}" ${AUTH_CURL_HEADER} -H "Content-Type: application/json" -d '{"result":"done"}'`,
           false,
         );
       }
