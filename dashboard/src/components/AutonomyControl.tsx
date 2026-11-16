@@ -5,8 +5,8 @@ import { api } from '../lib/api';
 /**
  * The automate control — how much a run may settle for itself while you are away.
  *
- * ASKED FOR AS A BUTTON, and it was a Discord command only. `!autonomy` is fine on a phone and
- * useless at the desk, where you are looking at the run you want to raise.
+ * ASKED FOR AS A BUTTON: a chat command is fine on a phone and useless at the desk, where you
+ * are looking at the run you want to raise.
  *
  * RAISING ALWAYS CARRIES A DURATION. There is no untimed grant in this UI, because "I'm willing
  * to take the risk" is nearly always bounded risk and a mode you forget to flip back is not

@@ -37,7 +37,7 @@ function apiCallers(): string[] {
       if (!/\.(ts|tsx|js|py)$/.test(e.name)) continue;
       if (/\.test\.|__tests__/.test(child)) continue;
       const src = fs.readFileSync(path.join(ROOT, child), 'utf8');
-      // Makes a request AND names an orchestrator path. Both, so a Discord or filesystem
+      // Makes a request AND names an orchestrator path. Both, so a third-party or filesystem
       // call is not dragged in and a route table is not mistaken for a caller.
       const requests = /\bfetch\(|urlopen|http\.request|https?\.request|requests\.(get|post|put|delete)/.test(src);
       const orchestrator = /ORCHESTRATOR_URL|NEONCORE_URL|localhost:4040|\/api\//.test(src);

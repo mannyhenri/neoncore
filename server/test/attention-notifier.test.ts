@@ -142,7 +142,7 @@ test('no action id can exceed the 100-character customId cap', () => {
 
 test('every action prefix a notice emits has a handler registered', () => {
   // A button whose prefix nobody registered replies "No handler" — indistinguishable from a
-  // dead server, which is the note discord-bot.ts already makes.
+  // dead server.
   clearRegistries();
   registerAttentionActions();
   const registered = new Set(listActions());
@@ -260,7 +260,7 @@ test('the notifier module names no delivery app', () => {
     path.join(import.meta.dirname, '..', 'src', 'lib', 'attention-notifier.ts'), 'utf8',
   ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-  for (const app of ['discord', 'slack', 'telegram', 'apns']) {
+  for (const app of ['slack', 'telegram', 'apns']) {
     assert.ok(!new RegExp(app, 'i').test(src), `attention-notifier.ts mentions ${app} in code`);
   }
 });

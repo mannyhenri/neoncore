@@ -1,11 +1,9 @@
 /**
  * Where commands and button actions are registered, independent of what delivers them.
  *
- * These registries were declared inside lib/discord-bot.ts. Nothing in them was Discord-shaped
- * — a command has a name and a handler, an action has a prefix and a handler — but living in
- * that file made Discord the only thing that could ever own them. The dashboard, a webhook or
- * a second app must register against the SAME table, or the same command has to be implemented
- * once per driver and they drift.
+ * A command has a name and a handler, an action has a prefix and a handler — nothing here is
+ * shaped by any one app. The dashboard, a webhook or a messaging app must register against the
+ * SAME table, or the same command has to be implemented once per driver and they drift.
  *
  * Modules register what they own. A driver dispatches. A missing handler is reported to the
  * operator rather than swallowed, because a button that does nothing is indistinguishable from
@@ -17,15 +15,6 @@ export interface CommandContext {
   args: string;
   /** Reply to the operator. Safe to call more than once. */
   reply: (text: string) => Promise<void>;
-  /**
-   * What this command addresses when the operator named nothing — supplied by the driver from
-   * ITS own config, e.g. a Discord channel that stands for one cartridge.
-   *
-   * A STRING THIS REGISTRY NEVER INTERPRETS. It is handed to the same resolver a typed argument
-   * goes through, so a driver can make a channel an address without anything here learning what
-   * lives behind the name. Absent means the operator must say.
-   */
-  defaultTarget?: string;
 }
 
 export interface ActionContext {

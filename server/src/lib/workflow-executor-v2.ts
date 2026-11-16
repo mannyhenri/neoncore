@@ -1761,8 +1761,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
   emitStepLog(step.workflowId, step.id, step.name, `Executing connector: ${connectorType}`, 'info');
 
   switch (connectorType) {
-    case 'slack':
-    case 'discord': {
+    case 'slack': {
       const webhookUrl = config.webhookUrl as string;
       if (!webhookUrl) throw new Error(`${connectorType} connector requires webhookUrl`);
       const text = substituteVars(
