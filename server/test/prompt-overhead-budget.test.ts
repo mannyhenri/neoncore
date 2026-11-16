@@ -26,6 +26,7 @@ import {
 import { reportStepConfig } from '../src/lib/workflow-report.ts';
 import { startConfer, recordMilestoneDone, conferPlan } from '../src/lib/confer-conductor.ts';
 import { DISPATCH_KINDS, OVERHEAD_BUDGET, type DispatchKind } from '../src/lib/prompt-budget.ts';
+import { __resetLedgersForTests } from '../src/lib/session-ledger.ts';
 
 const io = installStubIO();
 const CONTENT = 'Do the one thing this step exists for.';
@@ -125,6 +126,10 @@ test('measure: confer milestones — every milestone of every mode', async () =>
     for (let i = 0; i < plan.length; i++) {
       await new Promise((r) => setTimeout(r, 20));
       record('confer-milestone', `${mode}/${plan[i].key}`, received(a)[i], CONTENT);
+      // The budget bounds the WORST case: a milestone arriving in a session that holds nothing
+      // yet, so everything is sent in full. Later milestones in one session refer to the task
+      // instead of repeating it (lib/session-ledger.ts) — forget that, so each is measured full.
+      __resetLedgersForTests();
       recordMilestoneDone(session.id, a, 'ok');
       recordMilestoneDone(session.id, b, 'ok');
     }

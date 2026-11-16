@@ -4,6 +4,7 @@ import { sendCommandToAgent } from '../lib/send-command.js';
 import { forwardMessageToOwner } from '../lib/peer-forward.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
 import { publicQueueItem } from '../lib/queue-runner.js';
+import { resolveSender, composePeerMessage } from '../lib/peer-message.js';
 import type { Command, CommandAttachmentInput } from '../types.js';
 
 const router = Router();
@@ -63,9 +64,17 @@ router.post('/send', async (req, res) => {
     });
   }
 
+  // ANOTHER AGENT is the author (neoncore_message_agent passes who it is): deliver a peer message
+  // — header, no goal brief or work standard, the recipient's objective untouched — not a task.
+  // See lib/peer-message.ts, which also re-opens a confer milestone a late comment lands in.
+  const sender = resolveSender(req.body || {});
+  const outgoing = sender && sender.id !== agentId ? composePeerMessage(sender, agentId, text) : text;
+
   let command: Command | null;
   try {
-    command = sendCommandToAgent(agentId, text, includeMemory !== false, validAttachments, { deliverNow: deliverNow === true });
+    command = sender && sender.id !== agentId
+      ? sendCommandToAgent(agentId, outgoing, false, validAttachments, { standard: false, trackObjective: false, deliverNow: deliverNow === true })
+      : sendCommandToAgent(agentId, text, includeMemory !== false, validAttachments, { deliverNow: deliverNow === true });
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -73,7 +82,7 @@ router.post('/send', async (req, res) => {
   // missing here is routinely alive on a peer; before this, that was simply a 404 and any
   // cross-machine coordination (a confer, an agent messaging its peer) died right here.
   if (!command) {
-    const forwarded = await forwardMessageToOwner(agentId, text, validAttachments);
+    const forwarded = await forwardMessageToOwner(agentId, outgoing, validAttachments);
     if (forwarded.ok) {
       return res.status(201).json({ forwardedTo: forwarded.origin, delivered: true });
     }

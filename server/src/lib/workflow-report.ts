@@ -130,6 +130,41 @@ overallStatus reflects the real state of the work. Something NOT RUN is never co
 Deliver it ONCE: pass the object as the \`report\` argument of \`neoncore_report_step_done\`. Unless instructions above ask for a document, write no files and POST nothing else — the dashboard renders the JSON.
 For this step, scope = "<n>/8 fields filled — <which are null and why>"; verify = the commands you ran to establish build/test status, with their real output.`;
 
+/**
+ * The same report, specified in about half the words — for a SMALL run.
+ *
+ * The full spec is ~1.7k chars whatever the run: on a two-step run its record is a few lines and
+ * the spec was half of everything the run sent. A run of SMALL_RUN_STEPS agent steps or fewer gets
+ * this instead: the same fields (test/report-prompt-compact.test.ts holds both to every field the
+ * app reads), the same single delivery, the same honesty rules, without the explanation.
+ */
+export const WORKFLOW_REPORT_PROMPT_COMPACT = `Produce the WORKFLOW COMPLETION REPORT (final step): record what happened, from the run record above and the repo (git status/log, real build/test output). Start no new work; never invent a result; something NOT RUN is never passed.
+
+Pass ONE JSON object as the \`report\` argument of \`neoncore_report_step_done\` (no files, no other POST):
+{"header":{"overallStatus":"SUCCESS|PARTIAL|FAILED|BLOCKED","branch":"…","commit":"…"},"executiveSummary":"2-4 sentences","outcome":{"tasksCompleted":n,"tasksTotal":n,"testsPassed":n,"testsTotal":n,"issues":n,"humanActionsRequired":n},"whatChanged":["<area>: <line>"],"issues":[{"severity":"LOW|MEDIUM|HIGH|CRITICAL","description":"…","status":"…"}],"nextSteps":["[HUMAN|AGENT] <action>" ≤3],"humanActionRequired":"…" or null,"jira":null or {"epic":"…","tickets":[{"key":"…","relation":"Completed|Partial|Touched|Blocked"}]}}
+scope = "<n>/8 fields filled"; verify = the commands you ran, with their real output.`;
+
+/** A run with at most this many agent steps (besides the report) gets the compact report spec. */
+export const SMALL_RUN_STEPS = 3;
+
+const AGENT_STEP_TYPES = new Set(['claude-code', 'command', '', 'quality-gate', 'review-gate', 'confer', 'deliberation']);
+
+/**
+ * The report instructions to send for this run: the compact spec for a small run, else as stored.
+ * Only the CANONICAL prompt is swapped — a template that wrote its own report instructions keeps them.
+ */
+export function reportSpecForRun(db: DatabaseType, workflowId: string, prompt: string): string {
+  if (prompt.trim() !== WORKFLOW_REPORT_PROMPT.trim()) return prompt;
+  const rows = db.prepare('SELECT executor_type, executor_config FROM workflow_steps WHERE workflow_id = ?')
+    .all(workflowId) as { executor_type: string; executor_config: string }[];
+  const agentSteps = rows.filter((r) => {
+    let cfg: Record<string, unknown> = {};
+    try { cfg = JSON.parse(r.executor_config || '{}') || {}; } catch { cfg = {}; }
+    return AGENT_STEP_TYPES.has(r.executor_type || '') && !isReportStep(cfg);
+  }).length;
+  return agentSteps <= SMALL_RUN_STEPS ? WORKFLOW_REPORT_PROMPT_COMPACT : prompt;
+}
+
 /** The executorConfig every report step carries. The marker lives here. */
 export function reportStepConfig(): Record<string, unknown> {
   return {
@@ -388,6 +423,14 @@ export function buildRunReportContext(
    * callers and the import-cycle note above stay valid if a URL is ever needed here again.
    */
   _baseUrl = '',
+  opts: {
+    /**
+     * For a step whose result the reporting session already holds (it ran that step itself,
+     * lib/session-ledger.ts): the short form to show instead of the result, or null for the full
+     * text. Supplied by the executor, which knows the session — this module must not import it.
+     */
+    referenceFor?: (step: { id: string; name: string; result: string }) => string | null;
+  } = {},
 ): string {
   const wf = db.prepare(
     `SELECT w.id, w.name, w.description, w.status, w.run_number, w.initial_context,
@@ -441,7 +484,12 @@ export function buildRunReportContext(
     ];
     if (s.error) lines.push(`error: ${String(s.error).slice(0, 400)}`);
     const raw = String(s.result || '');
-    if (raw) {
+    const reference = raw && opts.referenceFor
+      ? opts.referenceFor({ id: String(s.id), name: String(s.name), result: raw })
+      : null;
+    if (reference) {
+      lines.push('result (you reported this earlier in this session):', reference);
+    } else if (raw) {
       const shown = raw.length > RUN_REPORT_RESULT_MAX_CHARS
         ? raw.slice(0, RUN_REPORT_RESULT_MAX_CHARS) + `\n…[truncated ${raw.length - RUN_REPORT_RESULT_MAX_CHARS} chars]`
         : raw;

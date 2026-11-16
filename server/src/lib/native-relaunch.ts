@@ -49,16 +49,9 @@ export function relaunchSessionNatively(
     return { ok: false, reason: 'no captured session id to resume' };
   }
 
-  // The runner is keyed by its own machine id, not the hostname the agent registered under, so
-  // resolve through the machines table rather than assuming they match.
-  const machine = db.prepare('SELECT id, repos FROM machines WHERE hostname = ? ORDER BY last_seen DESC LIMIT 1')
-    .get(machineName) as { id: string; repos: string } | undefined;
-  if (!machine) {
-    return { ok: false, reason: `no runner is registered for ${machineName}` };
-  }
-  if (!isMachineOnline(machine.id)) {
-    return { ok: false, reason: `the runner on ${machineName} is offline`, machineId: machine.id };
-  }
+  const found = findRunnerFor(machineName, repoPath);
+  if (!found.machine) return { ok: false, reason: found.reason };
+  const machine = found.machine;
 
   // Same allowlist the launch route enforces. A recovery is not a reason to open a terminal in a
   // directory the machine's owner never exposed.
@@ -85,4 +78,41 @@ export function relaunchSessionNatively(
 
   console.log(`[recovery] Relaunching ${agentType} @ ${repoPath} on ${machineName}, resuming ${sessionId}`);
   return { ok: true, machineId: machine.id, sessionId };
+}
+
+/**
+ * WHICH RUNNER CAN RELAUNCH THIS CARTRIDGE — the step "Resume session" after a crash depends on.
+ *
+ * The runner is keyed by its own machine id, and matched to a cartridge by hostname. But the two
+ * hostnames do not come from the same place: the relay registers a cartridge under os.hostname(),
+ * while the runner uses `hostname` from runner.config.json when it is set (a documented field —
+ * "Sam's laptop"), and macOS changes os.hostname() between networks. Either way the match failed
+ * and Resume answered "no runner is registered" with the runner sitting right there. Found by
+ * cutting the power on the sandbox mid-workflow: its runner is configured as "sandbox-machine".
+ *
+ * So: by hostname first; failing that, the ONE online runner whose allowed folders include the
+ * cartridge's repo (a repo path is where the terminal would open — it must be on that machine
+ * anyway). Two runners listing the same path is ambiguous, and refused rather than guessed.
+ */
+export function findRunnerFor(
+  machineName: string,
+  repoPath: string,
+  isOnline: (machineId: string) => boolean = isMachineOnline,
+): { machine?: { id: string; repos: string }; reason: string } {
+  const byHost = db.prepare('SELECT id, repos FROM machines WHERE hostname = ? ORDER BY last_seen DESC LIMIT 1')
+    .get(machineName) as { id: string; repos: string } | undefined;
+  if (byHost) {
+    return isOnline(byHost.id)
+      ? { machine: byHost, reason: 'matched by hostname' }
+      : { reason: `the runner on ${machineName} is offline` };
+  }
+  const listing = (db.prepare('SELECT id, repos FROM machines ORDER BY last_seen DESC').all() as Array<{ id: string; repos: string }>)
+    .filter((m) => {
+      try { return (JSON.parse(m.repos || '[]') as MachineRepo[]).some((r) => r.path === repoPath); } catch { return false; }
+    });
+  const online = listing.filter((m) => isOnline(m.id));
+  if (online.length === 1) return { machine: online[0], reason: 'matched by the repo in its allowed folders' };
+  if (online.length > 1) return { reason: `${online.length} online runners list ${repoPath} — cannot tell which machine the cartridge was on` };
+  if (listing.length > 0) return { reason: `the runner that lists ${repoPath} is offline` };
+  return { reason: `no runner is registered for ${machineName}` };
 }

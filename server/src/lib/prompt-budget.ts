@@ -35,8 +35,9 @@ export const OVERHEAD_BUDGET: Record<DispatchKind, number> = {
   synthesis: 860,
   /**
    * Milestone frame + done signal + the work-standard block send-command appends (2,862).
-   * ~1,100 of this is that block, re-sent on every milestone beside the milestone's own done
-   * signal — the double contract steps no longer carry. Kept until that is decided; trim, don't raise.
+   * ~1,100 of this is that block. It is now sent in full only on the FIRST prompt into a session
+   * and referred to in one line after that (lib/session-ledger.ts), so this worst case is a first
+   * milestone; later milestones also refer to the task instead of repeating it. Trim, don't raise.
    */
   'confer-milestone': 2950,
 };

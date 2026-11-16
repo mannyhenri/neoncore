@@ -18,6 +18,9 @@ import { awaitsLaunchFill } from './cartridge-exists.js';
 import { DEFAULT_AUTONOMY } from './autonomy.js';
 import { layoutSteps } from './workflow-layout.js';
 import { resolveRunPlaceholders } from './workflow-report.js';
+import { remapStepRefsJson } from './step-refs.js';
+import { advanceWorkflowsSoon } from './workflow-executor-v2.js';
+import { withStandardGateOnTemplateRows } from './standard-gate.js';
 
 /**
  * What previous runs OF THIS WORKFLOW learned. THE ONE IMPLEMENTATION — both clone paths call
@@ -41,6 +44,19 @@ import { resolveRunPlaceholders } from './workflow-report.js';
  * run has since been deleted is not carried: the join drops it, which errs toward less context
  * rather than more, and that is the right direction for this bug.
  */
+/** At most `max` chars, cut at a line boundary — never mid-sentence (a lone long line is clipped). */
+function wholeLines(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const out: string[] = [];
+  let used = 0;
+  for (const line of text.split('\n')) {
+    if (used + line.length + 1 > max) break;
+    out.push(line);
+    used += line.length + 1;
+  }
+  return out.length ? `${out.join('\n')}\n…` : `${text.slice(0, max - 1)}…`;
+}
+
 export function learningsContext(projectId: string, templateId: string): string {
   if (!projectId || !templateId) return '';
   const learnings = db.prepare(
@@ -54,7 +70,7 @@ export function learningsContext(projectId: string, templateId: string): string 
   return [
     '## What previous runs of this workflow learned',
     ...learnings.map((l, i) =>
-      `### ${i + 1}. From "${l.workflow_name}"\n${l.content.slice(0, 600)}${l.content.length > 600 ? '...' : ''}`),
+      `### ${i + 1}. From "${l.workflow_name}"\n${wholeLines(l.content, 600)}`),
     '---',
   ].join('\n\n');
 }
@@ -136,8 +152,13 @@ export function cloneTemplateAsRun(
 
   // Clone the steps, remapping depends_on to the NEW ids. Getting this wrong produces a run
   // whose steps point at the template's step graph, which then never advances.
-  const templateSteps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
-    .all(templateId) as Record<string, unknown>[];
+  // The same Work Standard Check a run launched from the dashboard gets (lib/standard-gate.ts). A
+  // scheduled run used to get none: the same template was audited when you pressed Run and not when
+  // it ran at 3am with nobody watching — the run that needs the audit most.
+  const templateSteps = withStandardGateOnTemplateRows(
+    db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(templateId) as Record<string, unknown>[],
+    { skip: template.standard_gate === 'off' },
+  );
   const oldToNew = new Map<string, string>();
   for (const s of templateSteps) oldToNew.set(s.id as string, randomUUID());
 
@@ -168,7 +189,8 @@ export function cloneTemplateAsRun(
       // `<workflowRunId>`. Resolve it HERE too — this is the second clone path (scheduled runs
       // and decompositions), and a fix applied only to the HTTP start handler would have left
       // every scheduled report telling the agent to invent an id. See resolveRunPlaceholders.
-      resolveRunPlaceholders(String(s.executor_config ?? '{}'), runId),
+      // …and remap routing / decision targets to the run's step ids (lib/step-refs.ts).
+      remapStepRefsJson(resolveRunPlaceholders(String(s.executor_config ?? '{}'), runId), oldToNew),
       deps, s.auto_advance ?? 1, now,
     );
   }
@@ -176,6 +198,8 @@ export function cloneTemplateAsRun(
   // Same layout authority as every other path — a scheduled run must open looking like a
   // hand-launched one.
   layoutSteps(db, runId);
+  // A scheduled run starts now, not on the next poll.
+  advanceWorkflowsSoon();
 
   return runId;
 }

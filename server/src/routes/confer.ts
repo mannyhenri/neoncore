@@ -1,5 +1,6 @@
 import { guardBusy } from '../lib/queue-if-busy.js';
 import { Router } from 'express';
+import { advanceWorkflowsSoon } from '../lib/workflow-executor-v2.js';
 import db from '../db.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { fetchPeerAgent } from '../lib/peer-forward.js';
@@ -146,6 +147,8 @@ router.post('/:sessionId/milestone/:agentId/done', (req, res) => {
   const outcome = recordMilestoneDone(req.params.sessionId, req.params.agentId, result);
   if (!outcome.ok) return res.status(400).json({ error: outcome.error });
   res.json({ ok: true });
+  // A confer step of a workflow completes when its session does; let the run move on now.
+  advanceWorkflowsSoon();
 });
 
 // GET /api/confer — all confer sessions (newest first).

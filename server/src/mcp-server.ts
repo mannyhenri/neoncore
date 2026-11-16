@@ -590,6 +590,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         agentId: targetAgentId,
         text: message,
         includeMemory: false,
+        // WHO is writing, so the recipient gets a peer message — not a task from "the user"
+        // (lib/peer-message.ts). The relay exports the cartridge id; the repo + engine are the
+        // fallback for an agent no relay launched.
+        from: process.env.NEONCORE_AGENT_ID || undefined,
+        fromRepoPath: process.cwd(),
+        fromAgentType: process.env.NEONCORE_AGENT_TYPE || undefined,
       }) as Record<string, unknown>;
       if (cmd && inboxPending(cmd)) {
         return text(`Message handed to ${targetAgentId}'s inbox (no relay connected) — delivery not yet confirmed.`);

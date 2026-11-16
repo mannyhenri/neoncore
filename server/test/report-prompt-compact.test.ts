@@ -19,7 +19,9 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import db from '../src/db.ts';
-import { WORKFLOW_REPORT_PROMPT, buildRunReportContext } from '../src/lib/workflow-report.ts';
+import {
+  WORKFLOW_REPORT_PROMPT, WORKFLOW_REPORT_PROMPT_COMPACT, SMALL_RUN_STEPS, buildRunReportContext, reportSpecForRun, reportStepConfig,
+} from '../src/lib/workflow-report.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -61,4 +63,41 @@ test('the run record no longer carries a curl send-back block', () => {
   const ctx = buildRunReportContext(db, wf, step, 'http://neoncore.test');
   assert.ok(ctx.length > 0);
   assert.doesNotMatch(ctx, /curl|SENDING THE REPORT BACK/);
+});
+
+// ── Scaled to the run: a small run gets the compact spec ─────────────────────
+
+test('the compact spec names every field the app reads too, and is delivered the same single way', () => {
+  const missing = consumedFields().filter((f) => !WORKFLOW_REPORT_PROMPT_COMPACT.includes(f));
+  assert.deepEqual(missing, [], `the compact spec omits fields the dashboard reads: ${missing.join(', ')}`);
+  assert.ok(WORKFLOW_REPORT_PROMPT_COMPACT.length <= 1000, `${WORKFLOW_REPORT_PROMPT_COMPACT.length} chars`);
+  assert.ok(WORKFLOW_REPORT_PROMPT_COMPACT.length < WORKFLOW_REPORT_PROMPT.length * 0.6);
+  assert.match(WORKFLOW_REPORT_PROMPT_COMPACT, /neoncore_report_step_done/);
+  for (const banned of [/curl/i, /\.html\b/i, /xdg-open/, /workflow-report\.json/]) assert.doesNotMatch(WORKFLOW_REPORT_PROMPT_COMPACT, banned);
+  // The honesty rules survive the compression.
+  assert.match(WORKFLOW_REPORT_PROMPT_COMPACT, /never invent/i);
+  assert.match(WORKFLOW_REPORT_PROMPT_COMPACT, /NOT RUN is never passed/);
+});
+
+function runWith(agentSteps: number, reportPrompt = WORKFLOW_REPORT_PROMPT): string {
+  const wf = randomUUID(), now = new Date().toISOString();
+  db.prepare(`INSERT INTO workflows (id, name, status, created_at) VALUES (?, 'run', 'running', ?)`).run(wf, now);
+  const add = (type: string, cfg: Record<string, unknown>) => db.prepare(`INSERT INTO workflow_steps (id, workflow_id, name, status, executor_type, executor_id, executor_config, position_x, position_y, created_at)
+              VALUES (?, ?, 's', 'pending', ?, '', ?, 0, 0, ?)`).run(randomUUID(), wf, type, JSON.stringify(cfg), now);
+  for (let i = 0; i < agentSteps; i++) add(i % 2 ? 'quality-gate' : 'claude-code', {});
+  add('connector', {}); add('decision', {}); // not agent steps: they do not make a run "large"
+  add('claude-code', { ...reportStepConfig(), prompt: reportPrompt });
+  return wf;
+}
+
+test(`a run of ${SMALL_RUN_STEPS} agent steps or fewer gets the compact spec; a larger run the full one`, () => {
+  for (let n = 1; n <= SMALL_RUN_STEPS + 2; n++) {
+    const spec = reportSpecForRun(db, runWith(n), WORKFLOW_REPORT_PROMPT);
+    assert.equal(spec, n <= SMALL_RUN_STEPS ? WORKFLOW_REPORT_PROMPT_COMPACT : WORKFLOW_REPORT_PROMPT, `${n} agent steps`);
+  }
+});
+
+test("a template's own report instructions are never swapped for the compact spec", () => {
+  const custom = `${WORKFLOW_REPORT_PROMPT}\n\nAlso attach the Gridlight run id.`;
+  assert.equal(reportSpecForRun(db, runWith(1, custom), custom), custom);
 });

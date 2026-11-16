@@ -101,6 +101,7 @@ const INTERNAL_AGENT_COLUMNS: Record<string, string> = {
   standard_armed: 'work-standard internals; standard_state is the surfaced rollup',
   standard_blocks: 'work-standard internals; standard_state is the surfaced rollup',
   standard_offered: 'work-standard internals; standard_state is the surfaced rollup',
+  context_compacted_at: 'executor bookkeeping — tells lib/session-ledger.ts a session lost its context; nothing to show',
   active_queue_item_id:
     'the queue binding stamp — read by queue-kinds.recordQueueCompletion to bind a completion ' +
     'report to the item that caused it, never by a client. Revisit when a queue UI needs to show ' +

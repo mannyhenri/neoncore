@@ -113,6 +113,9 @@ export function conferFillFor(
     config = executorConfig;
   }
   if (isReportStep(config)) return 'single';
+  // A template may say a step is one cartridge's job even in a confer run — reading an epic and
+  // stating its objective is not improved by five milestones across two cartridges.
+  if (config.conferFill === 'single') return 'single';
   return CONFER_FILL[executorType as StepExecutorType];
 }
 

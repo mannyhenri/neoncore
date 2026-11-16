@@ -7,7 +7,7 @@
  */
 import db from '../db.js';
 import { getIO } from '../ws.js';
-import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from './send-command.js';
+import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles, clearAgentSession } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
 import { notifyWorkflowFinished } from './notices.js';
 import { notifyAll } from './channels.js';
@@ -23,9 +23,16 @@ import {
   explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
-import { buildRunReportContext } from './workflow-report.js';
+import { buildRunReportContext, isReportStep, reportSpecForRun } from './workflow-report.js';
 import { buildLaunchContext } from './workflow-context.js';
 import { markStepPrompt } from './step-session-guard.js';
+import { isPassingGateVerdict } from './gate-verdict.js';
+import { trackInFlight, registerPending, whenQuiet } from './inflight.js';
+import {
+  sessionLedger, alreadySent, noteSent, noteStepDispatched, producedInSession, runDispatchesIn,
+  noteSessionCleared, LEDGER_REFRESH_DISPATCHES, type SessionLedger,
+} from './session-ledger.js';
+import { agentReportOf } from './workflow-loop.js';
 // Re-exported for the modules that already import it from here. The DEFINITION lives in
 // lib/workflow-normalize.ts — a serializer is not the executor's to own, and it having been
 // owned by two modules at once is what let the copies drift.
@@ -56,7 +63,25 @@ const POLL_INTERVAL_MS = 12_000;
  * PASS/FAIL as a verdict on someone else's work, so a scope/verify pair is meaningless
  * there and demanding one would break every existing gate.
  */
-function buildCompletionSuffix(stepId: string, structured = true): string {
+function buildCompletionSuffix(stepId: string, structured = true, ledger: SessionLedger | null = null): string {
+  const full = fullCompletionSuffix(stepId, structured);
+  // The session already has the full contract from an earlier step: restate only what changes —
+  // the step id — and the one fact an agent needs if it has lost the rest (where to post).
+  const kind = structured ? 'contract:work' : 'contract:gate';
+  const normalized = full.split(stepId).join('<step>');
+  if (alreadySent(ledger, kind, normalized)) {
+    return structured
+      ? `\n\n[Completion] As before: call \`neoncore_report_step_done\` with stepId: "${stepId}" and every field `
+        + `(result, next, scope, verify, deferred) — scope and verify are checked. No MCP? POST the same JSON to `
+        + `/api/workflows/webhook/${stepId}/complete.`
+      : `\n\n[Completion] As before: \`neoncore_report_step_done\`(stepId: "${stepId}", result: "<verdict>"). `
+        + `No MCP? POST {"result":"…"} to /api/workflows/webhook/${stepId}/complete.`;
+  }
+  noteSent(ledger, kind, normalized);
+  return full;
+}
+
+function fullCompletionSuffix(stepId: string, structured: boolean): string {
   const fallback = curlFallback(`/api/workflows/webhook/${stepId}/complete`,
     structured ? '{"result":"…","scope":"…","verify":"…"}' : '{"result":"…"}');
 
@@ -86,6 +111,38 @@ function curlFallback(route: string, body: string): string {
 }
 
 /**
+ * The command that fetches a piece of this run's context back — for an agent that was given a
+ * reference instead of the text (the session already held it) and has since lost it.
+ */
+function fetchHint(route: string): string {
+  return `curl -s "\${NEONCORE_URL:-${getServerBaseUrl()}}${route}" ${AUTH_CURL_HEADER}`;
+}
+
+/**
+ * A dependency's result, as a REFERENCE: the session receiving this prompt wrote that result
+ * itself, earlier in the same session, and still has it (see lib/session-ledger.ts). The hand-off
+ * and the report's first line travel anyway — they are what the next step acts on — and the rest
+ * is one fetch away.
+ */
+function resultReference(stepId: string, name: string, result: string, how: 'reported' | 'given' = 'reported'): string {
+  const lines = (result || '').split(/\r?\n/).map((l) => l.trim());
+  const handoff = lines.find((l) => /^NEXT: /.test(l)) ?? '';
+  const first = agentReportOf(result).split(/\r?\n/).map((l) => l.trim())
+    .find((l) => l && !/^NEXT: /.test(l) && l !== '---') ?? '';
+  const out = [`[Output from previous step: "${name}" — ${how === 'reported' ? 'you reported this' : 'given to you'} earlier in this session]`];
+  if (handoff) out.push(handoff);
+  if (first && first !== handoff) out.push(first.length > 240 ? `${first.slice(0, 237)}...` : first);
+  out.push(`(Full report no longer in your context? ${fetchHint(`/api/workflows/steps/${stepId}/result`)})`);
+  return out.join('\n');
+}
+
+/** A step's instructions as a reference, when this session already received them (loops, retries). */
+function instructionsReference(step: WorkflowStep): string {
+  return `[Instructions for "${step.name}": unchanged — the same as your earlier dispatch of this step in this session. `
+    + `Follow them again. If they are no longer in your context: ${fetchHint(`/api/workflows/steps/${step.id}/instructions`)}]`;
+}
+
+/**
  * Panel members in a deliberation each report against the SAME step, so they need a
  * per-agent channel — otherwise the first one to answer would complete the step for
  * everyone. Their verdicts land in executor_config.panelResults[agentId].
@@ -102,10 +159,8 @@ function buildPanelCompletionSuffix(stepId: string, agentId: string): string {
 export const __buildCompletionSuffixForTests = buildCompletionSuffix;
 export const __buildPanelCompletionSuffixForTests = buildPanelCompletionSuffix;
 
-/** A gate verdict is valid only when its first non-empty line is exactly PASS. */
-export function isPassingGateVerdict(result: string): boolean {
-  return result.trim().split(/\r?\n/, 1)[0]?.trim().toUpperCase() === 'PASS';
-}
+/** A gate verdict passes only when its first non-empty line is a bare PASS — see lib/gate-verdict.ts. */
+export { isPassingGateVerdict } from './gate-verdict.js';
 
 /**
  * Dispatch a step's command and FAIL THE STEP if it went nowhere.
@@ -399,17 +454,29 @@ function dependencyResultsByName(step: WorkflowStep): Record<string, string> {
   return out;
 }
 
-function gatherDependencyContext(step: WorkflowStep): string {
+function gatherDependencyContext(step: WorkflowStep, ledger: SessionLedger | null = null): string {
   if (step.dependsOn.length === 0) return '';
 
   const parts: string[] = [];
   for (const depId of step.dependsOn) {
     const depRow = db.prepare('SELECT name, result FROM workflow_steps WHERE id = ?').get(depId) as { name: string; result: string } | undefined;
-    if (depRow?.result) {
-      const truncated = depRow.result.length > DEP_RESULT_MAX_CHARS
-        ? depRow.result.slice(0, DEP_RESULT_MAX_CHARS) + '...truncated'
-        : depRow.result;
-      parts.push(`[Output from previous step: "${depRow.name}"]\n${truncated}`);
+    if (!depRow?.result) continue;
+    // A reference only when it is actually SHORTER than what it stands for — a connector's
+    // one-line result is cheaper to repeat than to point at.
+    const reported = producedInSession(ledger, depId);
+    const given = !reported && alreadySent(ledger, `result:${depId}`, depRow.result);
+    const reference = reported || given ? resultReference(depId, depRow.name, depRow.result, reported ? 'reported' : 'given') : '';
+    if (reference && reference.length < depRow.result.length) {
+      // Reported by this session, or sent to it in full already (an earlier loop iteration,
+      // before a ledger refresh) — without the second, a loop re-sent its upstream result in full
+      // on EVERY iteration after a refresh, or whenever another cartridge produced it.
+      parts.push(reference);
+    } else {
+      noteSent(ledger, `result:${depId}`, depRow.result);
+      // A gate audits the scope/verify block the webhook appended (the Work Standard Check exists
+      // to); a work step does not need the previous step's verification evidence.
+      const text = GATE_STEP_TYPES.has(step.executorType) ? depRow.result : withoutVerificationBlock(depRow.result);
+      parts.push(`[Output from previous step: "${depRow.name}"]\n${fitHeadAndTail(text, DEP_RESULT_MAX_CHARS, depId)}`);
     }
   }
   if (parts.length === 0) return '';
@@ -418,6 +485,29 @@ function gatherDependencyContext(step: WorkflowStep): string {
     result = result.slice(0, DEP_TOTAL_MAX_CHARS) + '...truncated\n\n';
   }
   return result;
+}
+
+/**
+ * The scope / verify / deferred block the webhook appends to every work step's stored result
+ * (`\n\n---\nscope: …`), removed. The agent's report is what the next step works from.
+ */
+function withoutVerificationBlock(result: string): string {
+  return result.replace(/\n\n---\nscope: [^\n]*\nverify: [^\n]*\ndeferred: [^\n]*\s*$/, '');
+}
+
+/**
+ * A result cut to `max` chars KEEPING ITS END. The cut used to take the first 1,500 chars, and the
+ * webhook had added ~150 (hand-off, verification block) — so even a 1,500-char answer lost its
+ * tail, which is where an agent states its conclusion. Head and tail are kept now, the middle is
+ * marked with what was dropped and where the whole text is.
+ */
+function fitHeadAndTail(text: string, max: number, stepId: string): string {
+  if (text.length <= max) return text;
+  const note = `\n…[${text.length - max} chars omitted — full text: ${fetchHint(`/api/workflows/steps/${stepId}/result`)}]…\n`;
+  const budget = Math.max(200, max - note.length);
+  const head = Math.ceil(budget * 0.6);
+  const tail = budget - head;
+  return text.slice(0, head) + note + text.slice(text.length - tail);
 }
 
 /** Memory is always included when entries exist — managed via the memory modal */
@@ -434,15 +524,22 @@ const OUTPUT_FORMAT_INSTRUCTIONS: Record<string, string> = {
 
 /** Standard step execution — dispatches prompt to agent with role prefix, memory, webhook */
 async function executeStandardStep(step: WorkflowStep): Promise<void> {
-  const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
-  const prompt = step.executorConfig.useIntent
+  // What this session has already been told (lib/session-ledger.ts). Null = send everything.
+  const ledger = sessionLedger(step.executorId);
+  const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step, ledger) : '';
+  const storedPrompt = step.executorConfig.useIntent
     ? composeIntentPrompt(step.executorConfig)
     : (step.executorConfig.prompt as string) || step.description || step.name;
+  // The completion report's spec scales with the run (a small run gets the compact one).
+  const fullPrompt = isReportStep(step.executorConfig) ? reportSpecForRun(db, step.workflowId, storedPrompt) : storedPrompt;
 
   // Resolve expert role from config, default to general
   const role = (step.executorConfig.role as string) || 'general';
 
-  const rolePrefix = ROLE_PROMPTS[role] ?? '';
+  // The persona is restated only when the role CHANGES within the session: two reviewer steps in a
+  // row do not need to be told twice that they are a senior code reviewer.
+  const rolePrefix = ledger && ledger.lastRole === role ? '' : (ROLE_PROMPTS[role] ?? '');
+  if (ledger) ledger.lastRole = role;
 
   // If workflowContext: true, prepend the workflow name + description so the agent
   // knows what feature/task it is validating (set on first steps with no deps).
@@ -468,15 +565,31 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
   // the reader has no way to tell. reportContext swaps in the whole run.
   let runReportCtx = '';
   if (step.executorConfig.reportContext) {
-    runReportCtx = buildRunReportContext(db, step.workflowId, step.id, getServerBaseUrl());
+    // Steps THIS session ran are in its context already: the record lists them with their status
+    // and hand-off, and points at the full text, instead of pasting every result back.
+    runReportCtx = buildRunReportContext(db, step.workflowId, step.id, getServerBaseUrl(), {
+      referenceFor: (s) => {
+        if (!producedInSession(ledger, s.id)) return null;
+        const ref = resultReference(s.id, s.name, s.result).split('\n').slice(1).join('\n');
+        return ref.length < s.result.length ? ref : null;
+      },
+    });
   }
 
   const outputSchema = step.executorConfig.outputSchema as string | undefined;
   const formatSuffix = outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[outputSchema] || '') : '';
 
+  // A loop's next iteration, or a re-run with identical instructions, goes to the session that has
+  // them: say so and where to fetch them, rather than re-sending the same 3–6k chars every time.
+  const instructionsKind = `instructions:${step.id}`;
+  const instructions = fullPrompt + formatSuffix;
+  const reference = alreadySent(ledger, instructionsKind, instructions) ? instructionsReference(step) : '';
+  const prompt = reference && reference.length < instructions.length ? reference : instructions;
+  noteSent(ledger, instructionsKind, instructions);
+
   // Always append completion instructions so the agent signals when done. There is no
   // idle-detection backstop any more — see buildCompletionSuffix.
-  const webhookSuffix = buildCompletionSuffix(step.id);
+  const webhookSuffix = buildCompletionSuffix(step.id, true, ledger);
 
   // A looped step's second and later dispatches must not be byte-identical to the first —
   // see loopDispatchHeader in lib/workflow-loop.ts (LOOP-003). Without this the cartridge
@@ -490,7 +603,12 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
     loopUntil: loopCfg.loopUntil,
   });
 
-  const finalPrompt = initialCtxPrefix + workflowCtx + loopHeader + runReportCtx + context + rolePrefix + prompt + formatSuffix + webhookSuffix;
+  // A routing rule sent the run back here: say why, right before the instructions, so the redo
+  // addresses what the later step objected to instead of repeating the first attempt.
+  const routed = typeof step.executorConfig._routingFeedback === 'string' && step.executorConfig._routingFeedback
+    ? `${step.executorConfig._routingFeedback as string}\n\n` : '';
+
+  const finalPrompt = initialCtxPrefix + workflowCtx + loopHeader + runReportCtx + context + routed + rolePrefix + prompt + webhookSuffix;
 
   const agentName = getAgentName(step.executorId);
   const roleLabel = role === 'general' ? 'general' : role;
@@ -498,6 +616,7 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
 
   const parts: string[] = [];
   if (loopHeader) parts.push(`loop header (dispatch ${loopCfg._currentLoop})`);
+  if (routed) parts.push('routing feedback');
   if (runReportCtx) parts.push('full run record');
   if (context) parts.push('dependency context');
   if (rolePrefix) parts.push(`${roleLabel} role prefix`);
@@ -522,8 +641,54 @@ async function executeStandardStep(step: WorkflowStep): Promise<void> {
       WHERE id = ?`,
   ).run(markedFinalPrompt, step.executorId, step.executorId, step.id);
   if (!dispatchStepCommand(step, step.executorId, markedFinalPrompt, includeMemory)) return;
+  noteStepDispatched(ledger, step.id, step.workflowId);
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step (POST /workflows/webhook/${step.id}/complete)`, 'warn');
+}
+
+/**
+ * A step's instructions as dispatched the first time — served to an agent that was sent a
+ * reference to them (GET /api/workflows/steps/:id/instructions) and no longer has them.
+ */
+export function stepInstructionsText(step: WorkflowStep): string {
+  const cfg = step.executorConfig as Record<string, unknown>;
+  if (step.executorType === 'quality-gate') {
+    const preset = QUALITY_GATE_PRESETS[(cfg.gateType as string) || 'test'];
+    return (cfg.customPrompt as string) || (preset?.prompt ?? QUALITY_GATE_PRESETS.test.prompt);
+  }
+  if (step.executorType === 'review-gate') {
+    return `Evaluate the work against these criteria: ${(cfg.criteria as string) || 'general code quality and correctness'}. `
+      + 'First line of your result: exactly PASS or FAIL, then your reasoning.';
+  }
+  const role = (cfg.role as string) || 'general';
+  const stored = cfg.useIntent ? composeIntentPrompt(cfg) : (cfg.prompt as string) || step.description || step.name;
+  const prompt = isReportStep(cfg) ? reportSpecForRun(db, step.workflowId, stored) : stored;
+  const format = cfg.outputSchema ? (OUTPUT_FORMAT_INSTRUCTIONS[cfg.outputSchema as string] || '') : '';
+  return (ROLE_PROMPTS[role] ?? '') + prompt + format;
+}
+
+/**
+ * A stored prompt with its SESSION REFERENCES expanded back into text — for re-sending it into a
+ * session that never saw the originals (a transcript replay after a crash). References name the
+ * step they stand for by its fetch path, so each is replaced from the database: instructions by
+ * the step's instructions, a result by the result (head and tail, as a dependency is forwarded).
+ */
+export function expandSessionReferences(prompt: string): string {
+  let out = prompt.replace(
+    /\[Instructions for "[^"]+": unchanged[^\]]*?\/api\/workflows\/steps\/([^/\s"]+)\/instructions[^\]]*\]/g,
+    (whole, stepId: string) => {
+      const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+      return row ? stepInstructionsText(normalizeStep(row)) : whole;
+    },
+  );
+  out = out.replace(
+    /\[Output from previous step: "([^"]+)" — (?:you reported this|given to you) earlier in this session\]\n[\s\S]*?\(Full report no longer in your context\? [^)]*?\/api\/workflows\/steps\/([^/\s"]+)\/result[^)]*\)/g,
+    (whole, name: string, stepId: string) => {
+      const row = db.prepare('SELECT result FROM workflow_steps WHERE id = ?').get(stepId) as { result?: string } | undefined;
+      return row?.result ? `[Output from previous step: "${name}"]\n${fitHeadAndTail(row.result, DEP_RESULT_MAX_CHARS, stepId)}` : whole;
+    },
+  );
+  return out;
 }
 
 /** Command template step — looks up a saved command template and sends its content */
@@ -536,13 +701,14 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
     .get(templateId) as { id: string; name: string; content: string } | undefined;
   if (!template) throw new Error(`Command template "${templateId}" not found`);
 
-  const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step) : '';
+  const ledger = sessionLedger(step.executorId);
+  const context = step.executorConfig.includeDepOutput ? gatherDependencyContext(step, ledger) : '';
 
   // Was an inline copy of the completion instruction. It has to come from
   // buildCompletionSuffix: a `command` step is a WORK step, so its webhook now requires
   // scope + verify — a prompt that forgot to ask for them would have its completions
   // rejected forever, with the step wedged in `running` and no clue why.
-  const webhookSuffix = buildCompletionSuffix(step.id);
+  const webhookSuffix = buildCompletionSuffix(step.id, true, ledger);
 
   const finalPrompt = buildLaunchContext(db, step) + context + template.content + webhookSuffix;
 
@@ -552,6 +718,7 @@ async function executeCommandStep(step: WorkflowStep): Promise<void> {
 
   const includeMemory = isMemoryEnabled(step.executorId);
   if (!dispatchStepCommand(step, step.executorId, finalPrompt, includeMemory)) return;
+  noteStepDispatched(ledger, step.id, step.workflowId);
 
   emitStepLog(step.workflowId, step.id, step.name, `Waiting for webhook callback to complete this step`, 'warn');
 }
@@ -561,7 +728,8 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const reviewAgentId = (step.executorConfig.reviewAgentId as string) || step.executorId;
   if (!reviewAgentId) throw new Error('Review gate requires a review agent ID');
 
-  const depContext = gatherDependencyContext(step);
+  const ledger = sessionLedger(reviewAgentId);
+  const depContext = gatherDependencyContext(step, ledger);
   if (!depContext) {
     emitStepLog(step.workflowId, step.id, step.name, 'Warning: No dependency results to review', 'warn');
   }
@@ -571,7 +739,7 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
   const maxRetries = (step.executorConfig.maxRetries as number) || 3;
 
   const reviewPrompt = buildLaunchContext(db, step) + `You are a code review critic. Evaluate the following work against these criteria:\n\n**Criteria:** ${criteria}\n\n---\n${depContext || 'No dependency output available.'}\n---\n\nYou MUST respond with exactly **PASS** or **FAIL** on the FIRST line of your response.\nThen provide your detailed reasoning.\nIf FAIL, provide specific actionable feedback for improvement.\n\nRetry ${currentRetry + 1} of ${maxRetries + 1}.`
-    + buildCompletionSuffix(step.id, false)
+    + buildCompletionSuffix(step.id, false, ledger)
     + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
   const agentName = getAgentName(reviewAgentId);
@@ -589,7 +757,7 @@ async function executeReviewGate(step: WorkflowStep): Promise<void> {
       WHERE id = ?`,
   ).run(markedReviewPrompt, reviewAgentId, reviewAgentId, step.id);
   const includeMemory = isMemoryEnabled(reviewAgentId);
-  dispatchStepCommand(step, reviewAgentId, markedReviewPrompt, includeMemory);
+  if (dispatchStepCommand(step, reviewAgentId, markedReviewPrompt, includeMemory)) noteStepDispatched(ledger, step.id, step.workflowId);
 }
 
 /** Find online agents matching a repo path */
@@ -1140,20 +1308,29 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
   // than resetting its dependency and manufacturing a second report from unchanged evidence.
   const maxRetries = (step.executorConfig.maxRetries as number | undefined) ?? 2;
 
+  const ledger = sessionLedger(agentId);
+
   // Use custom prompt or preset
   const preset = QUALITY_GATE_PRESETS[gateType];
+  // On a retry the judging session already has the gate's instructions (the preset is 0.9–1.6k
+  // chars): refer to them rather than re-sending them with every attempt.
+  const gateInstructions = customPrompt || (preset?.prompt ?? QUALITY_GATE_PRESETS.test.prompt);
+  const instructionsKind = `instructions:${step.id}`;
+  const gateRef = alreadySent(ledger, instructionsKind, gateInstructions) ? instructionsReference(step) : '';
+  const gateBody = gateRef && gateRef.length < gateInstructions.length ? gateRef : gateInstructions;
+  noteSent(ledger, instructionsKind, gateInstructions);
   // A gate judging the FIRST step of a run has nothing upstream to read, so without this it
   // is asked to assess work it was never told the purpose of.
-  const basePrompt = buildLaunchContext(db, step)
-    + (customPrompt || (preset?.prompt ?? QUALITY_GATE_PRESETS.test.prompt));
+  const basePrompt = buildLaunchContext(db, step) + gateBody;
 
   // If this is a retry, prepend feedback from the previous failure
   const lastFeedback = (step.executorConfig.lastFeedback as string) || '';
-  const feedbackBlock = lastFeedback
+  const routedBack = (step.executorConfig._routingFeedback as string) || '';
+  const feedbackBlock = (lastFeedback
     ? `\n\n[FEEDBACK FROM PREVIOUS ATTEMPT — address these issues]\n${lastFeedback}\n\n---\n\n`
-    : '';
+    : '') + (routedBack ? `${routedBack}\n\n---\n\n` : '');
 
-  const depContext = gatherDependencyContext(step);
+  const depContext = gatherDependencyContext(step, ledger);
   // Name where a FAIL sends the work. A retry otherwise resets only the gate's direct
   // dependencies — for the auto-appended Work Standard gate that is Notify, so run 86's retry
   // re-sent a notification and re-audited unchanged work. See retryTargets().
@@ -1163,7 +1340,7 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
       + `it and every step after it re-run with your feedback. Choose from: ${upstream.map((s) => `"${s}"`).join(', ')}.`
     : '';
   const finalPrompt = depContext + feedbackBlock + basePrompt + retryHint
-    + buildCompletionSuffix(step.id, false)
+    + buildCompletionSuffix(step.id, false, ledger)
     + `\n\nThe \`result\` you report MUST begin with PASS or FAIL on its first line — the gate verdict is read from it.`;
 
   const agentName = getAgentName(agentId);
@@ -1182,7 +1359,7 @@ async function executeQualityGate(step: WorkflowStep): Promise<void> {
       WHERE id = ?`,
   ).run(markedFinalPrompt, agentId, agentId, step.id);
   const includeMemory = isMemoryEnabled(agentId);
-  dispatchStepCommand(step, agentId, markedFinalPrompt, includeMemory);
+  if (dispatchStepCommand(step, agentId, markedFinalPrompt, includeMemory)) noteStepDispatched(ledger, step.id, step.workflowId);
 }
 
 /** Steps the work cannot be redone in: they only report or notify. */
@@ -1217,7 +1394,7 @@ function upstreamStepNames(step: WorkflowStep): string[] {
  *    every step between it and the gate, feedback on the named step. A name that is not
  *    upstream is ignored: the gate may choose where to go back to, not invent a step.
  */
-function retryTargets(gate: WorkflowStep, verdict: string, allSteps: WorkflowStep[]):
+function retryTargets(gate: WorkflowStep, verdict: string, allSteps: WorkflowStep[], routedTargetId?: string):
   { reset: string[]; feedbackOn: Set<string>; named: string | null } {
   const byId = new Map(allSteps.map((s) => [s.id, s]));
   const reset = new Set<string>();
@@ -1236,30 +1413,31 @@ function retryTargets(gate: WorkflowStep, verdict: string, allSteps: WorkflowSte
 
   let named: string | null = null;
   const m = verdict.match(/^\s*RETRY FROM:\s*"?([^"\n]+?)"?\s*$/im);
-  if (m) {
-    const want = m[1].trim().toLowerCase();
-    const upstream = new Set<string>();
-    const walk = (ids: string[]) => {
-      for (const id of ids) {
-        if (upstream.has(id) || !byId.has(id)) continue;
-        upstream.add(id);
-        walk(byId.get(id)!.dependsOn);
-      }
-    };
-    walk(gate.dependsOn);
-    const target = allSteps.find((s) => upstream.has(s.id) && s.name.trim().toLowerCase() === want);
-    if (target) {
-      named = target.name;
-      // target + every upstream step that depends (transitively) on it: the path to the gate.
-      const onPath = (id: string, seen = new Set<string>()): boolean => {
-        if (id === target.id) return true;
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return (byId.get(id)?.dependsOn ?? []).some((d) => onPath(d, seen));
-      };
-      for (const id of upstream) if (onPath(id)) reset.add(id);
-      feedbackOn.add(target.id);
+  const upstream = new Set<string>();
+  const walk = (ids: string[]) => {
+    for (const id of ids) {
+      if (upstream.has(id) || !byId.has(id)) continue;
+      upstream.add(id);
+      walk(byId.get(id)!.dependsOn);
     }
+  };
+  walk(gate.dependsOn);
+  // The agent's own RETRY FROM wins — it has seen the failure. A routing rule on the gate that
+  // matched the verdict is the template author's answer, used when the agent named nothing.
+  const want = m ? m[1].trim().toLowerCase() : '';
+  const target = (want && allSteps.find((s) => upstream.has(s.id) && s.name.trim().toLowerCase() === want))
+    || (routedTargetId && upstream.has(routedTargetId) ? byId.get(routedTargetId) : undefined);
+  if (target) {
+    named = target.name;
+    // target + every upstream step that depends (transitively) on it: the path to the gate.
+    const onPath = (id: string, seen = new Set<string>()): boolean => {
+      if (id === target.id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return (byId.get(id)?.dependsOn ?? []).some((d) => onPath(d, seen));
+    };
+    for (const id of upstream) if (onPath(id)) reset.add(id);
+    feedbackOn.add(target.id);
   }
   return { reset: [...reset], feedbackOn, named };
 }
@@ -1304,18 +1482,27 @@ function processQualityGateResult(
     const nextRetry = currentRetry + 1;
     emitStepLog(workflowId, step.id, step.name, `Quality gate [${gateLabel}] FAILED (retry ${nextRetry}/${maxRetries}) — re-running`, 'warn');
 
+    // A routing rule on the gate is read against its FAIL verdict: it names where the retry goes
+    // back to. (It is never read against a PASS — a gate that passed must not loop.)
+    const routed = matchingRoutingRule(step, result, allSteps);
+    const { reset, feedbackOn, named } = retryTargets(step, result, allSteps, routed?.target.id);
+    const usedRule = !!routed && named === routed.target.name && !/^\s*RETRY FROM:/im.test(result);
+
     const updatedConfig = JSON.stringify({
       ...step.executorConfig,
       currentRetry: nextRetry,
       lastFeedback: result,
+      ...(usedRule ? { cycleCount: routed!.cycle } : {}),
     });
     db.prepare('UPDATE workflow_steps SET status = ?, result = ?, executor_config = ?, started_at = NULL, completed_at = NULL WHERE id = ?')
       .run('pending', '', updatedConfig, step.id);
     emitStepUpdate(step.id);
 
     // Reset the work the gate is judging, so the retry can actually redo it — see retryTargets.
-    const { reset, feedbackOn, named } = retryTargets(step, result, allSteps);
-    if (named) {
+    if (usedRule) {
+      emitStepLog(workflowId, step.id, step.name,
+        `Routing: condition "${routed!.rule.condition} '${routed!.rule.value}'" matched the FAIL — retrying from "${named}" (cycle ${routed!.cycle}/${routed!.maxCycles})`, 'warn');
+    } else if (named) {
       emitStepLog(workflowId, step.id, step.name, `Retrying from "${named}", as the gate asked`, 'warn');
     }
     for (const depId of reset) {
@@ -1382,53 +1569,130 @@ function evaluateRoutingCondition(condition: string, value: string, result: stri
   }
 }
 
-/** Apply routing rules for a just-completed step. Returns the nextStepId that fired, or null. */
-function applyRoutingRules(step: WorkflowStep, allSteps: WorkflowStep[]): string | null {
-  const config = step.executorConfig;
-  const routingRules = (config.routingRules as Array<{ id: string; condition: string; value: string; nextStepId: string }>) || [];
-  if (routingRules.length === 0) return null;
+type RoutingRule = { id: string; condition: string; value: string; nextStepId: string };
 
-  const maxCycles = (config.maxCycles as number) || 5;
-  const cycleCount = (config.cycleCount as number) || 0;
+const GATE_STEP_TYPES = new Set(['quality-gate', 'review-gate']);
 
-  if (cycleCount >= maxCycles) {
-    emitStepLog(step.workflowId, step.id, step.name, `Routing rules exhausted (max cycles ${maxCycles} reached) — normal flow proceeds`, 'warn');
-    return null;
-  }
+/**
+ * Every step on a dependency path from `targetId` up to `sourceId`, both included — what has to
+ * run again for the source to be re-evaluated on the target's new output. Empty when the target
+ * is not upstream of the source (a sideways or forward jump).
+ */
+function pathBetween(targetId: string, sourceId: string, allSteps: WorkflowStep[]): string[] {
+  const byId = new Map(allSteps.map((s) => [s.id, s]));
+  const ancestors = new Set<string>();
+  const walk = (id: string) => {
+    if (ancestors.has(id) || !byId.has(id)) return;
+    ancestors.add(id);
+    for (const d of byId.get(id)!.dependsOn) walk(d);
+  };
+  walk(sourceId);
+  if (!ancestors.has(targetId)) return [];
+  const reaches = new Map<string, boolean>();
+  const reachesTarget = (id: string): boolean => {
+    if (id === targetId) return true;
+    if (reaches.has(id)) return reaches.get(id)!;
+    reaches.set(id, false); // cycle guard
+    const r = (byId.get(id)?.dependsOn ?? []).some(reachesTarget);
+    reaches.set(id, r);
+    return r;
+  };
+  return [...ancestors].filter(reachesTarget);
+}
 
-  for (const rule of routingRules) {
-    if (!evaluateRoutingCondition(rule.condition, rule.value, step.result)) continue;
+/**
+ * The first rule on `step` whose condition matches `result` and whose target is a step of this
+ * run, or null. A matching rule whose target is NOT in the run is reported rather than skipped in
+ * silence: that is how every rule in every run failed for as long as routing targets were left
+ * behind when step ids were regenerated (see lib/step-refs.ts).
+ */
+function matchingRoutingRule(step: WorkflowStep, result: string, allSteps: WorkflowStep[]):
+  { rule: RoutingRule; target: WorkflowStep; cycle: number; maxCycles: number } | null {
+  const rules = (step.executorConfig.routingRules as RoutingRule[] | undefined) || [];
+  if (rules.length === 0) return null;
+  const maxCycles = (step.executorConfig.maxCycles as number) || 5;
+  const cycleCount = (step.executorConfig.cycleCount as number) || 0;
 
-    const targetStep = allSteps.find((s) => s.id === rule.nextStepId);
-    if (!targetStep) continue;
-
-    // Clear runtime flags on target step when resetting it
-    const targetConfig = { ...targetStep.executorConfig };
-    for (const key of Object.keys(targetConfig)) {
-      if (key.startsWith('_')) delete targetConfig[key];
+  for (const rule of rules) {
+    if (!evaluateRoutingCondition(rule.condition, rule.value, result)) continue;
+    const target = allSteps.find((s) => s.id === rule.nextStepId);
+    if (!target) {
+      emitStepLog(step.workflowId, step.id, step.name,
+        `Routing rule "${rule.condition} '${rule.value}'" matched, but its target ${String(rule.nextStepId).slice(0, 8)} is not a step in this run — rule skipped`, 'warn');
+      continue;
     }
-
-    // Reset target step to pending
-    db.prepare(
-      'UPDATE workflow_steps SET status = ?, result = \'\', error = \'\', started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?'
-    ).run('pending', JSON.stringify(targetConfig), rule.nextStepId);
-
-    // Increment cycle count on the routing source step
-    const updatedConfig = { ...config, cycleCount: cycleCount + 1, _routingAppliedAt: step.completedAt };
-    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
-      .run(JSON.stringify(updatedConfig), step.id);
-
-    emitStepUpdate(rule.nextStepId);
-    emitStepUpdate(step.id);
-    emitStepLog(
-      step.workflowId, step.id, step.name,
-      `Routing: condition "${rule.condition} '${rule.value}'" matched — resetting "${targetStep.name}" to pending (cycle ${cycleCount + 1}/${maxCycles})`,
-      'info',
-    );
-    console.log(`[workflow-v2] Routing fired on "${step.name}" → target "${targetStep.name}" (cycle ${cycleCount + 1}/${maxCycles})`);
-    return rule.nextStepId;
+    if (cycleCount >= maxCycles) {
+      emitStepLog(step.workflowId, step.id, step.name,
+        `Routing rule "${rule.condition} '${rule.value}'" matched, but its cycles are used up (${maxCycles}/${maxCycles}) — normal flow proceeds`, 'warn');
+      return null;
+    }
+    return { rule, target, cycle: cycleCount + 1, maxCycles };
   }
   return null;
+}
+
+/** What the routed-back target is told about why it is running again. */
+function routingFeedback(source: WorkflowStep, rule: RoutingRule, result: string, cycle: number, maxCycles: number): string {
+  const body = result.length > DEP_RESULT_MAX_CHARS ? result.slice(0, DEP_RESULT_MAX_CHARS) + '...truncated' : result;
+  return `[ROUTED BACK — "${source.name}" matched ${rule.condition.replace('_', ' ')} "${rule.value}" `
+    + `(cycle ${cycle}/${maxCycles}). Address this, then report again. Its result:]\n${body}`;
+}
+
+/**
+ * Apply routing rules for a just-completed WORK step. Returns the target that fired, or null.
+ *
+ * A rule that fires is a LOOP: the target and every step between it and this one run again, this
+ * one included, so the condition is re-checked against the new output. This used to reset only
+ * the target — the firing step stayed `completed`, so everything downstream of it went ahead
+ * while the target re-ran, and the condition was never evaluated again.
+ *
+ * Gates are not routed here: a gate only completes on PASS, and a PASS must never loop back. A
+ * gate's rules are read against its FAIL verdict instead (see processQualityGateResult).
+ */
+function applyRoutingRules(step: WorkflowStep, allSteps: WorkflowStep[]): string | null {
+  if (GATE_STEP_TYPES.has(step.executorType)) return null;
+  const match = matchingRoutingRule(step, step.result, allSteps);
+  if (!match) return null;
+  const { rule, target, cycle, maxCycles } = match;
+  const config = step.executorConfig;
+
+  const path = pathBetween(target.id, step.id, allSteps);
+  const reset = path.length > 0 ? path : [target.id];
+  const feedback = routingFeedback(step, rule, step.result, cycle, maxCycles);
+
+  for (const id of reset) {
+    const s = allSteps.find((x) => x.id === id);
+    if (!s) continue;
+    let cfg: Record<string, unknown>;
+    if (id === step.id) {
+      // The firing step keeps its rule state — the cycle count is what bounds the loop.
+      cfg = { ...config, cycleCount: cycle, _routingAppliedAt: step.completedAt };
+    } else {
+      cfg = freshRunConfig({ ...s.executorConfig });
+      for (const key of Object.keys(cfg)) if (key.startsWith('_')) delete cfg[key];
+      if (id === target.id) cfg._routingFeedback = feedback;
+    }
+    db.prepare(
+      "UPDATE workflow_steps SET status = 'pending', result = '', error = '', started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?",
+    ).run(JSON.stringify(cfg), id);
+    emitStepUpdate(id);
+  }
+  if (!reset.includes(step.id)) {
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')
+      .run(JSON.stringify({ ...config, cycleCount: cycle, _routingAppliedAt: step.completedAt }), step.id);
+    emitStepUpdate(step.id);
+  }
+
+  const others = reset.filter((id) => id !== target.id && id !== step.id).length;
+  emitStepLog(
+    step.workflowId, step.id, step.name,
+    `Routing: condition "${rule.condition} '${rule.value}'" matched — re-running "${target.name}"`
+      + (reset.includes(step.id) ? `${others ? ` and ${others} step(s) after it` : ''}, then this step again` : '')
+      + ` (cycle ${cycle}/${maxCycles})`,
+    'info',
+  );
+  console.log(`[workflow-v2] Routing fired on "${step.name}" → target "${target.name}" (cycle ${cycle}/${maxCycles})`);
+  return target.id;
 }
 
 // ─── External Connector Step ─────────────────────────────────────────────────
@@ -1663,11 +1927,18 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         content = substituteVars(contentTemplate, vars);
       } else {
         // Auto-synthesize from step results
+        // ONE LINE PER STEP — the agent's own first line (its headline), not the first 500 chars
+        // of its output. Later runs of this workflow are given the first 600 chars of this; as
+        // 500-char excerpts that was the header and the opening of step one, cut mid-sentence.
         const stepSummaries = completedSteps
           .filter((s) => s.name !== step.name)
-          .map((s) => `### ${s.name}\n${s.result.slice(0, 500)}${s.result.length > 500 ? '...' : ''}`)
-          .join('\n\n');
-        content = `## Workflow: ${workflowName}\n\nRan on ${new Date().toLocaleString()}\n\n${stepSummaries || 'No step results captured.'}`;
+          .map((s) => {
+            const headline = agentReportOf(s.result).split(/\r?\n/).map((l) => l.trim())
+              .find((l) => l && !/^NEXT: /.test(l) && l !== '---') ?? '';
+            return `- ${s.name}: ${headline.length > 160 ? `${headline.slice(0, 157)}...` : headline}`;
+          })
+          .join('\n');
+        content = `## Workflow: ${workflowName} — ran on ${new Date().toISOString().slice(0, 10)}\n${stepSummaries || 'No step results captured.'}`;
       }
 
       const tagsRaw = config.tags as string | undefined;
@@ -1740,6 +2011,8 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
     .run('completed', `Connector "${connectorType}" executed successfully`, now, step.id);
   emitStepUpdate(step.id);
   emitStepLog(step.workflowId, step.id, step.name, `Connector "${connectorType}" executed successfully`, 'success');
+  // A connector takes milliseconds; its successor should not wait a full poll for it.
+  advanceWorkflowsSoon();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1752,6 +2025,223 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
  * reuses an existing dir), so looped/re-run steps don't refail. Failure is logged, not
  * fatal — the step still runs in the main checkout.
  */
+// ─── A fresh session per phase ─────────────────────────────────────────────────────
+//
+// Every step of a run is typed into the same live session, and nothing ever empties it: CE: Full
+// Delivery put ~38 prompts, and every reply and tool output they produced, into one conversation,
+// re-read on every model call after them — a cost that grows with the SQUARE of the run's length,
+// and ends in a compaction that keeps only a summary of the early steps. The session ledger stops
+// NeonCore re-sending what the session holds; this stops the session holding a whole run.
+//
+// At a phase boundary the cartridge's session is cleared (/clear) and the step is sent into the
+// new one. Nothing the step needs is lost: the ledger starts over with the clear, so that prompt
+// carries everything in full — the goal brief, the previous phase's hand-off (dependency results),
+// the contract — which is what a phase boundary hands over anyway. The code is on disk.
+//
+// WHEN: a step marked `freshSession: true` (the phase-opening steps of CE: Full Delivery), or any
+// step once this run has typed FRESH_SESSION_AFTER_RUN_DISPATCHES prompts into the session. Applies
+// to every step that types one prompt into one cartridge: work steps, command steps, and gates.
+// NEVER: for an engine whose session NeonCore cannot see (no ledger: Codex, Gridlight); for a step
+// the run has not yet put anything into the session for (what is there is the user's own
+// conversation, not ours to clear); for a redo — a gate retry or routed re-run builds on the attempt
+// it is correcting; with `freshSession: false`.
+//
+// HOW, event-driven, in three waits — each with a backstop, none able to strand the step:
+//  1. The TURN must be over. A step's completion arrives mid-turn (report_step_done is a tool call;
+//     the agent still writes its closing message after it), and input typed into a busy Claude Code
+//     is queued and later submitted as a plain message — a queued "/clear" would be sent to the
+//     model as text, not run. So /clear waits for the Stop hook's completion check to ALLOW the stop
+//     (routes/agents.ts → onTurnEnded), or goes at once if the turn already ended. No turn end
+//     within idleWaitMs: no fresh session — the step is sent into the current one, as before.
+//  2. The CLEAR must be confirmed: Claude reports SessionEnd with reason "clear" (routes/agents.ts
+//     → onSessionCleared); the step is then sent after a short settle. No confirmation within
+//     fallbackMs: the step is sent anyway, with the ledger forgotten, so it still carries
+//     everything in full.
+//  3. Exactly once: whichever path sends it claims the step first (dispatchIntoFreshSession).
+// The step is marked running throughout, so it holds the cartridge (cartridgeHold) and nothing else
+// is typed into it in between.
+
+/**
+ * A run that has typed this many prompts into one session gets a fresh one at its next step. The
+ * same number as the ledger's refresh backstop, deliberately: at that point the ledger would re-send
+ * the full context into the OLD session anyway, so clearing first costs no extra prompt text and
+ * drops everything the session was carrying. Measured at 20 tasks (sandbox/workflow-test --profile):
+ * prompt chars unchanged; context re-read −61% (Epic: Task by Task), −77% (Epic: Two Repos), −60%
+ * (CE Develop and Optimize). At 15 the re-read cut was smaller and Two Repos paid +5% chars.
+ */
+export const FRESH_SESSION_AFTER_RUN_DISPATCHES = LEDGER_REFRESH_DISPATCHES;
+
+const freshTiming = { settleMs: 1_500, fallbackMs: 20_000, idleWaitMs: 60_000 };
+let freshTimers = 0;
+registerPending(() => freshTimers > 0);
+
+/** Test seam: the settle after a clear, the confirmation window, and the wait for the turn to end. */
+export function __setFreshSessionTimingForTests(t: Partial<typeof freshTiming>): void {
+  Object.assign(freshTiming, t);
+}
+
+interface FreshSessionMark {
+  at: string; reason: string; agentId: string;
+  clearSentAt?: string; confirmedAt?: string; dispatchedAt?: string;
+}
+
+/** Step types that type one prompt into one cartridge — the only ones a fresh session applies to. */
+const FRESH_SESSION_TYPES = new Set(['claude-code', '', 'command', 'quality-gate', 'review-gate']);
+
+/** The step's fresh-session mark when it is still waiting to be dispatched into the new session. */
+function pendingFreshSession(step: WorkflowStep): FreshSessionMark | null {
+  const mark = step.executorConfig._freshSession as FreshSessionMark | undefined;
+  return mark && typeof mark === 'object' && mark.at && !mark.dispatchedAt ? mark : null;
+}
+
+function saveMark(step: WorkflowStep, mark: FreshSessionMark): void {
+  step.executorConfig = { ...step.executorConfig, _freshSession: mark };
+  db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify(step.executorConfig), step.id);
+}
+
+/** Why this dispatch should go into a fresh session, or null to use the current one. */
+function freshSessionReason(step: WorkflowStep): string | null {
+  if (!FRESH_SESSION_TYPES.has(step.executorType || '')) return null;
+  const agentId = dispatchTargets(step)[0];
+  const ledger = agentId ? sessionLedger(agentId) : null;
+  if (!ledger) return null;
+  const cfg = step.executorConfig;
+  if (cfg.freshSession === false) return null;
+  // A redo builds on the attempt it is correcting: a gate's retry, a reset step given the gate's
+  // feedback, a step a routing rule sent the run back to.
+  if (Number(cfg.currentRetry) > 0 || cfg.retryFeedback || cfg._routingFeedback) return null;
+  const sent = runDispatchesIn(ledger, step.workflowId);
+  if (sent === 0) return null;
+  if (cfg.freshSession === true && (Number(cfg._currentLoop) || 1) === 1) return 'it opens a new phase';
+  if (sent >= FRESH_SESSION_AFTER_RUN_DISPATCHES) return `this run has typed ${sent} prompts into the current one`;
+  return null;
+}
+
+/** When each cartridge's last turn ended (its Stop was allowed). In memory: unknown after a restart. */
+const turnEndedAt = new Map<string, number>();
+
+/** Has the cartridge's turn ended since the last thing NeonCore typed into it? */
+function turnIsOver(agentId: string): boolean {
+  const ended = turnEndedAt.get(agentId);
+  if (!ended) return false;
+  const last = db.prepare('SELECT MAX(created_at) AS t FROM commands WHERE agent_id = ?').get(agentId) as { t?: string | null };
+  return !last?.t || Date.parse(last.t) <= ended;
+}
+
+/** Park the step for a fresh session. It is always parked; /clear goes now only if the turn is over. */
+function beginFreshSession(step: WorkflowStep, why: string): boolean {
+  const agentId = dispatchTargets(step)[0];
+  if (!agentId) return false;
+  // The previous dispatch's prompt (a loop's last iteration, an earlier attempt) is not what this
+  // step is waiting on — the session guard must not re-send it into the new session. The target is
+  // recorded now, so the step holds THAT cartridge (a review gate's reviewer, not its executor).
+  db.prepare(`UPDATE workflow_steps SET dispatched_prompt = '', dispatch_session_id = '', dispatch_agent_id = ? WHERE id = ?`)
+    .run(agentId, step.id);
+  saveMark(step, { at: new Date().toISOString(), reason: why, agentId });
+  emitStepLog(step.workflowId, step.id, step.name,
+    `Starting a fresh session for this step (${why}): "${getAgentName(agentId)}" is cleared once its current turn ends, `
+    + 'and the step is sent into the new session with its full context', 'info');
+  if (turnIsOver(agentId)) sendClear(step);
+  return true;
+}
+
+/** Type /clear for a parked step. If it cannot be typed, the step goes into the current session. */
+function sendClear(step: WorkflowStep): void {
+  const mark = pendingFreshSession(step);
+  if (!mark || mark.clearSentAt) return;
+  // The turn ended on a question to a person: clearing would throw the question away. Leave it;
+  // the idle backstop sends the step into the current session if nobody clears the way.
+  const agent = db.prepare('SELECT pending_question FROM agents WHERE id = ?').get(mark.agentId) as { pending_question?: string } | undefined;
+  if ((agent?.pending_question || '').trim()) return;
+  if (noChannel(clearAgentSession(mark.agentId))) {
+    dispatchIntoFreshSession(step.id, 'uncleared');
+    return;
+  }
+  mark.clearSentAt = new Date().toISOString();
+  saveMark(step, mark);
+}
+
+/** Parked steps (in running workflows), optionally only those waiting on `agentId`. */
+function parkedSteps(agentId?: string): Array<{ step: WorkflowStep; mark: FreshSessionMark }> {
+  const rows = db.prepare(
+    `SELECT s.* FROM workflow_steps s JOIN workflows w ON w.id = s.workflow_id
+      WHERE w.status = 'running' AND s.status = 'running' AND INSTR(s.executor_config, '"_freshSession"') > 0`,
+  ).all() as Record<string, unknown>[];
+  const out: Array<{ step: WorkflowStep; mark: FreshSessionMark }> = [];
+  for (const row of rows) {
+    const step = normalizeStep(row);
+    const mark = pendingFreshSession(step);
+    if (mark && (!agentId || mark.agentId === agentId)) out.push({ step, mark });
+  }
+  return out;
+}
+
+/** The Stop hook's completion check allowed `agentId` to stop: its turn is over. Type any /clear owed. */
+export function onTurnEnded(agentId: string): void {
+  turnEndedAt.set(agentId, Date.now());
+  for (const { step, mark } of parkedSteps(agentId)) if (!mark.clearSentAt) sendClear(step);
+}
+
+/** Claude reported that `agentId`'s session was cleared: send the step(s) waiting for that. */
+export function onSessionCleared(agentId: string): void {
+  for (const { step, mark } of parkedSteps(agentId)) {
+    if (mark.confirmedAt) continue;
+    mark.confirmedAt = new Date().toISOString();
+    saveMark(step, mark);
+    freshTimers += 1;
+    setTimeout(() => {
+      freshTimers -= 1;
+      dispatchIntoFreshSession(step.id, 'cleared');
+    }, freshTiming.settleMs);
+  }
+}
+
+/**
+ * Send a parked step. Claims it first, so it goes exactly once.
+ *  - cleared:    the new session is confirmed — the ledger already started over with it;
+ *  - unconfirmed: /clear was typed but never confirmed — forget the ledger (full context), and do
+ *                 not adopt whatever session id comes next as if it were the cleared one;
+ *  - uncleared:  no /clear was typed (the turn never ended, or it could not be) — the step goes
+ *                 into the current session like any other step.
+ */
+function dispatchIntoFreshSession(stepId: string, how: 'cleared' | 'unconfirmed' | 'uncleared'): void {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+  if (!row) return;
+  const step = normalizeStep(row);
+  const mark = pendingFreshSession(step);
+  if (step.status !== 'running' || !mark) return;
+  mark.dispatchedAt = new Date().toISOString();
+  saveMark(step, mark);
+  if (how === 'cleared') {
+    emitStepLog(step.workflowId, step.id, step.name, 'Session cleared — sending the step into the new session', 'info');
+  } else if (how === 'unconfirmed') {
+    noteSessionCleared(mark.agentId, { adopt: false });
+    emitStepLog(step.workflowId, step.id, step.name,
+      `No confirmation that the session was cleared after ${Math.round(freshTiming.fallbackMs / 1000)}s — sending the step anyway, with its full context`, 'warn');
+  } else {
+    emitStepLog(step.workflowId, step.id, step.name,
+      `"${getAgentName(mark.agentId)}" did not finish its turn within ${Math.round(freshTiming.idleWaitMs / 1000)}s — no fresh session; sending the step into the current one`, 'warn');
+  }
+  trackInFlight(executeStep(step, true)).catch((err) => {
+    console.error(`[workflow-v2] Dispatch after clear failed for "${step.name}": ${err}`);
+  });
+}
+
+/** The poll's backstops (see the header): no turn end, no confirmation, or a settle timer lost to a restart. */
+function checkFreshSessionWait(step: WorkflowStep): void {
+  const mark = pendingFreshSession(step);
+  if (!mark) return;
+  const age = (iso?: string) => Date.now() - (Date.parse(iso || '') || 0);
+  if (!mark.clearSentAt) {
+    if (turnIsOver(mark.agentId)) sendClear(step);
+    else if (age(mark.at) >= freshTiming.idleWaitMs) dispatchIntoFreshSession(step.id, 'uncleared');
+  } else if (!mark.confirmedAt) {
+    if (age(mark.clearSentAt) >= freshTiming.fallbackMs) dispatchIntoFreshSession(step.id, 'unconfirmed');
+  } else if (age(mark.confirmedAt) >= freshTiming.settleMs + freshTiming.fallbackMs) {
+    dispatchIntoFreshSession(step.id, 'cleared');
+  }
+}
+
 function ensureStepWorktree(step: WorkflowStep): void {
   const cfg = step.executorConfig || {};
   const branch = typeof cfg.branch === 'string' ? cfg.branch.trim() : '';
@@ -1770,14 +2260,22 @@ function ensureStepWorktree(step: WorkflowStep): void {
   }
 }
 
-async function executeStep(step: WorkflowStep): Promise<void> {
-  const now = new Date().toISOString();
-  db.prepare('UPDATE workflow_steps SET status = ?, started_at = ? WHERE id = ?')
-    .run('running', now, step.id);
-  emitStepUpdate(step.id);
-  emitStepLog(step.workflowId, step.id, step.name, 'Step execution started', 'info');
+async function executeStep(step: WorkflowStep, afterClear = false): Promise<void> {
+  // afterClear: the step is already running — it was waiting for its fresh session (see below).
+  if (!afterClear) {
+    const now = new Date().toISOString();
+    db.prepare('UPDATE workflow_steps SET status = ?, started_at = ? WHERE id = ?')
+      .run('running', now, step.id);
+    emitStepUpdate(step.id);
+    emitStepLog(step.workflowId, step.id, step.name, 'Step execution started', 'info');
+  }
 
   try {
+    // A long run's next phase starts in a fresh session: clear it first, dispatch once it is clear.
+    if (!afterClear) {
+      const why = freshSessionReason(step);
+      if (why && beginFreshSession(step, why)) return;
+    }
     if (step.executorType === 'review-gate') {
       await executeReviewGate(step);
     } else if (step.executorType === 'deliberation') {
@@ -1819,6 +2317,7 @@ async function executeStep(step: WorkflowStep): Promise<void> {
     // console error — neither of which is a notification anyone sees.
     notifyNeedsAttention(step, 'Step failed', `"${step.name}" failed: ${errMsg.slice(0, 200)}`, 'workflow_step_failed');
     console.error(`[workflow-v2] Step "${step.name}" failed: ${errMsg}`);
+    advanceWorkflowsSoon();
   }
 }
 
@@ -1831,6 +2330,14 @@ async function executeStep(step: WorkflowStep): Promise<void> {
  * Returns false if the step doesn't exist or isn't running (already completed, etc).
  */
 export function completeStepFromSignal(stepId: string, result: string): boolean {
+  const handled = completeStepFromSignalNow(stepId, result);
+  // Whatever the completion unblocked — successors, a gate's retry, a held step on this cartridge
+  // — starts now rather than on the next poll.
+  if (handled) advanceWorkflowsSoon();
+  return handled;
+}
+
+function completeStepFromSignalNow(stepId: string, result: string): boolean {
   const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
   if (!row) return false;
 
@@ -1940,7 +2447,7 @@ export function completeStepFromSignal(stepId: string, result: string): boolean 
     const freshStep = normalizeStep(
       db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>
     );
-    executeStep(freshStep).catch((err) => {
+    trackInFlight(executeStep(freshStep)).catch((err) => {
       console.error(`[workflow-v2] Loop re-dispatch failed for "${step.name}": ${err}`);
     });
     return true;
@@ -1994,36 +2501,50 @@ function processReviewGateResult(
     emitStepLog(workflowId, step.id, step.name, `Review FAILED (retry ${nextRetry}/${maxRetries}) — resetting dependency steps`, 'warn');
     console.log(`[workflow-v2] Review gate "${step.name}" FAILED, retry ${nextRetry}/${maxRetries}`);
 
+    // A routing rule on the gate that matches the FAIL names where the work goes back to — the
+    // same rule as quality gates (see processQualityGateResult). Without one, the direct
+    // dependencies are redone, as before.
+    const routed = matchingRoutingRule(step, result, allSteps);
+    const routedPath = routed ? pathBetween(routed.target.id, step.id, allSteps).filter((id) => id !== step.id) : [];
+    const resetIds = routedPath.length > 0 ? routedPath : step.dependsOn;
+    const feedbackIds = routedPath.length > 0 ? new Set([routed!.target.id]) : new Set(step.dependsOn);
+
     // Update the review gate's config with incremented retry count and reset to pending
     const updatedConfig = JSON.stringify({
       ...step.executorConfig,
       currentRetry: nextRetry,
       lastFeedback: result,
+      ...(routedPath.length > 0 ? { cycleCount: routed!.cycle } : {}),
     });
     db.prepare('UPDATE workflow_steps SET status = ?, result = ?, executor_config = ?, started_at = NULL, completed_at = NULL WHERE id = ?')
       .run('pending', '', updatedConfig, step.id);
     emitStepUpdate(step.id);
+    if (routedPath.length > 0) {
+      emitStepLog(workflowId, step.id, step.name,
+        `Routing: condition "${routed!.rule.condition} '${routed!.rule.value}'" matched the FAIL — retrying from "${routed!.target.name}" (cycle ${routed!.cycle}/${routed!.maxCycles})`, 'warn');
+    }
 
-    // Reset each dependency step to pending with feedback appended
-    for (const depId of step.dependsOn) {
+    // Reset the work being judged; the step(s) that must address the critique get it appended
+    for (const depId of resetIds) {
       const dep = allSteps.find((s) => s.id === depId);
       if (!dep) continue;
 
       // Prepend feedback to the next prompt
-      const feedbackPrompt = dep.executorConfig.prompt
+      const gets = feedbackIds.has(depId);
+      const feedbackPrompt = gets && dep.executorConfig.prompt
         ? `${dep.executorConfig.prompt}\n\n[FEEDBACK FROM REVIEW — please address these issues]\n${result}`
         : '';
 
       const updatedDepConfig = JSON.stringify({
-        ...dep.executorConfig,
+        ...freshRunConfig(dep.executorConfig),
         prompt: feedbackPrompt || dep.executorConfig.prompt,
-        retryFeedback: result,
+        ...(gets ? { retryFeedback: result } : {}),
       });
 
       db.prepare('UPDATE workflow_steps SET status = ?, result = ?, error = ?, started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?')
         .run('pending', '', '', updatedDepConfig, depId);
       emitStepUpdate(depId);
-      emitStepLog(workflowId, depId, dep.name, `Reset for retry ${nextRetry} with critic feedback`, 'warn');
+      emitStepLog(workflowId, depId, dep.name, `Reset for retry ${nextRetry}${gets ? ' with critic feedback' : ''}`, 'warn');
     }
   } else {
     // FAIL with retries exhausted — mark as failed
@@ -2085,6 +2606,12 @@ function processDeliberationStep(workflowId: string, step: WorkflowStep) {
  * Returns false if the step isn't an active deliberation or the agent isn't on the panel.
  */
 export function recordPanelResult(stepId: string, agentId: string, result: string): boolean {
+  const handled = recordPanelResultNow(stepId, agentId, result);
+  if (handled) advanceWorkflowsSoon();
+  return handled;
+}
+
+function recordPanelResultNow(stepId: string, agentId: string, result: string): boolean {
   const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
   if (!row) return false;
 
@@ -2142,6 +2669,68 @@ export function recordPanelResult(stepId: string, agentId: string, result: strin
   return true;
 }
 
+// ─── One step per cartridge ────────────────────────────────────────────────────
+//
+// A cartridge is ONE terminal session. The relay types each command in as a bracketed paste
+// followed by a delayed Enter, so two commands sent together both land in the input box before the
+// first Enter and reach the agent as ONE message. The executor used to dispatch every ready step of
+// a stage at once; on the default one-cartridge run, a "parallel" stage became a single merged
+// prompt (verified in the sandbox: three CE plan reviews, 6,984 chars, one answered, two left
+// running). A step typed into a cartridge that is waiting on a question is consumed as the ANSWER.
+// So a step waits while its cartridge is occupied, and starts as soon as it is free.
+
+/** Step types that type a prompt into a single cartridge. Confers check their own participants. */
+const SINGLE_CARTRIDGE_TYPES = new Set(['claude-code', 'command', 'quality-gate', 'review-gate', '']);
+
+/** The cartridge(s) a step would type its prompt into. */
+function dispatchTargets(step: WorkflowStep): string[] {
+  if (!SINGLE_CARTRIDGE_TYPES.has(step.executorType)) return [];
+  const id = step.executorType === 'review-gate'
+    ? String(step.executorConfig.reviewAgentId || step.executorId || '')
+    : String(step.executorId || '');
+  return id && id !== '__deferred__' ? [id] : [];
+}
+
+/** Why `step` cannot be dispatched right now, or null when its cartridge is free. */
+function cartridgeHold(step: WorkflowStep, claimedThisPass: Set<string>): string | null {
+  for (const agentId of dispatchTargets(step)) {
+    const name = getAgentName(agentId);
+    if (claimedThisPass.has(agentId)) return `"${name}" is taking another step of this stage first`;
+    const agent = db.prepare('SELECT status, pending_question FROM agents WHERE id = ?')
+      .get(agentId) as { status?: string; pending_question?: string } | undefined;
+    if (agent?.status === 'waiting' && (agent.pending_question || '').trim()) {
+      return `"${name}" is waiting for an answer to a question`;
+    }
+    // A permission prompt is open in its terminal: a pasted prompt would land in it. Judged by the
+    // permission itself, not the `waiting` status, which can outlive it — an open permission has a
+    // hard lifetime (the hook abandons it; the server sweeps it), so this hold cannot strand a step.
+    if (db.prepare("SELECT 1 FROM permissions WHERE agent_id = ? AND status = 'pending' LIMIT 1").get(agentId)) {
+      return `"${name}" is waiting on a permission prompt`;
+    }
+    // Another step — in ANY running workflow — already typed into this cartridge and not done yet.
+    const busy = db.prepare(
+      `SELECT s.name, s.workflow_id FROM workflow_steps s JOIN workflows w ON w.id = s.workflow_id
+        WHERE w.status IN ('running', 'paused') AND s.status = 'running' AND s.id != ?
+          AND s.executor_type IN ('claude-code', 'command', 'quality-gate', 'review-gate', '')
+          AND (s.dispatch_agent_id = ? OR (COALESCE(s.dispatch_agent_id, '') = '' AND s.executor_id = ?))
+        LIMIT 1`,
+    ).get(step.id, agentId, agentId) as { name: string; workflow_id: string } | undefined;
+    if (busy) {
+      return `"${name}" is running "${busy.name}"${busy.workflow_id === step.workflowId ? '' : ' in another workflow'}`;
+    }
+  }
+  return null;
+}
+
+/** Hold reasons already logged, so a waiting step says why once rather than every tick. */
+const heldSteps = new Map<string, string>();
+
+function noteHold(step: WorkflowStep, reason: string): void {
+  if (heldSteps.get(step.id) === reason) return;
+  heldSteps.set(step.id, reason);
+  emitStepLog(step.workflowId, step.id, step.name, `Ready — waiting for ${reason}; it starts when that cartridge is free`, 'info');
+}
+
 function processWorkflow(workflowId: string) {
   const steps = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as Record<string, unknown>[])
     .map(normalizeStep);
@@ -2154,6 +2743,7 @@ function processWorkflow(workflowId: string) {
   // is a deliberation waiting for its panel agents to come online.
   for (const step of steps) {
     if (step.status !== 'running') continue;
+    checkFreshSessionWait(step);
     if (step.executorType === 'deliberation') {
       processDeliberationStep(workflowId, step);
     }
@@ -2223,10 +2813,19 @@ function processWorkflow(workflowId: string) {
     return true;
   });
 
-  // Execute all ready steps in parallel
+  // Execute the ready steps — at most one at a time per cartridge (see cartridgeHold). Steps on
+  // different cartridges still start together; a held step starts when its cartridge frees up.
+  const claimed = new Set<string>();
   for (const step of readySteps) {
+    const hold = cartridgeHold(step, claimed);
+    if (hold) {
+      noteHold(step, hold);
+      continue;
+    }
+    heldSteps.delete(step.id);
+    for (const agent of dispatchTargets(step)) claimed.add(agent);
     emitStepLog(workflowId, step.id, step.name, `Dependencies satisfied — dispatching step`, 'info');
-    executeStep(step).catch((err) => {
+    trackInFlight(executeStep(step)).catch((err) => {
       console.error(`[workflow-v2] Unhandled error in step "${step.name}": ${err}`);
     });
   }
@@ -2386,7 +2985,41 @@ export function tickWorkflowsOnce(): void {
   tick();
 }
 
+// ─── Advancing immediately ──────────────────────────────────────────────────────
+//
+// The executor polls every POLL_INTERVAL_MS, and everything used to wait for that poll: a step's
+// successors started up to 12s after it reported, each connector in a chain cost a full poll for a
+// millisecond operation, a launched run's first step waited for the next tick. Measured over the
+// seeded catalogue: 242 polls, ~24 minutes of average idle per pass. Now anything that can unblock
+// a run — an accepted completion, a decision, a manual advance, a launch, a finished connector —
+// schedules an executor pass right away. The poll remains as the backstop.
+//
+// ON in production (startWorkflowExecutorV2) and in the workflow-test harness; off by default so
+// the unit tests that drive the executor by hand with tickWorkflowsOnce() stay deterministic.
+
+let immediateAdvance = false;
+let advanceScheduled = false;
+registerPending(() => advanceScheduled);
+
+/** Resolves when the engine has finished everything it will do without the poll (tests, harness). */
+export const executorSettled = whenQuiet;
+
+export function setImmediateAdvance(on: boolean): void {
+  immediateAdvance = on;
+}
+
+/** Run an executor pass as soon as the current call stack unwinds. Coalesced: one pass per burst. */
+export function advanceWorkflowsSoon(): void {
+  if (!immediateAdvance || advanceScheduled) return;
+  advanceScheduled = true;
+  setImmediate(() => {
+    advanceScheduled = false;
+    tick();
+  });
+}
+
 export function startWorkflowExecutorV2() {
+  setImmediateAdvance(true);
   setInterval(tick, POLL_INTERVAL_MS);
   console.log(`[workflow-v2] Executor started (polling every ${POLL_INTERVAL_MS / 1000}s)`);
 }

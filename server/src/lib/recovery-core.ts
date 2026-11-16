@@ -140,7 +140,12 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '\n[…truncated…]' : s;
 }
 
-function renderWorkflowRecoveryContext(database: Database, step: Record<string, unknown>): string {
+function renderWorkflowRecoveryContext(
+  database: Database,
+  step: Record<string, unknown>,
+  /** Expands session references in the stored prompt: the replay goes to a session that lacks them. */
+  expandPrompt: (prompt: string) => string = (p) => p,
+): string {
   const workflowId = (step.workflow_id as string) || '';
   if (!workflowId) return '';
 
@@ -160,7 +165,7 @@ function renderWorkflowRecoveryContext(database: Database, step: Record<string, 
     if (wf.initial_context) parts.push(`Initial context:\n${truncate(wf.initial_context, STEP_RESULT_MAX_CHARS)}`);
   }
 
-  const currentPrompt = (step.dispatched_prompt as string) || '';
+  const currentPrompt = expandPrompt((step.dispatched_prompt as string) || '');
   if (currentPrompt) {
     parts.push(`Interrupted step: ${String(step.name || step.id)}\nOriginal dispatched prompt:\n${truncate(currentPrompt, STEP_RESULT_MAX_CHARS)}`);
   }
@@ -328,7 +333,7 @@ export interface RecoverResult {
 export function recoverStep(
   database: Database,
   stepId: string,
-  opts: { now: number; dispatch: (agentId: string, text: string) => void; maxAttempts?: number },
+  opts: { now: number; dispatch: (agentId: string, text: string) => void; maxAttempts?: number; expandPrompt?: (prompt: string) => string },
 ): RecoverResult {
   const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const step = database.prepare('SELECT * FROM workflow_steps WHERE id = ?')
@@ -356,7 +361,7 @@ export function recoverStep(
   const sessionId = (step.native_session_id as string) || resolveSessionId(database, agentId);
   const rows = database.prepare('SELECT role, content, seq FROM messages WHERE session_id = ? ORDER BY seq ASC')
     .all(sessionId) as MessageRow[];
-  const workflowContext = renderWorkflowRecoveryContext(database, step);
+  const workflowContext = renderWorkflowRecoveryContext(database, step, opts.expandPrompt);
   const transcriptContext = renderReplayContext(rows);
   const prompt = workflowContext ? `${workflowContext}\n\n${transcriptContext}` : transcriptContext;
 

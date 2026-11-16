@@ -29,6 +29,23 @@ import { seedCompoundEngineering } from './compound-engineering.js';
 // so they are deleted from existing databases too, not merely unlisted.
 export const STANDARD_TEMPLATE_NAMES = ['Spec Intake → Dev Spec', 'Daily AI Research Digest', 'Daily AI Filmmaking Digest', 'Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery', ...GRIDLIGHT_QA_TEMPLATE_NAMES, GRIDLIGHT_PERF_TEMPLATE_NAME] as const;
 
+/**
+ * Templates launched WITHOUT the auto-added Work Standard Check (workflows.standard_gate = 'off').
+ *
+ * The check audits code: "go to the CODE and establish the complete set it should have touched",
+ * then the set-based test that proves it. These templates change no code — they produce a digest,
+ * research, a strategy, an architecture review, documentation, a validation report, a QA run, a
+ * brainstorm, a plan, or compound notes — so the check had nothing to audit and cost a full
+ * dispatch (and its retries) on every run. Templates that change code keep it, including CE Phase 4
+ * (resolves review findings), Phase 5 (fixes the bugs QA finds) and Phase 6 (recovery actions).
+ */
+export const NO_STANDARD_GATE_TEMPLATES = [
+  'Daily AI Research Digest', 'Daily AI Filmmaking Digest', 'Deep Research', 'Product Strategy Session',
+  'Engineering Architecture Review', 'Release Documentation', 'Jira Tasks Validation',
+  'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 7 — Compound',
+  ...GRIDLIGHT_QA_TEMPLATE_NAMES,
+] as const;
+
 export function runStandardTemplateSeed(db: DatabaseType): void {
   const standardNames = STANDARD_TEMPLATE_NAMES;
 
@@ -121,6 +138,9 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   seedEpics(kit);
   seedReviews(kit);
   seedCompoundEngineering(kit);
+
+  const noGate = db.prepare("UPDATE workflows SET standard_gate = 'off' WHERE name = ? AND template_id IS NULL");
+  for (const name of NO_STANDARD_GATE_TEMPLATES) noGate.run(name);
 
   // Derived, not hand-written: this said 20 while the list held 23, because a count typed
   // into a log line is a fact nobody updates when they add a template.

@@ -140,7 +140,7 @@ run is independent with its own `runNumber` and step progress.
 | Behavior | Description |
 |----------|-------------|
 | **TDD ordering** | Tests are written after design and before implementation in the dev templates. |
-| **Conditional routing** | Quality-gate steps loop back to the implementation step on `STATUS: FAIL` (up to a max-cycle limit). |
+| **Conditional routing** | A routing rule loops the run back to an earlier step when a step's result matches it (up to a max-cycle limit). See *Gate verdicts and routing rules* below. |
 | **Context flow** | Each step receives its dependency results when "Include output from previous step" is enabled. |
 | **Webhook completion** | Agents call their step's webhook URL (`/api/workflows/webhook/:stepId/complete`) with a result when done. |
 | **Auto-advance** | Most steps start automatically when dependencies complete; some (e.g. New Feature's Architect) require manual advance. |
@@ -149,10 +149,132 @@ run is independent with its own `runNumber` and step progress.
 | **Deferred cartridges** | Agent steps use deferred selection — pick the cartridge/tool at run time. |
 | **Launch attachments** | Files attached in Configure & Run are materialized into each repo the run touches and named in every step's prompt. |
 
-Agents signal gate status with a prefix in their webhook result: `STATUS: PASS …` / `STATUS: FAIL …`.
+### Gate verdicts and routing rules
+
+**Verdicts.** A gate reads its verdict from the **first line** of the result. That line must be a
+bare `PASS` or `FAIL`. A label and markdown are fine (`STATUS: PASS`, `Verdict: **PASS**`, `PASS.`),
+but anything else on the line makes it a FAIL: `PASS: with caveats` and `PASS — but two tests
+skipped` are qualified passes, and a gate does not accept them. Put the explanation on the
+following lines. If the verdict is FAIL, a line `RETRY FROM: <step name>` picks which earlier step
+redoes the work.
+
+**Routing rules** (`contains` / `not_contains` / `starts_with` / `matches_regex`, each with a target
+step and a `maxCycles` budget):
+
+- **On a work step:** when its result matches, the target and every step between it and this one
+  run again, this one included, so the condition is checked again against the new output. The
+  target is told why: the matching result is added to its prompt as `[ROUTED BACK …]`. Nothing
+  downstream starts until the loop settles. Once `maxCycles` is used up, the run moves on.
+- **On a gate:** the rule is read against a **FAIL** verdict and chooses where the retry goes back
+  to (an agent's own `RETRY FROM:` takes precedence). A PASS never loops back, even if its text
+  happens to contain the rule's trigger. The gate's retry limit still applies.
+- A rule whose target is not a step of the run is logged in the run's execution log and skipped.
+
 Routing edges render as **dashed amber lines** on the canvas.
 
 ---
+
+## How a step is sent
+
+A run's steps are typed into cartridges, and a cartridge is one live agent session that keeps
+everything it was told. Five rules follow from that.
+
+- **One step at a time per cartridge.** A ready step waits while its cartridge has another step
+  running (in any run), or has an open question or permission prompt. It starts the moment that
+  cartridge is free, and the run log says what it is waiting for. Steps assigned to *different*
+  cartridges still run in parallel. Without this, a "parallel" stage on one cartridge reached the
+  agent as a single merged message.
+- **No waiting on the poll.** An accepted completion, a decision, an Advance click, a launch, a
+  confer milestone or a finished connector starts whatever it unblocked immediately. The 12s poll
+  remains only as a backstop.
+- **A session is told a thing once.** The goal brief, agent memory, completion contract, role persona
+  and work-standard block go into a session in full once. After that, prompts carry a one-line
+  reference. A result the session reported itself, or was already sent, arrives as its `NEXT:`
+  hand-off and first line. A loop iteration or a gate retry refers to the instructions it already
+  has. Every reference names where to fetch the full text, for an agent that no longer has it:
+
+  ```
+  GET /api/workflows/steps/<stepId>/result          a step's stored result
+  GET /api/workflows/steps/<stepId>/instructions    a step's instructions as first dispatched
+  GET /api/confer/<sessionId>                       a confer's task
+  ```
+
+  Full prompts come back whenever the session may have lost them: a new session (restart,
+  `/clear`), a compaction (reported from the transcript by the hook reporter), every 10 prompts as
+  a backstop, and always for engines whose compactions NeonCore cannot see (Codex, Gridlight).
+  A reference is used only when it is shorter than what it replaces. The logic is in
+  `server/src/lib/session-ledger.ts`.
+- **A long run moves to a fresh session at phase boundaries** (Claude cartridges). Before a step
+  marked `freshSession: true`, or once a run has typed 10 prompts into one session, NeonCore types
+  `/clear` into the cartridge and sends the step into the new session, with everything in full:
+  goal brief, contract, the previous phase's results. CE: Full Delivery marks the first step of
+  phases 2–7. Without it, one session carried all ~38 prompts of that run and everything they
+  produced, and it was re-read on every model call. Measured in the workflow test harness, the
+  re-read drops by 85% on CE: Full Delivery and by 60–77% on 20-task epics, for +6% prompt text
+  on Full Delivery and none on the epics.
+  - `/clear` is typed only after the agent's turn has ended (the Stop hook's completion check let it
+    stop). Text typed into a busy Claude Code is queued and sent to the model as a message, not run
+    as a command. If the turn does not end within 60s, there is no fresh session and the step goes
+    into the current one.
+  - It is skipped when the run has not yet sent anything into the session (what is there is yours),
+    for a gate retry or a routed redo, for Codex and Gridlight, when the turn ended on a question to
+    you, and for a step with `freshSession: false`.
+  - The step waits for Claude's `SessionEnd` with reason `clear`. If no confirmation arrives within
+    20s, the step is sent anyway, in full. A `/clear`, whether typed by NeonCore or by you, no
+    longer marks the cartridge offline or offers to resume it.
+- **What the next step sees of an answer.** Each dependency result is capped at 1,500 chars, keeping
+  its **head and its end** (where the conclusion usually is). A note says how much was dropped and
+  where the whole text is. A work step is not forwarded the previous step's scope/verify block. A
+  gate is, because it audits it.
+
+A template step can opt out of run-level confer conversion with `conferFill: 'single'` in its
+config. It then runs on the first participant's cartridge.
+
+### Confers: waiting and talking
+
+A confer milestone advances only when **every** participant has signalled it done. The conductor
+waits, and the watchdog nudges a participant that has gone quiet. Participants can message each
+other with `neoncore_message_agent`. Such a message arrives marked as coming from a **peer agent,
+not the user**, naming the sender and how to reply. It carries no goal brief or work-standard
+block, and it does not replace the recipient's objective. A comment that arrives after the recipient
+has already signalled the milestone done **re-opens** the milestone for it, so it answers before
+the confer moves on. The task brief and the commit/push instructions are sent in full on the first
+milestone and referred to after that.
+
+### The Work Standard Check and the completion report
+
+A launched run with no gate of its own gets a **Work Standard Check** (a quality gate that audits
+the work against its complete set and a set-based test). It runs **after the work and before the
+trailing connectors**: work → check → Capture Learnings / Save to Project / Notify → completion
+report. Before, it ran after "Notify: Done" and saw only Notify's one line. The same check is
+added to scheduled and decomposed runs, which used to get none.
+
+Templates that change no code are launched **without** it: the two daily digests, Deep Research,
+Product Strategy Session, Engineering Architecture Review, Release Documentation, Jira Tasks
+Validation, both Gridlight QA runs, and CE Phases 1, 2 and 7 (`NO_STANDARD_GATE_TEMPLATES` in
+`server/src/lib/templates/index.ts`). A workflow created with `skipStandardGate: true` keeps that
+opt-out at every launch (stored as `workflows.standard_gate = 'off'`). Before, the launch added the
+check back.
+
+The completion report's spec scales with the run: a run with at most 3 agent steps gets the compact
+spec (~950 chars), which asks for the same fields and the same single delivery. Larger runs get the
+full one (~1,700 chars).
+
+### If the server goes down mid-run
+
+The database survives a power cut (WAL, synchronous `FULL`). Steps, results, confer state and the
+run's position are all on disk. After a restart:
+
+- A cartridge whose session died is detected as interrupted within about 1–2 minutes, and the
+  dashboard offers **Resume**. Resume relaunches the cartridge natively through its runner and
+  replays the transcript. Each session reference in the replayed prompt is expanded back into full
+  text, because the new session never saw the originals. The resumed cartridge is then sent a
+  continuation prompt for the step it was on: check `git status`, finish, and report, with the path
+  to fetch the step's instructions.
+- What was lost: the session ledger lives in memory, so the first prompt into each session after a
+  restart is sent in full. A step parked for a fresh session is picked up by the poll.
+- Known limit: a cartridge that was `waiting` on a question at the moment of the crash is not
+  flagged as interrupted until the 24h reaper sees it.
 
 ## Connectors
 
