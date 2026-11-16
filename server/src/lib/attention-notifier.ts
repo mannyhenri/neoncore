@@ -2,7 +2,7 @@
  * Attention events → notices — N3 of docs/plans/build-order.md.
  *
  * "This is the phase that ends work stalling while you are away", and it is written once
- * against `Notice`. Nothing here knows Discord exists; a run blocked on a decision reaches
+ * against `Notice`. Nothing here knows which apps exist; a run blocked on a decision reaches
  * every configured channel, and a second app is a registration, not an edit to this file.
  *
  * ── THE HARD PART IS NOT SENDING, IT IS NOT RE-SENDING ─────────────────────────────────
@@ -49,7 +49,7 @@ import {
 } from './autonomy.js';
 
 /**
- * Action id prefixes. SHORT on purpose: a Discord customId is capped at 100 characters and a
+ * Action id prefixes. SHORT on purpose: button ids are capped at 100 characters and a
  * step id alone is a 36-character uuid, so `wfdecide:<workflowId>:<stepId>:<optionId>` would
  * overflow before the option was even named. Ids carry the STEP only and the run is looked up.
  */
@@ -61,7 +61,7 @@ export const ACTION_PREFIX = {
   undo: 'wfundo',
 } as const;
 
-/** Discord's hard cap. Asserted in the test rather than discovered in production. */
+/** The action-id cap. Asserted in the test rather than discovered in production. */
 export const MAX_ACTION_ID = 100;
 
 /**
@@ -479,7 +479,7 @@ export function stopAttentionNotifier(): void {
 /**
  * Button handlers. Registered against the shared registry, so any driver dispatches them.
  * A reply is always sent: a button that silently does nothing is indistinguishable from a
- * server that has died, which is the note discord-bot.ts already makes about missing handlers.
+ * server that has died.
  */
 export function registerAttentionActions(): void {
   registerAction(ACTION_PREFIX.decide, async ({ payload, reply }) => {

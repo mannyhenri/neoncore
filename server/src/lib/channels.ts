@@ -8,7 +8,7 @@
  * quiet forever.
  *
  * The interface is deliberately app-shaped-by-nobody. A `Notice` describes what a person needs
- * to know and what they can do about it; how that becomes a push payload, a Discord message
+ * to know and what they can do about it; how that becomes a push payload, a chat message
  * with buttons, or a webhook body is the adapter's problem. Nothing here may know an app
  * exists — that boundary is asserted in test/channels.test.ts over every file in src/.
  */

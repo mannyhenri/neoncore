@@ -363,7 +363,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <BodyText>
               Connector steps integrate with external systems at any point in a workflow.
             </BodyText>
-            <FeatureCard name="Slack / Discord" desc="Post a message via incoming webhook." />
+            <FeatureCard name="Slack" desc="Post a message via incoming webhook." />
             <FeatureCard name="GitHub" desc="Create an issue or comment on a PR." />
             <FeatureCard name="Linear" desc="Create or update an issue." />
             <FeatureCard name="HTTP" desc="Generic webhook POST / PUT / GET." />

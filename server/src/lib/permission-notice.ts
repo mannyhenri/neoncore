@@ -1,7 +1,7 @@
 /**
  * Turning a permission request into something you can ANSWER from a phone.
  *
- * REPORTED: Discord showed only "gridlight — Question / AskUserQuestion" and "gridlight — Plan
+ * REPORTED: the notice showed only "gridlight — Question / AskUserQuestion" and "gridlight — Plan
  * Ready / Agent completed planning and is waiting for your review." No question text, no
  * options, no way to reply. The request carried all of it — `tool_input` holds the question,
  * the header, and every option with its description — and the notice threw it away.
@@ -27,7 +27,7 @@ export interface ParsedQuestion {
   multiSelect: boolean;
 }
 
-/** Discord caps a button label at 80 characters and a custom id at 100. */
+/** Button caps: a label at 80 characters and a custom id at 100. */
 export const MAX_LABEL = 80;
 export const MAX_ACTION_ID = 100;
 /** 5 buttons per row, 5 rows. Well under it: a wall of buttons is not a choice, it is a menu. */
