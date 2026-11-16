@@ -366,6 +366,12 @@ def extract_new_transcript_events(transcript_path: str, session_id: str):
 
 def normalize_entry(entry: dict, seq: int):
     """Map one transcript JSONL entry to a transcript event, or None to skip."""
+    # A context compaction. Claude Code writes a `compact_boundary` system line, then the summary
+    # as a user message flagged `isCompactSummary`. NeonCore sends later steps of a workflow
+    # SHORTER prompts when the session already holds what they would repeat; after a compaction it
+    # no longer does, so the server must learn of it (agents.context_compacted_at).
+    if entry.get("type") == "system" and entry.get("subtype") == "compact_boundary":
+        return {"seq": seq, "role": "system", "content": [], "compacted": True}
     msg = entry.get("message")
     if not isinstance(msg, dict):
         return None
@@ -378,6 +384,8 @@ def normalize_entry(entry: dict, seq: int):
         return None
 
     ev = {"seq": seq, "role": role, "content": blocks}
+    if entry.get("isCompactSummary"):
+        ev["compacted"] = True
 
     model = msg.get("model")
     if model:

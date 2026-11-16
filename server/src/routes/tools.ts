@@ -331,6 +331,16 @@ router.post('/install/:tool', (req, res) => {
     return;
   }
 
+  // The hook config names these scripts as the COMMAND, so the CLI execs them directly and they
+  // must be executable. A checkout that lost its mode bits (a zip, a Windows copy) otherwise
+  // installs hooks that fail every call with "Permission denied" — agent/install.py already
+  // does this for the Claude scripts; this route never did.
+  if (process.platform !== 'win32') {
+    for (const script of [proxy, reporter]) {
+      try { fs.chmodSync(script, 0o755); } catch { /* read-only checkout: leave it, the error will say why */ }
+    }
+  }
+
   // Install CLI via npm if available and not yet installed
   const cliInfo = CLI_INFO[tool];
   if (cliInfo?.npmPkg && !findCli(cliInfo.bin)) {

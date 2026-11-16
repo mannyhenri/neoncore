@@ -51,6 +51,9 @@ function startRun(): string {
   ).get() as { id: string } | undefined;
   assert.ok(tpl, 'the template is not seeded');
 
+  // A cartridge runs one step at a time (workflow-executor-v2 cartridgeHold): a run left mid-flight
+  // by an earlier test on this same fake cartridge would hold this one. End them first.
+  db.prepare("UPDATE workflows SET status = 'cancelled' WHERE status = 'running'").run();
   const runId = cloneTemplateAsRun(tpl!.id, null, 'docs/plans/EPIC-fake.md');
   assert.ok(runId, 'cloneTemplateAsRun returned nothing');
 

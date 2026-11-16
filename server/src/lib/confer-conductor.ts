@@ -1,6 +1,8 @@
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import db from '../db.js';
+import { trackInFlight } from './inflight.js';
+import { sessionLedger, alreadySent, noteSent, type SessionLedger } from './session-ledger.js';
 import { libelleContexte } from './context-label.js';
 import { getIO, agentHasLiveSocket } from '../ws.js';
 import { inboxReachable } from './inbox-client.js';
@@ -616,7 +618,7 @@ export function startConfer(input: {
     ).run(uuid(), id, idx, m.key, m.name, m.round);
   });
 
-  void dispatchMilestone(id, 0).catch((err) => console.error(`[confer] start dispatch failed: ${err}`));
+  void trackInFlight(dispatchMilestone(id, 0)).catch((err) => console.error(`[confer] start dispatch failed: ${err}`));
   return emit(id) || hydrateSession(sessionRow(id)!);
 }
 
@@ -662,7 +664,7 @@ export function recordMilestoneDone(sessionId: string, agentId: string, result: 
   const nextIdx = idx + 1;
   if (nextIdx < total) {
     db.prepare('UPDATE confer_sessions SET current_milestone = ? WHERE id = ?').run(nextIdx, sessionId);
-    void dispatchMilestone(sessionId, nextIdx).catch((err) => console.error(`[confer] advance dispatch failed: ${err}`));
+    void trackInFlight(dispatchMilestone(sessionId, nextIdx)).catch((err) => console.error(`[confer] advance dispatch failed: ${err}`));
   } else {
     db.prepare(`UPDATE confer_sessions SET status = 'completed', completed_at = ? WHERE id = ?`).run(now, sessionId);
     console.log(`[confer] ${sessionId} completed all ${total} milestones`);
@@ -810,6 +812,17 @@ function isolationLines(session: ConferSession, me: Participant, peers: Particip
  * branch (its own worktree branch under isolation, otherwise whatever branch the agent is
  * already on — `HEAD`, which is correct on any machine without the server guessing a name).
  */
+/** The commit + push for this round as commands only — the rules were given in full already. */
+function commitPushCommands(session: ConferSession, me: Participant, round: number, rounds: number): string {
+  const wt = session.worktrees?.[me.id];
+  const dir = wt?.path || me.repoPath;
+  const label = rounds > 1 ? `round ${round}/${rounds}` : 'build';
+  return [
+    `COMMIT + PUSH before signalling done — same branch, same rules as before (pull --rebase if rejected, never force-push):`,
+    `  ${dir ? `cd "${dir}" && ` : ''}git add -A && git commit -m "confer ${session.id.slice(0, 8)} ${label}: <what you changed>" && git push -u origin ${wt ? wt.branch : 'HEAD'}`,
+  ].join('\n');
+}
+
 function commitPushLines(session: ConferSession, me: Participant, round: number, rounds: number): string {
   const wt = session.worktrees?.[me.id];
   const dir = wt?.path || me.repoPath;
@@ -834,6 +847,12 @@ export function buildMilestonePrompt(
   me: Participant,
   peers: Participant[],
   attachmentBlocks: AttachmentBlocks,
+  /**
+   * What this participant's session already holds (lib/session-ledger.ts). The overall task —
+   * query, description, step prompt and any upstream result — was re-sent on EVERY milestone, to a
+   * session that had it from milestone 1. Omitted: always in full (tests, untracked engines).
+   */
+  ledger: SessionLedger | null = null,
 ): string {
   const milestones = session.milestones || [];
   const total = milestones.length || CONFER_MILESTONE_COUNT;
@@ -859,13 +878,26 @@ export function buildMilestonePrompt(
   const worktreeLines = isolationLines(session, me, peers, def);
   // The build step is the only one that must land a commit; the review/converge steps have
   // their own git story (and Finalize commits the combined result).
-  const commitLines = def?.iterates ? commitPushLines(session, me, round, rounds) : '';
+  const fullCommit = def?.iterates ? commitPushLines(session, me, round, rounds) : '';
+  // The commit + push rules are the same every round; after the first one in this session only
+  // the commands (with this round's number) are restated.
+  const commitKind = `confer-commit:${session.id}`;
+  const commitRules = fullCommit.replace(/round \d+\/\d+/g, 'round N');
+  const shortCommit = fullCommit ? commitPushCommands(session, me, round, rounds) : '';
+  const commitLines = fullCommit && alreadySent(ledger, commitKind, commitRules) && shortCommit.length < fullCommit.length
+    ? shortCommit : fullCommit;
+  if (fullCommit) noteSent(ledger, commitKind, commitRules);
+  const taskKind = `confer-task:${session.id}`;
+  const taskRef = `Unchanged — as given in milestone 1 of this confer, earlier in this session. If it is no longer in your context: `
+    + `curl -s "\${NEONCORE_URL:-${baseUrl()}}/api/confer/${session.id}" ${AUTH_CURL_HEADER} (field "task").`;
+  const task = alreadySent(ledger, taskKind, session.task) && taskRef.length < session.task.length ? taskRef : session.task;
+  noteSent(ledger, taskKind, session.task);
   return [
     `[NeonCore Confer · Milestone ${idx + 1}/${total}: ${name}]`,
     `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`,
     ``,
     `OVERALL TASK:`,
-    session.task,
+    task,
     ``,
     `YOUR PEER(S):`,
     peerLines,
@@ -905,7 +937,7 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
   let undelivered = 0;
   for (const me of participants) {
     const peers = participants.filter((p) => p.id !== me.id);
-    const prompt = buildMilestonePrompt(session, idx, me, peers, attachmentBlocks);
+    const prompt = buildMilestonePrompt(session, idx, me, peers, attachmentBlocks, sessionLedger(me.id));
     // Fleet-aware: participants on a peer server are reached through their owner. Local
     // delivery still runs first and synchronously, so a single-server confer is unchanged.
     const out = await deliverToAgent(me.id, prompt, (id, body) => sendCommandToAgent(id, body, false));
@@ -941,7 +973,7 @@ export function reconcileConfers(now = Date.now()): void {
 
     // Crash between advance and dispatch: current milestone still pending → dispatch it.
     if (ms.status === 'pending') {
-      void dispatchMilestone(row.id as string, idx).catch((err) => console.error(`[confer] watchdog dispatch failed: ${err}`));
+      void trackInFlight(dispatchMilestone(row.id as string, idx)).catch((err) => console.error(`[confer] watchdog dispatch failed: ${err}`));
       continue;
     }
     if (ms.status !== 'active' || !ms.dispatched_at) continue;

@@ -259,7 +259,9 @@ export function shouldExtendLoop(i: ExtendInput): boolean {
  * Kept as a NAMED SET rather than an inline `delete`, so a future per-dispatch counter is
  * added in one place and the test that guards this notices it.
  */
-export const PER_DISPATCH_KEYS = ['_nudges', '_lastNudgeAt'] as const;
+// `_freshSession` marks ONE dispatch as waiting for (then sent into) a cleared session — see
+// workflow-executor-v2's "A fresh session per phase".
+export const PER_DISPATCH_KEYS = ['_nudges', '_lastNudgeAt', '_freshSession'] as const;
 
 /**
  * Every key a loop RUN writes onto a step's config. A re-run of the workflow must clear all of
@@ -338,8 +340,42 @@ export function loopDispatchHeader(i: {
 }
 
 /** The first non-empty line of a report, bounded — the claim, not the essay. */
+/**
+ * The AGENT'S OWN REPORT inside a stored step result — what the completion webhook wrapped
+ * around it removed.
+ *
+ * The webhook decorates a result before the executor sees it (routes/workflows.ts):
+ *   - `next` becomes a `NEXT: <hand-off>` line at the TOP, separated by a blank line, so that a
+ *     truncated dependency context still carries it (withHandoff);
+ *   - a plan captured from ExitPlanMode wraps the result as `[Plan]\n…\n\n[Implementation Summary]\n…`.
+ * Both are right for the NEXT step's reader and wrong for the LOOP's: the loop asks "what did this
+ * dispatch report?", and line 1 had become the hand-off or the word `[Plan]`. Reading that as the
+ * report is what hid a repeated BLOCKED claim from LOOP-003 — 103 dispatches for a stuck agent
+ * that filled in `next`, as its completion instruction asks it to.
+ */
+export function agentReportOf(result: string): string {
+  let body = result || '';
+  if (/^NEXT: /.test(body)) {
+    const sep = body.indexOf('\n\n');
+    body = sep >= 0 ? body.slice(sep + 2) : '';
+  }
+  const summaryMark = '[Implementation Summary]\n';
+  if (body.startsWith('[Plan]\n') && body.includes(summaryMark)) {
+    body = body.slice(body.indexOf(summaryMark) + summaryMark.length);
+  }
+  return body;
+}
+
+const CLAIM_RE = /^(DONE|BLOCKED|SKIPPED)\b[\s:·—-]*([A-Za-z0-9][A-Za-z0-9._\/-]*)/i;
+
+/**
+ * One line standing for what a dispatch reported: its DONE/BLOCKED/SKIPPED claim when it made one
+ * (wherever in the report it sits), otherwise the report's first line. Carried into the next
+ * dispatch's header and compared by LOOP-003, so it must be the claim — never a decoration.
+ */
 export function loopResultSummary(result: string): string {
-  const line = (result || '').split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0) || '';
+  const lines = agentReportOf(result).split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const line = lines.find((l) => CLAIM_RE.test(l)) ?? lines[0] ?? '';
   return line.length > 240 ? line.slice(0, 237) + '...' : line;
 }
 
@@ -355,10 +391,18 @@ export interface LoopClaim {
 }
 
 export function loopClaim(result: string): LoopClaim | null {
-  for (const raw of (result || '').split(/\r?\n/)) {
-    const m = raw.trim().match(/^(DONE|BLOCKED|SKIPPED)\b[\s:·—-]*([A-Za-z0-9][A-Za-z0-9._\/-]*)/i);
+  const report = agentReportOf(result);
+  for (const raw of report.split(/\r?\n/)) {
+    const m = raw.trim().match(CLAIM_RE);
     if (!m) continue;
-    return { verdict: m[1].toUpperCase() as LoopClaim['verdict'], taskId: m[2], remaining: remainingFrom(result) };
+    // The count on the CLAIM line when it carries one. Scanning the whole result compared a
+    // one-line summary (the previous dispatch) against a full result whose scope/verify block or
+    // hand-off can carry a different "N remaining" — the same report read two ways.
+    return {
+      verdict: m[1].toUpperCase() as LoopClaim['verdict'],
+      taskId: m[2],
+      remaining: remainingFrom(raw) ?? remainingFrom(report),
+    };
   }
   return null;
 }

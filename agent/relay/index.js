@@ -293,7 +293,9 @@ async function main() {
       cols: process.stdout.columns || 80,
       rows: process.stdout.rows || 30,
       cwd: process.cwd(),
-      env: { ...process.env, CLAUDE_CODE_MESSAGING_TOKEN: INBOX_TOKEN },
+      // NEONCORE_AGENT_ID: this cartridge's id, inherited by the agent's MCP server so that
+      // neoncore_message_agent can say who a message is from (server/src/lib/peer-message.ts).
+      env: { ...process.env, CLAUDE_CODE_MESSAGING_TOKEN: INBOX_TOKEN, ...(agentId ? { NEONCORE_AGENT_ID: agentId } : {}) },
     });
     ptyProc = proc;
     proc.onData((data) => process.stdout.write(data));

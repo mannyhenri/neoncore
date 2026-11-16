@@ -310,6 +310,8 @@ FAIL when any item is missing, invalid, unresolved, skipped without explicit aut
       300, 80, 'claude-code',
       {
         ...cc('researcher'), workflowContext: true,
+        // One cartridge states the objective; the confer that follows splits it (see conferFillFor).
+        conferFill: 'single',
         prompt: 'An epic is specified above, spanning more than one repository.\n\n**Your job is to state the OBJECTIVE, not to partition it.** The next step is a confer: the participating cartridges converge on one plan and split the work between themselves. They are better placed to decide the split than you are \u2014 they can read their own repos. A partition invented here would be guesswork they then have to work around.\n\n1. Resolve the epic (a local doc first \u2014 `.claude/scoping/EPIC-*.md`, `docs/plans/*.md` \u2014 then a tracker CLI only if configured).\n2. State the objective in a paragraph a reader with no context could act on.\n3. Name every repository involved and what each is FOR \u2014 not what it should do here.\n4. List the tasks as the epic states them, unassigned, with their ids.\n5. State how the whole thing is verified: the test command per repo, and what "done" means across both.\n6. Name any hard ordering the epic itself imposes. If there is none, say so \u2014 inventing sequence is how a confer turns back into a queue.\n\n**OUTPUT:**\n```\nOBJECTIVE: [the paragraph]\nREPOS: [name \u2014 what it is for, one per line]\nTASKS: [id \u2014 title, one per line, unassigned]\nVERIFY: [test command per repo, and the cross-repo definition of done]\nORDERING: [what genuinely must come first, or \u0022none\u0022]\n```',
       }, []);
 

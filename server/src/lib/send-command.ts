@@ -9,6 +9,7 @@ import { markUnreachable } from './dead-inbox.js';
 import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
 import { goalBriefForAgent } from './goal-brief.js';
+import { sessionLedger, alreadySent, noteSent, noteDispatch } from './session-ledger.js';
 import { noteBudgetOnDispatch } from './goal-budget.js';
 
 /**
@@ -158,6 +159,9 @@ export function sendCommandToAgent(
 
   // Auto-inject relevant memories into command context (if enabled)
   let finalText = text;
+  // What this agent's current session already holds (lib/session-ledger.ts): memory and the goal
+  // brief are stated in full once per session, and referred to after that. Null = always in full.
+  const ledger = sessionLedger(agentId);
   // Same rule as confer/workflow launches: this server can only write into checkouts on its
   // own disk. A cartridge relaying in from another Mac is reachable (its socket is right
   // here) but its repo is not, and the raw fs error names a path from the OTHER user's home.
@@ -191,7 +195,12 @@ export function sendCommandToAgent(
       // Prefix onto finalText, not `text` — rebuilding from `text` here used to drop the
       // attachment block whenever memory happened to be non-empty, so an attached file
       // silently vanished from the prompt.
-      finalText = `[Memory: ${memoryBlock}]\n${finalText}`;
+      const memoryLine = `[Memory: ${memoryBlock}]`;
+      const memoryRef = '[Memory: unchanged since earlier in this session]';
+      finalText = alreadySent(ledger, 'memory', memoryLine) && memoryRef.length < memoryLine.length
+        ? `${memoryRef}\n${finalText}`
+        : `${memoryLine}\n${finalText}`;
+      noteSent(ledger, 'memory', memoryLine);
     }
   }
 
@@ -207,7 +216,15 @@ export function sendCommandToAgent(
     pendingQuestion: agentCheck.pending_question,
   })) {
     const brief = goalBriefForAgent(agentId);
-    if (brief) finalText = `${brief}\n\n${finalText}`;
+    if (brief) {
+      // Once per session in full (≤2,000 chars); after that one line — it was 22% of everything a
+      // workflow sent, re-sent on every step into a session that already had it.
+      const goalRef = goalReference(brief);
+      finalText = alreadySent(ledger, 'goal', brief) && goalRef.length < brief.length
+        ? `${goalRef}\n\n${finalText}`
+        : `${brief}\n\n${finalText}`;
+      noteSent(ledger, 'goal', brief);
+    }
   }
 
   // ── Work-standard injection (docs/WORK-STANDARD.md) ────────────────────────
@@ -230,11 +247,22 @@ export function sendCommandToAgent(
     status: agentCheck.status,
     pendingQuestion: agentCheck.pending_question,
   })) {
-    if (opts.standard !== 'silent') finalText = `${finalText}\n\n${WORK_STANDARD_SHORT}`;
+    if (opts.standard !== 'silent') {
+      // In full once per session (~1,100 chars); after that, the rule in one line. A confer
+      // re-sent the whole block on every milestone beside the milestone's own done signal —
+      // the "double contract" lib/prompt-budget.ts flagged. The Stop gate is unchanged: the agent
+      // still knows the report it must end with.
+      finalText = alreadySent(ledger, 'work-standard', WORK_STANDARD_SHORT)
+        ? `${finalText}\n\n${WORK_STANDARD_REFERENCE}`
+        : `${finalText}\n\n${WORK_STANDARD_SHORT}`;
+      noteSent(ledger, 'work-standard', WORK_STANDARD_SHORT);
+    }
     db.prepare(
       `UPDATE agents SET standard_offered = 1, standard_armed = 0, standard_blocks = 0, standard_state = '' WHERE id = ?`,
     ).run(agentId);
   }
+
+  noteDispatch(ledger);
 
   const id = uuid();
   const now = new Date().toISOString();
@@ -429,3 +457,26 @@ export function sendCommandToAgent(
   return command;
 }
 
+/**
+ * The goal brief, referred to: the session received it in full earlier. Keeps the outcome — the
+ * one line an agent orients by — and says the constraints still hold.
+ */
+function goalReference(brief: string): string {
+  const outcome = brief.split('\n').find((l) => l.startsWith('OUTCOME: '))?.slice('OUTCOME: '.length).trim() ?? '';
+  const constraints = /NO-GOS|INVARIANTS/.test(brief) ? ' Its no-gos and invariants still apply.' : '';
+  return `[NeonCore goal — unchanged since earlier in this session${outcome ? `: ${outcome}` : ''}.${constraints}]`;
+}
+
+/** The work standard, referred to: the session was given it in full earlier. */
+const WORK_STANDARD_REFERENCE = '[NeonCore work standard — as given earlier in this session: scope → reproduce → fix → verify → report. '
+  + 'End your final message with the NEONCORE-DONE block (scope / verify / deferred) filled from real output.]';
+
+/**
+ * Type `/clear` into a cartridge: Claude Code ends the session and starts a new, empty one in the
+ * same terminal (reported back as SessionEnd reason "clear" — routes/agents.ts). Used by the
+ * executor to start a long run's next phase in a fresh session. Not a prompt: no goal brief, no
+ * work standard, and the cartridge's active objective is left alone.
+ */
+export function clearAgentSession(agentId: string): Command | null {
+  return sendCommandToAgent(agentId, '/clear', false, undefined, { standard: false, trackObjective: false });
+}

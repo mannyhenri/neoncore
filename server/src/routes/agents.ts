@@ -11,6 +11,8 @@ import { resolveAgentId } from '../lib/resolve-agent.js';
 import { deleteAgentCascade } from '../lib/agent-cleanup.js';
 import { handleAgentInterrupted } from '../lib/recovery.js';
 import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
+import { noteSessionCleared } from '../lib/session-ledger.js';
+import { onSessionCleared, onTurnEnded } from '../lib/workflow-executor-v2.js';
 import { currentFleetDelta } from '../lib/fleet-reconcile.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
 import { evaluateStop } from '../lib/work-standard.js';
@@ -68,8 +70,8 @@ router.post('/:id/restore', (req, res) => {
 });
 
 /**
- * Claude Code's SessionEnd hook: the session is genuinely gone (quit, /clear,
- * logout). This is the ONLY honest death signal a hooks-only agent has — `Stop`
+ * Claude Code's SessionEnd hook: the session is genuinely gone (quit, logout) — or, with
+ * reason "clear", replaced by a new one in the same live terminal (handled first, below). This is the ONLY honest death signal a hooks-only agent has — `Stop`
  * fires at the end of every assistant turn, so it can never mean "dead".
  *
  * Having it is what lets us delete the old 5-minute idle→offline timer, which
@@ -85,6 +87,18 @@ router.post('/session-end', (req, res) => {
   const { agentId, machine, repoPath, sessionId, agentType, reason } = req.body || {};
   const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId, agentType });
   if (!resolved) return res.status(404).json({ error: 'agent not found' });
+
+  // /clear ends the SESSION, not the cartridge: Claude starts a new session in the same terminal
+  // a moment later. Treating it as a death marked a live cartridge offline and interrupted (and
+  // offered to "resume" it) — and it is exactly what NeonCore itself types to start a long run's
+  // next phase in a fresh session (workflow-executor-v2 onSessionCleared), so it must not.
+  if (String(reason || '') === 'clear') {
+    endSession(resolved);
+    noteSessionCleared(resolved);
+    onSessionCleared(resolved);
+    console.log(`[session-end] Agent ${resolved} cleared its session (cartridge still live)`);
+    return res.json({ agentId: resolved, reason: 'clear' });
+  }
 
   markAgentSessionInterrupted(resolved, 'session-end');
   endSession(resolved);
@@ -418,7 +432,7 @@ router.post('/message', (req, res) => {
 // sessions). Idempotent: INSERT OR IGNORE on the unique (session_id, seq) index
 // means retries / overlapping byte ranges never create duplicates.
 router.post('/transcript', (req, res) => {
-  const { sessionId, machine, repoPath, engine, events, triggeredBy } = req.body as {
+  const { sessionId, machine, repoPath, engine, events: incoming, triggeredBy } = req.body as {
     sessionId?: string;
     machine?: string;
     repoPath?: string;
@@ -428,6 +442,8 @@ router.post('/transcript', (req, res) => {
       seq: number;
       role: TranscriptRole;
       content: unknown; // array of blocks or string
+      /** The session's context was compacted at this point (reporter.py). */
+      compacted?: boolean;
       model?: string;
       usage?: {
         input_tokens?: number;
@@ -444,7 +460,16 @@ router.post('/transcript', (req, res) => {
   // Codex cartridge, not a Claude one sharing the same repo.
   const agentId = resolveAgentId({ sessionId, machine, repoPath, agentType: engine });
   if (!agentId) return res.status(404).json({ error: 'Agent not found' });
+  let events = incoming;
   if (!Array.isArray(events) || events.length === 0) return res.json({ inserted: 0 });
+
+  // A compaction: what this session was told earlier may be gone, so the next workflow dispatch
+  // must send its full context again (lib/session-ledger.ts). The boundary itself is not a message.
+  if (events.some((e) => e?.compacted)) {
+    db.prepare('UPDATE agents SET context_compacted_at = ? WHERE id = ?').run(new Date().toISOString(), agentId);
+  }
+  events = events.filter((e) => e?.role !== 'system');
+  if (events.length === 0) return res.json({ inserted: 0 });
 
   const KNOWN_ENGINES: TranscriptEngine[] = ['gridlight', 'codex'];
   const resolvedEngine: TranscriptEngine = KNOWN_ENGINES.includes(engine as TranscriptEngine)
@@ -688,6 +713,11 @@ router.post('/completion-check', (req, res) => {
            WHERE session_id = ? AND TRIM(COALESCE(pending_question, '')) = ''`,
         ).run(question, sessionId);
       }
+      // The turn is really over (a blocked stop keeps the agent working): anything that must only
+      // be typed into an idle cartridge — the /clear that starts a run's next phase in a fresh
+      // session — can go now (workflow-executor-v2 onTurnEnded).
+      const ended = db.prepare('SELECT id FROM agents WHERE session_id = ? LIMIT 1').get(sessionId) as { id: string } | undefined;
+      if (ended) onTurnEnded(ended.id);
     }
 
     // Any state change (cleared objective, needs_review flag, a surfaced question) must

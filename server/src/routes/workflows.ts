@@ -18,13 +18,16 @@ import { workflowNeedsAttention } from '../lib/workflow-attention.js';
 import { libelleContexte } from '../lib/context-label.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
-import { completeStepFromSignal, recordPanelResult } from '../lib/workflow-executor-v2.js';
+import { completeStepFromSignal, recordPanelResult, advanceWorkflowsSoon, stepInstructionsText } from '../lib/workflow-executor-v2.js';
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import { validateCompletionPayload, disarmOnReport } from '../lib/work-standard.js';
-import { withReportStep, isReportStep, resolveRunPlaceholders } from '../lib/workflow-report.js';
+import { withReportStep, resolveRunPlaceholders } from '../lib/workflow-report.js';
+import { withStandardGate, withStandardGateOnTemplateRows } from '../lib/standard-gate.js';
 import { loopCountRequirements, validateUpstreamCount, configForRerun, LOOP_RUN_KEYS, type LoopConfig } from '../lib/workflow-loop.js';
+import { isVerdictLine } from '../lib/gate-verdict.js';
+import { remapStepRefs, remapStepRefsJson } from '../lib/step-refs.js';
 import { normalizeStep, parseExecutorConfig } from '../lib/workflow-normalize.js';
 import {
   isAutonomyLevel, SETTABLE_LEVELS, setWorkflowAutonomy, effectiveAutonomy, listAutoResolutions,
@@ -247,6 +250,7 @@ router.post('/:id/resume', (req, res) => {
 
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   res.json(normalizeWorkflow(updated));
+  advanceWorkflowsSoon();
 });
 
 /**
@@ -312,102 +316,9 @@ router.put('/:id/project', (req, res) => {
 
 
 // Create V2 workflow with steps
-/**
- * Append the work-standard verify gate to a step list, unless one is already there.
- *
- * The gate depends on every TERMINAL step (nothing depends on it), so it runs after all
- * the work regardless of how the graph branches — appending it to the last step in the
- * array would silently skip parallel branches.
- *
- * Skipped when: the caller opted out, the workflow already ends in a gate (don't stack two
- * critics), or there is no work step to audit.
- */
-export function withStandardGate(
-  steps: Record<string, unknown>[],
-  opts: { skip?: boolean } = {},
-): Record<string, unknown>[] {
-  if (opts.skip) return steps;
 
-  const GATE_TYPES = new Set(['quality-gate', 'review-gate']);
-  if (steps.some((s) => GATE_TYPES.has((s.executorType as string) || ''))) return steps;
-
-  const WORK_TYPES = new Set(['claude-code', 'command', '']);
-  const workSteps = steps.filter((s) => WORK_TYPES.has((s.executorType as string) || ''));
-  if (workSteps.length === 0) return steps;
-
-  const dependedOn = new Set<string>();
-  for (const s of steps) {
-    for (const dep of (s.dependsOn as string[] | undefined) || []) dependedOn.add(dep);
-  }
-  const terminal = steps.filter((s) => !dependedOn.has(s.id as string)).map((s) => s.id as string);
-
-  // Inherit the executor from the last work step so the gate lands on a cartridge that
-  // actually has the repo. A gate with no executor fails at dispatch.
-  const executorId = (workSteps[workSteps.length - 1].executorId as string) || '';
-
-  return [
-    ...steps,
-    {
-      id: `standard-gate-${uuid().slice(0, 8)}`,
-      name: 'Work Standard Check',
-      description: 'Verifies the work covered the complete set and is proven by a set-based test.',
-      executorType: 'quality-gate',
-      executorId,
-      executorConfig: { gateType: 'standard', maxRetries: 1 },
-      dependsOn: terminal.length > 0 ? terminal : [steps[steps.length - 1].id],
-      autoAdvance: true,
-      positionX: STEP_X,
-      // Real coordinates rather than 0,0 — every gate used to stack at the top of the canvas.
-      // The final layout is recomputed by layoutSteps once the graph is complete.
-      positionY: STEP_START_Y,
-    },
-  ];
-}
-
-/**
- * Add the system-owned standard gate while cloning a persisted two-step template.
- * The report stays last and is rewired to wait for the gate, so authored templates
- * remain script + report while every launched run is audited before it reports.
- */
-export function withStandardGateOnTemplateRows(
-  rows: Record<string, unknown>[],
-): Record<string, unknown>[] {
-  const gateTypes = new Set(['quality-gate', 'review-gate']);
-  if (rows.some((row) => gateTypes.has(String(row.executor_type || '')))) return rows;
-
-  const reports = rows.filter((row) => {
-    const config = JSON.parse(String(row.executor_config || '{}')) as Record<string, unknown>;
-    return isReportStep(config);
-  });
-  const workRows = rows.filter((row) => !reports.includes(row)
-    && ['claude-code', 'command', ''].includes(String(row.executor_type || '')));
-  if (workRows.length === 0) return rows;
-
-  const nonReportRows = rows.filter((row) => !reports.includes(row));
-  const dependedOn = new Set<string>();
-  for (const row of nonReportRows) {
-    for (const dependency of JSON.parse(String(row.depends_on || '[]')) as string[]) dependedOn.add(dependency);
-  }
-  const terminal = nonReportRows
-    .filter((row) => !dependedOn.has(String(row.id)))
-    .map((row) => String(row.id));
-  const gateId = `standard-gate-${uuid().slice(0, 8)}`;
-  const lastWork = workRows[workRows.length - 1];
-  const gate: Record<string, unknown> = {
-    id: gateId,
-    name: 'Work Standard Check',
-    description: 'Verifies the work covered the complete set and is proven by a set-based test.',
-    position_x: STEP_X,
-    position_y: STEP_START_Y,
-    executor_type: 'quality-gate',
-    executor_id: lastWork.executor_id || '',
-    executor_config: JSON.stringify({ gateType: 'standard', maxRetries: 1 }),
-    auto_advance: 1,
-    depends_on: JSON.stringify(terminal.length > 0 ? terminal : [String(lastWork.id)]),
-  };
-  const rewiredReports = reports.map((row) => ({ ...row, depends_on: JSON.stringify([gateId]) }));
-  return [...nonReportRows, gate, ...rewiredReports];
-}
+// The Work Standard Check a launch adds — placement and opt-out live in lib/standard-gate.ts.
+export { withStandardGate, withStandardGateOnTemplateRows } from '../lib/standard-gate.js';
 
 router.post('/v2/create', (req, res) => {
   const { name, description, targetRepos, skipStandardGate, skipReportStep } = req.body;
@@ -429,10 +340,12 @@ router.post('/v2/create', (req, res) => {
   const now = new Date().toISOString();
   const workflowId = uuid();
 
+  // The opt-out is PERSISTED: the launch adds the check to a template's rows on every run
+  // (withStandardGateOnTemplateRows), and used to add it back to a workflow created without it.
   db.prepare(`
-    INSERT INTO workflows (id, name, description, status, target_repos, created_at, started_at)
-    VALUES (?, ?, ?, 'pending', ?, ?, '')
-  `).run(workflowId, name, description || '', JSON.stringify(targetRepos || []), now);
+    INSERT INTO workflows (id, name, description, status, target_repos, created_at, started_at, standard_gate)
+    VALUES (?, ?, ?, 'pending', ?, ?, '', ?)
+  `).run(workflowId, name, description || '', JSON.stringify(targetRepos || []), now, skipStandardGate ? 'off' : 'auto');
 
   const insertStep = db.prepare(`
     INSERT INTO workflow_steps (id, workflow_id, name, description, position_x, position_y, executor_type, executor_id, executor_config, auto_advance, depends_on, created_at)
@@ -461,7 +374,8 @@ router.post('/v2/create', (req, res) => {
       s.positionY ?? 0,
       s.executorType || 'claude-code',
       s.executorId || '',
-      JSON.stringify(s.executorConfig || {}),
+      // Routing / decision targets are client ids too — remapped like dependsOn (lib/step-refs.ts).
+      JSON.stringify(remapStepRefs(s.executorConfig || {}, clientToServerIds)),
       s.autoAdvance !== false ? 1 : 0,
       JSON.stringify(remappedDeps),
       now
@@ -494,6 +408,11 @@ router.put('/v2/:id', (req, res) => {
   // Update workflow metadata
   db.prepare('UPDATE workflows SET name = ?, description = ? WHERE id = ?')
     .run(name, description || '', req.params.id);
+  // Only when the caller says: an editor that knows nothing of the opt-out must not reset it.
+  if (typeof req.body?.skipStandardGate === 'boolean') {
+    db.prepare('UPDATE workflows SET standard_gate = ? WHERE id = ?')
+      .run(req.body.skipStandardGate ? 'off' : 'auto', req.params.id);
+  }
 
   // Delete existing steps and re-insert (full replace)
   db.prepare('DELETE FROM workflow_steps WHERE workflow_id = ?').run(req.params.id);
@@ -524,7 +443,8 @@ router.put('/v2/:id', (req, res) => {
       s.positionY ?? 0,
       s.executorType || 'claude-code',
       s.executorId || '',
-      JSON.stringify(s.executorConfig || {}),
+      // Routing / decision targets are client ids too — remapped like dependsOn (lib/step-refs.ts).
+      JSON.stringify(remapStepRefs(s.executorConfig || {}, clientToServerIds)),
       s.autoAdvance !== false ? 1 : 0,
       JSON.stringify(remappedDeps),
       now
@@ -839,6 +759,7 @@ router.post('/v2/:id/start', (req, res) => {
     const templateSteps = withStandardGateOnTemplateRows(
       db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?')
         .all(templateId) as Record<string, unknown>[],
+      { skip: row.standard_gate === 'off' },
     );
     const oldToNew = new Map<string, string>();
     for (const s of templateSteps) {
@@ -869,7 +790,8 @@ router.post('/v2/:id/start', (req, res) => {
         // hand an agent an unresolved placeholder, whatever executor it goes through. See
         // resolveRunPlaceholders for the two reports that were written against an invented id.
         s.executor_type, s.executor_id,
-        resolveRunPlaceholders((s.executor_config as string) || '', runId),
+        // Routing / decision targets name TEMPLATE step ids; the run's steps have new ones.
+        remapStepRefsJson(resolveRunPlaceholders((s.executor_config as string) || '', runId), oldToNew),
         s.auto_advance,
         JSON.stringify(remappedDeps), now,
       );
@@ -1267,6 +1189,8 @@ router.post('/v2/:id/start', (req, res) => {
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(runId) as Record<string, unknown>;
   const stepRows = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(runId) as Record<string, unknown>[];
   res.json({ workflow: normalizeWorkflow(updated), steps: stepRows.map(normalizeStep) });
+  // The first step starts now, not on the next poll.
+  advanceWorkflowsSoon();
 });
 
 // Manually mark step as complete (for non-auto-advance steps or claude-code steps)
@@ -1283,6 +1207,7 @@ router.post('/v2/:id/steps/:stepId/complete', (req, res) => {
   const step = normalizeStep(row);
   getIO().emit('workflow_step_updated', step);
   res.json(step);
+  advanceWorkflowsSoon();
 });
 
 // Record a human decision choice on a decision step
@@ -1310,6 +1235,7 @@ router.post('/v2/:id/steps/:stepId/decide', (req, res) => {
   const step = normalizeStep(updated);
   getIO().emit('workflow_step_updated', step);
   res.json(step);
+  advanceWorkflowsSoon();
 });
 
 // Advance a completed step (set auto_advance = 1 so dependents can proceed)
@@ -1325,6 +1251,7 @@ router.post('/v2/:id/steps/:stepId/advance', (req, res) => {
   const step = normalizeStep(updated);
   getIO().emit('workflow_step_updated', step);
   res.json(step);
+  advanceWorkflowsSoon();
 });
 
 // Force-complete a running workflow: complete running steps, skip pending ones
@@ -1414,6 +1341,7 @@ router.post('/v2/:id/steps/:stepId/skip', (req, res) => {
   });
 
   res.json(updated);
+  advanceWorkflowsSoon();
 });
 
 /** Cap on a reported result. Long enough for a full review; short enough that a runaway
@@ -1688,7 +1616,7 @@ function withHandoff(stored: string, next: unknown): string {
   if (!handoff) return stored;
   const line = `NEXT: ${handoff}`;
   const [first, ...rest] = stored.split('\n');
-  return /^(PASS|FAIL)\b/i.test(first.trim())
+  return isVerdictLine(first)
     ? [first, line, ...rest].join('\n')
     : `${line}\n\n${stored}`;
 }
@@ -1840,6 +1768,24 @@ router.get('/v2/:id/autonomy', (req, res) => {
   const row = db.prepare('SELECT id FROM workflows WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
   res.json({ ...effectiveAutonomy(req.params.id), resolutions: listAutoResolutions(req.params.id, 10) });
+});
+
+/**
+ * What a reference in a prompt points at. A later step in the same session is sent a one-line
+ * reference instead of text that session already holds (lib/session-ledger.ts) — a result it
+ * reported, instructions it was given. An agent that has lost them (a compaction, a new session)
+ * fetches them here. Plain text: it is read by an agent through curl, not by the dashboard.
+ */
+router.get('/steps/:stepId/result', (req, res) => {
+  const row = db.prepare('SELECT result FROM workflow_steps WHERE id = ?').get(req.params.stepId) as { result?: string } | undefined;
+  if (!row) return res.status(404).type('text/plain').send('No such step.');
+  res.type('text/plain').send(row.result || '(this step has no result yet)');
+});
+
+router.get('/steps/:stepId/instructions', (req, res) => {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).type('text/plain').send('No such step.');
+  res.type('text/plain').send(stepInstructionsText(normalizeStep(row)));
 });
 
 router.post('/steps/:stepId/recover', (req, res) => {

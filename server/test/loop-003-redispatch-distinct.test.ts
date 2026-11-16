@@ -83,6 +83,9 @@ function sampleFor(pattern: string): string {
 }
 
 function startRun(templateId: string): string {
+  // A cartridge runs one step at a time (workflow-executor-v2 cartridgeHold): a run left mid-flight
+  // by an earlier test on this same fake cartridge would hold this one. End them first.
+  db.prepare("UPDATE workflows SET status = 'cancelled' WHERE status = 'running'").run();
   const runId = cloneTemplateAsRun(templateId, null, 'docs/plans/EPIC-fake.md');
   assert.ok(runId, 'cloneTemplateAsRun returned nothing');
   db.prepare('UPDATE workflow_steps SET executor_id = ? WHERE workflow_id = ?').run(AGENT, runId);

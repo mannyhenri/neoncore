@@ -606,6 +606,15 @@ try {
   db.exec(`ALTER TABLE workflow_steps ADD COLUMN plan_content TEXT NOT NULL DEFAULT ''`);
 }
 
+// Migration: when the agent's session context was last compacted (reported from its transcript).
+// Prompts for later workflow steps may refer to what the session already holds; after a
+// compaction it no longer holds it, and the next dispatch sends the full context again.
+try {
+  db.prepare('SELECT context_compacted_at FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN context_compacted_at TEXT NOT NULL DEFAULT ''`);
+}
+
 // Migration: add dispatched_prompt column to workflow_steps (stores the full prompt sent to the agent)
 try {
   db.prepare('SELECT dispatched_prompt FROM workflow_steps LIMIT 1').get();
@@ -1341,6 +1350,12 @@ for (const [table, column, decl] of [
   // file:// link from an http page, so the server has to serve it.
   ['workflow_reports', 'html_path', "TEXT NOT NULL DEFAULT ''"],
   ['workflows', 'autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
+  // Whether a launch adds the Work Standard Check: 'auto' (added when the workflow has no gate of
+  // its own) or 'off'. The check audits CODE against its complete set and a set-based test — on a
+  // news digest, a strategy session or a QA run it has nothing to audit. 'off' is set by the seeder
+  // for content templates and by /v2/create when the author opted out (skipStandardGate), which the
+  // launch used to ignore: the gate it was created without was added back on every run.
+  ['workflows', 'standard_gate', "TEXT NOT NULL DEFAULT 'auto'"],
   ['workflows', 'autonomy_expires_at', 'TEXT'],
   ['projects', 'default_autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
 ] as const) {
