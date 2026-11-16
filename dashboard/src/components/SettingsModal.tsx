@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { isDemoEnabled, setDemoEnabled, resetDemoData } from '../lib/demoMode';
+import { NotificationSettings } from './NotificationSettings';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   onClose: () => void;
@@ -21,7 +23,7 @@ const BADGE_STYLES: Record<string, string> = {
   violet: 'bg-violet-900/60 text-violet-300',
 };
 
-type SettingsTab = 'projects' | 'tools' | 'github' | 'demo';
+type SettingsTab = 'projects' | 'tools' | 'notifications' | 'github' | 'demo';
 
 interface ToolStatus {
   label: string;
@@ -35,6 +37,7 @@ interface ToolStatus {
 }
 
 export function SettingsModal({ onClose }: Props) {
+  useEscapeKey(onClose);
   const [demoOn] = useState(isDemoEnabled);
   const [tab, setTab] = useState<SettingsTab>('projects');
   const [currentPath, setCurrentPath] = useState('');
@@ -185,6 +188,7 @@ export function SettingsModal({ onClose }: Props) {
             <div className="flex gap-1">
               <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
               <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
+              <button onClick={() => setTab('notifications')} className={tabClass('notifications')}>Notifications</button>
               <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
               <button onClick={() => setTab('demo')} className={tabClass('demo')}>Demo</button>
             </div>
@@ -192,7 +196,9 @@ export function SettingsModal({ onClose }: Props) {
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
         </div>
 
-        {tab === 'demo' ? (
+        {tab === 'notifications' ? (
+          <div className="overflow-y-auto"><NotificationSettings /></div>
+        ) : tab === 'demo' ? (
           <div className="px-4 py-4 md:px-6 space-y-3">
             <label className="flex items-start gap-3 cursor-pointer">
               <input

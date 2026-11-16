@@ -30,6 +30,8 @@ import commandTemplatesRouter from './routes/command-templates.js';
 import virtualCartridgesRouter from './routes/virtual-cartridges.js';
 import toolsRouter from './routes/tools.js';
 import goalsRouter from './routes/goals.js';
+import goalPilotsRouter from './routes/goal-pilots.js';
+import { startGoalPilotRunner } from './lib/goal-pilot-runner.js';
 import projectsRouter from './routes/projects.js';
 import heartbeatsRouter from './routes/heartbeats.js';
 import tasksRouter from './routes/tasks.js';
@@ -48,6 +50,7 @@ import { endSession } from './lib/session-manager.js';
 import { reconcileInterruptedSteps } from './lib/recovery.js';
 import { startCleanupScheduler } from './lib/cleanup-scheduler.js';
 import { runFirstLaunchSetup } from './lib/first-launch.js';
+import { apiErrorHandler } from './lib/async-route.js';
 import { markAgentSessionInterrupted } from './lib/agent-session-state.js';
 import { getServerBaseUrl } from './lib/server-url.js';
 
@@ -100,6 +103,7 @@ app.use('/api/command-templates', commandTemplatesRouter);
 app.use('/api/virtual-cartridges', virtualCartridgesRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/goals', goalsRouter);
+app.use('/api/goal-pilots', goalPilotsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/heartbeats', heartbeatsRouter);
 app.use('/api/tasks', tasksRouter);
@@ -132,6 +136,9 @@ app.get('*', (_req, res, next) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
+// Last: anything a route threw (or an async route rejected) answers as JSON, not a hang or an HTML stack page.
+app.use(apiErrorHandler);
+
 // Initialize WebSocket
 initWebSocket(server);
 
@@ -139,8 +146,10 @@ initWebSocket(server);
 import db from './db.js';
 import { getIO as getSocketIO, hasActiveSocket } from './ws.js';
 
-// working → idle after 2min of no tool activity. This is a *display* state, not a
-// death sentence — an idle agent stays visible in the grid.
+// working → idle after 2min of no tool activity — the BACKSTOP. A turn's end normally flips
+// the status at once (routes/agents.ts `turnEnded`, from the Stop hooks); this catches an engine
+// or a crash that never says so. A *display* state, not a death sentence — an idle agent stays
+// visible in the grid.
 const IDLE_THRESHOLD_MS = 2 * 60 * 1000;
 
 // Zombie reaping policy lives in lib/zombie-reaper.ts — the threshold now depends on
@@ -295,6 +304,8 @@ process.on('unhandledRejection', (reason) => {
 // per send, so setting DISCORD_BOT_TOKEN and restarting is all it takes to light one up.
 registerChannel(apnsChannel);
 registerChannel(discordChannel);
+// The OS notification centre of the machine running NeonCore — works with no dashboard open.
+registerChannel(desktopChannel);
 
 // Commands are registered BEFORE any driver starts, so a message arriving in the first second
 // of uptime dispatches instead of being answered "unknown command".
@@ -335,6 +346,7 @@ try {
 }
 
 startHeartbeatScheduler();
+startGoalPilotRunner();
 startConferConductor();
   startQueueRunner();
 startPeerScheduler();
@@ -365,6 +377,7 @@ import os from 'os';
 import { registerChannel, listChannels } from './lib/channels.js';
 import { apnsChannel } from './lib/channels/apns.js';
 import { discordChannel } from './lib/channels/discord.js';
+import { desktopChannel } from './lib/channels/desktop.js';
 import { registerRemoteCommands } from './lib/remote-commands.js';
 import { discordSource } from './lib/discord-bot.js';
 import { registerAttentionActions, startAttentionNotifier, stopAttentionNotifier } from './lib/attention-notifier.js';

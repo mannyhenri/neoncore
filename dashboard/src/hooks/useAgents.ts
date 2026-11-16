@@ -10,9 +10,12 @@ import {
   setFleetToken, activeServers, fallbackName, dedupeByServerId,
 } from '../lib/servers';
 import { useSockets } from './useSocket';
+import { browserNotificationsWanted, setDesktopStatus } from '../lib/osNotify';
 
 function browserNotify(title: string, body: string, tag: string) {
   if (!('Notification' in window)) return;
+  // The server shows it on this machine's desktop already — see lib/osNotify.ts.
+  if (!browserNotificationsWanted()) return;
   if (Notification.permission === 'default') {
     Notification.requestPermission();
     return;
@@ -50,6 +53,12 @@ function agentKey(origin: string, id: string): string {
 }
 
 export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => void) {
+  // Once per page: does the server already raise desktop notifications on this machine?
+  // Best effort, and never allowed to throw into the grid: a server too old to have the route, or
+  // a client without the method, simply leaves the browser notifying as it always has.
+  useEffect(() => {
+    Promise.resolve().then(() => api.getDesktopNotifications()).then((s) => setDesktopStatus(s)).catch(() => {});
+  }, []);
   const [servers, setServersState] = useState<ServerEntry[]>(() => loadServers());
   const [statuses, setStatuses] = useState<Record<string, ServerStatus>>({});
   const [loading, setLoading] = useState(true);

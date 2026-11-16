@@ -176,7 +176,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <FeatureCard name="Plan" desc="Agent produces a plan before executing." />
             <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Agent types supported</p>
             <div className="flex flex-wrap gap-2 mb-4">
-              {['Claude Code', 'Codex', 'Gridlight', 'Amazon Q', 'Cursor'].map((t) => (
+              {['Claude Code', 'Codex', 'Gridlight'].map((t) => (
                 <span key={t} className="text-[11px] bg-white/[0.04] border border-white/[0.08] text-gray-400 rounded-md px-2 py-0.5">
                   {t}
                 </span>

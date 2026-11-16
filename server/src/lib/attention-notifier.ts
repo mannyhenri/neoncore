@@ -23,6 +23,7 @@
  */
 import db from '../db.js';
 import { loopResultSummary } from './workflow-loop.js';
+import { onRunHeld } from './run-events.js';
 import { hasActiveSocket } from '../ws.js';
 import { notifyAll, type Notice } from './channels.js';
 import {
@@ -106,8 +107,9 @@ export function actionsFor(attention: Attention): Notice['actions'] {
       return [{ id: `${ACTION_PREFIX.advance}:${attention.stepId}`, label: 'Advance', style: 'success' }];
     case 'interrupted':
       return [{ id: `${ACTION_PREFIX.recover}:${attention.stepId}`, label: 'Recover', style: 'primary' }];
-    case 'failed':
-    case 'agent-waiting':
+    // Breakage, an answer in free text, and the watchdog reasons (a quiet or silent cartridge,
+    // a lost channel, a budget or a grant running out) have no one-tap resolution.
+    default:
       return [];
   }
 }
@@ -462,7 +464,27 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
 
 let timer: NodeJS.Timeout | null = null;
 
+let unsubscribeHeld: (() => void) | null = null;
+let sweepSoonScheduled = false;
+
+/**
+ * Sweep now rather than on the next minute — a step was just held for a person. Coalesced: a burst
+ * of held steps is one sweep. The sweep is the only path that auto-resolves, so calling it sooner
+ * changes WHEN, never WHETHER: a run in `manual` still waits for a person, and is told at once.
+ */
+export function sweepAttentionSoon(): void {
+  if (sweepSoonScheduled) return;
+  sweepSoonScheduled = true;
+  setImmediate(() => {
+    sweepSoonScheduled = false;
+    sweepAttention().catch((err) => {
+      console.warn(`[attention] sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  });
+}
+
 export function startAttentionNotifier(intervalMs = 60_000): void {
+  if (!unsubscribeHeld) unsubscribeHeld = onRunHeld(() => sweepAttentionSoon());
   if (timer) return;
   timer = setInterval(() => {
     sweepAttention().catch((err) => {
@@ -473,6 +495,7 @@ export function startAttentionNotifier(intervalMs = 60_000): void {
 }
 
 export function stopAttentionNotifier(): void {
+  if (unsubscribeHeld) { unsubscribeHeld(); unsubscribeHeld = null; }
   if (timer) { clearInterval(timer); timer = null; }
 }
 

@@ -1,5 +1,5 @@
 /**
- * Shared utilities for opening a directory in VS Code, Cursor, or a CLI terminal.
+ * Shared utilities for opening a directory in VS Code or a CLI terminal.
  * Used by both repos.ts and virtual-cartridges.ts.
  */
 
@@ -49,19 +49,6 @@ export function findCodeBinary(): string {
       ];
   return findBinary(candidates, process.platform === 'win32' ? 'where code' : 'bash -lc "which code"')
     ?? (isWin ? 'code.cmd' : 'code');
-}
-
-export function findCliBinary(name: string): string | null {
-  const home = os.homedir();
-  const candidates = [
-    `/usr/local/bin/${name}`,
-    `/opt/homebrew/bin/${name}`,
-    path.join(home, '.local', 'bin', name),
-    path.join(home, '.npm-global', 'bin', name),
-    path.join(home, 'node_modules', '.bin', name),
-  ];
-  const shellCmd = process.platform === 'win32' ? `where ${name}` : `bash -lc "which ${name}"`;
-  return findBinary(candidates, shellCmd);
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +225,7 @@ export function registerCliAgent(repoPath: string, agentType: string, sessionId:
 }
 
 // ---------------------------------------------------------------------------
-// Open directory in VS Code / Cursor / CLI terminal
+// Open directory in VS Code / CLI terminal
 // ---------------------------------------------------------------------------
 
 // Every entry here named an engine that is no longer supported. Kept as an empty map rather
@@ -458,7 +445,6 @@ export function openDirectory(
     registerCliAgent(dirPath, agentType, sessionId);
     return null;
   }
-
 
   // VS Code-based tools (claude, gridlight, codex)
   const resolvedType = agentType === 'gridlight' ? 'gridlight'

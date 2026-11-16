@@ -8,6 +8,8 @@ import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, ProjectLearning, Heartbeat, Task, Agent, PortfolioSummary } from '../types';
 import { GoalDraftPanel } from './GoalDraftPanel';
 import { GoalDecomposePanel } from './GoalDecomposePanel';
+import { GoalPilotPanel, GoalPilotIntake } from './GoalPilotPanel';
+import { DatePicker } from './DatePicker';
 import { unassignedNotice, unassignedProjects } from '../lib/goalStats';
 import { UNASSIGNED, parseGoalHash, goalHash, resolveSelection } from '../lib/goalSelection';
 import { progressView, healthView } from '../lib/goalRollup';
@@ -377,12 +379,7 @@ function GoalForm({ initial, onSave, onCancel }: GoalFormProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Target date</label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
-            />
+            <DatePicker value={targetDate} onChange={setTargetDate} placeholder="No target date" />
             <p className="text-[10px] text-gray-600 mt-1">Reaches the agent — it scopes work to fit.</p>
           </div>
           <div>
@@ -1693,7 +1690,7 @@ function IntentBlock({ label, hint, value }: { label: string; hint: string; valu
 }
 
 function GoalDetail({ goal }: { goal: Goal }) {
-  const { projects, tasks, setModal, deleteGoal, deleteProject } = useGoalsContext();
+  const { projects, tasks, agents, setModal, deleteGoal, deleteProject, refresh } = useGoalsContext();
   const mine = projects.filter((p) => p.goalId === goal.id);
   const reach = goal.reach ?? 0;
   const spentUsd = goal.costUsd ?? 0;
@@ -1771,6 +1768,11 @@ function GoalDetail({ goal }: { goal: Goal }) {
           </div>
         );
       })()}
+
+      {/* The Goal Pilot: scoping with a planner cartridge, the accepted pipeline of workflows,
+          and the stage running now. Above progress and intent because it is where the goal is
+          DRIVEN from — and where a stage waiting on you says so. */}
+      <GoalPilotPanel goal={goal} agents={agents} onGoalChanged={refresh} />
 
       {/* How far along. Words and counts, not a bare percentage — "30%" of what is
           unanswerable, "12 of 40 steps" can be checked against the runs themselves. */}
@@ -1999,13 +2001,45 @@ function UnassignedDetail() {
 }
 
 /**
+ * New Goal: guided (Goal Pilot — general questions, then a planner cartridge takes it from there)
+ * or the quick form. Guided is the default because it is the path that ends with work running;
+ * the quick form stays one click away for a goal that is only a label.
+ */
+function NewGoalBody({ agents, onQuickSave, onGuidedCreated, onCancel }: {
+  agents: Agent[];
+  onQuickSave: Parameters<typeof GoalForm>[0]['onSave'];
+  onGuidedCreated: (goalId: string) => void;
+  onCancel: () => void;
+}) {
+  const [mode, setMode] = useState<'guided' | 'quick'>('guided');
+  return (
+    <div className="space-y-4">
+      <div className="flex rounded-md overflow-hidden border border-white/10 text-[12px]">
+        {(['guided', 'quick'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`flex-1 px-3 py-1.5 transition-colors ${mode === m ? 'bg-violet-600/40 text-violet-100' : 'bg-white/[0.03] text-gray-500 hover:text-gray-300'}`}
+          >
+            {m === 'guided' ? '✦ Guided — Goal Pilot' : 'Quick form'}
+          </button>
+        ))}
+      </div>
+      {mode === 'guided'
+        ? <GoalPilotIntake agents={agents} onCreated={onGuidedCreated} onCancel={onCancel} />
+        : <GoalForm onSave={onQuickSave} onCancel={onCancel} />}
+    </div>
+  );
+}
+
+/**
  * The working surface. Lives in App's `<main>`.
  *
  * Modals render here rather than in the rail so there is exactly one of each in the tree,
  * and so they are reachable from the empty state — where "New Goal" is the only thing to do.
  */
 export function GoalsWorkspace() {
-  const { goals, agents, loading, selected, modal, setModal, refresh, createGoal, updateGoal, createProject, updateProject } = useGoalsContext();
+  const { goals, agents, loading, selected, select, modal, setModal, refresh, createGoal, updateGoal, createProject, updateProject } = useGoalsContext();
   const goal = selected && selected !== UNASSIGNED ? goals.find((g) => g.id === selected) : undefined;
 
   return (
@@ -2038,7 +2072,12 @@ export function GoalsWorkspace() {
       {/* Modals */}
       {modal?.type === 'new-goal' && (
         <Modal title="New Goal" onClose={() => setModal(null)}>
-          <GoalForm onSave={createGoal} onCancel={() => setModal(null)} />
+          <NewGoalBody
+            agents={agents}
+            onQuickSave={createGoal}
+            onGuidedCreated={async (goalId) => { await refresh(); setModal(null); if (goalId) select(goalId); }}
+            onCancel={() => setModal(null)}
+          />
         </Modal>
       )}
 

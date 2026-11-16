@@ -1,4 +1,5 @@
 import { DEMO_TEMPLATES } from './demoTemplates';
+import { DEMO_PILOT, DEMO_PILOT_META, DEMO_CANDIDATES, demoPilotsFor } from './demoGoalPilot';
 /**
  * DEMO MODE — fake data in the app, nothing at all behind it.
  *
@@ -300,6 +301,12 @@ export function createDemoFetch(_realFetch: typeof fetch = fetch): typeof fetch 
           if (seg.length === 1) return json(data.goals);
           if (seg.length >= 3 || seg[1] === 'drafts') return json([]);
           return json(data.goals.find((g) => g.id === seg[1]) ?? null);
+        case 'goal-pilots': {
+          // One pilot, mid-pipeline, on demo-g1 — see demoGoalPilot.ts.
+          if (seg.length === 1) return json(demoPilotsFor(new URL(url, 'http://demo').searchParams.get('goalId')));
+          if (seg[1] === 'candidates') return json(DEMO_CANDIDATES);
+          return json(DEMO_PILOT);
+        }
         case 'activity':    return json(data.activity);
         case 'journal':
           // /journal/projects is the REPO list the journal is keyed by — repo names, not the
@@ -387,6 +394,16 @@ function objectShaped(seg: string[]): unknown | undefined {
     };
   }
   if (p === 'health') return { status: 'ok', timestamp: new Date().toISOString() };
+
+  // The server's desktop notifications — none in a demo: nothing reaches this machine's OS.
+  if (p === 'push/desktop') return { mode: 'off', available: false, notifier: '', reason: 'demo mode', envOverride: false };
+
+  // Goal Pilot objects: the registries the guided form renders, and "what was the planner asked".
+  if (p === 'goal-pilots/meta') return DEMO_PILOT_META;
+  if (seg[0] === 'goal-pilots' && seg[1] === 'requests' && seg[2]) {
+    return { id: seg[2], pilotId: 'demo-pilot-1', kind: 'scope', round: 1, status: 'ready', agentId: '', notes: [], error: '', queued: false,
+      createdAt: new Date().toISOString(), completedAt: null, prompt: '(demo mode — no planner was asked anything)' };
+  }
 
   /**
    * A run's autonomy posture.

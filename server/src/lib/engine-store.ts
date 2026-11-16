@@ -43,11 +43,6 @@ export function loadProfile(modelId: string): CapabilityProfile | null {
   try { return JSON.parse(row.profile_json) as CapabilityProfile; } catch { return null; }
 }
 
-export function listProfiles(): CapabilityProfile[] {
-  const rows = db.prepare('SELECT profile_json FROM model_capability_profiles').all() as { profile_json: string }[];
-  return rows.flatMap((r) => { try { return [JSON.parse(r.profile_json) as CapabilityProfile]; } catch { return []; } });
-}
-
 // ---------------------------------------------------------------------------
 // Demotions
 // ---------------------------------------------------------------------------

@@ -6,11 +6,12 @@ import { guardBusy } from '../lib/queue-if-busy.js';
 import { publicQueueItem } from '../lib/queue-runner.js';
 import { resolveSender, composePeerMessage } from '../lib/peer-message.js';
 import type { Command, CommandAttachmentInput } from '../types.js';
+import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
 
 // Send a command to an agent (from dashboard)
-router.post('/send', async (req, res) => {
+router.post('/send', asyncRoute(async (req, res) => {
   const { agentId, text, includeMemory, attachments, queueIfBusy, deliverNow} = req.body;
 
   if (!agentId || !text) {
@@ -90,7 +91,7 @@ router.post('/send', async (req, res) => {
   }
 
   res.status(201).json(command);
-});
+}));
 
 // Mark command as delivered (called by VS Code extension)
 router.post('/delivered/:id', (req, res) => {

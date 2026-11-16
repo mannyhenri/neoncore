@@ -183,6 +183,5 @@ from the fleet panel, or restart the odd one out with
 the usual causes.
 
 **A cartridge lingers after you close the session.** Claude and Codex report their own
-exit and disappear immediately. Gemini, Amazon Q and Cursor have no session-end hook, so
-theirs clear on a 2-hour timeout instead. If Codex ones linger, re-run the install-hooks
-flow for Codex — `SessionEnd` was added and existing `~/.codex/hooks.json` files predate it.
+exit and disappear immediately. If Codex ones linger, re-run the install-hooks flow for
+Codex — `SessionEnd` was added and existing `~/.codex/hooks.json` files predate it.

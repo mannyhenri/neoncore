@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import type { CommandAttachmentInput, ConferMode } from '../types';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 type ConferAgent = { id: string; name: string; repoName?: string; agentType: string; status: string; machine?: string };
 
@@ -16,6 +17,7 @@ const hostOf = (a: ConferAgent) => (a.machine || '').trim().replace(/\.local$/i,
  * have signalled done, so they keep re-engaging across the whole cycle with no manual step.
  */
 export function ConferModal({ agents, onClose }: { agents: ConferAgent[]; onClose: () => void }) {
+  useEscapeKey(onClose);
   const live = agents.filter((a) => a.status !== 'offline');
   // Two machines can each run a cartridge on a repo of the same NAME (your laptop's
   // "backend-interlag" and your desktop's are different checkouts on different disks).

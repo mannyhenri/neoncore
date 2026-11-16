@@ -9,6 +9,11 @@ Goal  ──────────────▶  a business objective + succ
        └─ Task  ─────▶  a unit of work, pinned to that project  (see TASKS.md)
 ```
 
+> **Goal Pilot** turns a goal into a managed pipeline: a few general questions, a planner
+> cartridge that asks what is still open until the scope is unambiguous, a proposed sequence of
+> workflows you accept, the repos you pick — then each workflow runs in turn. See
+> **[GOAL-PILOT.md](GOAL-PILOT.md)**.
+
 ## Goals
 
 A **goal** is a top-level objective. Fields:
@@ -61,6 +66,7 @@ cost automatically.
 | `PUT /api/goals/:id` | Update a goal (name, metric, budget, status) |
 | `DELETE /api/goals/:id` | Delete a goal (its projects are unlinked, not deleted) |
 | `GET /api/projects` | List projects (filterable by goal) |
+| `/api/goal-pilots/…` | Goal Pilot — see [GOAL-PILOT.md](GOAL-PILOT.md#api) |
 
 ## Relationship to the design doc
 

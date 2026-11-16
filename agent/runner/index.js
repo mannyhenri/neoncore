@@ -21,6 +21,7 @@ import path from 'path';
 import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { findGitRepos, rescanRoots } from './scan.js';
+import { handleRepoOp } from './repo-ops.js';
 import { acquireRunnerLock, refreshRunnerLock, releaseRunnerLock, lockPathFor } from './lock.js';
 import { fileURLToPath } from 'url';
 import { io } from 'socket.io-client';
@@ -241,6 +242,16 @@ socket.on('launch_cartridge', (payload) => {
   if (!payload || payload.machineId !== identity.machineId) return;
   log(`Launch request: ${payload.agentType} @ ${payload.repoPath}`);
   launchCartridge(payload);
+});
+
+// The server verifying a goal's acceptance contract in a repo on THIS machine: read the locked
+// test files, run a criterion's test command, or restore an approved test file. Only inside the
+// exposed repos — see repo-ops.js for the rules. Answered through the socket ack.
+socket.on('repo_op', (payload, ack) => {
+  if (typeof ack !== 'function') return;
+  if (!payload || payload.machineId !== identity.machineId) { ack({ ok: false, error: 'wrong machine' }); return; }
+  log(`Repo op: ${payload.op} in ${payload.repoPath}${payload.op === 'run' ? ` — ${String(payload.command).slice(0, 80)}` : ''}`);
+  handleRepoOp(payload, { repos: identity.repos }).then(ack, (err) => ack({ ok: false, error: String(err && err.message || err) }));
 });
 
 // Keep only paths that are real directories here, normalize names.

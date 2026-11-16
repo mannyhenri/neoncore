@@ -8,7 +8,8 @@ import { postToInbox, inboxReachable } from './inbox-client.js';
 import { markUnreachable } from './dead-inbox.js';
 import { isLocalMachine, machineLabel } from './machine-locality.js';
 import { WORK_STANDARD_SHORT, isAnswerToPendingQuestion, shouldInjectForDispatch } from './work-standard.js';
-import { goalBriefForAgent } from './goal-brief.js';
+import { goalBriefForAgent, buildGoalBrief, goalForAgent } from './goal-brief.js';
+import { activeContractForGoal, contractBlock } from './acceptance-contract.js';
 import { sessionLedger, alreadySent, noteSent, noteDispatch } from './session-ledger.js';
 import { noteBudgetOnDispatch } from './goal-budget.js';
 
@@ -79,7 +80,16 @@ export function sendCommandToAgent(
   attachments?: CommandAttachmentInput[],
   // standard: 'silent' offers the contract (the stop gate can arm) without injecting its text —
   // for dispatches that carry their own completion contract, i.e. workflow steps.
-  opts: { trackObjective?: boolean; standard?: boolean | 'silent'; deliverNow?: boolean } = {},
+  opts: {
+    trackObjective?: boolean; standard?: boolean | 'silent'; deliverNow?: boolean;
+    /**
+     * The goal this dispatch is FOR, when the caller knows it. A workflow step knows: its run
+     * belongs to a project, and the project to a goal. Without it the brief is resolved from the
+     * cartridge's repo, which picks ONE goal when a repo serves several — so a Goal Pilot run in
+     * a repo that an older goal also claims was handed the older goal's acceptance criteria.
+     */
+    goalId?: string | null;
+  } = {},
 ): Command | null {
   const agentCheck = db.prepare('SELECT id, repo_name, repo_path, status, pending_question, agent_type, session_id, machine, inbox_pid, inbox_token FROM agents WHERE id = ?')
     .get(agentId) as { id: string; repo_name: string; repo_path: string; status: string; pending_question: string; agent_type: string; session_id: string; machine: string; inbox_pid: number; inbox_token: string } | undefined;
@@ -215,7 +225,7 @@ export function sendCommandToAgent(
     status: agentCheck.status,
     pendingQuestion: agentCheck.pending_question,
   })) {
-    const brief = goalBriefForAgent(agentId);
+    const brief = opts.goalId ? buildGoalBrief(opts.goalId) : goalBriefForAgent(agentId);
     if (brief) {
       // Once per session in full (≤2,000 chars); after that one line — it was 22% of everything a
       // workflow sent, re-sent on every step into a session that already had it.
@@ -224,6 +234,18 @@ export function sendCommandToAgent(
         ? `${goalRef}\n\n${finalText}`
         : `${brief}\n\n${finalText}`;
       noteSent(ledger, 'goal', brief);
+    }
+
+    // The goal's ACCEPTANCE CONTRACT (lib/acceptance-contract.ts), when a piloted goal has one in
+    // force: the locked tests every agent must make pass and must not touch. Same once-per-session
+    // rule as the brief — a changed contract (a new version) is sent in full again.
+    const contractGoal = opts.goalId || goalForAgent(agentId)?.id || '';
+    const contract = contractGoal ? activeContractForGoal(contractGoal) : null;
+    const block = contractBlock(contract);
+    if (block && contract) {
+      const ref = `[NeonCore acceptance contract v${contract.version} — unchanged since earlier in this session: the locked tests still define "done"; do not edit them.]`;
+      finalText = alreadySent(ledger, 'contract', block) ? `${ref}\n\n${finalText}` : `${block}\n\n${finalText}`;
+      noteSent(ledger, 'contract', block);
     }
   }
 

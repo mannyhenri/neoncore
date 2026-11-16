@@ -264,6 +264,11 @@ export const FUNCTIONS: AgentFunction[] = [
   // the dependency order right. Every accepted task is dispatched to a cartridge, so a plausible
   // but ungrounded plan does not fail at review — it fails after N runs have been spent on it.
   f('neoncore_submit_goal_decomposition', 'T5', 'batch', 'mcpTool'),
+  // Goal Pilot planning: deciding which questions make a scope executable without further
+  // questions, writing the brief every agent on the goal will act on, and choosing the workflows
+  // that deliver it. The same judgement as drafting and decomposition, and it gates both: a bad
+  // question wastes the person's time, a missed one surfaces mid-run as an agent guessing.
+  f('neoncore_submit_goal_pilot', 'T5', 'batch', 'mcpTool'),
 
   // --- Engine lifecycle and developer-facing (no enum — see the doc) ---
   f('task_planning', 'T4', 'interactive', 'lifecycle'),

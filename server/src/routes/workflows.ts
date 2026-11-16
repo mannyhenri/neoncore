@@ -19,6 +19,7 @@ import { libelleContexte } from '../lib/context-label.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
 import { completeStepFromSignal, recordPanelResult, advanceWorkflowsSoon, stepInstructionsText } from '../lib/workflow-executor-v2.js';
+import { emitRunFinished } from '../lib/run-events.js';
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
@@ -225,14 +226,39 @@ router.get('/:id', (req, res) => {
 });
 
 // Pause
+/**
+ * Pause / resume / cancel a run. Exported because the Goal Pilot runner drives runs too, and a
+ * second hand-written copy of "cancel" is how the confer a run owns gets left running (see
+ * cancelOwnedConfers). The routes below are thin wrappers over these.
+ */
+export function pauseRun(id: string): void {
+  db.prepare("UPDATE workflows SET status = 'paused' WHERE id = ? AND status = 'running'").run(id);
+  console.log(`[workflow] Paused ${id}`);
+  emitWorkflowUpdate(id);
+}
+
+export function resumeRun(id: string): void {
+  db.prepare("UPDATE workflows SET status = 'running' WHERE id = ? AND status = 'paused'").run(id);
+  console.log(`[workflow] Resumed ${id}`);
+  emitWorkflowUpdate(id);
+  advanceWorkflowsSoon();
+}
+
+export function cancelRun(id: string): void {
+  const now = new Date().toISOString();
+  db.prepare("UPDATE workflows SET status = 'cancelled', completed_at = ? WHERE id = ?").run(now, id);
+  cancelOwnedConfers(id);
+  console.log(`[workflow] Cancelled ${id}`);
+  emitWorkflowUpdate(id);
+  emitRunFinished(id, 'cancelled');
+}
+
 router.post('/:id/pause', (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
   if (row.status !== 'running') return res.status(400).json({ error: 'Can only pause running workflows' });
 
-  db.prepare("UPDATE workflows SET status = 'paused' WHERE id = ?").run(req.params.id);
-  console.log(`[workflow] Paused ${req.params.id}`);
-  emitWorkflowUpdate(req.params.id);
+  pauseRun(req.params.id);
 
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   res.json(normalizeWorkflow(updated));
@@ -244,13 +270,10 @@ router.post('/:id/resume', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Workflow not found' });
   if (row.status !== 'paused') return res.status(400).json({ error: 'Can only resume paused workflows' });
 
-  db.prepare("UPDATE workflows SET status = 'running' WHERE id = ?").run(req.params.id);
-  console.log(`[workflow] Resumed ${req.params.id}`);
-  emitWorkflowUpdate(req.params.id);
+  resumeRun(req.params.id);
 
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   res.json(normalizeWorkflow(updated));
-  advanceWorkflowsSoon();
 });
 
 /**
@@ -282,11 +305,7 @@ router.post('/:id/cancel', (req, res) => {
     return res.status(400).json({ error: 'Workflow already finished' });
   }
 
-  const now = new Date().toISOString();
-  db.prepare("UPDATE workflows SET status = 'cancelled', completed_at = ? WHERE id = ?").run(now, req.params.id);
-  cancelOwnedConfers(req.params.id);
-  console.log(`[workflow] Cancelled ${req.params.id}`);
-  emitWorkflowUpdate(req.params.id);
+  cancelRun(req.params.id);
 
   const updated = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id) as Record<string, unknown>;
   res.json(normalizeWorkflow(updated));

@@ -13,6 +13,8 @@ import { handleAgentInterrupted } from '../lib/recovery.js';
 import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
 import { noteSessionCleared } from '../lib/session-ledger.js';
 import { onSessionCleared, onTurnEnded } from '../lib/workflow-executor-v2.js';
+import { sweepPilots } from '../lib/goal-pilot-runner.js';
+import { tickQueue } from '../lib/queue-runner.js';
 import { currentFleetDelta } from '../lib/fleet-reconcile.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
 import { evaluateStop } from '../lib/work-standard.js';
@@ -78,6 +80,48 @@ router.post('/:id/restore', (req, res) => {
  * was a crude proxy for death and made cartridges vanish out of the grid while
  * the session was still sitting right there, open.
  */
+/**
+ * THE TURN IS OVER — the cartridge is free, now, not after the idle timer.
+ *
+ * `status` used to stay `working` until the 2-minute idle sweep (index.ts) noticed no activity,
+ * and every "is this cartridge free?" check in the fleet reads that status: the queue, workflow
+ * launches, confers, Goal Pilot stages. So each piece of work queued behind a turn waited up to
+ * two minutes after the cartridge had actually finished — and the grid showed it working.
+ *
+ * The precise signal exists: Claude's Stop hook asks the completion check LAST (after its
+ * register / activity / transcript posts), and an ALLOWED stop means the turn is really over — a
+ * blocked one keeps the agent working. Codex has no stop gate; its Stop hook posts
+ * /turn-ended below as its last call. Gridlight reports `idle` itself. The idle sweep remains as
+ * the backstop for anything that never says so.
+ *
+ * Only `working` moves: a cartridge the completion check just marked `waiting` (it ended its turn
+ * on a question) is waiting on a person, and stays that way. The next prompt — from NeonCore or
+ * typed by hand — fires the hooks that set it working again.
+ */
+function turnEnded(agentId: string): void {
+  onTurnEnded(agentId);   // records the turn end; types any /clear a fresh-session step is owed
+  const changed = db.prepare("UPDATE agents SET status = 'idle' WHERE id = ? AND status = 'working'").run(agentId).changes;
+  if (changed) {
+    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
+    if (row) getIO().emit('agent_updated', normalizeAgent(row));
+  }
+  // Whatever was queued behind this turn — a prompt, a workflow, a Goal Pilot request or stage —
+  // can start now rather than on the next 15s/10s poll.
+  setImmediate(() => {
+    try { tickQueue(); } catch (err) { console.error('[turn] queue tick failed:', err); }
+    try { sweepPilots(); } catch (err) { console.error('[turn] pilot sweep failed:', err); }
+  });
+}
+
+/** An engine without a stop gate (Codex) reports the end of its turn here. See turnEnded. */
+router.post('/turn-ended', (req, res) => {
+  const { agentId, machine, repoPath, sessionId, agentType } = req.body || {};
+  const resolved = resolveAgentId({ agentId, machine, repoPath, sessionId, agentType });
+  if (!resolved) return res.status(404).json({ error: 'agent not found' });
+  turnEnded(resolved);
+  res.json({ agentId: resolved });
+});
+
 router.post('/session-end', (req, res) => {
   // agentType is load-bearing here, not decoration. One repo commonly has a claude AND a
   // codex cartridge; both reporters send agentType, and dropping it meant the resolver
@@ -717,7 +761,7 @@ router.post('/completion-check', (req, res) => {
       // be typed into an idle cartridge — the /clear that starts a run's next phase in a fresh
       // session — can go now (workflow-executor-v2 onTurnEnded).
       const ended = db.prepare('SELECT id FROM agents WHERE session_id = ? LIMIT 1').get(sessionId) as { id: string } | undefined;
-      if (ended) onTurnEnded(ended.id);
+      if (ended) turnEnded(ended.id);
     }
 
     // Any state change (cleared objective, needs_review flag, a surfaced question) must

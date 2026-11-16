@@ -19,9 +19,7 @@
 export const KNOWLEDGE_FILES = ['details.md'] as const;
 export type KnowledgeFile = (typeof KNOWLEDGE_FILES)[number];
 
-/** Retired — refused at the write path so nothing quietly recreates them. */
-export const RETIRED_KNOWLEDGE_FILES = ['progress.md', 'decisions.md', 'gotchas.md'] as const;
-
+/** The write path (routes/journal.ts) accepts only these — the three retired files included, it refuses anything else. */
 export function isKnowledgeFile(name: string): name is KnowledgeFile {
   return (KNOWLEDGE_FILES as readonly string[]).includes(name);
 }

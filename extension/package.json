@@ -75,19 +75,13 @@
             "",
             "claude",
             "gridlight",
-            "gemini",
-            "amazonq",
-            "codex",
-            "cursor"
+            "codex"
           ],
           "enumDescriptions": [
             "Auto-detect (recommended)",
             "Claude Code (Anthropic)",
             "Gridlight",
-            "Gemini CLI (Google)",
-            "Amazon Q Developer CLI",
-            "Codex CLI (OpenAI)",
-            "Cursor"
+            "Codex CLI (OpenAI)"
           ],
           "default": "",
           "description": "AI agent type for this workspace. Leave blank to auto-detect."

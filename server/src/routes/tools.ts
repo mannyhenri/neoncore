@@ -100,9 +100,6 @@ function findCli(binName: string): string | null {
     path.join(home, '.fnm', 'aliases', 'default', 'bin'),
     // volta
     path.join(home, '.volta', 'bin'),
-    // Cursor binary
-    '/Applications/Cursor.app/Contents/Resources/app/bin',
-    path.join(home, 'Applications', 'Cursor.app', 'Contents', 'Resources', 'app', 'bin'),
     // npm global bin (resolved at runtime)
     npmGlobalBin(),
   ].filter((d): d is string => typeof d === 'string' && d.length > 0);

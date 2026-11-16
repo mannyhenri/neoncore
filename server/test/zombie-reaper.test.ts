@@ -48,8 +48,7 @@ test('agents that CAN report death keep the long, forgiving window', () => {
 });
 
 test('agents that CANNOT report death get the short window', () => {
-  // Only codex remains in this class: gemini, amazonq and cursor were removed as supported
-  // engines. An unsupported type now falls through to the LONG window by the rule below, which
+  // Only codex remains in this class: every other engine in it was removed as unsupported. An unsupported type now falls through to the LONG window by the rule below, which
   // is the safe direction — lingering loses nothing, reaping early loses work.
   for (const type of ['codex']) {
     assert.equal(zombieThresholdFor(type), SILENT_ZOMBIE_THRESHOLD_MS, type);
