@@ -109,7 +109,7 @@ Code Review → Unit Tests  ──┐
 2. Unit and Integration tests run **in parallel** after review passes.
 3. Security scan audits for OWASP issues and auth flaws.
 4. A **system-notify** connector posts the result (desktop / ntfy push). Swap it for a Slack,
-   Discord, GitHub, Linear, or generic HTTP connector in the canvas editor if you want an external
+   GitHub, Linear, or generic HTTP connector in the canvas editor if you want an external
    destination.
 
 ---
@@ -286,7 +286,7 @@ Connector steps run without a cartridge and execute immediately. The executor
 | **system-notify** | none (uses global/per-cartridge ntfy) | Desktop / mobile push on completion — **used by the seeded templates** |
 | **capture-learnings** | none | Extract learnings from the run into the project |
 | **save-to-project** | none | Persist step output to project knowledge |
-| **slack** / **discord** | Incoming Webhook URL | Post to a channel |
+| **slack** | Incoming Webhook URL | Post to a channel |
 | **github** | PAT, repo, action | Create issues, comment on PRs, trigger workflows |
 | **linear** | API key, team ID, action | Create/update Linear issues |
 | **http** | URL, method, body template | Generic webhook — RequestBin, Zapier, Make, etc. |

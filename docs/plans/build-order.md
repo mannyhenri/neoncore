@@ -3,6 +3,10 @@
 Date: 2026-09-04
 Owns: `discord-remote-control.md` (which is a *driver* spec, not this architecture)
 
+> **Historical, 2026-11-16:** the Discord driver (`discord-bot.ts`, `lib/channels/discord.ts`,
+> `channel-targets.ts`, `notice-target.ts`, the `discord.js` dependency) and its plan doc were
+> removed — never used. The channel/command abstractions (N1–N3) remain; APNs is the only channel.
+
 **No phase depends on another repository or on any particular application.** Discord is the
 first driver written against an interface, not the design. Swapping it for Slack, Telegram, a
 webhook, or your own app must not touch anything below N1.

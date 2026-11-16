@@ -10,7 +10,7 @@ import {
 /**
  * A notification you cannot act on is worse than the dashboard you were not at.
  *
- * REPORTED: Discord showed "gridlight — Question / AskUserQuestion" and nothing else. No question
+ * REPORTED: the notice showed "gridlight — Question / AskUserQuestion" and nothing else. No question
  * text, no options, no buttons — while `tool_input` held all three. Mine: the notice shipped with
  * `actions: []` and a comment deferring buttons to a phase that covered something else.
  *

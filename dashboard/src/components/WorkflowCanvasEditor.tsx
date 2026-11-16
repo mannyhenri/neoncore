@@ -2610,7 +2610,6 @@ function ConnectorStepConfig({
           className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
         >
           <option value="slack">Slack</option>
-          <option value="discord">Discord</option>
           <option value="github">GitHub</option>
           <option value="linear">Linear</option>
           <option value="http">Generic HTTP</option>
@@ -2624,7 +2623,7 @@ function ConnectorStepConfig({
         Available: <span className="font-mono text-gray-500">{CONNECTOR_TEMPLATE_VARS}</span>
       </div>
 
-      {(connectorType === 'slack' || connectorType === 'discord') && (
+      {connectorType === 'slack' && (
         <>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Incoming Webhook URL</label>

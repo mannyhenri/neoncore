@@ -74,7 +74,7 @@ export function emitPilotUpdate(pilotId: string): void {
 }
 
 /**
- * Tell the person — on every channel (desktop, phone, Discord) and in the dashboard's bell.
+ * Tell the person — on every channel (desktop, phone) and in the dashboard's bell.
  *
  * Called on TRANSITIONS only (questions arrived, a plan arrived, the pipeline stopped, a stage is
  * waiting for a cartridge that is not running, it finished), never from a sweep that repeats —

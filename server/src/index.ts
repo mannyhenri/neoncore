@@ -301,25 +301,16 @@ process.on('unhandledRejection', (reason) => {
 // which looks exactly like a channel that is misconfigured, and is the harder bug of the two.
 //
 // Registering an unconfigured channel is correct and deliberate: `isConfigured()` is checked
-// per send, so setting DISCORD_BOT_TOKEN and restarting is all it takes to light one up.
+// per send, so configuring it and restarting is all it takes to light one up.
 registerChannel(apnsChannel);
-registerChannel(discordChannel);
 // The OS notification centre of the machine running NeonCore — works with no dashboard open.
 registerChannel(desktopChannel);
 
-// Commands are registered BEFORE any driver starts, so a message arriving in the first second
-// of uptime dispatches instead of being answered "unknown command".
+// Commands and actions register against the shared, driver-agnostic registry.
 registerRemoteCommands();
 registerAttentionActions();
 registerPermissionActions();   // answer a question or approve a plan from any channel
 
-// Inbound drivers. `start()` is a no-op when the driver is not configured, so this is safe on a
-// machine that has never heard of Discord — which is every machine until someone sets a token.
-for (const source of [discordSource]) {
-  source.start().catch((err) => {
-    console.warn(`[commands] ${source.name} failed to start: ${err instanceof Error ? err.message : String(err)}`);
-  });
-}
 console.log(`[channels] registered: ${listChannels().map((c) => `${c.name}${c.isConfigured() ? '' : ' (not configured)'}`).join(', ')}`);
 
 // Start stuck detector and memory analyzer
@@ -351,8 +342,8 @@ startConferConductor();
   startQueueRunner();
 startPeerScheduler();
 
-// N3: fan attention events out as notices. Started AFTER the channels are registered and the
-// drivers have begun — a sweep that runs before them would compute the right answer and have
+// N3: fan attention events out as notices. Started AFTER the channels are registered — a
+// sweep that runs before them would compute the right answer and have
 // nowhere to send it, and its dedupe key would then swallow the repeat.
 startAttentionNotifier();
 
@@ -376,10 +367,8 @@ try { reconcileInterruptedSteps(); } catch (err) { console.error('[recovery] sta
 import os from 'os';
 import { registerChannel, listChannels } from './lib/channels.js';
 import { apnsChannel } from './lib/channels/apns.js';
-import { discordChannel } from './lib/channels/discord.js';
 import { desktopChannel } from './lib/channels/desktop.js';
 import { registerRemoteCommands } from './lib/remote-commands.js';
-import { discordSource } from './lib/discord-bot.js';
 import { registerAttentionActions, startAttentionNotifier, stopAttentionNotifier } from './lib/attention-notifier.js';
 import { registerPermissionActions } from './routes/permissions.js';
 import { backfillReportsFromDisk } from './routes/workflows.js';

@@ -1,13 +1,12 @@
 /**
  * The commands that drive NeonCore from wherever you are — N2 of docs/plans/build-order.md.
  *
- * Registered against lib/commands-registry.ts, so they are not Discord's. The same two commands
- * are what a webhook, the dashboard, or a second app would dispatch; nothing in this file knows
- * which one is calling. That is the whole point of N1 having gone first.
+ * Registered against lib/commands-registry.ts, so they belong to no particular app. The same
+ * commands are what a webhook, the dashboard, or a messaging app would dispatch; nothing in this
+ * file knows which one is calling. That is the whole point of N1 having gone first.
  *
- * ADDRESSING. The plan writes `!prompt <cartridge> <text>`, and discord-bot.ts's own example
- * says "!prompt 1A do the thing" — but there is no short-handle column on `agents`, and never
- * was. Full names are `Mannys-Mac-Pro.local/film-engine`, which nobody is typing on a phone. So
+ * ADDRESSING. The plan writes `!prompt <cartridge> <text>` — but there is no short-handle column
+ * on `agents`, and never was. Full names are `Mannys-Mac-Pro.local/film-engine`, which nobody is typing on a phone. So
  * a cartridge is addressed by any unambiguous fragment of its name, and an ambiguous one is
  * ANSWERED WITH THE CANDIDATES rather than resolved by picking the first row. Guessing which
  * cartridge you meant is the one failure mode that is worse than not understanding you: it
@@ -129,35 +128,8 @@ export function registerRemoteCommands(): void {
     await reply(`**Cartridges (${rows.length})**\n${lines.join('\n')}\n\nDrive one: \`!prompt <name> <text>\``);
   });
 
-  registerCommand('prompt', async ({ args, reply, defaultTarget }) => {
-    /*
-     * A channel can BE the target. Posted where the driver maps a cartridge, the whole message
-     * is the prompt; posted anywhere else, the first word still names who it is for.
-     *
-     * An explicitly typed target always wins. A channel default that overrode what someone
-     * actually wrote would send work to the wrong cartridge and look like it worked.
-     */
-    const parsed = splitPromptArgs(args);
-    /*
-     * In a channel that names a target, the FIRST WORD IS PART OF THE PROMPT unless it happens
-     * to name another live cartridge. `splitPromptArgs` always peels a target off the front,
-     * which is right when you must address someone and wrong here: "!prompt fix the tests" in
-     * the film channel was resolving `fix` as the cartridge and answering "No online cartridge
-     * matches `fix`". Checked against what is ACTUALLY ONLINE rather than by shape, because a
-     * cartridge name and an ordinary English word look identical.
-     */
-    let target = parsed.target;
-    let text = parsed.text;
-    if (defaultTarget) {
-      const first = parsed.target
-        ? resolveCartridge(liveCartridges(), parsed.target)
-        : { kind: 'none' as const };
-      if (first.kind === 'none') {
-        target = defaultTarget;
-        text = String(args || '').trim();
-      }
-    }
-    target = target || defaultTarget || '';
+  registerCommand('prompt', async ({ args, reply }) => {
+    const { target, text } = splitPromptArgs(args);
 
     if (!target) return reply('Usage: `!prompt <cartridge> <text>`');
     if (!text) return reply(`Nothing to send. Usage: \`!prompt ${target} <text>\``);
