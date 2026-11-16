@@ -3,8 +3,8 @@
  *
  * `notifyWorkflowFinished` used to live in lib/apns-push.ts. Nothing about "a workflow run
  * reached a terminal state" is specific to Apple push — it ended up there because push was the
- * only channel, which is precisely the coupling N1 exists to undo. Left where it was, a Discord
- * operator would never learn that a run had finished.
+ * only channel, which is precisely the coupling N1 exists to undo. Left where it was, any other
+ * channel would never learn that a run had finished.
  *
  * This module builds Notices. It does not know which channels exist.
  */

@@ -35,16 +35,12 @@ router.post('/unregister', (req, res) => {
  * Test every configured channel, not just the phone.
  *
  * This called `sendPushToAll` directly, so the one endpoint anybody would press to check
- * notifications tested APNs and nothing else — with Discord configured and working, a green
- * answer here still told you nothing about it. That is the direct-import problem N1 removed
- * from the executor and the permission route, left standing in the place most likely to be
- * used to diagnose the thing.
- *
- * `target` routes the test where a real notice would go, so the channel map can be checked from
- * outside the process rather than by reading config.
+ * notifications tested APNs and nothing else — with a second channel configured and working, a
+ * green answer here would still tell you nothing about it. That is the direct-import problem N1
+ * removed from the executor and the permission route, left standing in the place most likely to
+ * be used to diagnose the thing.
  */
-router.post('/test', asyncRoute(async (req, res) => {
-  const target = typeof req.body?.target === 'string' ? req.body.target.trim() : '';
+router.post('/test', asyncRoute(async (_req, res) => {
   // The channels that will actually SEND — by name. This returned the registered channel objects,
   // configured or not, so the answer read as a list of every app NeonCore knows about (and the
   // "nothing is configured" note below could never appear).
@@ -52,14 +48,13 @@ router.post('/test', asyncRoute(async (req, res) => {
 
   await notifyAll({
     title: 'NeonCore',
-    body: target ? `Test notice addressed to \`${target}\`.` : 'Notifications are working.',
-    data: { type: 'test', ...(target ? { target } : {}) },
+    body: 'Notifications are working.',
+    data: { type: 'test' },
   });
 
   res.json({
     ok: true,
     channels: names,
-    routed_to: target || null,
     ...(names.length ? {} : { note: 'No channel is configured, so nothing was sent.' }),
   });
 }));

@@ -823,7 +823,7 @@ export function createClient(config: ClientConfig = {}) {
   getDesktopNotifications: () => request<import('./types').DesktopNotificationStatus>('/push/desktop'),
   setDesktopNotifications: (mode: 'action' | 'all' | 'off') =>
     request<import('./types').DesktopNotificationStatus>('/push/desktop', { method: 'PUT', body: JSON.stringify({ mode }) }),
-  /** Sends a test notice through every configured channel (desktop, phone, Discord). */
+  /** Sends a test notice through every configured channel (desktop, phone). */
   sendTestNotification: () =>
     request<{ ok: boolean; channels: string[]; note?: string }>('/push/test', { method: 'POST', body: JSON.stringify({}) }),
 

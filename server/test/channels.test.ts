@@ -41,10 +41,9 @@ const rel = (p: string) => path.relative(SRC, p);
  * Source with comments removed.
  *
  * Both scans below are about what a file DOES, and this codebase talks about its own coupling
- * constantly — lib/channels.ts opens by naming `sendPushToAll` as the thing it replaced, and
- * discord-bot.ts documents that it mirrors that signature. A scan that reads prose fails on the
- * very comments written to explain the fix, which is how the first run of this test reported
- * two violations that did not exist.
+ * constantly — lib/channels.ts opens by naming `sendPushToAll` as the thing it replaced. A scan
+ * that reads prose fails on the very comments written to explain the fix, which is how the first
+ * run of this test reported violations that did not exist.
  *
  * `//` is only treated as a comment when it does not follow a colon, so a "http://" inside a
  * string does not swallow the rest of its line.
@@ -59,21 +58,20 @@ function codeOnly(src: string): string {
  * THE SET: delivery-app SDKs. One entry per app NeonCore can speak through. Adding Slack means
  * adding a row here, and the scan then covers it everywhere at once.
  */
-const APP_SDKS = ['discord.js', '@slack/', 'telegraf', 'node-telegram-bot-api'];
+const APP_SDKS = ['@slack/', 'telegraf', 'node-telegram-bot-api'];
 
 test('no file outside lib/channels/ imports a delivery app SDK', () => {
   const offenders: string[] = [];
 
   for (const file of sourceFiles()) {
     const r = rel(file);
-    // The adapters are the ONE place an SDK is allowed. lib/discord-bot.ts is the inbound
-    // driver (a CommandSource), which is the same boundary from the other direction.
-    if (r.startsWith('lib/channels/') || r === 'lib/discord-bot.ts') continue;
+    // The adapters are the ONE place an SDK is allowed.
+    if (r.startsWith('lib/channels/')) continue;
 
     const src = codeOnly(fs.readFileSync(file, 'utf8'));
     for (const sdk of APP_SDKS) {
-      // A BARE specifier only. `./lib/channels/discord.js` is a local path that happens to end
-      // in the package's name, and matching it flagged index.ts for importing its own adapter.
+      // A BARE specifier only. A local adapter path can happen to end in the package's name, and
+      // matching it would flag index.ts for importing its own adapter.
       const esc = sdk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const importsIt = new RegExp(`from\\s+['"]${esc}(['"]|/)`).test(src)
         || new RegExp(`require\\(\\s*['"]${esc}(['"]|/)`).test(src);

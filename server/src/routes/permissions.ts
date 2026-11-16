@@ -276,7 +276,7 @@ router.post('/:id/abandon', (req, res) => {
 /**
  * Record a decision. ONE implementation, called by the route and by the channel buttons.
  *
- * Extracted when permission requests became answerable from Discord. A second copy of "record
+ * Extracted when permission requests became answerable from notice buttons. A second copy of "record
  * the decision" is how the two paths drift into disagreeing about what an answered request looks
  * like — and this one also resolves the agent's long-poll, clears the question banner, and
  * releases the plan prompt. Half of that missing from one caller is a hook that hangs.
