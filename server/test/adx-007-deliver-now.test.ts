@@ -16,7 +16,8 @@
  * because the dispatch is parked before delivery is reached. Both are asserted.
  *
  * WHY THE DEFAULT MUST BE PROVEN UNCHANGED, not merely left alone. guardBusy has
- * SEVEN call sites across six files and a long comment explaining that three
+ * EIGHT call sites across seven files (the eighth: Goal Pilot planner requests,
+ * lib/goal-pilot-runner.ts, kind `goal-pilot`) and a long comment explaining that three
  * earlier implementations of one rule produced three different behaviours. An
  * option that quietly changed the default for prompts would be a fourth.
  *
@@ -190,7 +191,7 @@ test('the bypass is a guardBusy OPTION, and it cannot drop work', () => {
    * My first version of this asserted guardBusy must know NOTHING about
    * deliverNow — that the caller should skip the guard entirely. That was my
    * design opinion dressed as a requirement, and the concurrently-written
-   * implementation is better: guardBusy is the ONE place seven call sites share,
+   * implementation is better: guardBusy is the ONE place eight call sites share,
    * and its own header records that three earlier implementations of that rule
    * gave three different answers. A caller that skips the guard is a fourth.
    *
@@ -225,7 +226,9 @@ test('deliverNow on a cartridge whose SESSION HAS EXITED does not claim the inbo
   assert.equal(transportOf(c), 'agent-room', 'it should fall back to the transport that works');
 });
 
-test('all seven guardBusy call sites are still there', () => {
+test('all eight guardBusy call sites are still there', () => {
+  // 7 → 8 with the Goal Pilot planner request (lib/goal-pilot-runner.ts, dispatchPlannerRequest),
+  // which queues as its own `goal-pilot` kind. A count that changes must change on purpose.
   const walk = (d: string, out: string[] = []): string[] => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
@@ -238,7 +241,7 @@ test('all seven guardBusy call sites are still there', () => {
     if (f.endsWith('queue-if-busy.ts')) continue;
     sites += [...fs.readFileSync(f, 'utf8').matchAll(/guardBusy\(/g)].length;
   }
-  assert.equal(sites, 7, `expected 7 guardBusy call sites, found ${sites}`);
+  assert.equal(sites, 8, `expected 8 guardBusy call sites, found ${sites}`);
 });
 
 /* ── Open question 4 ─────────────────────────────────────────────────────── */

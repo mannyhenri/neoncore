@@ -47,6 +47,8 @@ interface SocketHandlers {
   onTaskCreated?: (task: Task, origin: string) => void;
   onTaskUpdated?: (task: Task, origin: string) => void;
   onMachineUpdated?: (machine: Machine, origin: string) => void;
+  /** A Goal Pilot changed on the server (phase, planner answer, stage). Refetch it. */
+  onGoalPilotUpdated?: (data: { id: string }, origin: string) => void;
   /** Fired per server, with the origin that just came back. */
   onReconnect?: (origin: string) => void;
 }
@@ -148,6 +150,7 @@ export function useSockets(servers: ServerEntry[], handlers: SocketHandlers) {
       on<Task>('task_created', (h) => h.onTaskCreated);
       on<Task>('task_updated', (h) => h.onTaskUpdated);
       on<Machine>('machine_updated', (h) => h.onMachineUpdated);
+      on<{ id: string }>('goal_pilot_updated', (h) => h.onGoalPilotUpdated);
     }
 
     // Mobile: refresh when the tab comes back. Every server is refreshed, since any of

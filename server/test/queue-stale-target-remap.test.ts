@@ -43,6 +43,7 @@ const PAYLOAD_FOR: Record<QueueKind, (ids: string[]) => Record<string, unknown>>
   workflow: (ids) => ({ workflowId: 'wf-1', repoPath: '/repo/a', startOptions: { agentId: ids[0], initialContext: 'x' } }),
   confer: (ids) => ({ repoName: 'a', repoPath: '/repo/a', participantIds: ids, task: 'talk' }),
   task: (ids) => ({ taskId: 't-1', agentId: ids[0] }),
+  'goal-pilot': (ids) => ({ requestId: 'gpr-1', agentId: ids[0] }),
 };
 
 test('THE SET: every registered queue kind has a fixture saying where it carries cartridge ids', () => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ContextSession {
   id: string;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export default function SendContextModal({ agentId, project, onClose }: Props) {
+  useEscapeKey(onClose);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sessions, setSessions] = useState<ContextSession[]>([]);

@@ -23,6 +23,8 @@ import {
 import { guardBusy } from '../lib/queue-if-busy.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
 import { releaseReadyTasks } from './tasks.js';
+import { pilotsForGoal, deletePilotsForGoal } from '../lib/goal-pilot.js';
+import { cancelPilot } from '../lib/goal-pilot-runner.js';
 
 
 /**
@@ -203,6 +205,13 @@ router.put('/:id', (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  // A goal's pilot goes with it — and a live pipeline is stopped first, so its current run does
+  // not carry on working for a goal that no longer exists. The cascade would remove the rows, but
+  // not stop the run the pipeline had in flight — that is what cancelPilot is for.
+  for (const p of pilotsForGoal(req.params.id)) {
+    if (p.phase !== 'completed' && p.phase !== 'cancelled') cancelPilot(p.id);
+  }
+  deletePilotsForGoal(req.params.id);
   db.prepare('DELETE FROM goals WHERE id = ?').run(req.params.id);
   res.status(204).send();
 });

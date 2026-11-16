@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'child_process';
-import { existsSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
@@ -75,14 +75,4 @@ export function runFirstLaunchSetup(port: number): void {
       );
     }
   });
-}
-
-/**
- * Reset the sentinel so the next startup re-runs hook installation.
- * Called by the reinstall-hooks API endpoint so users can trigger it from the dashboard.
- */
-export function resetFirstLaunchSentinel(): void {
-  try {
-    if (existsSync(SENTINEL)) unlinkSync(SENTINEL);
-  } catch { /* non-fatal */ }
 }

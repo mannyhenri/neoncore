@@ -3,6 +3,9 @@ import { Router } from 'express';
 // through the channel layer, so this file no longer reaches an app SDK to notify.
 import { registerPushToken, removePushToken, isApnsDeviceToken } from '../lib/apns-push.js';
 import { notifyAll, listChannels } from '../lib/channels.js';
+import { desktopStatus, DESKTOP_MODES, DESKTOP_SETTING_KEY, type DesktopMode } from '../lib/channels/desktop.js';
+import db from '../db.js';
+import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
 
@@ -40,9 +43,12 @@ router.post('/unregister', (req, res) => {
  * `target` routes the test where a real notice would go, so the channel map can be checked from
  * outside the process rather than by reading config.
  */
-router.post('/test', async (req, res) => {
+router.post('/test', asyncRoute(async (req, res) => {
   const target = typeof req.body?.target === 'string' ? req.body.target.trim() : '';
-  const names = listChannels();
+  // The channels that will actually SEND — by name. This returned the registered channel objects,
+  // configured or not, so the answer read as a list of every app NeonCore knows about (and the
+  // "nothing is configured" note below could never appear).
+  const names = listChannels().filter((c) => c.isConfigured()).map((c) => c.name);
 
   await notifyAll({
     title: 'NeonCore',
@@ -56,6 +62,26 @@ router.post('/test', async (req, res) => {
     routed_to: target || null,
     ...(names.length ? {} : { note: 'No channel is configured, so nothing was sent.' }),
   });
+}));
+
+/**
+ * The desktop channel: can this server raise OS notifications, and which ones. `available: false`
+ * comes with the reason (e.g. no notify-send on a headless Linux box), so the setting never looks
+ * switched on while nothing can appear.
+ */
+router.get('/desktop', (_req, res) => {
+  res.json({ ...desktopStatus(), envOverride: Boolean((process.env.NEONCORE_DESKTOP_NOTIFY || '').trim()) });
+});
+
+router.put('/desktop', (req, res) => {
+  const mode = String(req.body?.mode ?? '') as DesktopMode;
+  if (!DESKTOP_MODES.includes(mode)) {
+    return res.status(400).json({ error: `mode must be one of: ${DESKTOP_MODES.join(', ')}` });
+  }
+  db.prepare(
+    'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+  ).run(DESKTOP_SETTING_KEY, mode, new Date().toISOString());
+  res.json(desktopStatus());
 });
 
 export default router;

@@ -14,6 +14,7 @@ import { renderDigestHtml, type DigestData } from '../lib/digest-template.js';
 import {
   fetchRedditPulse, RedditUnavailable, REDDIT_WINDOWS, SUBREDDIT_NAME, type RedditWindow,
 } from '../lib/reddit-pulse.js';
+import { asyncRoute } from '../lib/async-route.js';
 
 const router = express.Router();
 
@@ -54,7 +55,7 @@ router.post('/render', (req, res) => {
  * across those subreddits, ranked by Reddit. The digests call this instead of searching for
  * Reddit, which cannot see a score. See lib/reddit-pulse.ts for the two sources.
  */
-router.get('/reddit', async (req, res) => {
+router.get('/reddit', asyncRoute(async (req, res) => {
   const subs = String(req.query.subs ?? '').split(/[,+\s]+/).map((s) => s.replace(/^r\//i, '')).filter(Boolean);
   const bad = subs.filter((s) => !SUBREDDIT_NAME.test(s));
   if (subs.length === 0 || bad.length) {
@@ -68,6 +69,6 @@ router.get('/reddit', async (req, res) => {
     const status = err instanceof RedditUnavailable ? err.status : 500;
     res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
 export default router;

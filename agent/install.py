@@ -59,11 +59,6 @@ def trust_enabled() -> bool:
     return os.environ.get("NEONCORE_TRUST", "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def repo_root() -> str:
-    """NeonCore repo root (parent of the agent/ dir holding this script)."""
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
 def backups_dir() -> str:
     """Directory for timestamped config backups (sits beside settings.json)."""
     d = os.path.join(os.path.dirname(get_settings_path()), "backups")

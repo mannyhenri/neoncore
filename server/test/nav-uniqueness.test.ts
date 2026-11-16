@@ -27,7 +27,9 @@ const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 function navLabels(): string[] {
   const src = read('dashboard/src/App.tsx');
   const labels: string[] = [];
-  const re = /setActiveView\('(\w+)'\)[\s\S]{0,400}?>\s*\n?\s*([A-Z][A-Za-z ]{1,20})\s*\n/g;
+  // The label follows the tag that binds the handler — on its own line, or inline
+  // (`<ViewTab … onClick={() => setActiveView('goals')}>Goals</ViewTab>`).
+  const re = /setActiveView\('(\w+)'\)[\s\S]{0,400}?>\s*\n?\s*([A-Z][A-Za-z ]{1,20}?)\s*(?:\n|<)/g;
   // NOT `re.exec(src) ? src.matchAll(re) : []` — exec() on a /g regex advances lastIndex, so
   // matchAll would then start past the first button and silently drop it. That is what the
   // vacuity guard below caught when the nav shrank from three labels to two.

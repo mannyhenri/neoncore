@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ServerEntry, ServerStatus } from '../types';
 import { serverAddIssue } from '../lib/servers';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
  * Fleet status and server management.
@@ -24,6 +25,7 @@ interface Props {
 
 export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSetToken }: Props) {
   const [open, setOpen] = useState(false);
+  useEscapeKey(() => setOpen(false), open);
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
   const [error, setError] = useState('');

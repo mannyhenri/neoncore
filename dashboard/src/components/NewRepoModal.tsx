@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // The tool to launch in the new folder. Values map to open-directory.ts relay-terminal
 // launchers, which self-register a cartridge so it shows up in the grid immediately.
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function NewRepoModal({ onClose }: Props) {
+  useEscapeKey(onClose);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);

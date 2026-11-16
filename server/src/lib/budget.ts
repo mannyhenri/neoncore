@@ -19,7 +19,6 @@
 
 /** THE REGISTRY. Every settings key this feature owns; validation iterates it. */
 export const BUDGET_KEYS = ['usage_budget_usd_weekly', 'usage_budget_basis'] as const;
-export type BudgetKey = (typeof BUDGET_KEYS)[number];
 
 /** What the number rests on. `measured` is reserved for GAS-013's learned ceiling. */
 export type BudgetBasis = 'budget' | 'measured';

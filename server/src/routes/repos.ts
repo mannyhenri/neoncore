@@ -157,10 +157,8 @@ router.post('/open', (req, res) => {
     return res.status(400).json({ error: 'path required' });
   }
 
-  // Cursor needs a special error message when binary is missing
-
   // Resume by default, same contract as the remote launch route. Non-relay agent types (VS
-  // Code, Cursor) ignore the resume id entirely — openDirectory only threads it into the relay
+  // Code) ignore the resume id entirely — openDirectory only threads it into the relay
   // branches — so passing it unconditionally is safe.
   const resume = launchResumeDecision({
     fresh: fresh === true,
@@ -168,7 +166,7 @@ router.post('/open', (req, res) => {
     lastSession: lastResumableSession(repoPath, RELAY_LAUNCH_TYPES[agentType] || agentType),
   });
 
-  // openDirectory handles all agent types, including CLI + VS Code + Cursor
+  // openDirectory handles every agent type: the relay-backed CLIs and VS Code
   const err = openDirectory(repoPath, agentType, { resumeSessionId: resume });
   if (err) return res.status(500).json({ error: err });
   res.json({ ok: true, resumed: resume || null });

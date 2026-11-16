@@ -22,7 +22,7 @@ _(not active)_ have caveats called out inline.
 
   | Transition | Trigger | Note |
   |---|---|---|
-  | `working → idle` | 2 min with no tool activity | Display only. **An idle cartridge stays visible.** |
+  | `working → idle` | the turn ends (Claude's Stop allowed by the completion check, Codex's Stop hook, Gridlight's own report) | Immediate — queued work starts at once. A 2-minute no-activity sweep is the backstop. **An idle cartridge stays visible.** |
   | `→ offline` | `SessionEnd` hook (session exited) | The normal path. Requires the hook — re-run the installer on older machines. |
   | `→ offline` | socket disconnect | Relay / VS Code extension. |
   | `→ offline` | relay caught SIGTERM | Fast path; also flags interrupted workflow steps. |
@@ -68,6 +68,22 @@ Each agent runs in one of three modes (per-cartridge selector):
 - **Real USD cost rollup** — token usage is priced per model (Opus/Sonnet/Haiku/Fable, including
   cache-read/write) and rolls up `session → project → goal`. The same number shows on cartridge
   cards, in the Goals view, and enforces budgets.
+- **Goal Pilot** — run a goal as a managed pipeline: answer a few general questions, a planner
+  cartridge asks what is still open (as many rounds as it needs — answer, accept its suggestion or
+  let the agents decide), writes the scope brief and proposes the workflows that deliver it; you
+  edit and accept, pick the repos/engines, and each workflow runs in turn with the brief, every
+  scoping decision and the earlier stages' results. Stages wait for a live, idle cartridge, stop
+  at the goal's budget, and surface anything that needs you. Full reference:
+  **[docs/GOAL-PILOT.md](docs/GOAL-PILOT.md)**.
+- **Acceptance contract** — a piloted goal's criteria are numbered, each with its exact expected
+  result, and frozen when the plan is accepted. Before any work, a cartridge writes one failing test
+  per criterion; you review them (criterion ↔ test ↔ contents), run them red and **lock** them.
+  After every stage NeonCore itself re-hashes the locked files (a changed test stops the pipeline
+  until you restore it or accept the change with a reason) and runs every test — locally, or through
+  the machine's runner for a repo elsewhere. Only you can unlock a criterion; every amendment is
+  versioned. Checklist criteria (research, docs, "done" in your words) are judged by an independent
+  cartridge and confirmed by you. The goal report is SUCCESS only when every criterion passes on
+  that evidence.
 - Full reference: **[docs/GOALS.md](docs/GOALS.md)**.
 
 ## Heartbeat scheduler
@@ -95,14 +111,15 @@ Each agent runs in one of three modes (per-cartridge selector):
   `save-to-project`, plus an external `webhook` completion callback. See **[WORKFLOWS.md](WORKFLOWS.md)**.
 - **Steering & lifecycle** — pause / resume / cancel / delete runs; steer or skip individual steps.
 - **Learnings** — insights extracted from runs, scoped per project and fed back into heartbeats.
-- **Epic Autopilot** — the dashboard has an Epic panel (scan tasks by prefix, batch-run with a
-  prompt template), **but its server-side executor is currently disabled** — treat as preview.
+- **Epic Autopilot** — an API only (`/api/epics`: scan tasks by prefix, start a batch with a
+  prompt template); there is no dashboard panel and **its server-side executor is disabled** —
+  treat as preview. Run an epic with the **Epic: Task by Task** workflow templates instead.
 
 ## Multi-engine agent support
 
-NeonCore isn't Claude-only. Supported agent types: **claude · gridlight · codex · amazonq ·
-cursor**. Claude, Codex, and Gridlight are first-class, relay-backed engines and can run **side by
-side in the same repo** (a Claude cartridge and a Codex cartridge at once).
+NeonCore isn't Claude-only. Supported agent types: **claude · gridlight · codex**. All three are
+first-class, relay-backed engines and can run **side by side in the same repo** (a Claude
+cartridge and a Codex cartridge at once).
 
 - **Relay-backed engines** — Claude, Gridlight, and Codex run inside the NeonCore relay (a PTY), so
   they receive commands over the socket (reliable, addressed to the specific cartridge), and the
@@ -110,11 +127,11 @@ side in the same repo** (a Claude cartridge and a Codex cartridge at once).
   project `.mcp.json`, Codex via `~/.codex/config.toml` — so they get the confer/coordination tools
   with no extra setup.
 - **Hooks per engine** — install/uninstall NeonCore hooks for each CLI from **Settings → Tools**
-  (Claude Code, Amazon Q, Codex CLI, Cursor). This writes each tool's own hook config
-  (`~/.codex/hooks.json`, `~/.aws/amazonq/…`, `~/.cursor/hooks.json`) and can npm-install the CLI
-  if missing.
-- **Command delivery** — Claude/Gridlight/Codex receive commands over the socket (relay/extension);
-  Amazon Q receives them by **typing into iTerm2/Terminal via AppleScript** _(macOS only)_.
+  (Claude Code, Codex CLI). This writes each tool's own hook config (`~/.claude/settings.json`,
+  `~/.codex/hooks.json`) and can npm-install the CLI if missing. Gridlight reports to NeonCore
+  directly and needs no hooks.
+- **Command delivery** — Claude/Gridlight/Codex receive commands over the socket (relay/extension),
+  or Claude's addressed inbox socket.
 - The Claude hook installer (`agent/install.py`, used by `bootstrap.sh/.ps1`) wires 7 events:
   `PreToolUse, PostToolUse, Stop, Notification, SubagentStop, UserPromptSubmit, SessionEnd`.
   `SessionEnd` fires once when a session actually exits and is what marks the cartridge
@@ -162,10 +179,11 @@ the machine running NeonCore.
 - **MCP marketplace** — browse a registry of MCP servers by category and one-click install.
 - **Per-cartridge MCP tools** — virtual cartridges can enable MCP servers and pin specific tools
   as one-click action buttons.
-- **NeonCore coordination MCP server** — agents get 10 tools to self-coordinate and confer:
+- **NeonCore coordination MCP server** — agents get tools to self-coordinate and confer:
   `neoncore_register`, `neoncore_report`, `neoncore_request_permission`, `neoncore_report_step_done`,
   `neoncore_my_queue`, `neoncore_claim_task`, `neoncore_report_task_done`, `neoncore_list_agents`,
-  `neoncore_message_agent`, `neoncore_read_agent`. The last two — message or read another agent's
+  `neoncore_message_agent`, `neoncore_read_agent`, and the planning submissions
+  `neoncore_submit_goal_draft`, `neoncore_submit_goal_decomposition`, `neoncore_submit_goal_pilot`. The last two — message or read another agent's
   transcript — are the primitives behind **Confer**. Registered project-scope (`.mcp.json`) by
   `install.py` and auto-installed for relay-launched Claude/Gridlight; Codex registers it in
   `~/.codex/config.toml`. Global scope via `claude mcp add-json neoncore '…' --scope user`.
@@ -173,7 +191,7 @@ the machine running NeonCore.
 ## Virtual cartridges
 
 - **Folder workspaces** for directories that don't have a live agent yet — **launch an agent** in
-  that directory picking the type (Claude·Terminal, Claude·VS Code, Gridlight, Codex, Amazon Q),
+  that directory picking the type (Claude·Terminal, Claude·VS Code, Gridlight, Codex),
   set a per-project ntfy topic, enable MCP servers, and pin MCP tool buttons.
 
 ## Project memory & journal
@@ -199,6 +217,14 @@ the machine running NeonCore.
   (global or per-cartridge topic). "Send Hint" pushes a suggested fix back to the agent.
 - **Notification Center** — a bell dropdown aggregating pending permissions, stuck alerts, and
   workflow notifications.
+- **Desktop notifications** — the server raises OS notifications itself (macOS Notification Center
+  via `osascript`, or `terminal-notifier` if installed so a click opens the dashboard; Linux via
+  `notify-send`; Windows toasts via PowerShell), with **no dashboard open**. By default only what
+  needs you: a permission, a question, a decision, a held step, a stuck agent, a Goal Pilot waiting
+  on you. **Settings → Notifications** switches to everything or off and sends a test. The dashboard
+  tab stops raising its own browser notifications when the server already shows them on the same
+  machine; it keeps doing so when the server is another computer. The same notices go to the
+  phone (APNs) and Discord when those are configured.
 
 ## Server & deployment
 

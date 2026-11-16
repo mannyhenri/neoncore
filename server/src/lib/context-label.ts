@@ -60,17 +60,3 @@ export function libelleContexte(initialContext: string | null | undefined): stri
   const garde = dernierEspace > LIBELLE_MAX / 2 ? coupe.slice(0, dernierEspace) : coupe;
   return `${garde.replace(/[,;:.\s]+$/, '')} …`;
 }
-
-/**
- * The one-line human identity of a run: what it is, which run, and what it is about.
- * Falls back cleanly — a run with no subject still reads as "Deep Research #11".
- */
-export function libelleRun(
-  name: string,
-  runNumber: number | null | undefined,
-  contextLabel: string | null | undefined,
-): string {
-  const tete = runNumber ? `${name} #${runNumber}` : name;
-  const sujet = (contextLabel || '').trim();
-  return sujet ? `${tete} — ${sujet}` : tete;
-}

@@ -139,10 +139,6 @@ export function getAuthMode(): AuthMode {
   return raw === 'strict' ? 'strict' : 'permissive';
 }
 
-export function setAuthMode(mode: AuthMode): void {
-  writeSetting(MODE_KEY, mode);
-}
-
 /** Constant-time compare. Length is compared first because timingSafeEqual throws on a mismatch. */
 function tokensMatch(presented: string, expected: string): boolean {
   const a = Buffer.from(presented);
@@ -198,11 +194,6 @@ function warnUnauthenticated(req: Request): void {
       'this caller has not been given the fleet token yet. It is allowed for now ' +
       '(permissive mode) and WILL be rejected once auth is set to strict.',
   );
-}
-
-/** Reset throttling state. Tests only — otherwise a suite's warnings mask each other. */
-export function _resetAuthWarnings(): void {
-  lastWarnedAt.clear();
 }
 
 export function fleetAuth() {

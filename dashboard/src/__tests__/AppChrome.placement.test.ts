@@ -80,7 +80,7 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
 
   // The fleet burn rate reads with the identity, not with the controls: it is the one
   // thing in the chrome you READ rather than invoke, and it was asked for immediately
-  // after the Orchestrator label. Registered here so it cannot drift into the rail with
+  // after the wordmark (the "Orchestrator" label it used to follow is gone). Registered here so it cannot drift into the rail with
   // the next chrome move — the same partial-relocation failure this file exists to catch.
   { name: 'Burn rate readout', marker: /<BurnRate/, region: 'header' },
   { name: 'Tokens view switch', marker: /setActiveView\('tokens'\)/, region: 'header' },
@@ -445,6 +445,25 @@ describe('dashboard chrome placement', () => {
     const own = upTo.slice(upTo.lastIndexOf('<div'));
     expect(own, `${name} is still absolutely positioned — grid tracks cannot contain it`)
       .not.toMatch(/\babsolute\b/);
+  });
+
+  it('the flexible identity track clips what does not fit instead of painting under the switcher', () => {
+    // `minmax(0,1fr)` lets the track shrink to nothing; its contents did not, so the burn-rate
+    // readout drew underneath Goals/Agents/Tasks at 1024-1440px. The block must clip, and the
+    // readout must be allowed to shrink and only appear where the bar has room for it.
+    const firstDiv = R.header.indexOf('<div');
+    const identityStart = R.header.indexOf('<div', firstDiv + 1);
+    const identity = R.header.slice(identityStart, R.header.indexOf('>', identityStart));
+    expect(identity).toMatch(/min-w-0/);
+    expect(identity).toMatch(/overflow-hidden/);
+    const burn = readFileSync(resolve(HERE, '../components/BurnRate.tsx'), 'utf8');
+    const cls = burn.slice(burn.indexOf('className="', burn.indexOf('<button')), burn.indexOf('"', burn.indexOf('className="', burn.indexOf('<button')) + 11));
+    expect(cls, 'the readout cannot shrink').toMatch(/min-w-0/);
+    expect(cls, 'the readout shows at widths where it collides with the switcher').toMatch(/hidden xl:inline-flex/);
+  });
+
+  it('the header carries no "Orchestrator" label — the space goes to the navigation', () => {
+    expect(R.header).not.toMatch(/>\s*Orchestrator\s*</);
   });
 
   it('the switcher no longer relies on absolute centring anywhere in the header', () => {

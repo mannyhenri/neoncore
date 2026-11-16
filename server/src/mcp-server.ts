@@ -16,6 +16,7 @@
  *   neoncore_report_task_done   — complete a claimed task with a result
  *   neoncore_submit_goal_draft  — submit a proposed goal intent (a draft; changes nothing)
  *   neoncore_submit_goal_decomposition — submit a proposed goal → projects → tasks plan (creates nothing)
+ *   neoncore_submit_goal_pilot  — answer a Goal Pilot request: scoping questions or brief + criteria, the pipeline, the report summary, acceptance tests, checklist verdicts
  *   neoncore_list_agents        — see sibling agents for coordination
  *   neoncore_message_agent      — send a message into another agent's session (confer/hand off)
  *   neoncore_read_agent         — read another agent's recent transcript
@@ -304,6 +305,92 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'neoncore_submit_goal_pilot',
+      description:
+        'Answer a Goal Pilot planner request you were given (its header reads "[NeonCore goal pilot · scope request …]" or "· pipeline request …"). This stores a PROPOSAL only: questions are shown to the person, a brief and a pipeline wait for them to accept. For a SCOPE request submit either {status:"questions", message, questions:[{id,text,why,kind,options,suggested,required}]} or {status:"complete", message, brief:{slug, summary, successMetric, inScope, invariants, outOfScope, rabbitHoles, assumptions}, criteria:[{text, expect, verify:"test"|"checklist"}]}. For a PIPELINE request submit {message, stages:[{template,title,why,focus,optional}], alternatives:[{template,why}]} using exact workflow names from the request. For a REPORT request (the goal has finished) submit {summary, highlights:[…], followUps:[…]}, judged only from the records in the request. For a TESTS request (write the acceptance tests) first WRITE the test files in the repo, then submit {tests:[{criterionId, files:[repo-relative paths], command}], notes} — NeonCore reads and hashes the files, and the person approves them before they are locked. For a REVIEW request (independent checklist review) submit {verdicts:[{criterionId, verdict:"met"|"not-met", evidence}]}. If the submission is rejected, the reply says why — fix it and submit again.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          requestId: { type: 'string', description: 'The request id from the header of the request you were given' },
+          result: {
+            type: 'object',
+            description: 'The answer, shaped as the request describes (scope: questions or complete; pipeline: stages).',
+            properties: {
+              status: { type: 'string', enum: ['questions', 'complete'], description: 'Scope requests only' },
+              message: { type: 'string', description: 'One line to the person' },
+              questions: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' }, text: { type: 'string' }, why: { type: 'string' },
+                    kind: { type: 'string', enum: ['choice', 'multi', 'text', 'boolean'] },
+                    options: { type: 'array', items: { type: 'string' } },
+                    suggested: { type: 'string' }, required: { type: 'boolean' },
+                  },
+                  required: ['text'],
+                },
+              },
+              brief: { type: 'object', description: 'slug, summary, successMetric, inScope, invariants, outOfScope, rabbitHoles, assumptions' },
+              criteria: {
+                type: 'array',
+                description: 'Scope requests (status "complete"): the numbered acceptance criteria',
+                items: {
+                  type: 'object',
+                  properties: {
+                    text: { type: 'string', description: 'When <situation>, the system shall <result>.' },
+                    expect: { type: 'string', description: 'Exactly what is expected: inputs → result, with real values' },
+                    verify: { type: 'string', enum: ['test', 'checklist'] },
+                  },
+                  required: ['text'],
+                },
+              },
+              tests: {
+                type: 'array',
+                description: 'Tests requests only: one entry per criterion, after writing the files',
+                items: {
+                  type: 'object',
+                  properties: {
+                    criterionId: { type: 'string' }, command: { type: 'string' },
+                    files: { type: 'array', items: { type: 'string' } },
+                  },
+                  required: ['criterionId', 'files', 'command'],
+                },
+              },
+              notes: { type: 'string', description: 'Tests requests only: anything the person should know (e.g. a criterion that cannot be tested automatically)' },
+              verdicts: {
+                type: 'array',
+                description: 'Review requests only: one verdict per checklist criterion',
+                items: {
+                  type: 'object',
+                  properties: {
+                    criterionId: { type: 'string' }, verdict: { type: 'string', enum: ['met', 'not-met'] }, evidence: { type: 'string' },
+                  },
+                  required: ['criterionId', 'verdict', 'evidence'],
+                },
+              },
+              stages: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    template: { type: 'string' }, title: { type: 'string' }, why: { type: 'string' },
+                    focus: { type: 'string' }, optional: { type: 'boolean' },
+                  },
+                  required: ['template'],
+                },
+              },
+              alternatives: { type: 'array', items: { type: 'object', properties: { template: { type: 'string' }, why: { type: 'string' } } } },
+              summary: { type: 'string', description: 'Report requests only: 3-6 sentences on what was done, how it went, what is left' },
+              highlights: { type: 'array', items: { type: 'string' }, description: 'Report requests only: deliverables a person could check' },
+              followUps: { type: 'array', items: { type: 'string' }, description: 'Report requests only: what is still to do' },
+            },
+          },
+        },
+        required: ['requestId', 'result'],
+      },
+    },
+    {
       name: 'neoncore_list_agents',
       description:
         'List the other agents currently known to NeonCore (id, machine, repo, status). Use for coordination — e.g. to avoid duplicating work another agent is already doing, or to get a target id for neoncore_message_agent / neoncore_read_agent.',
@@ -565,6 +652,23 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       log(`submit_goal_decomposition rejected: ${err}`);
       return text(`Decomposition ${decompositionId} was NOT accepted. ${err}`);
+    }
+  }
+
+  if (name === 'neoncore_submit_goal_pilot') {
+    const { requestId, result } = args as { requestId?: string; result?: unknown };
+    if (!requestId) return text('ERROR: requestId is required.');
+    try {
+      const out = await post(`/api/goal-pilots/requests/${requestId}/submit`, { result }) as { phase?: string; notes?: string[] };
+      const notes = out?.notes ?? [];
+      return text(
+        `Goal Pilot request ${requestId} answered — stored for the person to review (pilot is "${out?.phase ?? '?'}"). ` +
+        'The person reviews it in the dashboard; do not create or change anything else yourself.' +
+        (notes.length ? `\n\nValidation adjusted your submission:\n- ${notes.join('\n- ')}` : ''),
+      );
+    } catch (err) {
+      log(`submit_goal_pilot rejected: ${err}`);
+      return text(`Goal Pilot request ${requestId} was NOT accepted. ${err}`);
     }
   }
 

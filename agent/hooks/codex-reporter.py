@@ -268,6 +268,18 @@ def main():
             "events": raw_events,
         }))
 
+    # The turn is over — say so LAST, after everything above has landed (the register and the
+    # transcript both mark the cartridge working). Codex has no stop gate, so its Stop is the end
+    # of the turn; without this the cartridge read `working` for two more minutes and every piece
+    # of work queued behind it waited that out. See routes/agents.ts `turnEnded`.
+    if hook_event == "Stop" and session_id:
+        post_json(f"{ORCHESTRATOR_URL}/api/agents/turn-ended", json.dumps({
+            "sessionId": session_id,
+            "machine": machine,
+            "repoPath": cwd,
+            "agentType": "codex",
+        }))
+
 
 if __name__ == "__main__":
     try:

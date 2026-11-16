@@ -1,18 +1,9 @@
 import { Router } from 'express';
 import db from '../db.js';
-import { resetFirstLaunchSentinel, runFirstLaunchSetup } from '../lib/first-launch.js';
 import { SECRET_SETTING_KEYS } from '../lib/auth.js';
 import { validateBudgetValue } from '../lib/budget.js';
 
 const router = Router();
-
-// POST /api/settings/reinstall-hooks — re-run the hook installer on this machine
-router.post('/reinstall-hooks', (_req, res) => {
-  const port = parseInt(process.env.PORT || '4040');
-  resetFirstLaunchSentinel();
-  runFirstLaunchSetup(port);
-  res.json({ ok: true, message: 'Hook installation started — check server logs for progress' });
-});
 
 /**
  * Read every setting EXCEPT the secrets.

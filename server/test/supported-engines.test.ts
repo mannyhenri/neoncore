@@ -118,3 +118,49 @@ test('TranscriptEngine carries no removed engine either', () => {
   const strays = listed.filter((e) => REMOVED.some((r) => r.id === e));
   assert.deepEqual(strays, [], `TranscriptEngine still lists ${strays.join(', ')}`);
 });
+
+/**
+ * PRODUCT NAMES, everywhere a person reads or installs from — not only engine VALUES in code.
+ *
+ * The value scan above passed while the VS Code extension's manifest still offered
+ * "Amazon Q Developer CLI" and "Cursor" in its settings picker, the Guide listed "Amazon Q" and
+ * "Cursor" as supported, and FEATURES.md documented hook installers for both: none of those are
+ * a quoted lowercase engine id in a scanned source tree. So this scans the same surfaces plus
+ * every manifest and every markdown document for the NAMES. `Cursor` is matched case-sensitively
+ * (capitalised, as a product) so the CSS property and the text cursor stay out of it.
+ */
+// Gemini is not in this list: it is still named, legitimately, in market research
+// (docs/agent-orchestrator-landscape-2026.md) as a product NeonCore competes with.
+const PRODUCT_NAMES: { engine: string; re: RegExp }[] = [
+  { engine: 'amazonq', re: /\bamazon ?q\b|\bamazonq\b/i },
+  { engine: 'cursor', re: /\bCursor\b/ },
+];
+
+function docsAndManifests(): string[] {
+  const out: string[] = [];
+  const walkMd = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (!['node_modules', 'dist', 'public', '.git', 'run', 'ios'].includes(e.name) && !e.name.startsWith('run-')) walkMd(full);
+      } else if (e.name.endsWith('.md') || e.name === 'package.json' || e.name === 'app.json') out.push(full);
+    }
+  };
+  walkMd(ROOT);
+  return out;
+}
+
+test('no removed engine is NAMED as a product in code, manifests or docs', () => {
+  const files = [...new Set([...FILES, ...docsAndManifests()])];
+  assert.ok(files.some((f) => f.endsWith(path.join('extension', 'package.json'))), 'the extension manifest must be in the scan');
+  const hits: string[] = [];
+  for (const file of files) {
+    fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+      for (const { engine, re } of PRODUCT_NAMES) {
+        if (re.test(line)) hits.push(`${engine} — ${path.relative(ROOT, file)}:${i + 1}: ${line.trim().slice(0, 90)}`);
+      }
+    });
+  }
+  assert.deepEqual(hits, [], `removed engines are still named:\n  ${hits.join('\n  ')}`);
+});

@@ -383,9 +383,6 @@ function disconnectFromOrchestrator() {
 function detectActiveAIExtensions(): Set<string> {
   const active = new Set<string>();
 
-  // Detect host app (Cursor is a VS Code fork — check app name first)
-  const appName = vscode.env.appName.toLowerCase();
-
   // Detect active AI extensions by extension ID
   for (const ext of vscode.extensions.all) {
     const id = ext.id.toLowerCase();
