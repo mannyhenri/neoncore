@@ -52,6 +52,26 @@ const PARTICIPANT_DEAD_MS = 10 * 60 * 1000;
  * different diagnosis from "it died" and points at the real bug: work finished, never signalled.
  */
 const HARD_FAIL_MS = 4 * 60 * 60 * 1000;
+/**
+ * Past HARD_FAIL_MS, a pending participant that used a tool this recently is still WORKING, not
+ * finished-and-silent, so the step is kept. Three missed reminders' worth: a cartridge that
+ * finished would have answered one of them with its done signal, not more tool calls.
+ * (cd99be1e, 2026-11-16: failed at 240 min while gl-dev ran a 73-target suite.)
+ */
+const ACTIVE_WITHIN_MS = 3 * STALL_MS;
+/** The backstop. Activity buys time past HARD_FAIL_MS, but no step runs longer than this. */
+const ABSOLUTE_FAIL_MS = 12 * 60 * 60 * 1000;
+
+/** Most recent tool call by any of these participants, as epoch ms (0 if none). */
+function lastToolCallMs(agentIds: string[]): number {
+  if (agentIds.length === 0) return 0;
+  const ph = agentIds.map(() => '?').join(',');
+  const row = db.prepare(
+    `SELECT MAX(timestamp) AS t FROM activity WHERE event_type = 'PostToolUse' AND agent_id IN (${ph})`,
+  ).get(...agentIds) as { t?: string | null } | undefined;
+  const t = Date.parse(row?.t || '');
+  return Number.isNaN(t) ? 0 : t;
+}
 
 /**
  * Is this participant still there?
@@ -1009,7 +1029,17 @@ export function reconcileConfers(now = Date.now()): void {
       continue;
     }
 
-    if (age > HARD_FAIL_MS) {
+    if (age > ABSOLUTE_FAIL_MS) {
+      db.prepare(`UPDATE confer_sessions SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
+        .run(
+          `Milestone "${ms.name}" hit the ${Math.round(ABSOLUTE_FAIL_MS / 3600000)} h ceiling with ${pending.length} participant(s) still working and never signalling done — nudged ${ms.nudged as number} time(s). Check the cartridges; resume if the work is still going.`,
+          new Date().toISOString(), row.id as string,
+        );
+      emit(row.id as string);
+      continue;
+    }
+
+    if (age > HARD_FAIL_MS && now - lastToolCallMs(pending) > ACTIVE_WITHIN_MS) {
       // Everyone is alive and nothing has been signalled for hours. Stop, but say so precisely:
       // this is "the work was probably done and never reported", not "a cartridge crashed".
       db.prepare(`UPDATE confer_sessions SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
