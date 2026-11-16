@@ -819,6 +819,81 @@ export function createClient(config: ClientConfig = {}) {
       `/goals/drafts/${draftId}/apply`, { method: 'POST', body: JSON.stringify({ fields }) },
     ),
 
+  // Desktop notifications raised by the SERVER (OS notification centre, no browser needed).
+  getDesktopNotifications: () => request<import('./types').DesktopNotificationStatus>('/push/desktop'),
+  setDesktopNotifications: (mode: 'action' | 'all' | 'off') =>
+    request<import('./types').DesktopNotificationStatus>('/push/desktop', { method: 'PUT', body: JSON.stringify({ mode }) }),
+  /** Sends a test notice through every configured channel (desktop, phone). */
+  sendTestNotification: () =>
+    request<{ ok: boolean; channels: string[]; note?: string }>('/push/test', { method: 'POST', body: JSON.stringify({}) }),
+
+  // Goal Pilot — a goal run as a managed pipeline. Planner steps are dispatched to a cartridge
+  // and arrive later; these calls return the pilot as it stands.
+  getGoalPilotMeta: () => request<import('./types').GoalPilotMeta>('/goal-pilots/meta'),
+  getGoalPilots: (goalId?: string) =>
+    request<import('./types').GoalPilot[]>(`/goal-pilots${goalId ? `?goalId=${goalId}` : ''}`),
+  getGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}`),
+  getGoalPilotCandidates: (goalId?: string) =>
+    request<import('./types').PilotCandidateRepo[]>(`/goal-pilots/candidates${goalId ? `?goalId=${goalId}` : ''}`),
+  getGoalPilotRequest: (requestId: string) =>
+    request<import('./types').PilotRequest & { prompt: string }>(`/goal-pilots/requests/${requestId}`),
+  /** Starts piloting: a new goal from the intake, or `goalId` for an existing one. */
+  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; replace?: boolean }) =>
+    request<{ pilot: import('./types').GoalPilot; goalId: string; queued: boolean; error: string | null }>(
+      '/goal-pilots', { method: 'POST', body: JSON.stringify(data) },
+    ),
+  answerGoalPilot: (id: string, answers: Record<string, import('./types').PilotAnswer>) =>
+    request<{ pilot: import('./types').GoalPilot; queued: boolean; error: string | null }>(
+      `/goal-pilots/${id}/answers`, { method: 'POST', body: JSON.stringify({ answers }) },
+    ),
+  retryGoalPilot: (id: string, agentId?: string) =>
+    request<{ pilot: import('./types').GoalPilot; queued: boolean; error: string | null }>(
+      `/goal-pilots/${id}/retry`, { method: 'POST', body: JSON.stringify({ agentId }) },
+    ),
+  /** THE ONLY path from the planner's proposal to the goal. */
+  acceptGoalPilotPlan: (id: string, data: {
+    brief: Partial<import('./types').PilotBrief>; stages: Partial<import('./types').PilotProposedStage>[];
+    criteria?: { text: string; expect: string; verify: import('./types').VerifyMethod }[];
+  }) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/accept-plan`, { method: 'POST', body: JSON.stringify(data) }),
+  reviseGoalPilotPlan: (id: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/revise`, { method: 'POST' }),
+  startGoalPilot: (id: string, data: { repos: { repoPath: string; agentType: string }[]; assignments: Record<string, string> }) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/start`, { method: 'POST', body: JSON.stringify(data) }),
+  pauseGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/pause`, { method: 'POST' }),
+  resumeGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/resume`, { method: 'POST' }),
+  cancelGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/cancel`, { method: 'POST' }),
+  retryGoalPilotStage: (id: string, stageId: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/stages/${stageId}/retry`, { method: 'POST' }),
+  skipGoalPilotStage: (id: string, stageId: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/stages/${stageId}/skip`, { method: 'POST' }),
+  deleteGoalPilot: (id: string) => request<void>(`/goal-pilots/${id}`, { method: 'DELETE' }),
+
+  // The acceptance contract — every one of these is the PERSON's decision; no agent tool reaches them.
+  /** Run the tests under review now (before any work they should fail). Results arrive by socket. */
+  runAcceptanceTests: (id: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/run`, { method: 'POST' }),
+  /** Approve & lock — locks once a fresh run shows every test red, or with `confirmPassing`. */
+  approveAcceptanceTests: (id: string, confirmPassing = false) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/approve`, { method: 'POST', body: JSON.stringify({ confirmPassing }) }),
+  requestAcceptanceChanges: (id: string, feedback: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/changes`, { method: 'POST', body: JSON.stringify({ feedback }) }),
+  askAgainForAcceptanceTests: (id: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/request`, { method: 'POST' }),
+  unlockAcceptanceCriterion: (id: string, criterionId: string, data: { reason: string; text?: string; expect?: string }) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/criteria/${criterionId}/unlock`, { method: 'POST', body: JSON.stringify(data) }),
+  restoreAcceptanceTests: (id: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/restore`, { method: 'POST' }),
+  acceptAcceptanceTestChange: (id: string, reason: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/accept-change`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  confirmAcceptanceChecklist: (id: string, confirmations: Record<string, { accepted: boolean; note?: string }>) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/checklist`, { method: 'POST', body: JSON.stringify({ confirmations }) }),
+  verifyGoalPilotStageAgain: (id: string, stageId: string) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/stages/${stageId}/verify`, { method: 'POST' }),
+  /** Build (or rebuild) the goal report now — e.g. for a pipeline cancelled part-way. */
+  buildGoalPilotReport: (id: string) =>
+    request<import('./types').GoalReport>(`/goal-pilots/${id}/report`, { method: 'POST' }),
+
   // Goal Projects (separate from journal projects)
   getGoalProjects: (goalId?: string) =>
     request<import('./types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),

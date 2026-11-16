@@ -10,6 +10,8 @@ import {
   machineSocketId as resolveMachineSocket,
   machineClaimants,
 } from './lib/machine-sockets.js';
+import { setMachineCall } from './lib/repo-access.js';
+import type { RepoOpRequest, RepoOpResult } from './types.js';
 
 let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 
@@ -150,7 +152,26 @@ export function initWebSocket(server: HTTPServer) {
     });
   });
 
+  // The acceptance contract reaches repos on other machines through their runner (lib/repo-access.ts).
+  setMachineCall(callMachineRepoOp);
+
   return io;
+}
+
+/**
+ * Ask a machine's runner to read / write / run in one of its repos, and wait for its answer.
+ * Point-to-point like every machine instruction (one socket, never the room). Never rejects: an
+ * offline runner or a missed ack comes back as `{ ok: false, error }`.
+ */
+export function callMachineRepoOp(machineId: string, request: RepoOpRequest, timeoutMs: number): Promise<RepoOpResult> {
+  const target = resolveMachineSocket(machineId, socketIsConnected);
+  const socket = target ? io.sockets.sockets.get(target) : undefined;
+  if (!socket) return Promise.resolve({ ok: false, error: 'its runner is not connected' });
+  return new Promise((resolve) => {
+    socket.timeout(timeoutMs).emit('repo_op', request, (err: Error | null, res: RepoOpResult) => {
+      resolve(err ? { ok: false, error: `its runner did not answer within ${Math.round(timeoutMs / 1000)}s` } : res);
+    });
+  });
 }
 
 function markAgentOffline(agentId: string) {

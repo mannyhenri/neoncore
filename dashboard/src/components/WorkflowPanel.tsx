@@ -4,6 +4,7 @@ import { ConferModePicker, type ConferMode, type ConferIsolation } from './Confe
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
+import { browserNotificationsWanted } from '../lib/osNotify';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
 import { ConferCard } from './ConferPanel';
@@ -20,6 +21,7 @@ import {
   launchOptionErrors, renderLaunchCommand,
   type WorkflowLaunchConfig, type WorkflowLaunchOption, type WorkflowLaunchValues,
 } from '../lib/workflowLaunchOptions';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // ─── Browser notification helper ────────────────────
 
@@ -30,6 +32,8 @@ function requestNotificationPermission() {
 }
 
 function sendNotification(title: string, body: string, tag?: string) {
+  // The server shows desktop notifications on this machine already — see lib/osNotify.ts.
+  if (!browserNotificationsWanted()) return;
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification(title, {
       body,
@@ -770,6 +774,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     launchConfig: WorkflowLaunchConfig | null;
     launchConfigError: string | null;
   } | null>(null);
+  useEscapeKey(() => setDeferredPopup(null), !!deferredPopup);
   const [deferredAssignments, setDeferredAssignments] = useState<Record<string, string>>({});
   // One cartridge for the whole run — the common case. Per-step assignment is the opt-in
   // exception, not the default the modal is built around.

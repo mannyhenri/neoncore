@@ -24,6 +24,11 @@ export interface Notice {
   actions?: { id: string; label: string; style?: string }[];
   /** Routing metadata — workflowId, stepId, type. Carried, never interpreted here. */
   data?: Record<string, unknown>;
+  /**
+   * Does a person need to DO something? Channels that interrupt (the desktop) show `action`
+   * notices and may hold back `info`. Unset: inferred from `actions` and `data.type`.
+   */
+  urgency?: 'action' | 'info';
 }
 
 /**

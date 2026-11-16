@@ -188,7 +188,7 @@ No failure mode is both silent AND unhandled.
 - V1 phase-workflow executor (`workflow-executor.ts`) — V2 steps first; V1 shares
   the same reconciler pattern later if needed.
 - Epic autopilot recovery — executor is commented out (`index.ts:185`).
-- Cursor/Codex/Gemini/AmazonQ runtimes — claude + gridlight first (unified table
+- Codex/Gemini runtimes — claude + gridlight first (unified table
   already supports the others when their hooks land).
 
 ## Open implementation details (decided, not blocking)

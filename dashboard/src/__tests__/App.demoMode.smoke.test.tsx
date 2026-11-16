@@ -19,7 +19,7 @@
  *    error boundary and the test still "passes" against a blank screen — which is precisely
  *    the failure being prevented.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 
 /** jsdom has neither, and React components that measure or query media need both. */
@@ -87,6 +87,11 @@ describe('App mounts in demo mode', () => {
     localStorage.clear();
     vi.restoreAllMocks();
   });
+
+  // Transforming the whole app is a one-off cost that grows with every screen added, and the
+  // first test used to pay it inside its own 5s budget — so this suite failed intermittently for
+  // reasons that had nothing to do with a crash. Paid once, here, with room to spare.
+  beforeAll(async () => { await import('../App'); }, 60_000);
 
   it('renders without the crash that produced a blank screen', async () => {
     const { default: App } = await import('../App');

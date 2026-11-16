@@ -60,3 +60,6 @@ package-lock.json
 .env.*
 !.env.example
 server/neoncore-server.log
+
+# Goal reports written next to the default database (server/src/lib/goal-pilot-report.ts)
+server/reports/

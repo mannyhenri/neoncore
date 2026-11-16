@@ -184,7 +184,7 @@ heartbeats
 ```
 
 **UI:** each project detail page has a "Scheduled Runs" section. Examples:
-- "Every Monday 9am — Code Health Check — neoncore repo — agent: Cursor #1"
+- "Every Monday 9am — Code Health Check — neoncore repo — agent: Codex #1"
 - "Daily at midnight — Feature Validation — against last Jira sprint tasks"
 
 **Runtime:** a server-side cron loop (node-cron or similar) checks for due heartbeats every minute, dispatches the workflow against the assigned agent, and records the run against the project.

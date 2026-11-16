@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
  * The automate control — how much a run may settle for itself while you are away.
@@ -39,6 +40,7 @@ interface State {
 export function AutonomyControl({ workflowId }: { workflowId: string }) {
   const [state, setState] = useState<State | null>(null);
   const [open, setOpen] = useState(false);
+  useEscapeKey(() => setOpen(false), open);
   const btn = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
   const [busy, setBusy] = useState(false);

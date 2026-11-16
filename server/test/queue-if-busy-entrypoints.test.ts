@@ -105,6 +105,15 @@ const ENTRY_POINTS: EntryPoint[] = [
     }),
   },
   {
+    kind: 'goal-pilot',
+    label: 'Goal Pilot planner request (dispatchPlannerRequest)',
+    spec: (busy) => ({
+      kind: 'goal-pilot',
+      targets: busy,
+      payload: { requestId: 'gpr-guard', agentId: busy[0] },
+    }),
+  },
+  {
     kind: 'task',
     label: 'POST /api/tasks/:id/dispatch',
     spec: (busy) => ({

@@ -169,7 +169,7 @@ export function enqueue(input: {
   // several cartridges) get a per-repo one. A `task` is aimed at exactly one cartridge, so it
   // belongs in that cartridge's lane beside prompts — not in the repo bucket, where it would
   // fail to serialise against the prompts hitting the same cartridge.
-  const agentLaned = input.kind === 'prompt' || input.kind === 'task';
+  const agentLaned = input.kind === 'prompt' || input.kind === 'task' || input.kind === 'goal-pilot';
   const lane = input.lane || (agentLaned ? `agent:${targets[0]}` : `repo:${(payload.repoPath as string) || 'default'}`);
   const next = (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM queue_items WHERE lane = ?')
     .get(lane) as { n: number }).n;
@@ -927,8 +927,4 @@ export function startQueueRunner(): void {
     }
   }, TICK_MS);
   console.log(`[queue] runner started — advancing on explicit completion signals only, every ${TICK_MS / 1000}s`);
-}
-
-export function stopQueueRunner(): void {
-  if (timer) { clearInterval(timer); timer = null; }
 }

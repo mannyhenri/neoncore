@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import type { Agent, Session, WorkflowReport } from '../types';
 import SendToCartridgeModal from './SendToCartridgeModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   project: string;
@@ -16,6 +17,7 @@ const KNOWLEDGE_FILES = ['details.md'] as const;
 type TabKey = 'sessions' | 'reports' | 'notes' | typeof KNOWLEDGE_FILES[number];
 
 export default function ProjectMemoryPanel({ project, agents, onClose }: Props) {
+  useEscapeKey(onClose);
   const [sendModal, setSendModal] = useState<{ text: string; label: string } | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);

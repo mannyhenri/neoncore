@@ -168,6 +168,8 @@ const GESTURE_ONLY: Record<string, string> = {
   'components/MachineLauncher.tsx': 'launcher dropdown opened by the user',
   'components/TasksPage.tsx': 'create-task modal opened by the user',
   'components/WorkflowCanvasEditor.tsx': 'node rename after the user clicks edit',
+  'components/DatePicker.tsx': 'moves focus between days only while the user has the calendar open',
+  'components/AcceptanceContractPanel.tsx': 'feedback / reason boxes open when the user clicks Ask for changes, Accept the change or Unlock',
 };
 
 function walk(dir: string): string[] {

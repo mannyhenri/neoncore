@@ -20,6 +20,23 @@ import type { AgentType, Activity, VirtualCartridge } from './types';
 import { IS_DEMO } from './lib/api';
 import { setDemoEnabled, resetDemoData } from './lib/demoMode';
 
+/** One tab of the header's view switcher (Goals · Agents · Tasks · Tokens). */
+function ViewTab({ active, onClick, neutral = false, children }: { active: boolean; onClick: () => void; neutral?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`px-3 py-1 text-[13px] font-medium rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+        active
+          ? (neutral ? 'bg-white/10 text-gray-100' : 'bg-violet-900/60 text-violet-200')
+          : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.05]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function App() {
   // Virtual cartridges
   const [virtualCartridges, setVirtualCartridges] = useState<VirtualCartridge[]>([]);
@@ -140,7 +157,7 @@ export default function App() {
     <div className="min-h-full text-white">
       {demoBanner}
       {/* Header */}
-      <header className="glass-light px-3 py-3 md:px-6 md:py-4 border-b border-white/[0.06] relative z-20">
+      <header className="glass-light px-3 py-2 md:px-5 md:py-2.5 border-b border-white/[0.06] relative z-20">
         {/* THREE TRACKS, so the regions cannot collide.
             History, because this bar has now been fixed twice for the same symptom. The switcher
             was originally `md:absolute left-1/2 -translate-x-1/2` — out of flow, so nothing
@@ -154,57 +171,42 @@ export default function App() {
             `1fr auto auto` ends it: the identity track absorbs all free space, so the switcher and
             the cluster sit together at the right edge, separated by the cluster's own `md:pl-8`.
             The spacing is now a constant instead of a residue, so no control added to the right
-            can ever squeeze it. */}
+            can ever squeeze it.
+            The third round: the flexible track may shrink to nothing (`minmax(0,1fr)`), and its
+            contents did not — the burn-rate readout painted UNDER Goals/Agents/Tasks at 1024-1440px.
+            The identity block now clips (`min-w-0 overflow-hidden`), the readout only shows where
+            it fits (xl+), the "Orchestrator" label is gone, and the chrome buttons drop their
+            labels to icons below 2xl — so the switcher always has its own room. */}
         <div className="flex flex-wrap items-center justify-between gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-0 md:justify-normal">
-          <div className="flex items-center gap-2 md:gap-3">
-            <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8" />
-            <h1 className="font-pixel text-xs md:text-sm tracking-wide" style={{ imageRendering: 'pixelated' }}>
+          <div className="flex items-center gap-2 md:gap-3 min-w-0 overflow-hidden md:pr-4">
+            <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8 flex-shrink-0" />
+            {/* md–lg: the logo alone — the wordmark is what the switcher would otherwise clip. */}
+            <h1 className="font-pixel text-xs md:text-sm tracking-wide flex-shrink-0 md:hidden lg:block" style={{ imageRendering: 'pixelated' }}>
               <span className="text-gl-blue">Neon</span>
               <span className="text-gl-pink">Core</span>
             </h1>
-            <span className="hidden sm:inline text-sm text-gray-500 border border-white/10 px-2.5 py-1 rounded-full uppercase tracking-wider">
-              Orchestrator
-            </span>
-            {/* Asked for: the fleet burn rate reads first, right after the label. */}
+            {/* Asked for: the fleet burn rate reads first, right after the wordmark. */}
             <BurnRate servers={servers} onOpen={() => setActiveView('tokens')} />
           </div>
           {/* The middle track, right-aligned against the chrome cluster rather than centred on
               the bar — asked for after Confer widened the cluster enough to touch it.
               Reading order is Goals → Agents → Tasks; Agents is where the dashboard opens. */}
-            <div className="flex md:justify-self-end rounded-md overflow-hidden border border-white/10 w-fit">
-              <button
-                onClick={() => setActiveView('goals')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'goals' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-              >
-                Goals
-              </button>
-              <button
-                onClick={() => setActiveView('agents')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'agents' ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-              >
-                Agents
-              </button>
-              <button
-                onClick={() => setActiveView('tasks')}
-                className={`px-3 py-1 text-xs font-medium transition-colors flex items-center gap-1.5 ${activeView === 'tasks' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-              >
+            <div role="navigation" aria-label="Views" className="flex md:justify-self-end items-center gap-0.5 p-0.5 rounded-lg border border-white/10 bg-white/[0.03] w-fit">
+              <ViewTab active={activeView === 'goals'} onClick={() => setActiveView('goals')}>Goals</ViewTab>
+              <ViewTab active={activeView === 'agents'} onClick={() => setActiveView('agents')} neutral>Agents</ViewTab>
+              <ViewTab active={activeView === 'tasks'} onClick={() => setActiveView('tasks')}>
                 Tasks
                 {activeTaskCount > 0 && (
                   <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
                 )}
-              </button>
-              <button
-                onClick={() => setActiveView('tokens')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${activeView === 'tokens' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
-              >
-                Tokens
-              </button>
+              </ViewTab>
+              <ViewTab active={activeView === 'tokens'} onClick={() => setActiveView('tokens')}>Tokens</ViewTab>
             </div>
 
           {/* The right edge of the bar, left to right: the two things you START a session
               with sit closest to the view switcher, then chrome, then status pinned to the
               far right where a glance goes for "is anything wrong" — bell last. */}
-          <div className="flex items-center gap-2 md:gap-4 text-base ml-auto md:ml-0 md:pl-8 md:justify-self-end justify-end whitespace-nowrap">
+          <div className="flex items-center gap-2 xl:gap-3 text-base ml-auto md:ml-0 md:pl-6 md:justify-self-end justify-end whitespace-nowrap">
             {/* Confer used to be a button here. It is a WORKFLOW TEMPLATE now ("Confer"), which
                 is what it always was: cartridges working one task together. As a header button
                 it was the only way of starting work with no run history, no project, no report
@@ -217,32 +219,35 @@ export default function App() {
               className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors"
               title="Create a new folder, git init, push to GitHub, and start working"
             >
-              + New Repo
+              + <span className="hidden xl:inline">New </span>Repo
             </button>
             {/* Settings gear */}
             <button
               onClick={() => setSettingsOpen(true)}
-              className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/25 px-2.5 py-1 rounded-md transition-colors flex items-center justify-center gap-1.5"
+              className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/25 px-2 py-1 rounded-md transition-colors flex items-center justify-center gap-1.5"
               title="Settings"
+              aria-label="Settings"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a7.723 7.723 0 0 1 0 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
               </svg>
-              Settings
+              {/* Icon-only until there is room: the labels were what pushed the bar into overlap. */}
+              <span className="hidden 2xl:inline">Settings</span>
             </button>
             {/* Guide button */}
             <button
               onClick={() => setGuideOpen(true)}
-              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2 py-1 rounded-md transition-colors flex items-center gap-1.5"
               title="How NeonCore works"
+              aria-label="Guide"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 2xl:w-3.5 2xl:h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
               </svg>
-              Guide
+              <span className="hidden 2xl:inline">Guide</span>
             </button>
-            <span className="hidden lg:inline text-sm text-gray-500">
+            <span className="hidden xl:inline text-sm text-gray-500">
               {onlineAgents.length} online
             </span>
             <ServerPicker

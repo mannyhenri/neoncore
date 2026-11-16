@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { VirtualCartridge } from '../types';
 import { api } from '../lib/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   cartridge: VirtualCartridge;
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function VirtualCartridgeConfig({ cartridge, onClose, onSave }: Props) {
+  useEscapeKey(onClose);
   const [name, setName] = useState(cartridge.name);
   const [saving, setSaving] = useState(false);
 

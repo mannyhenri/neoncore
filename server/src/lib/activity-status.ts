@@ -38,8 +38,9 @@ export const WORKING_EVENTS = new Set([
   'tool_use',
   'user_prompt',
   'user_command',
-  // A turn ending is still the agent acting. The separate idle timer handles working→idle
-  // after its grace period; treating Stop as idle here would race that and flicker.
+  // A Stop EVENT is still the agent acting: the hooks post it BEFORE the completion check, and
+  // that check — not this event — decides whether the turn is really over (a blocked stop keeps
+  // going). The turn's end flips the status to idle there: routes/agents.ts `turnEnded`.
   'Stop',
   'SubagentStop',
 ]);

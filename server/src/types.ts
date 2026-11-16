@@ -264,16 +264,6 @@ export interface Note {
   updatedAt: string;
 }
 
-// Hook payload from Claude Code
-export interface HookPayload {
-  session_id: string;
-  transcript_path?: string;
-  cwd?: string;
-  hook_event_name: string;
-  tool_name?: string;
-  tool_input?: Record<string, unknown>;
-}
-
 // Epic Autopilot types
 export interface EpicTaskState {
   taskId: string;
@@ -577,6 +567,13 @@ export type ServerToClientEvents = {
   machine_set_repos: (data: { machineId: string; repos: MachineRepo[] }) => void;
   // Server → runner: scan a directory ON that machine and add the git repos under it.
   machine_scan: (data: { machineId: string; root: string }) => void;
+  // Server → runner: read files / write one file / run one command in a repo ON that machine, for
+  // the acceptance contract (lib/repo-access.ts ↔ agent/runner/repo-ops.js). Answered by ack.
+  repo_op: (data: RepoOpRequest, ack: (result: RepoOpResult) => void) => void;
+  /** A Goal Pilot changed — phase, a planner answer, a stage starting or finishing. Refetch it. */
+  goal_pilot_updated: (data: { id: string }) => void;
+  /** The in-app bell (and the dashboard's browser notification). workflowId is '' for a notice about no one run. */
+  workflow_notification: (data: { id: string; workflowId: string; workflowName: string; title: string; body: string; projects: string[]; timestamp: string }) => void;
 };
 
 export type ClientToServerEvents = {
@@ -587,6 +584,19 @@ export type ClientToServerEvents = {
   join_machine_room: (data: { machineId: string }) => void;
   machine_heartbeat: (data: { machineId: string }) => void;
 };
+
+/** An instruction to a machine runner to touch one of its repos (see agent/runner/repo-ops.js). */
+export type RepoOpRequest =
+  | { machineId: string; repoPath: string; op: 'read'; paths: string[] }
+  | { machineId: string; repoPath: string; op: 'write'; path: string; content: string }
+  | { machineId: string; repoPath: string; op: 'run'; command: string; timeoutMs: number };
+
+export interface RepoOpResult {
+  ok: boolean;
+  error?: string;
+  files?: { path: string; exists: boolean; content: string; sha256: string; bytes: number; error?: string }[];
+  run?: { exitCode: number | null; timedOut: boolean; output: string; durationMs: number };
+}
 
 /** A directory the runner is allowed to launch a cartridge in. */
 export interface MachineRepo {

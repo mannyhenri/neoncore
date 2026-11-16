@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { Agent, Worktree } from '../types';
 import { api } from '../lib/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   agent: Agent;
@@ -11,6 +12,7 @@ interface Props {
 type Tab = 'status' | 'worktrees' | 'branches';
 
 export function GitPanel({ agent, onClose }: Props) {
+  useEscapeKey(onClose);
   const [tab, setTab] = useState<Tab>('status');
   const [loading, setLoading] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);

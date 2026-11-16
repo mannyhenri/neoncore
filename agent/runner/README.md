@@ -22,6 +22,16 @@ visible session you can watch and type in — locally or on a remote machine.
 The runner only ever launches in a directory from its `repos` **allowlist** — never an
 arbitrary path.
 
+It has one more job, for a **Goal Pilot's acceptance contract** (docs/GOAL-PILOT.md): when a
+piloted goal's locked acceptance tests live in a repo on *this* machine, the server cannot read
+them or run them itself, so it sends a `repo_op` over the socket — **read** the locked test files
+(to check their hashes), **run** one criterion's test command, or **write** back the approved version
+of a test the person chose to restore — and the runner answers through the socket's ack
+(`repo-ops.js`). Same allowlist: only inside the exposed repos, only paths inside the repo, output
+kept to its tail, a command that outruns its timeout killed with its process group, and
+`NEONCORE_*` variables (tokens) not passed to the command. The only commands it runs are ones a
+person has reviewed in the dashboard.
+
 ## One runner per machine
 
 "Once per computer" is enforced, not just advised. A machine's identity is the `machineId` in
@@ -122,7 +132,8 @@ inside) or `a` to **add** that folder itself. Repeat, then `d` when done — no 
 Remote launch is effectively remote code execution on this machine, so:
 
 - The machine only participates while **you** run this daemon.
-- It only launches inside the configured **allowlist**.
+- It only launches — and only reads, writes or runs acceptance checks — inside the configured
+  **allowlist**.
 - Set a `machine_pairing_token` on the server and match it here so only your runner can
   register. Required if the orchestrator is reachable beyond your LAN.
 

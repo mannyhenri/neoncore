@@ -5,6 +5,8 @@
  * Steps at the same level run in parallel; sequential steps wait for dependencies.
  * Every step dispatches a natural language command to a Claude Code agent.
  */
+import { emitRunFinished, emitRunHeld } from './run-events.js';
+import { noteTurnEnded, turnIsOver } from './turn-state.js';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles, clearAgentSession } from './send-command.js';
@@ -190,6 +192,17 @@ function attachmentBlockForStep(workflowId: string, agentId: string): string {
   return blockForRepo(blocks, agent?.repo_path || '');
 }
 
+/**
+ * The goal a run works toward, through its project — or null for a run attached to nothing, which
+ * keeps the old repo-based resolution. See the `goalId` option of sendCommandToAgent.
+ */
+function runGoalId(workflowId: string): string | null {
+  const row = db.prepare(
+    `SELECT p.goal_id AS goalId FROM workflows w JOIN projects p ON p.id = w.project_id WHERE w.id = ?`,
+  ).get(workflowId) as { goalId?: string | null } | undefined;
+  return row?.goalId || null;
+}
+
 function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, includeMemory: boolean): boolean {
   // Branch-per-step: if a worktree was created for this step, tell the agent to work
   // there so parallel steps on one repo don't clobber each other's files.
@@ -207,7 +220,7 @@ function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, 
   // Silent standard: the step's completion instruction IS its contract (report_step_done with
   // scope + verify, enforced by the webhook), and an accepted report disarms the stop gate.
   // Injecting the NEONCORE-DONE block as well asked for the same thing twice.
-  const command = sendCommandToAgent(agentId, finalText, includeMemory, undefined, { standard: 'silent' });
+  const command = sendCommandToAgent(agentId, finalText, includeMemory, undefined, { standard: 'silent', goalId: runGoalId(step.workflowId) });
 
   if (noChannel(command)) {
     failUndelivered(step, !command
@@ -2116,16 +2129,7 @@ function freshSessionReason(step: WorkflowStep): string | null {
   return null;
 }
 
-/** When each cartridge's last turn ended (its Stop was allowed). In memory: unknown after a restart. */
-const turnEndedAt = new Map<string, number>();
-
-/** Has the cartridge's turn ended since the last thing NeonCore typed into it? */
-function turnIsOver(agentId: string): boolean {
-  const ended = turnEndedAt.get(agentId);
-  if (!ended) return false;
-  const last = db.prepare('SELECT MAX(created_at) AS t FROM commands WHERE agent_id = ?').get(agentId) as { t?: string | null };
-  return !last?.t || Date.parse(last.t) <= ended;
-}
+// When a turn ended, and whether it is still over: lib/turn-state.ts (shared with the queue).
 
 /** Park the step for a fresh session. It is always parked; /clear goes now only if the turn is over. */
 function beginFreshSession(step: WorkflowStep, why: string): boolean {
@@ -2177,7 +2181,7 @@ function parkedSteps(agentId?: string): Array<{ step: WorkflowStep; mark: FreshS
 
 /** The Stop hook's completion check allowed `agentId` to stop: its turn is over. Type any /clear owed. */
 export function onTurnEnded(agentId: string): void {
-  turnEndedAt.set(agentId, Date.now());
+  noteTurnEnded(agentId);
   for (const { step, mark } of parkedSteps(agentId)) if (!mark.clearSentAt) sendClear(step);
 }
 
@@ -2471,6 +2475,7 @@ function completeStepFromSignalNow(stepId: string, result: string): boolean {
   } else {
     emitStepLog(workflowId, step.id, step.name, 'Step completed — waiting for manual advance before continuing', 'warn');
     notifyManualAdvanceNeeded(step);
+    emitRunHeld(workflowId);
   }
   console.log(`[workflow-v2] Step "${step.name}" completed (agent reported)`);
   return true;
@@ -2930,6 +2935,8 @@ function processWorkflow(workflowId: string) {
     emitWorkflowUpdate(workflowId);
     emitStepLog(workflowId, '', 'Workflow', `Workflow ${finalStatus}`, finalStatus === 'completed' ? 'success' : 'error');
     console.log(`[workflow-v2] Workflow ${workflowId} ${finalStatus}`);
+    // Whoever chains work after a run (the Goal Pilot's next stage) hears it now, not on a sweep.
+    emitRunFinished(workflowId, finalStatus);
 
     // Push to the mobile app so you learn a run finished without keeping it open.
     // Only for runs (not template dry-runs), and fire-and-forget — never block completion.

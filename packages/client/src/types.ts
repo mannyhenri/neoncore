@@ -425,6 +425,348 @@ export interface GoalDecomposition {
   createdTasks: string[];
 }
 
+/** What the server's desktop-notification channel can do on its machine (lib/channels/desktop.ts). */
+export interface DesktopNotificationStatus {
+  mode: 'action' | 'all' | 'off';
+  available: boolean;
+  /** The OS tool used: terminal-notifier, osascript, notify-send or powershell. */
+  notifier: string;
+  /** Why it is unavailable, when it is. */
+  reason: string;
+  /** NEONCORE_DESKTOP_NOTIFY is set on the server and wins over the stored mode. */
+  envOverride?: boolean;
+}
+
+// ── Goal Pilot (server/src/lib/goal-pilot.ts) ────────────────────────────────────
+
+export interface PilotChoiceOption { value: string; label: string; hint: string }
+
+/** One of the general questions the guided goal form asks. */
+export interface PilotIntakeQuestion {
+  key: string;
+  label: string;
+  help: string;
+  kind: 'text' | 'textarea' | 'choice' | 'date' | 'number';
+  required: boolean;
+  placeholder?: string;
+  options?: PilotChoiceOption[];
+}
+
+export interface GoalPilotMeta {
+  intakeQuestions: PilotIntakeQuestion[];
+  involvementLevels: PilotChoiceOption[];
+  workTypes: PilotChoiceOption[];
+  briefFields: { key: keyof PilotBrief; label: string; guidance: string; onGoal: boolean }[];
+  engines: string[];
+  limits: { maxScopeRounds: number; maxQuestionsPerRound: number; maxStages: number; maxCriteria: number };
+  templates: { name: string; description: string }[];
+  /** How a criterion is checked: an automated test written before the work, or a checklist item. */
+  verifyMethods: { value: VerifyMethod; label: string; hint: string }[];
+  /** The method each work type's criteria default to. */
+  defaultVerify: Record<string, VerifyMethod>;
+  /** Stage keys of the contract's own stages, assignable to a repo at staffing. */
+  contractStageKeys: { acceptance: string; review: string };
+}
+
+// ── the acceptance contract (server/src/lib/acceptance-contract.ts) ───────────────
+
+export type VerifyMethod = 'test' | 'checklist';
+
+/** A numbered acceptance criterion — frozen when the plan is accepted. */
+export interface PilotCriterion {
+  id: string;
+  text: string;
+  /** EXACTLY what is expected: inputs → result. */
+  expect: string;
+  verify: VerifyMethod;
+}
+
+export interface ContractTestFile { path: string; sha256: string; bytes: number; content: string }
+export interface ContractTest { criterionId: string; command: string; files: ContractTestFile[] }
+
+export interface ContractCheckResult {
+  criterionId: string; command: string; exitCode: number | null; passed: boolean; timedOut: boolean;
+  output: string; durationMs: number; at: string;
+}
+
+export interface ContractVerification {
+  id: string; stageId: string; stagePosition: number; stageTitle: string; at: string; version: number;
+  status: 'passed' | 'partial' | 'failed' | 'tampered' | 'error';
+  passing: number; total: number; filesChecked: number; results: ContractCheckResult[];
+  tampered: { path: string; criterionId: string; expected: string; actual: string | null }[];
+  error: string;
+}
+
+export interface ContractAmendment {
+  at: string;
+  kind: 'changes-requested' | 'unlock' | 'restore' | 'accept-change' | 'waive';
+  criterionIds: string[];
+  reason: string;
+  before?: { text: string; expect: string };
+  after?: { text: string; expect: string };
+  paths?: string[];
+  version: number;
+}
+
+export type CriterionOutcome = 'pass' | 'fail' | 'not-run' | 'met' | 'not-met' | 'unconfirmed' | 'not-checked' | 'waived';
+
+/** A criterion with its current evidence. */
+export interface CriterionState extends PilotCriterion {
+  outcome: CriterionOutcome;
+  test: { command: string; files: string[] } | null;
+  last: ContractCheckResult | null;
+  lastStage: string;
+  baseline: ContractCheckResult | null;
+  verdict: { criterionId: string; verdict: 'met' | 'not-met'; evidence: string } | null;
+  confirmation: { accepted: boolean; note: string; at: string } | null;
+  reviewer: string;
+}
+
+/** The goal's acceptance contract as the dashboard reads it. */
+export interface AcceptanceContract {
+  id: string;
+  pilotId: string;
+  goalId: string;
+  repoPath: string;
+  agentType: string;
+  status: 'drafting' | 'review' | 'locked' | 'waived';
+  version: number;
+  criteria: PilotCriterion[];
+  criteriaHash: string;
+  draftTests: ContractTest[];
+  tests: ContractTest[];
+  testNotes: string;
+  feedback: string;
+  amending: { criterionIds: string[]; reason: string } | null;
+  approval: { requestedAt: string; confirmPassing: boolean; blocked: string } | null;
+  baseline: { testsHash: string; at: string; results: ContractCheckResult[]; error: string } | null;
+  verifications: ContractVerification[];
+  checklist: {
+    requestId: string; reviewerAgentId: string; reviewerName: string; at: string; independent: boolean;
+    verdicts: { criterionId: string; verdict: 'met' | 'not-met'; evidence: string }[];
+    confirmations: Record<string, { accepted: boolean; note: string; at: string }>;
+    confirmedAt: string | null;
+  } | null;
+  amendments: ContractAmendment[];
+  tamper: { stageId: string; verificationId: string; files: { path: string; criterionId: string; expected: string; actual: string | null }[] } | null;
+  requestId: string;
+  waitReason: string;
+  lockedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Resolved evidence per criterion, and what is running right now. */
+  states: CriterionState[];
+  passing: number;
+  total: number;
+  activity: { kind: 'baseline' | 'verify' | 'restore'; done: number; total: number; stageId: string } | null;
+  baselineFresh: boolean;
+  request: { status: string; error: string; agentId: string } | null;
+}
+
+/** A question the planner asked. `suggested` is what "let the agents decide" resolves to. */
+export interface PilotQuestion {
+  id: string;
+  text: string;
+  why: string;
+  kind: 'choice' | 'multi' | 'text' | 'boolean';
+  options: string[];
+  suggested: string;
+  required: boolean;
+}
+
+export interface PilotAnswer { value: string | string[]; delegated?: boolean }
+
+export interface PilotRound {
+  round: number;
+  requestId: string;
+  message: string;
+  questions: PilotQuestion[];
+  answers: Record<string, PilotAnswer>;
+  askedAt: string;
+  answeredAt: string | null;
+}
+
+export interface PilotBrief {
+  slug: string;
+  summary: string;
+  successMetric: string;
+  inScope: string;
+  acceptanceCriteria: string;
+  invariants: string;
+  outOfScope: string;
+  rabbitHoles: string;
+  assumptions: string;
+}
+
+export interface PilotProposedStage {
+  key: string;
+  template: string;
+  title: string;
+  why: string;
+  focus: string;
+  optional: boolean;
+}
+
+export interface PilotRequest {
+  id: string;
+  pilotId: string;
+  kind: 'scope' | 'pipeline' | 'report' | 'tests' | 'review';
+  round: number;
+  status: 'pending' | 'ready' | 'failed' | 'superseded';
+  agentId: string;
+  notes: string[];
+  error: string;
+  queued: boolean;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export type PilotPhase =
+  | 'scoping' | 'clarifying' | 'planning' | 'proposed' | 'staffing'
+  | 'running' | 'paused' | 'completed' | 'cancelled';
+
+export interface PilotStage {
+  id: string;
+  position: number;
+  /** workflow | acceptance (write the acceptance tests) | review (independent checklist review). */
+  kind: 'workflow' | 'acceptance' | 'review';
+  key: string;
+  templateId: string;
+  template: string;
+  title: string;
+  why: string;
+  focus: string;
+  repoPath: string;
+  agentType: string;
+  projectId: string;
+  runId: string;
+  agentId: string;
+  status: 'pending' | 'waiting' | 'running' | 'review' | 'verifying' | 'completed' | 'failed' | 'skipped' | 'cancelled';
+  waitReason: string;
+  resultSummary: string;
+  attempts: number;
+  /** After a workflow stage: NeonCore's check of its work against the locked tests. */
+  verifyState: '' | 'pending' | 'tampered' | 'error' | 'done';
+  requestId: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** Live: the run's own status, its step progress, and whether it is waiting on a person. */
+  runStatus: string;
+  progress: { completed: number; total: number } | null;
+  attention: { reason: string; stepId: string; stepName: string; detail: string } | null;
+  agentName: string;
+}
+
+/**
+ * A goal run as a managed pipeline: intake → scoping questions → brief → proposed workflows →
+ * accepted plan → repos/cartridges → stages run in order.
+ */
+export interface GoalPilot {
+  id: string;
+  goalId: string;
+  goalName: string;
+  phase: PilotPhase;
+  plannerAgentId: string;
+  plannerName: string;
+  intake: Record<string, string>;
+  rounds: PilotRound[];
+  brief: PilotBrief | null;
+  /** The planner's numbered acceptance criteria, proposed with the brief. */
+  criteria: PilotCriterion[] | null;
+  proposal: { message: string; stages: PilotProposedStage[]; alternatives: { template: string; why: string }[] } | null;
+  plan: { brief: PilotBrief; stages: PilotProposedStage[]; criteria?: PilotCriterion[] } | null;
+  staffing: { repos: { repoPath: string; agentType: string }[] } | null;
+  involvement: string;
+  currentRequestId: string;
+  currentRequest: PilotRequest | null;
+  requests: PilotRequest[];
+  attention: string;
+  stages: PilotStage[];
+  /** The acceptance contract, once the pipeline has started. */
+  acceptance: AcceptanceContract | null;
+  createdAt: string;
+  updatedAt: string;
+  planAcceptedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** Built when the last stage finishes (or on request for a pipeline stopped part-way). */
+  report: GoalReport | null;
+  reportAt: string | null;
+}
+
+/** One stage of a goal report, with its run's own completion report when it filed one. */
+export interface GoalReportStage {
+  position: number;
+  kind?: string;
+  title: string;
+  template: string;
+  repo: string;
+  engine: string;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  minutes: number | null;
+  steps: { completed: number; total: number };
+  produced: string;
+  runId: string;
+  runReport: {
+    status: string; executiveSummary: string; whatChanged: string[];
+    issues: { severity: string; description: string; status: string }[]; nextSteps: string[];
+    testsPassed: number | null; testsTotal: number | null;
+  } | null;
+}
+
+/** What a piloted goal did — server/src/lib/goal-pilot-report.ts. */
+export interface GoalReport {
+  version: 1;
+  generatedAt: string;
+  goal: { id: string; name: string; successMetric: string };
+  pilotId: string;
+  /** With criteria: SUCCESS only when every criterion passes on NeonCore's own evidence. */
+  status: 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'INCOMPLETE';
+  involvement: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  minutes: number | null;
+  costUsd: number;
+  outcome: {
+    stagesCompleted: number; stagesTotal: number; stagesSkipped: number;
+    stepsCompleted: number; stepsTotal: number; testsPassed: number; testsTotal: number; issues: number;
+  };
+  summary: { text: string; highlights: string[]; followUps: string[]; source: 'planner' | 'compiled' };
+  acceptance: GoalReportAcceptance | null;
+  brief: PilotBrief | null;
+  decisions: { question: string; answer: string; delegated: boolean }[];
+  stages: GoalReportStage[];
+  learnings: { workflow: string; content: string }[];
+  openItems: string[];
+  files: { html: string; markdown: string; json: string } | null;
+}
+
+export interface GoalReportCriterion {
+  id: string; text: string; expect: string; verify: VerifyMethod; outcome: CriterionOutcome;
+  command: string; files: string[]; exitCode: number | null; output: string; checkedAt: string | null; checkedAfter: string;
+  baseline: { exitCode: number | null; passed: boolean } | null;
+  verdict: string; evidence: string; reviewer: string; confirmed: boolean | null; note: string;
+}
+
+export interface GoalReportAcceptance {
+  version: number; lockedAt: string | null; contractStatus: string; total: number; passing: number;
+  criteria: GoalReportCriterion[]; checks: number; testsUnchanged: boolean;
+  tamperEvents: { at: string; stage: string; paths: string[]; resolution: 'restored' | 'accepted' | 'open' }[];
+  amendments: ContractAmendment[]; reviewIndependent: boolean | null; note: string;
+}
+
+/** A repo a pipeline can run in, with the engines NeonCore has seen there. */
+export interface PilotCandidateRepo {
+  repoPath: string;
+  repoName: string;
+  machine: string;
+  /** Already owned by one of this goal's projects. */
+  owned: boolean;
+  engines: { agentType: string; agentId: string; status: string; name: string }[];
+}
+
 export interface Goal {
   id: string;
   name: string;
@@ -746,17 +1088,6 @@ export interface ServerStatus {
   lastError: string;
   socketConnected: boolean;
 }
-
-/**
- * Anything fetched from a specific server carries where it came from.
- *
- * Without this the merged grid cannot route a write. Agent ids are unique per database,
- * not across the fleet, so "send this command to agent X" is ambiguous the moment two
- * servers are in play — and the failure is silent: the command goes to whichever server
- * happens to be first and simply does nothing.
- */
-export type WithOrigin<T> = T & { origin: string; originName: string };
-
 
 // ---------------------------------------------------------------------------
 // Queue — ordered heterogeneous work that drains unattended

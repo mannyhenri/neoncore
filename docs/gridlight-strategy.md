@@ -342,7 +342,8 @@ Deliberately generous, because §1's question deserves the absences as much as t
   conclusion may be wrong" is not.
 - **The three neoncore-side defects** found along the way — transcript attribution keyed on
   `engine`, `/api/activity` silently discarding unknown top-level keys, and the removal of
-  gemini/amazonq/cursor — are scoped and queued, not done.
+  the unsupported engines — were scoped and queued at the time (the engine removal has since
+  been completed).
 
 ---
 

@@ -592,11 +592,6 @@ export const REASONS: readonly ReasonDef[] = [
 /** The registry in precedence order. Sorted once at module load, not per sweep. */
 const ORDERED_REASONS = [...REASONS].sort((a, b) => a.order - b.order);
 
-/** Look one reason up by name. Returns undefined for a name not in the registry. */
-export function reasonDef(name: AttentionReason): ReasonDef | undefined {
-  return REASONS.find((r) => r.name === name);
-}
-
 /**
  * The reason this run is blocked on a human, or null when it is genuinely working.
  *

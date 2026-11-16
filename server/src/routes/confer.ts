@@ -14,11 +14,12 @@ import {
   resumeConfer,
   clampBuildRounds,
 } from '../lib/confer-conductor.js';
+import { asyncRoute } from '../lib/async-route.js';
 
 const router = Router();
 
 // POST /api/confer/start — begin a milestone-driven confer between 2+ live agents.
-router.post('/start', async (req, res) => {
+router.post('/start', asyncRoute(async (req, res) => {
   const { participantIds, task } = req.body as { participantIds?: unknown; task?: unknown };
   if (!Array.isArray(participantIds) || participantIds.length < 2) {
     return res.status(400).json({ error: 'Pick at least two cartridges to confer.' });
@@ -138,7 +139,7 @@ router.post('/start', async (req, res) => {
 
   const session = startConfer({ repoName, repoPath, participantIds: ids, task: task.trim(), attachmentBlocks, mode, isolation, buildRounds });
   res.json(session);
-});
+}));
 
 // POST /api/confer/:sessionId/milestone/:agentId/done — an agent signals a milestone complete.
 // This is THE completion path; each milestone prompt bakes in the exact curl to hit it.
@@ -170,7 +171,7 @@ router.post('/:id/cancel', (req, res) => {
   res.json(session);
 });
 
-router.post('/:id/resume', async (req, res) => {
+router.post('/:id/resume', asyncRoute(async (req, res) => {
   try {
     const result = await resumeConfer(req.params.id);
     if (!result.ok) return res.status(409).json({ error: result.error });
@@ -178,6 +179,6 @@ router.post('/:id/resume', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
 export default router;

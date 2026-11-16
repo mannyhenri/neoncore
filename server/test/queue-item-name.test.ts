@@ -46,6 +46,11 @@ db.prepare(`INSERT INTO workflows (id,name,status,created_at,run_number)
             VALUES ('tpl-1','Epic: Task by Task','pending',?,0)`).run(iso());
 db.prepare(`INSERT INTO tasks (id,title,prompt,status,created_at)
             VALUES ('tk-name-1','Fix the photo gallery paging','do it','pending',?)`).run(iso());
+// A Goal Pilot planner request reads through request → pilot → goal.
+db.prepare(`INSERT INTO goals (id,name,created_at,updated_at) VALUES ('g-name-1','Add an expenses tracking section',?,?)`).run(iso(), iso());
+db.prepare(`INSERT INTO goal_pilots (id,goal_id,created_at,updated_at) VALUES ('gp-name-1','g-name-1',?,?)`).run(iso(), iso());
+db.prepare(`INSERT INTO goal_pilot_requests (id,pilot_id,kind,round,agent_id,created_at)
+            VALUES ('gpr-name-1','gp-name-1','scope',2,'ag-name-1',?)`).run(iso());
 
 function item(kind: string, payload: Record<string, unknown>, targets: string[]): QueueItem {
   return {
@@ -64,6 +69,7 @@ const SPECIMENS: Record<string, QueueItem> = {
   workflow: item('workflow', { workflowId: 'wf-name-1' }, ['/r/gl-dev']),
   confer: item('confer', { task: 'Decide the schema for revisions', participantIds: ['ag-name-1', 'ag-name-2'] }, []),
   task: item('task', { taskId: 'tk-name-1', agentId: 'ag-name-1' }, ['ag-name-1']),
+  'goal-pilot': item('goal-pilot', { requestId: 'gpr-name-1', agentId: 'ag-name-1' }, ['ag-name-1']),
 };
 
 test('the specimen table covers EVERY registered kind', () => {
@@ -93,6 +99,8 @@ test('each description carries the words a person would search for', () => {
   assert.match(byKind.confer, /revisions/i, 'the confer subject');
   assert.match(byKind.confer, /gl-dev.*baseback|baseback.*gl-dev/, 'and who is in it');
   assert.match(byKind.task, /photo gallery/i, 'the task title');
+  assert.match(byKind['goal-pilot'], /expenses tracking/i, 'the goal being planned');
+  assert.match(byKind['goal-pilot'], /scope \(round 2\)/, 'and which question is being asked');
 });
 
 test('a TEMPLATE id names the template, with no run number invented for it', () => {

@@ -32,7 +32,7 @@ import db from '../db.js';
 import { libelleContexte } from './context-label.js';
 import { workflowName, taskName, cartridgeNames } from './queue-item-name.js';
 
-export const KIND_IDS = ['prompt', 'workflow', 'confer', 'task'] as const;
+export const KIND_IDS = ['prompt', 'workflow', 'confer', 'task', 'goal-pilot'] as const;
 export type QueueKind = (typeof KIND_IDS)[number];
 
 /**
@@ -300,7 +300,69 @@ export const QUEUE_KINDS: QueueKindDef[] = [
       return { state: 'running', reason: `task is ${row.status || 'queued'}` };
     },
   },
+  {
+    // A Goal Pilot planner request (lib/goal-pilot-runner.ts) aimed at a busy planner. Delivered
+    // like a prompt, but it is its OWN kind for the reason `task` is: its completion is not a
+    // work-standard report. As a `prompt` it was armed by armForQueue, so a planning turn —
+    // which edits nothing and answers through MCP — was refused at Stop and pushed into a
+    // verify-and-report continuation before the lane moved on (seen in sandbox:check as a
+    // 70-second stall per planner round). Here the signal is the submission itself.
+    kind: 'goal-pilot',
+    validate: (p) => {
+      if (!str(p, 'requestId')) return 'a goal-pilot item needs `requestId`';
+      if (!str(p, 'agentId')) return 'a goal-pilot item needs `agentId` — the planner cartridge';
+      return null;
+    },
+    describe: (i) => pilotRequestName(str(i.payload, 'requestId')),
+    dispatch: async (item) => {
+      // Dynamic import: the runner dispatches through send-command, which the queue's own module
+      // graph must not load eagerly (same shape as the task kind reaching into routes/tasks).
+      const { deliverPlannerRequest } = await import('./goal-pilot-runner.js');
+      const requestId = str(item.payload, 'requestId');
+      // targets[0], not payload.agentId: remapStaleTargets has already moved a relaunched
+      // planner's old id to its live row here.
+      const agentId = item.targets[0] || str(item.payload, 'agentId');
+      // A request answered or superseded while it waited is simply not sent; the detector then
+      // reports it complete. Throwing would retry and halt the lane over nothing.
+      deliverPlannerRequest(requestId, agentId);
+      return { handle: requestId, targets: [agentId] };
+    },
+    isComplete: detectPilotRequest,
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// goal-pilot — a planner request, delivered like a prompt, completed by the SUBMISSION
+// ---------------------------------------------------------------------------
+
+/**
+ * "Goal Pilot · scope (round 2) · <goal>" — what the queue panel shows for a planner request.
+ * Resolved from the rows so the label never goes stale against a renamed goal.
+ */
+function pilotRequestName(requestId: string): string {
+  const row = db.prepare(
+    `SELECT r.kind, r.round, g.name FROM goal_pilot_requests r
+       JOIN goal_pilots p ON p.id = r.pilot_id JOIN goals g ON g.id = p.goal_id WHERE r.id = ?`,
+  ).get(requestId) as { kind?: string; round?: number; name?: string } | undefined;
+  if (!row) return `Goal Pilot request ${requestId.slice(0, 8)}`;
+  const what = row.kind === 'scope' ? `scope (round ${row.round})`
+    : row.kind === 'tests' ? 'acceptance tests' : row.kind === 'review' ? 'checklist review' : row.kind === 'report' ? 'report summary' : 'pipeline';
+  return `Goal Pilot · ${what} · ${libelleContexte(row.name || '')}`;
+}
+
+function detectPilotRequest(item: QueueItem): Verdict {
+  if (!item.handle) return { state: 'running', reason: 'planner request not dispatched yet' };
+  const row = db.prepare('SELECT status, error FROM goal_pilot_requests WHERE id = ?').get(item.handle) as
+    { status?: string; error?: string } | undefined;
+  if (!row) return { state: 'needs_attention', reason: `planner request ${item.handle} no longer exists` };
+  if (row.status === 'ready') return { state: 'complete', reason: 'the planner submitted its answer' };
+  // The person asked again (another planner, or the same one) while this waited or ran. Not a
+  // failure of this lane: the newer request carries the work, and halting here would block the
+  // cartridge over a question nobody is waiting on any more.
+  if (row.status === 'superseded') return { state: 'complete', reason: 'superseded — the person asked again' };
+  if (row.status === 'failed') return { state: 'needs_attention', reason: `planner request failed: ${row.error || 'no detail'}` };
+  return { state: 'running', reason: 'waiting for the planner to submit' };
+}
 
 export function getKind(kind: QueueKind): QueueKindDef {
   const def = QUEUE_KINDS.find((k) => k.kind === kind);

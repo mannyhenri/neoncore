@@ -1067,6 +1067,129 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_goal_decompositions_goal ON goal_decompositions(goal_id);
 
+  -- GOAL PILOT: a goal run as a managed pipeline (docs/GOAL-PILOT.md).
+  --
+  -- intake answers → a planner cartridge asks the scoping questions → the person answers them
+  -- (as many rounds as the planner needs) → the planner writes a scope brief and proposes the
+  -- workflows → the person accepts and names the repos/cartridges → each workflow runs in turn.
+  --
+  -- Same never-auto-apply contract as drafts and decompositions: planner output is stored as a
+  -- proposal (rounds, brief, proposal) and only POST /accept-plan writes to the goal, and only
+  -- POST /start creates projects and runs. JSON columns hold the conversation; the stage table
+  -- holds the execution, because that is what the runner queries every sweep.
+  CREATE TABLE IF NOT EXISTS goal_pilots (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    -- scoping | clarifying | planning | proposed | staffing | running | paused | completed | cancelled
+    phase TEXT NOT NULL DEFAULT 'scoping',
+    planner_agent_id TEXT NOT NULL DEFAULT '',
+    intake TEXT NOT NULL DEFAULT '{}',        -- JSON: the general questions, answered in the form
+    rounds TEXT NOT NULL DEFAULT '[]',        -- JSON: scoping rounds — questions asked, answers given
+    brief TEXT NOT NULL DEFAULT '',           -- JSON: the scope brief the planner wrote ('' until then)
+    proposal TEXT NOT NULL DEFAULT '',        -- JSON: the workflows the planner suggested
+    plan TEXT NOT NULL DEFAULT '',            -- JSON: what the person ACCEPTED (brief + ordered stages)
+    staffing TEXT NOT NULL DEFAULT '',        -- JSON: the repos + engines chosen to execute it
+    involvement TEXT NOT NULL DEFAULT 'balanced',
+    current_request_id TEXT NOT NULL DEFAULT '',
+    attention TEXT NOT NULL DEFAULT '',       -- why the pipeline is stopped, in one actionable line
+    criteria TEXT NOT NULL DEFAULT '',        -- JSON: the planner's numbered acceptance criteria (lib/acceptance-contract.ts)
+    report TEXT NOT NULL DEFAULT '',          -- JSON: the goal report (lib/goal-pilot-report.ts), '' until built
+    report_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    plan_accepted_at TEXT,
+    started_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_pilots_goal ON goal_pilots(goal_id);
+  CREATE INDEX IF NOT EXISTS idx_goal_pilots_phase ON goal_pilots(phase);
+
+  -- Every question put to the planner, and what came back. One row per dispatch so a retry or a
+  -- late answer to a superseded request is distinguishable from the live one.
+  CREATE TABLE IF NOT EXISTS goal_pilot_requests (
+    id TEXT PRIMARY KEY,
+    pilot_id TEXT NOT NULL REFERENCES goal_pilots(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,                       -- scope | pipeline | report
+    round INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | ready | failed | superseded
+    agent_id TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '',          -- JSON: the normalized submission
+    notes TEXT NOT NULL DEFAULT '[]',         -- what validation dropped or changed
+    error TEXT NOT NULL DEFAULT '',
+    queued INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    dispatched_at TEXT,                       -- when the prompt actually reached the planner
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_pilot_requests_pilot ON goal_pilot_requests(pilot_id);
+
+  -- The accepted pipeline, one row per workflow, executed in position order.
+  -- repo_path + agent_type, NOT an agent id: cartridge ids change every time a cartridge restarts,
+  -- and a pipeline outlives many restarts. The live cartridge is resolved when the stage starts.
+  CREATE TABLE IF NOT EXISTS goal_pilot_stages (
+    id TEXT PRIMARY KEY,
+    pilot_id TEXT NOT NULL REFERENCES goal_pilots(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    -- workflow | acceptance (write the acceptance tests) | review (independent checklist review)
+    kind TEXT NOT NULL DEFAULT 'workflow',
+    stage_key TEXT NOT NULL DEFAULT '',
+    template_id TEXT NOT NULL DEFAULT '',
+    template_name TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    why TEXT NOT NULL DEFAULT '',
+    focus TEXT NOT NULL DEFAULT '',
+    repo_path TEXT NOT NULL DEFAULT '',
+    agent_type TEXT NOT NULL DEFAULT 'claude',
+    project_id TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    agent_id TEXT NOT NULL DEFAULT '',        -- the cartridge it actually ran on (history, not routing)
+    -- pending | waiting | running | completed | failed | skipped | cancelled
+    status TEXT NOT NULL DEFAULT 'pending',
+    wait_reason TEXT NOT NULL DEFAULT '',
+    result_summary TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    -- after a workflow stage: '' | pending | tampered | error | done (the acceptance check of its work)
+    verify_state TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',      -- a review stage's request to its reviewer
+    started_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_pilot_stages_pilot ON goal_pilot_stages(pilot_id);
+
+  -- The acceptance contract of a piloted goal (lib/acceptance-contract.ts): numbered criteria, the
+  -- tests that encode them (contents + hashes, locked by the person), every check NeonCore ran, and
+  -- every amendment. One per pilot.
+  CREATE TABLE IF NOT EXISTS acceptance_contracts (
+    id TEXT PRIMARY KEY,
+    pilot_id TEXT NOT NULL UNIQUE REFERENCES goal_pilots(id) ON DELETE CASCADE,
+    goal_id TEXT NOT NULL,
+    repo_path TEXT NOT NULL DEFAULT '',
+    agent_type TEXT NOT NULL DEFAULT 'claude',
+    status TEXT NOT NULL DEFAULT 'drafting',  -- drafting | review | locked | waived
+    version INTEGER NOT NULL DEFAULT 0,
+    criteria TEXT NOT NULL DEFAULT '[]',
+    criteria_hash TEXT NOT NULL DEFAULT '',
+    draft_tests TEXT NOT NULL DEFAULT '[]',
+    tests TEXT NOT NULL DEFAULT '[]',
+    test_notes TEXT NOT NULL DEFAULT '',
+    feedback TEXT NOT NULL DEFAULT '',
+    amending TEXT NOT NULL DEFAULT '',
+    approval TEXT NOT NULL DEFAULT '',
+    baseline TEXT NOT NULL DEFAULT '',
+    verifications TEXT NOT NULL DEFAULT '[]',
+    checklist TEXT NOT NULL DEFAULT '',
+    amendments TEXT NOT NULL DEFAULT '[]',
+    tamper TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    wait_reason TEXT NOT NULL DEFAULT '',
+    locked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_acceptance_contracts_goal ON acceptance_contracts(goal_id);
+  CREATE INDEX IF NOT EXISTS idx_goal_pilot_stages_run ON goal_pilot_stages(run_id);
+
   -- Goals: top-level business objectives
   CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
@@ -1134,6 +1257,36 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 `);
+
+// Migration: goal_pilots.report / report_at (the goal report, added after the table first shipped).
+try {
+  db.prepare('SELECT report FROM goal_pilots LIMIT 1').get();
+} catch {
+  db.exec("ALTER TABLE goal_pilots ADD COLUMN report TEXT NOT NULL DEFAULT ''");
+  db.exec('ALTER TABLE goal_pilots ADD COLUMN report_at TEXT');
+}
+
+// Migration: the acceptance contract's columns on the pilot and stage tables.
+try {
+  db.prepare('SELECT criteria FROM goal_pilots LIMIT 1').get();
+} catch {
+  db.exec("ALTER TABLE goal_pilots ADD COLUMN criteria TEXT NOT NULL DEFAULT ''");
+}
+try {
+  db.prepare('SELECT kind FROM goal_pilot_stages LIMIT 1').get();
+} catch {
+  db.exec("ALTER TABLE goal_pilot_stages ADD COLUMN kind TEXT NOT NULL DEFAULT 'workflow'");
+  db.exec("ALTER TABLE goal_pilot_stages ADD COLUMN verify_state TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE goal_pilot_stages ADD COLUMN request_id TEXT NOT NULL DEFAULT ''");
+}
+
+// Migration: goal_pilot_requests.dispatched_at (added after the table first shipped).
+try {
+  db.prepare('SELECT dispatched_at FROM goal_pilot_requests LIMIT 1').get();
+} catch {
+  db.exec('ALTER TABLE goal_pilot_requests ADD COLUMN dispatched_at TEXT');
+}
+
 
 // Migration: goals carry INTENT, not just a budget.
 //
