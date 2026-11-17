@@ -108,7 +108,7 @@ function seed() {
       })),
 
       { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w1', name: 'New Feature', description: 'Research → architect → tests → build → verify.', status: 'running', templateId: 'demo-t1', runNumber: 7, createdAt: ago(38), startedAt: ago(38), projectId: 'demo-p1', contextLabel: 'Rate limits on the public API', stepSummary: { total: 8, completed: 5, running: 1, failed: 0, pending: 2, stepNames: ['Research', 'Architecture', 'Define Tests', 'Develop', 'Run Tests', 'Security & Lint', 'Summary', 'Workflow Completion Report'], projects: ['atlas-api'] } },
-      { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w2', name: 'Full QA Review', description: 'Golden path → edge cases → performance → accessibility.', status: 'completed', templateId: 'demo-t2', runNumber: 3, createdAt: ago(190), startedAt: ago(190), completedAt: ago(120), projectId: 'demo-p1', contextLabel: 'Checkout flow', stepSummary: { total: 9, completed: 9, running: 0, failed: 0, pending: 0, stepNames: ['Golden Path Testing', 'Edge Case Testing', 'QA Report'], projects: ['atlas-web'] } },
+      { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w2', name: 'Super QA', description: 'Read the code → functional testing → logic & errors → security → performance & accessibility → test coverage → QA report.', status: 'completed', templateId: 'demo-t2', runNumber: 3, createdAt: ago(190), startedAt: ago(190), completedAt: ago(120), projectId: 'demo-p1', contextLabel: 'Checkout flow', stepSummary: { total: 9, completed: 9, running: 0, failed: 0, pending: 0, stepNames: ['Scope & Read the Code', 'Functional Testing', 'QA Report'], projects: ['atlas-web'] } },
       { phases: [], players: [], currentPhase: 0, needsAttention: false, id: 'demo-w3', name: 'Bug Investigation', description: 'Reproduce → root cause → fix → verify.', status: 'waiting', templateId: 'demo-t3', runNumber: 12, createdAt: ago(62), startedAt: ago(62), projectId: 'demo-p2', contextLabel: 'Duplicate ledger entries', stepSummary: { total: 8, completed: 3, running: 0, failed: 0, pending: 5, stepNames: ['Reproduce the Bug', 'Root Cause Analysis', 'Fix Plan'], projects: ['ledger-svc'] } },
     ],
     tasks: [
@@ -222,7 +222,7 @@ function seed() {
     reports: [
       {
         id: 'demo-rep1', project: 'atlas-api', workflowId: 'demo-w2', stepId: 'demo-st1',
-        workflowName: 'Full QA Review', runNumber: 3, status: 'SUCCESS', createdAt: ago(120),
+        workflowName: 'Super QA', runNumber: 3, status: 'SUCCESS', createdAt: ago(120),
         htmlUrl: '',
         report: {
           schema: 'neoncore.workflow-report/1',

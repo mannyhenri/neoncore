@@ -14,48 +14,10 @@
   "Implement Fix": 899
  },
  "CE Develop and Optimize": {
-  "Load Work and Goals": 1400,
-  "Develop and Optimize Every Task": 6200,
-  "Verify Coverage and Evidence": 1030,
+  "Load Work and Goals": 1590,
+  "Develop and Optimize Every Task": 6273,
+  "Verify Coverage and Evidence": 1271,
   "Goal Achievement Gate": 1005
- },
- "CE: Full Delivery": {
-  "[P1] Load Prior Work": 709,
-  "[P1] Office Hours": 1229,
-  "[P1] CE Brainstorm": 977,
-  "[P1] Write Brainstorm Doc": 939,
-  "[P2] Load Brainstorm": 401,
-  "[P2] /plan-ceo-review": 813,
-  "[P2] /plan-eng-review": 622,
-  "[P2] CE Plan Research": 842,
-  "[P2] Write Plan Doc": 790,
-  "[P3] Load Plan + Worktree": 406,
-  "[P3] Write Failing Tests": 1770,
-  "[P3] CE Implement": 865,
-  "[P3] Build Summary": 401,
-  "[P4] Load Diff + Build": 322,
-  "[P4] Security Sentinel": 500,
-  "[P4] CSO / STRIDE": 299,
-  "[P4] Performance Oracle": 321,
-  "[P4] Architecture Review": 381,
-  "[P4] Code Quality Review": 404,
-  "[P4] Codex": 518,
-  "[P4] Triage P1/P2/P3": 497,
-  "[P4] Resolve Findings": 502,
-  "[P4] Open PR": 567,
-  "[P5] QA Browser Run": 404,
-  "[P5] CE Three Questions": 320,
-  "[P5] Investigate": 207,
-  "[P5] QA Report": 262,
-  "[P6] Document Release": 215,
-  "[P6] Merge Gate": 263,
-  "[P6] Land & Deploy": 243,
-  "[P6] Canary Watch": 278,
-  "[P6] Recovery Action": 564,
-  "[P7] CE Compound": 599,
-  "[P7] Update CLAUDE.md": 431,
-  "[P7] Retro": 267,
-  "[P7] Learn & Final Review": 619
  },
  "CE: Phase 1 — Interrogate": {
   "Load Prior Work": 709,
@@ -107,34 +69,17 @@
   "Retro": 614,
   "Learn & Final Review": 970
  },
- "Code Review & Audit": {
-  "Code Reading": 1346,
-  "Logic Review": 1689,
-  "Test Coverage Check": 1280,
-  "Review Report": 1097
- },
  "Confer": {
-  "Confer & Build": 495,
-  "Verify Together": 515
- },
- "Daily AI Filmmaking Digest": {
-  "Scan the Web": 5225,
-  "Filter for Relevance": 2750,
-  "Render the Digest": 2578,
-  "Archive Note": 613
- },
- "Daily AI Research Digest": {
-  "Scan the Web": 2482,
-  "Filter for Relevance": 1280,
-  "Render the Digest": 2295,
-  "Archive Note": 462
+  "Confer & Build": 789,
+  "Scope the Work": 2389,
+  "Verify Coverage": 1519
  },
  "Deep Research": {
   "Deep Research": 825,
   "Idea Synthesis": 641,
   "Your Review": 618,
   "Epic Planning": 1078,
-  "Save Epic": 497,
+  "Save Epic": 649,
   "Create in Jira?": 1993
  },
  "Engineering Architecture Review": {
@@ -144,21 +89,16 @@
   "Architecture Recommendation": 1279,
   "Implementation Roadmap": 1008
  },
- "Epic: Confer Across Repos": {
-  "Read the Epic": 1275,
-  "Confer & Build": 1025,
-  "Verify Across Repos": 1367
- },
  "Epic: Task by Task": {
-  "Load Epic": 880,
-  "Work Every Task": 3018,
-  "Verify Coverage": 887
+  "Load Epic": 824,
+  "Work Every Task": 3211,
+  "Verify Coverage": 977
  },
  "Epic: Two Repos": {
-  "Scope & Partition": 1514,
-  "Work Repo A": 3708,
-  "Work Repo B": 3708,
-  "Verify Both Repos": 1764
+  "Scope & Partition": 1691,
+  "Work Repo A": 3892,
+  "Work Repo B": 3892,
+  "Verify Both Repos": 1928
  },
  "Feature Validation": {
   "Feature Specification": 1544,
@@ -166,30 +106,6 @@
   "Code Evaluation": 2011,
   "Code Implementation": 1409,
   "Final Report": 1394
- },
- "Full QA Review": {
-  "Golden Path Testing": 1134,
-  "Edge Case Testing": 1338,
-  "Error Handling Review": 1539,
-  "Performance Assessment": 1398,
-  "Accessibility Review": 1742,
-  "QA Report": 1070
- },
- "Gridlight Full Release QA": {
-  "Run Full Release QA": 1014
- },
- "Gridlight Local QA": {
-  "Run Local QA": 994
- },
- "Gridlight Performance Improvement": {
-  "Load Jira Task": 1222,
-  "Write Performance Target": 1430,
-  "Develop Improvement": 1285,
-  "Run Local QA (7B)": 1178,
-  "Compare Against Target": 1439,
-  "Targets Met?": 937,
-  "Write Performance Report": 879,
-  "Mark Jira Task Done": 873
  },
  "Jira Tasks Validation": {
   "Fetch & Save Tasks": 2248,
@@ -218,11 +134,13 @@
   "Support Runbook": 768,
   "Assemble the Release Bundle": 718
  },
- "Spec Intake → Dev Spec": {
-  "Read the Document": 1085,
-  "Map to This Codebase": 940,
-  "State Your Understanding": 1339,
-  "Write the Dev Spec": 1199,
-  "Build It": 933
+ "Super QA": {
+  "Scope & Read the Code": 1144,
+  "Functional Testing": 1130,
+  "Logic & Error Handling": 1122,
+  "Security Review": 946,
+  "Performance & Accessibility": 1163,
+  "Test Coverage": 852,
+  "QA Report": 1034
  }
 }

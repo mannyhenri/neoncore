@@ -78,7 +78,8 @@ def main():
     cwd = d.get("cwd", "")
     tool_name = d.get("tool_name", "")
     tool_input = d.get("tool_input", {})
-    tool_result = d.get("tool_result", {})
+    # Claude Code sends the output as `tool_response`; `tool_result` is the legacy name.
+    tool_result = d.get("tool_response", d.get("tool_result", {}))
     hook_event = d.get("hook_event_name", "")
     transcript_path = d.get("transcript_path", "")
     machine = get_machine_name()
@@ -193,7 +194,8 @@ def main():
     # parent, which is not the end of the task and must never be blocked (blocking it would
     # also strand the parent, which is still mid-turn).
     if hook_event == "Stop":
-        check_completion(session_id, transcript_path, d.get("stop_hook_active", False))
+        check_completion(session_id, transcript_path, d.get("stop_hook_active", False),
+                         d.get("last_assistant_message") or "")
 
 
 # ── Work-standard stop gate ─────────────────────────────────────────────────
@@ -223,8 +225,27 @@ REREAD_ATTEMPTS = 4
 REREAD_DELAY_S = 0.25
 
 
+def _is_turn_start(entry: dict) -> bool:
+    """A user entry that starts a turn: a prompt, not a tool result handed back mid-turn."""
+    msg = entry.get("message")
+    if not isinstance(msg, dict) or msg.get("role") != "user":
+        return False
+    content = msg.get("content")
+    if isinstance(content, str):
+        return bool(content.strip())
+    if isinstance(content, list):
+        return any(isinstance(b, dict) and b.get("type") == "text" for b in content)
+    return False
+
+
 def last_assistant_text(transcript_path: str, limit: int = LAST_MESSAGES) -> str:
-    """Concatenated text of the most recent assistant messages, newest last."""
+    """Concatenated text of the most recent assistant messages OF THIS TURN, newest last.
+
+    The scan stops at the user prompt that started the turn. Without that stop, a short
+    follow-up turn carried the previous turn's NEONCORE-DONE block into the completion check
+    and the gate let an unreported turn end. Tool results are user-role entries too; they are
+    part of the turn and do not stop the scan.
+    """
     try:
         size = os.path.getsize(transcript_path)
         with open(transcript_path, "rb") as f:
@@ -244,6 +265,8 @@ def last_assistant_text(transcript_path: str, limit: int = LAST_MESSAGES) -> str
             entry = json.loads(line.decode("utf-8", errors="replace"))
         except Exception:
             continue  # first line of the tail is usually a partial record
+        if _is_turn_start(entry):
+            break
         msg = entry.get("message")
         if not isinstance(msg, dict) or msg.get("role") != "assistant":
             continue
@@ -261,10 +284,16 @@ def last_assistant_text(transcript_path: str, limit: int = LAST_MESSAGES) -> str
     return "\n".join(reversed(messages))
 
 
-def check_completion(session_id: str, transcript_path: str, stop_hook_active: bool) -> None:
-    """Ask the server whether this stop is allowed; emit a block decision if not."""
+def check_completion(session_id: str, transcript_path: str, stop_hook_active: bool,
+                     last_message: str = "") -> None:
+    """Ask the server whether this stop is allowed; emit a block decision if not.
+
+    `last_message` is the Stop payload's `last_assistant_message` (Claude Code 2.1.47+): this
+    turn's final message, present even when the transcript has not caught up with it.
+    """
     if not session_id or not transcript_path:
         return
+    last_message = last_message if isinstance(last_message, str) else ""
 
     # Re-read only while the report is missing — see REREAD_ATTEMPTS. The marker check here
     # is deliberately cheap and permissive: the server does the real parsing and decides
@@ -274,6 +303,8 @@ def check_completion(session_id: str, transcript_path: str, stop_hook_active: bo
     final_text = ""
     for attempt in range(REREAD_ATTEMPTS):
         final_text = last_assistant_text(transcript_path)
+        if last_message.strip() and last_message.strip() not in final_text:
+            final_text = f"{final_text}\n{last_message}" if final_text else last_message
         if final_text and "NEONCORE-DONE" in final_text:
             break
         if attempt < REREAD_ATTEMPTS - 1:

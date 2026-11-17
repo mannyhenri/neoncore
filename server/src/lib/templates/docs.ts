@@ -5,7 +5,7 @@ import type { SeedKit } from './kit.js';
 export function seedDocs({ now, stableId, insertWorkflow, step, cc, gate }: SeedKit): void {
   // ── 0d. QA Testing Guide ──────────────────────────────────────────────────
   //
-  // The gap: Full QA Review and CE Phase 5 both produce a REPORT OF ONE RUN — findings, a health
+  // The gap: Super QA and CE Phase 5 both produce a REPORT OF ONE RUN — findings, a health
   // score, bugs found. Neither produces a GUIDE: the reusable document that tells the next
   // person (or the next agent) how to test this thing. Searched all templates for user guides,
   // test plans, runbooks — zero. So every QA run rediscovers the flows from scratch.

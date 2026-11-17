@@ -15,7 +15,7 @@
  */
 
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -33,6 +33,22 @@ const installScript = [
 const npmCmd = isWin ? 'npm.cmd' : 'npm';
 
 function log(msg) { process.stdout.write(`[NeonCore] ${msg}\n`); }
+
+// 0. On Windows the launch script cannot carry arbitrary text through cmd.exe (quotes, %VAR%,
+// newlines), so the launcher writes the environment to a JSON side file and names it here.
+// See agent/lib/launch-script.mjs. Read once, then deleted: it can hold a launch context.
+const envFile = process.env.NEONCORE_LAUNCH_ENV_FILE;
+if (envFile) {
+  try {
+    const extra = JSON.parse(readFileSync(envFile, 'utf8'));
+    for (const [k, v] of Object.entries(extra)) if (typeof v === 'string') process.env[k] = v;
+  } catch (err) {
+    process.stderr.write(`[NeonCore] could not read the launch environment ${envFile}: ${err}\n`);
+  }
+  try { unlinkSync(envFile); } catch { /* already gone */ }
+  delete process.env.NEONCORE_LAUNCH_ENV_FILE;
+}
+
 
 // 1. Relay dependencies (node-pty needs a one-time install/build).
 if (!existsSync(path.join(relayDir, 'node_modules'))) {

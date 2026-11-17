@@ -6,7 +6,10 @@ import {
   formatScheduleLabel,
   fireHeartbeat,
   type HeartbeatSchedule,
+  heartbeatConferIds,
 } from '../lib/heartbeat-scheduler.js';
+import { isConferMode, isConferIsolation } from '../lib/confer-conductor.js';
+import { templateNeedsParticipants } from '../lib/workflow-launch.js';
 import { DEFAULT_AUTONOMY, isAutonomyLevel } from '../lib/autonomy.js';
 
 const router = Router();
@@ -30,6 +33,10 @@ function normalizeHeartbeat(row: Record<string, unknown>) {
     // launch you are not present for, not a weaker one.
     autonomy: (row.autonomy as string) || 'full',
     agentName: agentRow ? (agentRow.repo_name || agentRow.name) : null,
+    // A scheduled confer: every cartridge that works it. Empty for an ordinary schedule.
+    conferAgentIds: heartbeatConferIds(row),
+    conferMode: (row.confer_mode as string) || '',
+    conferIsolation: (row.confer_isolation as string) || '',
     schedule,
     scheduleLabel: formatScheduleLabel(schedule),
     label: row.label || '',
@@ -73,26 +80,51 @@ function firstRunAtOrCadence(firstRunAt: unknown, schedule: HeartbeatSchedule): 
 }
 
 router.post('/', (req, res) => {
-  const { projectId, templateId, agentId, schedule, label, active, autonomy, initialContext, firstRunAt } = req.body;
+  const { projectId, templateId, agentId, schedule, label, active, autonomy, initialContext, firstRunAt,
+    conferAgentIds, conferMode, conferIsolation } = req.body;
   if (!templateId?.trim()) return res.status(400).json({ error: 'templateId required' });
+
+  // A scheduled confer names every cartridge that works it. Refused here, while someone is
+  // watching, rather than at 09:00 when the confer step would die with nobody to tell.
+  const conferIds: string[] = Array.isArray(conferAgentIds)
+    ? [...new Set((conferAgentIds as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0))]
+    : [];
+  if (conferIds.length === 1) {
+    return res.status(400).json({ error: 'A scheduled confer needs at least 2 cartridges — one is an ordinary schedule.' });
+  }
+  if (conferMode !== undefined && conferMode !== '' && !isConferMode(conferMode)) {
+    return res.status(400).json({ error: `Unknown confer mode "${String(conferMode)}"` });
+  }
+  if (conferIsolation !== undefined && conferIsolation !== '' && !isConferIsolation(conferIsolation)) {
+    return res.status(400).json({ error: `Unknown confer isolation "${String(conferIsolation)}"` });
+  }
+  if (conferIds.length === 0 && templateNeedsParticipants(templateId.trim())) {
+    return res.status(400).json({
+      error: 'This workflow is a confer: pick two or more cartridges under "Run on" to schedule it.',
+    });
+  }
 
   const parsedSchedule: HeartbeatSchedule = schedule || { type: 'daily', time: '09:00' };
   const id = randomUUID();
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO heartbeats (id, project_id, template_id, agent_id, schedule, label, active, autonomy, initial_context, last_run_at, next_run_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    INSERT INTO heartbeats (id, project_id, template_id, agent_id, schedule, label, active, autonomy, initial_context,
+      confer_agent_ids, confer_mode, confer_isolation, last_run_at, next_run_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
   `).run(
     id,
     projectId || null,
     templateId.trim(),
-    agentId || '',
+    agentId || conferIds[0] || '',
     JSON.stringify(parsedSchedule),
     label?.trim() || '',
     active !== false ? 1 : 0,
     isAutonomyLevel(String(autonomy || '')) ? autonomy : DEFAULT_AUTONOMY,
     typeof initialContext === 'string' ? initialContext : '',
+    JSON.stringify(conferIds),
+    conferIds.length >= 2 ? (isConferMode(conferMode) ? conferMode : 'divide') : '',
+    conferIds.length >= 2 ? (isConferIsolation(conferIsolation) ? conferIsolation : 'shared') : '',
     // The FIRST run is whatever the form picked, used verbatim. Recomputing it from the cadence
     // would quietly move a 6am one-off to the cadence's own slot — "Schedule this run" names a
     // time, and honouring a different one is the same as ignoring the control.

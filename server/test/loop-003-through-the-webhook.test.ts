@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import db from '../src/db.ts';
 import { tickWorkflowsOnce } from '../src/lib/workflow-executor-v2.ts';
 import { loopCountRequirements, type LoopConfig } from '../src/lib/workflow-loop.ts';
+import { countsOwed } from '../src/lib/coverage-loop.ts';
 import { isReportStep } from '../src/lib/workflow-report.ts';
 import { startWorkflowApp, stepsOf, verified, type WorkflowApp, type StepRow } from './helpers/workflow-app.ts';
 
@@ -55,7 +56,7 @@ const DECORATIONS: Decoration[] = [
 
 /** A line satisfying a simple count pattern like `TASKS_A:\s*(\d+)`. */
 function countLine(pattern: string, n: number): string {
-  const line = pattern.replace(/\(\\d\+\)/, String(n)).replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1');
+  const line = pattern.replace(/\(\\d\+\)/g, String(n)).replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1');
   assert.equal(new RegExp(pattern).exec(line)?.[1], String(n), `could not build a line for /${pattern}/`);
   return line;
 }
@@ -112,7 +113,8 @@ async function answerOther(s: StepRow, all: StepRow[]): Promise<void> {
     await app.post(`/api/workflows/v2/${s.id}/steps/${s.id}/decide`, { optionId: cfg.options?.[0]?.id });
     return;
   }
-  const owed = loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config || '{}') })));
+  // Every count this step owes — counts other steps read from it, and a coverage step's own.
+  const owed = countsOwed({ name: s.name, config: cfg }, loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config || '{}') }))));
   const lines = owed.map((r) => countLine(r.pattern, TASKS));
   const sibling = isReportStep(cfg) ? 'report' : 'work';
   // A sibling loop (Epic: Two Repos has two) progresses normally so the run can reach the target.

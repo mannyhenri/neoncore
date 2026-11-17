@@ -456,11 +456,18 @@ export interface UpstreamCountRequirement {
 /** Every count `stepName` owes, derived from the siblings that read from it. */
 export function loopCountRequirements(
   stepName: string,
-  siblings: { name: string; config: LoopConfig }[],
+  siblings: { name: string; config: LoopConfig & { buildRoundsFrom?: { step?: string; pattern?: string } } }[],
 ): UpstreamCountRequirement[] {
-  return siblings
-    .filter((s) => s.config?.loopCountFrom?.step === stepName && !!s.config.loopCountFrom?.pattern)
-    .map((s) => ({ readerStep: s.name, pattern: s.config.loopCountFrom!.pattern }));
+  return [
+    ...siblings
+      .filter((s) => s.config?.loopCountFrom?.step === stepName && !!s.config.loopCountFrom?.pattern)
+      .map((s) => ({ readerStep: s.name, pattern: s.config.loopCountFrom!.pattern })),
+    // A confer sizes its build rounds from a count the same way (lib/confer-sizing.ts). Without
+    // it the confer falls back to the template's 3 rounds, whatever the size of the epic.
+    ...siblings
+      .filter((s) => s.config?.buildRoundsFrom?.step === stepName && !!s.config.buildRoundsFrom?.pattern)
+      .map((s) => ({ readerStep: s.name, pattern: s.config.buildRoundsFrom!.pattern! })),
+  ];
 }
 
 /**
@@ -492,8 +499,9 @@ export function validateUpstreamCount(
   return {
     ok: false,
     reason:
-      'This step\'s output is read for a loop count and does not contain one, so the loop that ' +
-      'depends on it would silently run ONCE instead of covering the work. Add the count to your ' +
-      'result, in the exact shape below, then report done again:\n' + lines.join('\n'),
+      'This step\'s output is read for a count and does not contain one, so what depends on it ' +
+      'would run on a wrong number — a loop would run ONCE instead of covering the work, a coverage ' +
+      'check could not tell whether every task is done. Add the count to your result, in the exact ' +
+      'shape below, then report done again:\n' + lines.join('\n'),
   };
 }

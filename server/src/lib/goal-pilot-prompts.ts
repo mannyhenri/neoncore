@@ -193,6 +193,12 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
     '  `focus` you write for it. Write `focus` as the instruction for THAT stage on THIS goal: what to',
     '  concentrate on, which paths to use (docs/<slug>/…), what it must hand to the next stage.',
     '- Workflows with human gates stop for the person; with the involvement above that is expected.',
+    '- Confer is worked by TWO OR MORE cartridges in different repos together; the person assigns the',
+    '  repos when staffing. Choose it when the work spans repos and the split is the hard part. To work',
+    '  a whole Jira epic, put `JIRA EPIC: <KEY>` on the first line of its `focus`: it looks the epic up',
+    '  and the run does not finish until every task in it is done (or the person accepts what is left).',
+    '- Task-list workflows (Confer, Epic: Task by Task, Epic: Two Repos, CE Develop and Optimize) keep',
+    '  a progress document at docs/progress/<ID>.md and do not end until every task is done.',
     '',
     'RULES',
     `- At most ${MAX_STAGES} stages. Prefer the fewest that deliver the whole scope — a short, honest`,
@@ -338,6 +344,10 @@ export function buildReviewPrompt(pilot: GoalPilot, contract: AcceptanceContract
     `GOAL: ${goal.name ?? ''}`,
     ...(brief ? [`SCOPE: ${brief.summary}`] : []),
     '',
+    // The reviewer may be a cartridge in ANOTHER repo of the pipeline (it must not have done the
+    // work). The criteria's paths and the locked tests are relative to the contract's repo.
+    ...(contract.repoPath ? [`WHERE TO LOOK: ${contract.repoPath} — the paths in the criteria and the locked tests are relative to`,
+      'that repository. If it is not the one you are in, read and run from there.', ''] : []),
     `CRITERIA TO JUDGE (${items.length}):`,
     ...criterionLines(items),
     ...(contract.tests.length ? ['', 'THE LOCKED ACCEPTANCE TESTS (you may run them as evidence; do not edit them):',
@@ -352,7 +362,7 @@ export function buildReviewPrompt(pilot: GoalPilot, contract: AcceptanceContract
     '',
     ...completion(requestId, '{ "verdicts": [ { "criterionId": "AC-3", "verdict": "met|not-met", "evidence": "..." } ] }'),
     ...dataBlock({
-      requestId, kind: 'review', goal: { id: pilot.goalId, name: goal.name ?? '' }, slug: brief?.slug ?? '',
+      requestId, kind: 'review', goal: { id: pilot.goalId, name: goal.name ?? '' }, slug: brief?.slug ?? '', repoPath: contract.repoPath ?? '',
       criteria: items, stages: stagesDone,
       tests: contract.tests.map((t) => ({ criterionId: t.criterionId, command: t.command })),
     }),

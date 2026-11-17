@@ -171,6 +171,7 @@ export const ATTENTION_REASONS = [
   'failed',         // the run cannot continue at all
   'interrupted',    // a step's executor died mid-work; needs recovery
   'decision',       // a decision gate is waiting for a choice
+  'tasks-outstanding', // a task-list run stopped making progress with tasks still open (lib/coverage-loop.ts)
   'agent-waiting',  // the executing cartridge stopped to ask a question
   'manual-advance', // a step finished but is held for a human to advance
   'channel-lost',   // alive, but no command channel — the next dispatch will bounce
@@ -299,6 +300,26 @@ export const REASONS: readonly ReasonDef[] = [
       if (!s) return null;
       const q = question(s.executor_config);
       return { step: s, detail: q || `"${s.name}" is waiting for your choice.` };
+    },
+  },
+  {
+    // A task-list run's coverage check found tasks still open and no further progress to be had
+    // by another pass (lib/coverage-loop.ts). Straight after `decision`: like a decision it waits
+    // on a choice only a person may make — keep working, or accept the run with work undone.
+    // NEVER auto-resolved, at any level: "finish every task" is the promise, and no posture may
+    // quietly trade it for "finished some".
+    name: 'tasks-outstanding',
+    order: 3.5,
+    autoAt: [],
+    detect: ({ steps }) => {
+      for (const s of steps) {
+        if (s.status !== 'completed') continue;
+        try {
+          const hold = (JSON.parse(s.executor_config || '{}') as { _coverageHold?: { detail?: string } })._coverageHold;
+          if (hold) return { step: s, detail: hold.detail || `"${s.name}" found tasks still open.` };
+        } catch { /* not a coverage step */ }
+      }
+      return null;
     },
   },
 

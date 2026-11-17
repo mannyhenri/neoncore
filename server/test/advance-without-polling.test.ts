@@ -8,6 +8,7 @@ import db from '../src/db.ts';
 import conferRouter from '../src/routes/confer.ts';
 import { setImmediateAdvance, executorSettled } from '../src/lib/workflow-executor-v2.ts';
 import { loopCountRequirements } from '../src/lib/workflow-loop.ts';
+import { countsOwed } from '../src/lib/coverage-loop.ts';
 import { startWorkflowApp, stepsOf, verified, type WorkflowApp } from './helpers/workflow-app.ts';
 
 /**
@@ -93,10 +94,11 @@ async function driveWithoutPolling(templateId: string, failGateOnce: boolean): P
         await app.post(`/api/workflows/webhook/${s.id}/complete`, { result: fail ? 'FAIL\nnot yet' : 'PASS\nok' });
         continue;
       }
-      const owed = loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config) })));
+      // Every count this step owes — counts other steps read from it, and a coverage step's own.
+      const owed = countsOwed({ name: s.name, config: cfg }, loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config) }))));
       const k = Number(cfg._currentLoop) || 1;
       const lines = [cfg.loopCountFrom ? `DONE T-${k} · ${Math.max(0, 2 - k)} remaining` : `${s.name} done`,
-        ...owed.map((o) => o.pattern.replace(/\(\\d\+\)/, '2').replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1'))];
+        ...owed.map((o) => o.pattern.replace(/\(\\d\+\)/g, '2').replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1'))];
       await app.post(`/api/workflows/webhook/${s.id}/complete`, verified(lines.join('\n')));
     }
     if (!acted) {

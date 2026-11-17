@@ -275,64 +275,6 @@ test('the runner will not dispatch onto a cartridge busy with NON-queue work', (
     'the runner dispatched onto a cartridge that is still working — busyTargets disagrees with isCartridgeBusy');
 });
 
-// ─── Epic starts: guarded WITHOUT a queue kind ──────────────────────────────
-
-/**
- * An epic run is the fifth way to put work on a cartridge, and it is deliberately NOT a
- * queue kind. Three reasons, all from the code rather than from taste:
- *
- *   · it is vestigial — `epic_runs` has zero rows and there is no UI anywhere that starts
- *     one (the only "epic" in the dashboard is a Jira epic KEY typed into a workflow prompt)
- *   · workflows already cover it — the 'Jira Tasks Validation' and 'Jira Tasks Completion'
- *     templates run the same multi-task sequence, on the queue, with recovery
- *   · it advances by IDLE INFERENCE (idleThresholdMs: 45000), which queue-kinds.ts names
- *     explicitly as the thing the queue was built to reject
- *
- * Adding a fifth kind, a detector and four registry entries to a feature with no users, to
- * make it a first-class citizen of the machinery that replaced it, is how dead code becomes
- * permanent. So the hole is closed with the epic's OWN paused state instead: busy cartridge
- * means the run is created paused rather than dispatched, and /runs/:id/resume starts it.
- * Same guarantee — nothing lands on top of running work — at no structural cost.
- */
-test('an epic start never dispatches onto a busy cartridge', async () => {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/routes/epics.ts'), 'utf8');
-
-  assert.match(src, /isCartridgeBusy/, 'the epic start route never consults busy state');
-
-  // POSITION, not just presence — the same property the confer suite pins. A busy check that
-  // runs after the dispatch has already happened is decoration.
-  const start = src.indexOf("router.post('/start'");
-  assert.notEqual(start, -1, 'the epic start route has moved');
-  const handler = src.slice(start, src.indexOf('router.', start + 10));
-  const check = handler.indexOf('isCartridgeBusy');
-  const dispatch = handler.indexOf('sendCommandToAgent');
-  assert.notEqual(check, -1, 'the epic start handler does not check busy state');
-  assert.notEqual(dispatch, -1, 'the epic start handler no longer dispatches — has it moved?');
-  assert.ok(check < dispatch,
-    'the busy check runs AFTER the first task is already dispatched, which guards nothing');
-});
-
-test('a busy epic start is PAUSED, not rejected — the work is not thrown away', async () => {
-  // Rejecting would lose everything the caller assembled (task list, config, prefix). The run
-  // is created and parked, exactly as `startPaused` already does, so resuming is the only
-  // step left.
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/routes/epics.ts'), 'utf8');
-  const start = src.indexOf("router.post('/start'");
-  const handler = src.slice(start, src.indexOf('router.', start + 10));
-  // The parked decision must fold the busy check INTO the existing paused path, not add a
-  // rejection branch: no 4xx may appear between the busy check and the dispatch.
-  const check = handler.indexOf('isCartridgeBusy');
-  const dispatch = handler.indexOf('sendCommandToAgent');
-  assert.match(handler.slice(check, dispatch), /parked/,
-    'a busy epic start must fall back to the paused path');
-  assert.doesNotMatch(handler.slice(check, dispatch), /res\.status\([45]\d\d\)/,
-    'a busy epic start must not reject — that discards the task list the caller assembled');
-});
-
 // ─── The queue must not re-enter its own guard ──────────────────────────────
 
 test('the queue dispatching a workflow does NOT re-enter the busy check', async () => {

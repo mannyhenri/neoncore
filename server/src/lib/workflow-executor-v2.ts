@@ -6,6 +6,9 @@
  * Every step dispatches a natural language command to a Claude Code agent.
  */
 import { emitRunFinished, emitRunHeld } from './run-events.js';
+import { parseCoverage, recordCoverage, recordDispatch, noteProgressDoc, type Coverage } from './run-progress.js';
+import { coverageConfigOf, decideCoverage, holdDetail, loopBackFeedback, MAX_COVERAGE_PASSES } from './coverage-loop.js';
+import { resolveBuildRounds } from './confer-sizing.js';
 import { noteTurnEnded, turnIsOver } from './turn-state.js';
 import db from '../db.js';
 import { getIO } from '../ws.js';
@@ -22,7 +25,7 @@ import { startConfer, getConfer } from './confer-conductor.js';
 import { busyRepoSiblings, isCartridgeBusyExcept, queueItemsForRun } from './queue-runner.js';
 import type { ConferSession } from '../types.js';
 import {
-  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
+  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, MAX_LOOP_CEILING, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
 import { buildRunReportContext, isReportStep, reportSpecForRun } from './workflow-report.js';
@@ -783,11 +786,12 @@ function findOnlineAgentsForRepo(repoPath: string): string[] {
 
 /** Launch VS Code windows for a repo path */
 async function launchVSCodeWindows(repoPath: string, count: number, stepName: string): Promise<void> {
-  const { exec } = await import('child_process');
+  // openInVsCode passes the path as an argument, never inside a shell string.
+  const { openInVsCode } = await import('./open-directory.js');
   for (let i = 0; i < count; i++) {
-    exec(`code --new-window "${repoPath}"`, (err) => {
-      if (err) console.error(`[workflow-v2] Failed to launch VS Code window ${i + 1} for "${stepName}": ${err.message}`);
-    });
+    if (!openInVsCode(repoPath, { newWindow: true })) {
+      console.error(`[workflow-v2] Failed to launch VS Code window ${i + 1} for "${stepName}"`);
+    }
   }
 }
 
@@ -966,7 +970,12 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   // no dependency output AND no launch context — the participants were told "the task is in
   // the workflow description above" with nothing above it.
   const context = gatherDependencyContext(step);
-  const task = buildLaunchContext(db, step) + context
+  // A routing rule sent the run back to this confer (Confer's Verify Coverage does, with the
+  // tasks still outstanding). A work step is told why it runs again; a confer was not, so the
+  // next session re-read the original brief and had no way to know what was left.
+  const routed = typeof cfg._routingFeedback === 'string' && cfg._routingFeedback
+    ? `${cfg._routingFeedback}\n\n` : '';
+  const task = buildLaunchContext(db, step) + context + routed
     + ((cfg.prompt as string) || step.description || step.name);
 
   // A confer step must carry the RUN'S attachments, which are already materialized into every
@@ -978,6 +987,11 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   const wfRow = db.prepare('SELECT attachments FROM workflows WHERE id = ?')
     .get(step.workflowId) as { attachments?: string } | undefined;
 
+  // Sized from the work (lib/confer-sizing.ts): the task count upstream, or what is still open
+  // when a coverage pass sent the run back here.
+  const sizing = resolveBuildRounds(cfg, participantIds.length, dependencyResultsByName(step));
+  emitStepLog(step.workflowId, step.id, step.name, sizing.note, 'info');
+
   const session = startConfer({
     repoName: home.repo_name || '',
     repoPath: home.repo_path || '',
@@ -986,7 +1000,7 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
     attachmentBlocks: parseAttachmentBlocks(wfRow?.attachments),
     mode: (cfg.conferMode as 'divide' | 'collaborate') === 'collaborate' ? 'collaborate' : 'divide',
     isolation: (cfg.conferIsolation as 'worktree' | 'shared') === 'worktree' ? 'worktree' : 'shared',
-    buildRounds: typeof cfg.buildRounds === 'number' ? cfg.buildRounds : 1,
+    buildRounds: sizing.rounds,
   });
 
   const repos = [...new Set(rows.map((r) => r.repo_name).filter(Boolean))];
@@ -1708,6 +1722,167 @@ function applyRoutingRules(step: WorkflowStep, allSteps: WorkflowStep[]): string
   return target.id;
 }
 
+// ─── Coverage: every task, or a person decides ────────────────────────────────
+//
+// See lib/coverage-loop.ts for the rule. These are the parts that move the run.
+
+interface CoverageHold { done: number | null; total: number | null; outstanding: string[]; why: string; detail: string; at: string }
+
+/** Read a just-completed coverage step and act on it. */
+function evaluateCoverage(step: WorkflowStep, allSteps: WorkflowStep[]): void {
+  const cfg = step.executorConfig;
+  const covCfg = coverageConfigOf(cfg)!;
+  const coverage = parseCoverage(step.result || '');
+  const history = Array.isArray(cfg._coveragePasses) ? (cfg._coveragePasses as number[]) : [];
+  const passes = Number(cfg._coverageLoops) || 0;
+  const decision = decideCoverage(coverage, history[history.length - 1], passes, covCfg);
+
+  if (decision.action === 'complete') {
+    db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify({
+      ...cfg, _coverageAppliedAt: step.completedAt, _coveragePasses: [...history, coverage!.done],
+    }), step.id);
+    recordCoverage(step, 'complete', coverage);
+    emitStepLog(step.workflowId, step.id, step.name,
+      `Coverage: ${coverage!.done}/${coverage!.total} — every task is done.`, 'success');
+    return;
+  }
+  if (decision.action === 'loop-back') {
+    const ok = loopBackForCoverage(step, allSteps, coverage!, false);
+    if (ok) return;
+    holdForCoverage(step, coverage, `its work step (${covCfg.retryFrom.join(', ')}) is not in this run`);
+    return;
+  }
+  holdForCoverage(step, coverage, decision.why);
+}
+
+function holdForCoverage(step: WorkflowStep, coverage: Coverage | null, why: string): void {
+  const cfg = step.executorConfig;
+  const history = Array.isArray(cfg._coveragePasses) ? (cfg._coveragePasses as number[]) : [];
+  const detail = holdDetail(step.name, coverage, why);
+  const hold: CoverageHold = {
+    done: coverage?.done ?? null, total: coverage?.total ?? null,
+    outstanding: coverage?.outstanding ?? [], why, detail, at: new Date().toISOString(),
+  };
+  db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify({
+    ...cfg, _coverageAppliedAt: step.completedAt, _coverageHold: hold,
+    _coveragePasses: coverage ? [...history, coverage.done] : history,
+  }), step.id);
+  recordCoverage(step, 'held', coverage, why);
+  emitStepUpdate(step.id);
+  emitStepLog(step.workflowId, step.id, step.name, `Holding: ${detail}`, 'warn');
+  notifyNeedsAttention(step, 'Tasks still open', detail, 'workflow_tasks_outstanding');
+  emitRunHeld(step.workflowId);
+}
+
+/**
+ * Send the run back to the work: the retryFrom step(s) and everything between them and the
+ * coverage step run again. The work step is told what is open and given a budget sized to it.
+ * False when no retryFrom step exists in this run.
+ */
+function loopBackForCoverage(step: WorkflowStep, allSteps: WorkflowStep[], coverage: Coverage, forced: boolean): boolean {
+  const covCfg = coverageConfigOf(step.executorConfig)!;
+  const targets = covCfg.retryFrom
+    .map((name) => allSteps.find((s) => s.name === name))
+    .filter((s): s is WorkflowStep => !!s);
+  if (targets.length === 0) return false;
+
+  const cfg = step.executorConfig;
+  const history = Array.isArray(cfg._coveragePasses) ? (cfg._coveragePasses as number[]) : [];
+  const pass = (Number(cfg._coverageLoops) || 0) + 1;
+  const max = covCfg.maxPasses ?? MAX_COVERAGE_PASSES;
+  const remaining = Math.max(1, coverage.total - coverage.done);
+  const feedback = loopBackFeedback(coverage, pass, max, forced);
+
+  const reset = new Set<string>([step.id]);
+  for (const t of targets) for (const id of pathBetween(t.id, step.id, allSteps)) reset.add(id);
+  for (const t of targets) reset.add(t.id);
+
+  for (const id of reset) {
+    const s = allSteps.find((x) => x.id === id);
+    if (!s) continue;
+    let next: Record<string, unknown>;
+    if (id === step.id) {
+      const { _coverageHold: _h, ...rest } = s.executorConfig;
+      void _h;
+      next = { ...rest, _coverageAppliedAt: step.completedAt, _coverageLoops: pass, _coveragePasses: [...history, coverage.done] };
+    } else {
+      const wasDeferred = s.executorConfig._wasDeferred;
+      next = freshRunConfig({ ...s.executorConfig });
+      for (const key of Object.keys(next)) if (key.startsWith('_')) delete next[key];
+      if (wasDeferred) next._wasDeferred = wasDeferred;
+      if (targets.some((t) => t.id === id)) {
+        next._routingFeedback = feedback;
+        // A looped work step runs once per task that is LEFT, not once per task in the epic.
+        const lc = next as LoopConfig;
+        if (lc.loopCountFrom || Number(lc.loopCount) > 1) next._resolvedLoopCount = Math.min(remaining, MAX_LOOP_CEILING);
+        // A confer sizes its build rounds from what is left (see executeConfer).
+        if (s.executorType === 'confer') next._coverageRemaining = remaining;
+      }
+    }
+    db.prepare(
+      "UPDATE workflow_steps SET status = 'pending', result = '', error = '', started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?",
+    ).run(JSON.stringify(next), id);
+    emitStepUpdate(id);
+  }
+
+  recordCoverage(step, forced ? 'continued' : 'loop-back', coverage);
+  emitStepLog(step.workflowId, step.id, step.name,
+    `Coverage: ${coverage.done}/${coverage.total} — ${coverage.total - coverage.done} task(s) still open. `
+      + `${forced ? 'You chose to keep working: ' : ''}sending the run back to ${targets.map((t) => `"${t.name}"`).join(' and ')} `
+      + `(pass ${pass}${forced ? '' : ` of at most ${max}`}), then this check again.`, 'warn');
+  return true;
+}
+
+export interface CoverageActionResult { ok: boolean; error?: string }
+
+function heldCoverageStep(stepId: string): { step: WorkflowStep; hold: CoverageHold; all: WorkflowStep[] } | { error: string } {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+  if (!row) return { error: 'Step not found' };
+  const step = normalizeStep(row);
+  const hold = step.executorConfig._coverageHold as CoverageHold | undefined;
+  if (!hold) return { error: 'This step is not holding for open tasks' };
+  const wf = db.prepare('SELECT status FROM workflows WHERE id = ?').get(step.workflowId) as { status?: string } | undefined;
+  if (wf?.status !== 'running') return { error: `The run is ${wf?.status ?? 'gone'}` };
+  const all = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(step.workflowId) as Record<string, unknown>[])
+    .map(normalizeStep);
+  return { step, hold, all };
+}
+
+/** "Keep working": back to the work, whatever the progress rule said. */
+export function continueCoverageWork(stepId: string): CoverageActionResult {
+  const got = heldCoverageStep(stepId);
+  if ('error' in got) return { ok: false, error: got.error };
+  const coverage: Coverage = {
+    done: got.hold.done ?? 0,
+    total: got.hold.total ?? Math.max(1, (got.hold.done ?? 0) + 1),
+    outstanding: got.hold.outstanding,
+  };
+  if (!loopBackForCoverage(got.step, got.all, coverage, true)) {
+    return { ok: false, error: 'The work step this check sends the run back to is not in this run' };
+  }
+  advanceWorkflowsSoon();
+  return { ok: true };
+}
+
+/** "Accept as it is": the run goes on with the tasks still open, and says so. */
+export function acceptCoverage(stepId: string): CoverageActionResult {
+  const got = heldCoverageStep(stepId);
+  if ('error' in got) return { ok: false, error: got.error };
+  const { _coverageHold: _h, ...rest } = got.step.executorConfig;
+  void _h;
+  db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify({
+    ...rest, _coverageAccepted: { done: got.hold.done, total: got.hold.total, at: new Date().toISOString() },
+  }), stepId);
+  recordCoverage(got.step, 'accepted',
+    got.hold.total === null ? null : { done: got.hold.done ?? 0, total: got.hold.total, outstanding: got.hold.outstanding },
+    'Accepted by you with tasks still open.');
+  emitStepUpdate(stepId);
+  emitStepLog(got.step.workflowId, stepId, got.step.name,
+    `Accepted with ${got.hold.total !== null ? `${(got.hold.total ?? 0) - (got.hold.done ?? 0)} task(s)` : 'tasks'} still open — the run goes on.`, 'warn');
+  advanceWorkflowsSoon();
+  return { ok: true };
+}
+
 // ─── External Connector Step ─────────────────────────────────────────────────
 
 /** Substitute {{variable}} placeholders in a template string */
@@ -1772,6 +1947,9 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
   };
 
   emitStepLog(step.workflowId, step.id, step.name, `Executing connector: ${connectorType}`, 'info');
+
+  // What the step records as its result. Most connectors only report that they ran.
+  let resultText = `Connector "${connectorType}" executed successfully`;
 
   switch (connectorType) {
     case 'slack': {
@@ -2014,15 +2192,31 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       break;
     }
 
+    case 'launch-workflow': {
+      // Start the next workflow of a chain (CE: Phase 3 → Phase 4). See lib/workflow-continue.ts.
+      const { continueIntoWorkflow } = await import('./workflow-continue.js');
+      const outcome = continueIntoWorkflow(step);
+      if (outcome.kind === 'skipped') {
+        resultText = `Not continued: ${outcome.reason}.`;
+        emitStepLog(step.workflowId, step.id, step.name, resultText, 'warn');
+      } else {
+        resultText = `Continued into "${outcome.templateName}" — run ${outcome.runId}`;
+        emitStepLog(step.workflowId, step.id, step.name,
+          outcome.alreadyLaunched ? `${resultText} (started earlier)` : resultText, 'success');
+        emitWorkflowUpdate(outcome.runId);
+      }
+      break;
+    }
+
     default:
       throw new Error(`Unknown connector type: ${connectorType}`);
   }
 
   const now = new Date().toISOString();
   db.prepare('UPDATE workflow_steps SET status = ?, result = ?, completed_at = ? WHERE id = ?')
-    .run('completed', `Connector "${connectorType}" executed successfully`, now, step.id);
+    .run('completed', resultText, now, step.id);
   emitStepUpdate(step.id);
-  emitStepLog(step.workflowId, step.id, step.name, `Connector "${connectorType}" executed successfully`, 'success');
+  emitStepLog(step.workflowId, step.id, step.name, resultText, 'success');
   // A connector takes milliseconds; its successor should not wait a full poll for it.
   advanceWorkflowsSoon();
 }
@@ -2050,7 +2244,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
 // carries everything in full — the goal brief, the previous phase's hand-off (dependency results),
 // the contract — which is what a phase boundary hands over anyway. The code is on disk.
 //
-// WHEN: a step marked `freshSession: true` (the phase-opening steps of CE: Full Delivery), or any
+// WHEN: a step marked `freshSession: true` (a template can mark a phase-opening step so; CE: Full Delivery did until it was removed), or any
 // step once this run has typed FRESH_SESSION_AFTER_RUN_DISPATCHES prompts into the session. Applies
 // to every step that types one prompt into one cartridge: work steps, command steps, and gates.
 // NEVER: for an engine whose session NeonCore cannot see (no ledger: Codex, Gridlight); for a step
@@ -2362,6 +2556,13 @@ function completeStepFromSignalNow(stepId: string, result: string): boolean {
   }
 
   const now = new Date().toISOString();
+
+  // ── Progress: the run's living document, and the engine's own record (lib/run-progress.ts) ──
+  noteProgressDoc(workflowId, step.executorId || '', result);
+  {
+    const lc = step.executorConfig as LoopConfig & Record<string, unknown>;
+    if (lc.loopCountFrom || lc.loopUntil || Number(lc.loopCount) > 1) recordDispatch(step, result);
+  }
 
   // ── Looped steps: re-dispatch until the loop count is exhausted ──
   //
@@ -2788,6 +2989,22 @@ function processWorkflow(workflowId: string) {
       .map(normalizeStep);
   }
 
+  // ── Coverage: a task-list run is not finished until every task is (lib/coverage-loop.ts) ──
+  // Read once per completion, like routing. It either lets the run go on, sends it back to the
+  // work, or holds it for a person — and until it has been read, nothing after it may start.
+  let coverageActed = false;
+  for (const step of currentSteps) {
+    if (step.status !== 'completed' || !step.completedAt) continue;
+    if (!coverageConfigOf(step.executorConfig)) continue;
+    if ((step.executorConfig._coverageAppliedAt as string) === step.completedAt) continue;
+    evaluateCoverage(step, currentSteps);
+    coverageActed = true;
+  }
+  if (coverageActed) {
+    currentSteps = (db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as Record<string, unknown>[])
+      .map(normalizeStep);
+  }
+
   // Check for ready steps: all dependencies completed + auto-advanced + step is pending
   const readySteps = currentSteps.filter((step) => {
     if (step.status !== 'pending') return false;
@@ -2809,6 +3026,13 @@ function processWorkflow(workflowId: string) {
       // If routing just fired on this dependency, block normal activation
       // (wait for the routing cycle to complete first)
       if (routingFiredFor.has(depId)) return false;
+
+      // A coverage step that has not been read yet, or that is holding for a person, lets
+      // nothing after it start — see lib/coverage-loop.ts.
+      if (dep.status === 'completed' && coverageConfigOf(dep.executorConfig)
+        && ((dep.executorConfig._coverageAppliedAt as string) !== dep.completedAt || dep.executorConfig._coverageHold)) {
+        return false;
+      }
 
       // If the dependency has autoAdvance off, block until manually advanced
       // (skipped steps always allow advancement)

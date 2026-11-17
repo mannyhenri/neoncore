@@ -9,11 +9,10 @@
  * 44 routing functions are data in engine-capability.ts.)
  *
  * ── THE ADVANCE RULE: EXPLICIT SIGNAL, NEVER IDLE ──────────────────────────────────────
- * This codebase already answers "is it finished?" in two contradictory ways:
- *     epics.ts:13             idleThresholdMs: 45000       -> advance when the agent goes quiet
- *     confer-conductor.ts:29  "there is no idle inference"  -> advance only on an explicit signal
- * The queue follows the conductor, and the reason is written here because the next person
- * will find epics.ts first and reasonably assume idle is house style. Idle cannot distinguish
+ * The queue advances only on an explicit signal, as the confer conductor does
+ * (confer-conductor.ts: "there is no idle inference"). The removed Epic Autopilot advanced when
+ * the agent went quiet (idleThresholdMs: 45000); the reason not to is written here so nobody
+ * brings idle-advance back. Idle cannot distinguish
  * finished / stuck / crashed / blocked on a permission prompt / half-done-and-stopped. Running
  * unattended, idle-advance does not fail loudly: it stacks work on top of broken work all
  * night, and every morning the queue looks drained.

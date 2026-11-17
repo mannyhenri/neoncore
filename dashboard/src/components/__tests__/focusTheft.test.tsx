@@ -161,7 +161,6 @@ describe('agent traffic never steals focus from the user', () => {
 // ---------------------------------------------------------------------------
 
 const GESTURE_ONLY: Record<string, string> = {
-  'components/AgentCard.tsx': 'custom-answer + reject-feedback boxes open on click',
   'components/CartridgeCard.tsx': 'custom-answer + reject-feedback boxes open on click',
   'components/NewRepoModal.tsx': 'modal opened by the user',
   'components/GoalsPage.tsx': 'path picker manual mode / create modals opened by the user',

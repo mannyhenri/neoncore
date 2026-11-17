@@ -51,7 +51,7 @@ function cartridge(): string {
 }
 
 const template = () => (db.prepare(
-  "SELECT id FROM workflows WHERE template_id IS NULL AND name = 'Daily AI Research Digest'",
+  "SELECT id FROM workflows WHERE template_id IS NULL AND name = 'Deep Research'",
 ).get() as { id: string }).id;
 
 /** A schedule payload for each cadence, shaped the way the launch form sends it. */

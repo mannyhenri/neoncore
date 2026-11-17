@@ -6,6 +6,7 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { CoverageChoice } from './RunProgress';
 import { createPortal } from 'react-dom';
 import {
   ReactFlow,
@@ -2616,6 +2617,7 @@ function ConnectorStepConfig({
           <option value="system-notify">System Notify</option>
           <option value="capture-learnings">Capture Learnings</option>
           <option value="save-to-project">Save to Project</option>
+          <option value="launch-workflow">Continue to Workflow</option>
         </select>
       </div>
 
@@ -2887,6 +2889,51 @@ function ConnectorStepConfig({
               onChange={(e) => update({ tags: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               placeholder='["review", "backend"]'
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono text-[13px] disabled:opacity-50"
+            />
+          </div>
+        </>
+      )}
+
+      {connectorType === 'launch-workflow' && (
+        <>
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            Starts another workflow when this step is reached, on the same project and cartridge, with this
+            run&apos;s launch context.
+          </p>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Workflow to start (template name)</label>
+            <input
+              type="text"
+              value={(cfg.templateName as string) || ''}
+              onChange={(e) => update({ templateName: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="CE: Phase 4 — Review"
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Only if this step&apos;s result (optional)</label>
+            <input
+              type="text"
+              value={(cfg.continueIfStep as string) || ''}
+              onChange={(e) => update({ continueIfStep: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Build Summary"
+              disabled={isExecuting}
+              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">…contains this text</label>
+            <input
+              type="text"
+              value={(cfg.continueIfContains as string) || ''}
+              onChange={(e) => update({ continueIfContains: e.target.value })}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="STATUS: PASS"
               disabled={isExecuting}
               className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono text-[13px] disabled:opacity-50"
             />
@@ -3754,6 +3801,16 @@ function SidePanel({
               <span className={`w-2 h-2 rounded-full ${STATUS_STYLES[step.status].dot}`} />
               <span className="text-xs text-gray-300 capitalize">{step.status}</span>
             </div>
+            {/* Tasks still open and no further progress (server lib/coverage-loop.ts). */}
+            {step.status === 'completed' && workflowId && (step.executorConfig as Record<string, unknown>)?._coverageHold ? (
+              <div className="mt-2">
+                <CoverageChoice
+                  workflowId={workflowId}
+                  stepId={step.id}
+                  detail={String(((step.executorConfig as Record<string, unknown>)._coverageHold as { detail?: string }).detail ?? '')}
+                />
+              </div>
+            ) : null}
             {step.status === 'completed' && !step.autoAdvance && (
               <button
                 onClick={onAdvance}

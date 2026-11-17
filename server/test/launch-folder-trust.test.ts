@@ -56,8 +56,9 @@ function discoverLaunchers(): string[] {
       if (e.isDirectory()) { walk(full); continue; }
       if (!/\.(ts|js|mjs)$/.test(e.name)) continue;
       const src = fs.readFileSync(full, 'utf-8');
-      // The launcher is the thing that NAMES the temp script it is about to run.
-      if (src.includes('neoncore-launch-${Date.now()}')) found.push(full);
+      // The launcher is the thing that NAMES the temp script it is about to run — through the
+      // shared agent/lib/launch-script.mjs, which is where the name itself is defined.
+      if (src.includes("launchTempPath('.sh')") && !full.endsWith('launch-script.mjs')) found.push(full);
     }
   };
   for (const r of roots) if (fs.existsSync(r)) walk(r);

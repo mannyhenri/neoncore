@@ -38,6 +38,7 @@ import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '.
 import { cartridgeExists } from './cartridge-exists.js';
 import { agentIdForRepoAndType, normalizeRepoPath, setProjectCartridges, getProjectCartridges } from './resolve-agent.js';
 import { cloneTemplateAsRun } from './workflow-from-template.js';
+import { templateNeedsParticipants } from './workflow-launch.js';
 import { isReportStep } from './workflow-report.js';
 import { workflowNeedsAttention, type Attention } from './workflow-attention.js';
 import { goalCostUsd } from './goal-cost.js';
@@ -279,7 +280,11 @@ export const REVIEW_STAGE_KEY = 'review';
 
 export interface StartInput {
   repos?: unknown;
-  /** stage key → repo path. A stage not named runs in the first repo. */
+  /**
+   * stage key → repo path, or → a LIST of repo paths for a stage worked by several cartridges
+   * together (a Confer stage). A stage not named runs in the first repo; a Confer stage not named
+   * runs on every chosen repo.
+   */
   assignments?: unknown;
 }
 
@@ -330,12 +335,35 @@ export function startPilot(pilotId: string, input: StartInput): GoalPilot {
   if (repos.length === 0) throw new PilotError('choose at least one repo to run the pipeline in', 400);
 
   const assignments = input.assignments && typeof input.assignments === 'object' ? input.assignments as Record<string, unknown> : {};
-  const repoFor = (key: string) => {
-    const want = String(assignments[key] ?? '').trim();
-    if (!want) return repos[0];
+  const chosen = (key: string, want: string) => {
     const hit = repos.find((r) => normalizeRepoPath(r.repoPath) === normalizeRepoPath(want));
     if (!hit) throw new PilotError(`stage "${key}" is assigned to ${want}, which is not one of the chosen repos`, 400);
     return hit;
+  };
+  const repoFor = (key: string) => {
+    const raw = assignments[key];
+    const want = String(Array.isArray(raw) ? raw[0] ?? '' : raw ?? '').trim();
+    if (!want) return repos[0];
+    return chosen(key, want);
+  };
+  /**
+   * The participants of a stage worked by several cartridges together. A Confer stage (its
+   * template has a confer step with no roster of its own) NEEDS two or more: the list it was
+   * assigned, or every chosen repo. Any stage may be given a list of two or more, which runs
+   * it as a confer (the Run button's "Run on" with several cartridges). Empty = one cartridge.
+   */
+  const participantsFor = (key: string, title: string, templateId: string) => {
+    const raw = assignments[key];
+    const listed = Array.isArray(raw)
+      ? [...new Set(raw.map((x) => String(x ?? '').trim()).filter(Boolean))].map((w) => chosen(key, w))
+      : [];
+    if (listed.length >= 2) return listed;
+    if (templateId && templateNeedsParticipants(templateId)) {
+      if (listed.length === 0 && repos.length >= 2) return repos;
+      throw new PilotError(
+        `stage "${title}" is a confer and needs two or more repos working together — choose at least two repos and assign them to it`, 400);
+    }
+    return [];
   };
 
   const goal = db.prepare('SELECT name FROM goals WHERE id = ?').get(pilot.goalId) as { name: string } | undefined;
@@ -359,24 +387,26 @@ export function startPilot(pilotId: string, input: StartInput): GoalPilot {
     };
     const insert = db.prepare(
       `INSERT INTO goal_pilot_stages (id, pilot_id, position, kind, stage_key, template_id, template_name, title, why, focus,
-         repo_path, agent_type, project_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         repo_path, agent_type, project_id, status, participants)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     );
     let position = 0;
     if (tested.length) {
       insert.run(randomUUID(), pilot.id, position++, 'acceptance', ACCEPTANCE_STAGE_KEY, '', '', 'Write the acceptance tests',
         `One failing test per criterion (${tested.map((c) => c.id).join(', ')}), written before anything is built. You approve them; then they are locked and NeonCore runs them after every stage.`,
-        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath));
+        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath), '[]');
     }
     pilot.plan!.stages.forEach((s) => {
-      const staff = repoFor(s.key);
-      insert.run(randomUUID(), pilot.id, position++, 'workflow', s.key, templateIdForName(s.template) ?? '', s.template, s.title, s.why, s.focus,
-        staff.repoPath, staff.agentType, projectOf(staff.repoPath));
+      const templateId = templateIdForName(s.template) ?? '';
+      const team = participantsFor(s.key, s.title, templateId);
+      const staff = team[0] ?? repoFor(s.key);
+      insert.run(randomUUID(), pilot.id, position++, 'workflow', s.key, templateId, s.template, s.title, s.why, s.focus,
+        staff.repoPath, staff.agentType, projectOf(staff.repoPath), JSON.stringify(team));
     });
     if (checklist.length) {
       insert.run(randomUUID(), pilot.id, position++, 'review', REVIEW_STAGE_KEY, '', '', 'Independent review of the checklist',
         `A cartridge that did not do the work judges ${checklist.map((c) => c.id).join(', ')} against what exists; you confirm each verdict.`,
-        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath));
+        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath), '[]');
     }
     if (criteria.length) {
       createContract({ pilotId: pilot.id, goalId: pilot.goalId, criteria, repoPath: testsRepo.repoPath, agentType: testsRepo.agentType });
@@ -490,11 +520,48 @@ export function stopPilot(pilotId: string, attention: string, announce = true): 
   console.warn(`[goal-pilot] ${pilotId.slice(0, 8)} paused: ${attention}`);
 }
 
+/**
+ * The live cartridges of a stage worked by several cartridges, or why it must wait. Every
+ * participant must be running and free: a confer never starts on top of live work.
+ */
+function stageTeam(stage: PilotStage): { ids: string[] } | { wait: string; needsCartridge: boolean } {
+  const ids: string[] = [];
+  for (const p of stage.participants) {
+    const id = liveCartridge(p.repoPath, p.agentType);
+    const engine = ENGINE_LABEL[p.agentType] ?? p.agentType;
+    if (!id) {
+      return { wait: `No ${engine} cartridge is running in ${path.basename(p.repoPath)} — this stage is worked by `
+        + `${stage.participants.length} cartridges together. Launch one (Agents → + Launch) and it starts by itself.`, needsCartridge: true };
+    }
+    if (isCartridgeBusy(id)) {
+      return { wait: `The ${engine} cartridge in ${path.basename(p.repoPath)} is busy with other work — this stage starts when all `
+        + `${stage.participants.length} of its cartridges are free.`, needsCartridge: false };
+    }
+    if (!ids.includes(id)) ids.push(id);
+  }
+  if (ids.length < 2) return { wait: 'This stage is worked by several cartridges together, but its participants resolve to one cartridge. Assign different repos or engines.', needsCartridge: true };
+  return { ids };
+}
+
 function launchStage(pilot: GoalPilot, stage: PilotStage, stages: PilotStage[]): void {
   const repoName = path.basename(stage.repoPath);
   const engine = ENGINE_LABEL[stage.agentType] ?? stage.agentType;
 
-  const agentId = liveCartridge(stage.repoPath, stage.agentType);
+  // A stage worked by several cartridges together: all of them, or it waits.
+  let team: string[] | null = null;
+  if (stage.participants.length >= 2) {
+    const t = stageTeam(stage);
+    if ('wait' in t) {
+      if (t.needsCartridge && stage.waitReason !== t.wait) {
+        announcePilot(pilot.id, 'stage-needs-cartridge', `stage ${stage.position + 1} needs its cartridges`, t.wait, 'action');
+      }
+      setWaiting(stage, t.wait);
+      return;
+    }
+    team = t.ids;
+  }
+
+  const agentId = team ? team[0] : liveCartridge(stage.repoPath, stage.agentType);
   if (!agentId) {
     const reason = `No ${engine} cartridge is running in ${repoName}. Launch one (Agents → + Launch) and this stage starts by itself.`;
     // Announced once, when the stage starts waiting for this — waiting on a BUSY cartridge is not
@@ -534,6 +601,7 @@ function launchStage(pilot: GoalPilot, stage: PilotStage, stages: PilotStage[]):
   const context = buildStageContext(pilot, stage, stages);
   const runId = cloneTemplateAsRun(templateId, stage.projectId || null, context, {
     agentId, autonomy: involvementOf(pilot.involvement).runAutonomy,
+    ...(team ? { confer: { agentIds: team, mode: 'divide', isolation: 'shared' } } : {}),
   });
   if (!runId) {
     updateStage(stage.id, { status: 'failed', wait_reason: '', completed_at: nowIso(), result_summary: 'The workflow could not be cloned into a run.' });

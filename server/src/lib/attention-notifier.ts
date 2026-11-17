@@ -35,6 +35,7 @@ import {
   unadvanceStep, undecideStep, executorConfigOf,
 } from './workflow-resolve.js';
 import { recoverStep } from './recovery.js';
+import { continueCoverageWork, acceptCoverage } from './workflow-executor-v2.js';
 import { sendCommandToAgent } from './send-command.js';
 // The single decision path, reused rather than reimplemented. It lives under routes/ because
 // that is where a decision has always been recorded; a second copy is how the dashboard and a
@@ -60,6 +61,8 @@ export const ACTION_PREFIX = {
   recover: 'wfrecover',
   /** Reverse an auto-resolution. Payload is the audit row's id, not the step's. */
   undo: 'wfundo',
+  /** Tasks still open: `wfcover:<stepId>:continue` (keep working) or `:accept` (accept as is). */
+  coverage: 'wfcover',
 } as const;
 
 /** The action-id cap. Asserted in the test rather than discovered in production. */
@@ -105,6 +108,11 @@ export function actionsFor(attention: Attention): Notice['actions'] {
       }));
     case 'manual-advance':
       return [{ id: `${ACTION_PREFIX.advance}:${attention.stepId}`, label: 'Advance', style: 'success' }];
+    case 'tasks-outstanding':
+      return [
+        { id: `${ACTION_PREFIX.coverage}:${attention.stepId}:continue`, label: 'Keep working', style: 'primary' },
+        { id: `${ACTION_PREFIX.coverage}:${attention.stepId}:accept`, label: 'Accept as is', style: 'danger' },
+      ];
     case 'interrupted':
       return [{ id: `${ACTION_PREFIX.recover}:${attention.stepId}`, label: 'Recover', style: 'primary' }];
     // Breakage, an answer in free text, and the watchdog reasons (a quiet or silent cartridge,
@@ -543,6 +551,15 @@ export function registerAttentionActions(): void {
         ? `Overridden. The gate is open again — choose with \`!cartridges\` or the dashboard.`
         : 'Overridden. The step is held again.',
     );
+  });
+
+  registerAction(ACTION_PREFIX.coverage, async ({ payload, reply }) => {
+    const [stepId, choice] = payload.split(':');
+    if (!stepId || (choice !== 'continue' && choice !== 'accept')) return reply('Malformed tasks-outstanding action.');
+    const r = choice === 'continue' ? continueCoverageWork(stepId) : acceptCoverage(stepId);
+    await reply(r.ok
+      ? (choice === 'continue' ? 'Back to work on the open tasks.' : 'Accepted — the run goes on with those tasks open.')
+      : `Could not do that: ${r.error}`);
   });
 
   registerAction(ACTION_PREFIX.recover, async ({ payload, reply }) => {

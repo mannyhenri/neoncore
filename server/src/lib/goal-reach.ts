@@ -17,7 +17,6 @@
  * (`project_cartridges`, and the older `primary_repo`), and the tests assert equality with
  * `goalForAgent` rather than with a hand-written number.
  */
-import db from '../db.js';
 import { goalAgentIds } from './goal-scope.js';
 
 /**
@@ -36,15 +35,3 @@ export function goalReach(goalId: string): number {
   return goalAgentIds(goalId).length;
 }
 
-/**
- * Projects with no goal.
- *
- * Legal by design, so the count is the mechanism that keeps the choice visible instead of
- * letting unattached work quietly accumulate.
- */
-export function unassignedProjectCount(): number {
-  const row = db.prepare(
-    "SELECT COUNT(*) AS n FROM projects WHERE goal_id IS NULL OR goal_id = ''",
-  ).get() as { n: number };
-  return row?.n ?? 0;
-}

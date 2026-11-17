@@ -7,7 +7,7 @@ import { sendCommandToAgent } from '../lib/send-command.js';
 import { routeFunction } from '../lib/engine-router.js';
 import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
-import { unrunnableSteps, conferFillFor } from '../lib/workflow-launch.js';
+import { unrunnableSteps, applyConferToRun } from '../lib/workflow-launch.js';
 import { CONFER_MODES, isConferMode, CONFER_ISOLATIONS, isConferIsolation, cancelConfer } from '../lib/confer-conductor.js';
 import { DEFAULT_AUTONOMY } from '../lib/autonomy.js';
 import { layoutSteps, STEP_X, STEP_START_Y, STEP_SPACING_Y } from '../lib/workflow-layout.js';
@@ -15,10 +15,12 @@ import { learningsContext } from '../lib/workflow-from-template.js';
 import { workflowConferParticipants, workflowRepoTargets } from '../lib/workflow-cartridges.js';
 import { awaitsLaunchFill } from '../lib/cartridge-exists.js';
 import { workflowNeedsAttention } from '../lib/workflow-attention.js';
+import { progressSummary, progressEvents, readProgressDoc } from '../lib/run-progress.js';
+import { countsOwed } from '../lib/coverage-loop.js';
 import { libelleContexte } from '../lib/context-label.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
-import { completeStepFromSignal, recordPanelResult, advanceWorkflowsSoon, stepInstructionsText } from '../lib/workflow-executor-v2.js';
+import { completeStepFromSignal, recordPanelResult, advanceWorkflowsSoon, stepInstructionsText, continueCoverageWork, acceptCoverage } from '../lib/workflow-executor-v2.js';
 import { emitRunFinished } from '../lib/run-events.js';
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
@@ -73,6 +75,8 @@ function normalizeWorkflow(row: Record<string, unknown>): Workflow {
     // Derived, not stored: "is this waiting on me right now" must be answerable at any moment,
     // not only at the instant something happened and a notification fired.
     needsAttention: workflowNeedsAttention(row.id as string),
+    // Where a task-list run has got to (lib/run-progress.ts): done/total and the progress document.
+    progress: progressSummary(row.id as string),
     createdAt: (row.created_at ?? '') as string,
     startedAt: (row.started_at ?? '') as string,
     completedAt: (row.completed_at as string) || null,
@@ -216,6 +220,21 @@ router.get('/', (req, res) => {
     return wf;
   });
   res.json(workflows);
+});
+
+/**
+ * Where a task-list run has got to: the summary the run card shows, the engine's record of every
+ * dispatch claim and coverage check, and the progress document's text when the server can read
+ * it (lib/run-progress.ts — local cartridges only, and only under docs/progress/).
+ */
+router.get('/:id/progress', (req, res) => {
+  const row = db.prepare('SELECT id FROM workflows WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Workflow not found' });
+  res.json({
+    summary: progressSummary(req.params.id),
+    events: progressEvents(req.params.id),
+    doc: readProgressDoc(req.params.id),
+  });
 });
 
 // Get single workflow
@@ -1033,75 +1052,10 @@ router.post('/v2/:id/start', (req, res) => {
       return res.status(400).json({ error: `No such cartridge(s): ${missing.join(', ')}` });
     }
 
-    /**
-     * What run-level confer gives each executor type comes from CONFER_FILL
-     * (lib/workflow-launch.ts) — the SAME registry the door checks a moment earlier.
-     *
-     * It used to be declared here as `CONFER_CONVERSION` while the door kept its own Set of
-     * four names, and the door runs first: 12 of 24 templates were refused for steps this
-     * block would have handled perfectly well. One registry, both halves.
-     */
-    const rows = db.prepare('SELECT id, executor_type, executor_id, executor_config FROM workflow_steps WHERE workflow_id = ?')
-      .all(runId) as { id: string; executor_type: string; executor_id: string; executor_config: string }[];
-
-    // The judge for every single-cartridge step. First participant rather than a random one so
-    // two runs of the same template are comparable, and so the choice is explainable.
-    const judge = conferAllSteps[0];
-
-    let converted = 0;
-    let assigned = 0;
-    for (const r of rows) {
-      const fill = conferFillFor(r.executor_type, r.executor_config);
-      if (!fill || fill === 'none') continue;
-
-      const config = JSON.parse(r.executor_config || '{}') as Record<string, unknown>;
-      const awaiting = awaitsLaunchFill((r.executor_id ?? '').trim());
-
-      if (fill === 'confer-all') {
-        config.conferAgentIds = conferAllSteps;
-        // The requested mode wins over whatever the template happened to carry: the person
-        // launching chose it for this run's work, the template author chose it in general.
-        config.conferMode = conferMode;
-        config.conferIsolation = conferIsolation;
-        config._wasDeferred = true;
-        // executor_id stops meaning anything for a confer step, and leaving a stale one behind
-        // makes the run look single-owner on every surface that reads it.
-        db.prepare('UPDATE workflow_steps SET executor_type = ?, executor_id = ?, executor_config = ? WHERE id = ?')
-          .run('confer', '', JSON.stringify(config), r.id);
-        converted += 1;
-        continue;
-      }
-
-      // Everything below fills only what is still AWAITING a cartridge. A pin someone made
-      // deliberately — or a stale one the door already refused — is never overwritten here.
-      if (!awaiting) continue;
-
-      if (fill === 'single') {
-        // A gate is a single-judge verdict and a command step dispatches to one cartridge;
-        // converting either would break what it is. They just need somebody.
-        if (r.executor_type === 'review-gate' && !config.reviewAgentId) config.reviewAgentId = judge;
-        db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
-          .run(judge, JSON.stringify(config), r.id);
-        assigned += 1;
-      } else if (fill === 'multi-if-empty') {
-        // Already multi-agent. Its own roster wins; an EMPTY roster is what left the
-        // confer-across-repos template unable to launch its own confer step.
-        const key = r.executor_type === 'deliberation' ? 'panelAgentIds' : 'conferAgentIds';
-        const existing = Array.isArray(config[key]) ? (config[key] as unknown[]).filter(Boolean) : [];
-        if (existing.length < 2) config[key] = conferAllSteps;
-        // A template's own confer step takes the run's mode too, or "work together" would
-        // apply to the converted steps and not to the one that was already a confer.
-        if (r.executor_type === 'confer') {
-          config.conferMode = conferMode;
-          config.conferIsolation = conferIsolation;
-        }
-        db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
-          .run('', JSON.stringify(config), r.id);
-        assigned += 1;
-      }
-    }
-    console.log(`[workflow] Run ${runId}: ${converted} step(s) converted to confer across `
-      + `${conferAllSteps.length} cartridges, ${assigned} given a cartridge from the set`);
+    // What each step gets is CONFER_FILL (lib/workflow-launch.ts) — the SAME registry the door
+    // checks a moment earlier. The conversion itself is shared with scheduled runs and Goal Pilot
+    // stages, which create their runs through cloneTemplateAsRun.
+    applyConferToRun(runId, conferAllSteps, conferMode, conferIsolation);
   }
 
   /**
@@ -1258,6 +1212,24 @@ router.post('/v2/:id/steps/:stepId/decide', (req, res) => {
 });
 
 // Advance a completed step (set auto_advance = 1 so dependents can proceed)
+/**
+ * Tasks still open (lib/coverage-loop.ts): `continue` sends the run back to the work on what is
+ * left, `accept` lets it go on as it is. Nothing else may make this choice — no autonomy level
+ * auto-resolves `tasks-outstanding`.
+ */
+router.post('/v2/:id/steps/:stepId/coverage', (req, res) => {
+  const row = db.prepare('SELECT id FROM workflow_steps WHERE id = ? AND workflow_id = ?').get(req.params.stepId, req.params.id);
+  if (!row) return res.status(404).json({ error: 'Step not found' });
+  const action = req.body?.action;
+  if (action !== 'continue' && action !== 'accept') {
+    return res.status(400).json({ error: 'action must be "continue" (keep working) or "accept" (accept as is)' });
+  }
+  const r = action === 'continue' ? continueCoverageWork(req.params.stepId) : acceptCoverage(req.params.stepId);
+  if (!r.ok) return res.status(409).json({ error: r.error });
+  emitWorkflowUpdate(req.params.id);
+  res.json({ ok: true });
+});
+
 router.post('/v2/:id/steps/:stepId/advance', (req, res) => {
   const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ? AND workflow_id = ?')
     .get(req.params.stepId, req.params.id) as Record<string, unknown> | undefined;
@@ -1713,7 +1685,11 @@ router.post('/webhook/:stepId/complete', (req, res) => {
       return { name: r.name, config };
     });
 
-  const owed = validateUpstreamCount(finalResult, loopCountRequirements(step.name, siblings));
+  // …and a COVERAGE step owes its own count: the engine reads it to decide whether every task is
+  // done (lib/coverage-loop.ts). Asked for now, while the agent is here, rather than discovered
+  // later as a run holding for a person over a missing line.
+  const owed = validateUpstreamCount(finalResult,
+    countsOwed({ name: step.name, config: step.executorConfig }, loopCountRequirements(step.name, siblings)));
   if (!owed.ok) {
     // 400 leaves the step RUNNING, same as the work-standard gate: the agent comes back with
     // the count rather than the workflow advancing on a budget it knows is wrong.

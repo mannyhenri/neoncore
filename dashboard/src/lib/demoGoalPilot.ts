@@ -65,7 +65,7 @@ export const DEMO_PILOT_META: GoalPilotMeta = {
   contractStageKeys: { acceptance: 'acceptance', review: 'review' },
   templates: [
     { name: 'CE: Phase 2 — Plan', description: '' }, { name: 'CE: Phase 3 — Implement', description: '' },
-    { name: 'Code Review & Audit', description: '' }, { name: 'Feature Validation', description: '' },
+    { name: 'Super QA', description: '' }, { name: 'Feature Validation', description: '' },
     { name: 'Release Documentation', description: '' },
   ],
 };
@@ -169,7 +169,7 @@ export const DEMO_PILOT: GoalPilot = {
       runId: 'demo-w1', startedAt: ago(40), runStatus: 'running', progress: { completed: 4, total: 7 },
       attention: { reason: 'decision', stepId: '', stepName: 'Pick Approach', detail: 'Choose between per-event rows and hourly rollups before the build continues.' },
     }),
-    stage(3, 'Code Review & Audit', 'Review the change', 'pending'),
+    stage(3, 'Super QA', 'Review the change', 'pending'),
     stage(4, 'Feature Validation', 'Validate against the acceptance criteria', 'pending'),
     stage(5, '', 'Independent review of the checklist', 'pending', { kind: 'review', key: 'review', agentName: '' }),
   ],

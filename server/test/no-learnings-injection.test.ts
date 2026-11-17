@@ -108,7 +108,7 @@ const contextOf = (runId: string) => (db.prepare(
 test('NO clone path carries another workflow\'s report into a run', async () => {
   const projectId = projectWithLearnings();
   const agentId = cartridge();
-  const tplId = template('Daily AI Research Digest');
+  const tplId = template('Deep Research');
   // The exact shape of the bug: an architecture review of a CUDA engine, on the same project.
   learningFrom(projectId, template('Engineering Architecture Review'),
     'Engineering Architecture Review', REPORT_DUMP);
@@ -128,7 +128,7 @@ test('NO clone path carries another workflow\'s report into a run', async () => 
   const offenders: string[] = [];
   for (const [path, runId] of [['HTTP start', httpRun], ['cloneTemplateAsRun', clonedRun]] as const) {
     if (contextOf(runId).includes(FOREIGN_MARKER)) {
-      offenders.push(`${path}: the digest run was handed the architecture review as its brief`);
+      offenders.push(`${path}: the research run was handed the architecture review as its brief`);
     }
   }
   assert.deepEqual(offenders, [], offenders.join('\n  '));
@@ -137,9 +137,9 @@ test('NO clone path carries another workflow\'s report into a run', async () => 
 test('a run DOES still get what previous runs of the SAME workflow learned', async () => {
   const projectId = projectWithLearnings();
   const agentId = cartridge();
-  const tplId = template('Daily AI Research Digest');
+  const tplId = template('Deep Research');
   const OWN = 'Prefer arXiv listings over the RSS mirror, which lags by a day.';
-  learningFrom(projectId, tplId, 'Daily AI Research Digest', OWN);
+  learningFrom(projectId, tplId, 'Deep Research', OWN);
   learningFrom(projectId, template('Engineering Architecture Review'),
     'Engineering Architecture Review', REPORT_DUMP);
 

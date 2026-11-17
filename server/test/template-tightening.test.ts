@@ -37,7 +37,9 @@ function promptOf(template: string, step: string): string | undefined {
 
 test('the fixture covers the templates it was taken from', () => {
   const steps = Object.values(FIXTURE).reduce((n, t) => n + Object.keys(t).length, 0);
-  assert.ok(steps >= 30, `expected the frozen marker set, found ${steps} steps`);
+  // 25 since CE: Full Delivery and Epic: Confer Across Repos were removed (their markers went with
+  // them; Epic: Confer's moved to Confer, which absorbed it). A floor, so an emptied fixture fails.
+  assert.ok(steps >= 25, `expected the frozen marker set, found ${steps} steps`);
 });
 
 test('EVERY output marker of EVERY template step survives tightening', () => {
@@ -73,7 +75,8 @@ test('NO template step prompt grew past its recorded size', () => {
       if (prompt.length > max) grew.push(`${template} / ${step}: ${prompt.length} > ${max}`);
     }
   }
-  assert.ok(checked >= 150, `expected the recorded set, checked ${checked}`);
+  // 100 since seven templates were removed or merged (CE: Full Delivery alone was 36 steps).
+  assert.ok(checked >= 100, `expected the recorded set, checked ${checked}`);
   assert.deepEqual(grew, [], `update fixtures/template-prompt-sizes.json on purpose if this is intended:\n  ${grew.join('\n  ')}`);
 });
 

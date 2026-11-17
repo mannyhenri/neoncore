@@ -73,6 +73,9 @@ const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   decision: 'buttons',        // one per option
   'agent-waiting': 'told-how',   // a person answers with text; `full` answers it automatically
   'manual-advance': 'buttons',
+  // Tasks still open and no further progress: "Keep working" or "Accept as is". Two buttons, and
+  // never auto-resolved — no posture may trade "every task" for "some tasks".
+  'tasks-outstanding': 'buttons',
   // Nothing a button can fix — the cartridge has to be asked to finish. `advance` and `full`
   // nudge it automatically; a person is told what happened and where.
   'agent-idle': 'told-how',

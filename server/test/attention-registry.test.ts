@@ -154,6 +154,17 @@ const FIXTURES: Record<AttentionReason, () => { workflowId: string; stepName: st
     step(w, { name: 'Next Step', status: 'pending' });
     return { workflowId: w, stepName: 'Held Step' };
   },
+  'tasks-outstanding': () => {
+    const w = wf();
+    // A coverage step holding the run (lib/coverage-loop.ts): the detail is the hold's own line.
+    step(w, { name: 'Verify Coverage', status: 'completed', config: JSON.stringify({
+      coverage: { retryFrom: ['Work Every Task'] },
+      _coverageHold: { done: 18, total: 23, outstanding: [], why: 'x',
+        detail: '5 of 23 task(s) are still open after "Verify Coverage" — the last pass finished nothing more (18 → 18 of 23), so another identical pass would not help. Keep working, or accept the run as it is.' },
+    }) });
+    step(w, { name: 'Notify', status: 'pending' });
+    return { workflowId: w, stepName: 'Verify Coverage' };
+  },
 };
 
 /**
@@ -179,6 +190,10 @@ const GOLDEN_DETAIL: Record<AttentionReason, string> = {
     + 'working. When it lapses the run falls back to manual and will hold at the next thing it '
     + 'would have settled itself — extend the grant to let it finish unattended.',
   'manual-advance': '"Held Step" finished and is waiting for you to advance.',
+  // Not captured from the pre-refactor implementation: this reason was added after it. The string
+  // is holdDetail()'s, asserted verbatim in coverage-loop.test.ts too.
+  'tasks-outstanding': '5 of 23 task(s) are still open after "Verify Coverage" — the last pass finished nothing more '
+    + '(18 → 18 of 23), so another identical pass would not help. Keep working, or accept the run as it is.',
 };
 
 test('EVERY reason in the registry has a fixture — no reason ships unexercised', () => {

@@ -110,13 +110,13 @@ function findCli(binName: string): string | null {
   }
 
   // Fall back to shell resolution (login shell loads full profile)
-  for (const shellCmd of [
-    `bash -lc "which ${binName} 2>/dev/null"`,
-    `zsh -lc "which ${binName} 2>/dev/null"`,
-    process.platform === 'win32' ? `where ${binName}` : null,
-  ].filter(Boolean) as string[]) {
+  // The name is passed as an argument ($0), never pasted into the shell script.
+  const lookups: [string, string[]][] = process.platform === 'win32'
+    ? [['where', [binName]]]
+    : [['bash', ['-lc', 'which "$0" 2>/dev/null', binName]], ['zsh', ['-lc', 'which "$0" 2>/dev/null', binName]]];
+  for (const [file, args] of lookups) {
     try {
-      const result = execSync(shellCmd, { timeout: 4000 }).toString().trim().split('\n')[0];
+      const result = execFileSync(file, args, { timeout: 4000 }).toString().trim().split('\n')[0];
       if (result && !result.includes('not found') && fs.existsSync(result)) return result;
     } catch { /* try next */ }
   }

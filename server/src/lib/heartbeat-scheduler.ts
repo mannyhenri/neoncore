@@ -5,6 +5,7 @@ import { DEFAULT_AUTONOMY } from './autonomy.js';
 // One copy of template→run, shared with decomposition. Two would be two chances to diverge
 // on the step dependency remap, which is the part that silently produces a run that never advances.
 import { cloneTemplateAsRun } from './workflow-from-template.js';
+import { templateNeedsParticipants } from './workflow-launch.js';
 
 /**
  * The cadences a workflow can repeat on.
@@ -147,12 +148,23 @@ function reArm(schedule: HeartbeatSchedule): { nextRunAt: string; stillActive: b
   return { nextRunAt: computeNextRunAt(schedule), stillActive: true };
 }
 
+/** A scheduled confer's participants, as stored. Empty for an ordinary schedule. */
+export function heartbeatConferIds(hb: Record<string, unknown>): string[] {
+  try {
+    const ids = JSON.parse((hb.confer_agent_ids as string) || '[]');
+    return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : [];
+  } catch { return []; }
+}
+
 function prepareFire(hb: Record<string, unknown>):
-  { ok: true; templateId: string; projectId: string | null; agentId: string; autonomy: string; schedule: HeartbeatSchedule; initialContext: string }
+  { ok: true; templateId: string; projectId: string | null; agentId: string; autonomy: string; schedule: HeartbeatSchedule; initialContext: string;
+    confer?: { agentIds: string[]; mode: string; isolation: string } }
   | { ok: false; reason: string } {
   const templateId = hb.template_id as string;
   const projectId = (hb.project_id as string) || null;
-  const agentId = ((hb.agent_id as string) || '').trim();
+  const conferIds = heartbeatConferIds(hb);
+  // A scheduled confer runs on ALL its cartridges; the first is the one single-cartridge steps use.
+  const agentId = (((hb.agent_id as string) || '').trim()) || conferIds[0] || '';
   const autonomy = ((hb.autonomy as string) || DEFAULT_AUTONOMY).trim() || DEFAULT_AUTONOMY;
   let schedule: HeartbeatSchedule;
   try { schedule = JSON.parse((hb.schedule as string) || '{}'); } catch { schedule = { type: 'daily' }; }
@@ -167,6 +179,17 @@ function prepareFire(hb: Record<string, unknown>):
     return { ok: false, reason: `its cartridge no longer exists (${agentId.slice(0, 8)}) — it was restarted, or removed` };
   }
   const initialContext = ((hb.initial_context as string) || '').trim();
+  if (conferIds.length >= 2) {
+    const gone = conferIds.filter((id) => !cartridgeExists(id));
+    if (gone.length) {
+      return { ok: false, reason: `${gone.length} of its confer cartridges no longer exist (${gone.map((id) => id.slice(0, 8)).join(', ')}) — they were restarted, or removed` };
+    }
+    return { ok: true, templateId, projectId, agentId, autonomy, schedule, initialContext,
+      confer: { agentIds: conferIds, mode: String(hb.confer_mode || 'divide'), isolation: String(hb.confer_isolation || 'shared') } };
+  }
+  if (templateNeedsParticipants(templateId)) {
+    return { ok: false, reason: 'this workflow is a confer and needs two or more cartridges — the schedule names one. Re-create it with several cartridges under "Run on"' };
+  }
   return { ok: true, templateId, projectId, agentId, autonomy, schedule, initialContext };
 }
 
@@ -196,9 +219,9 @@ export function fireHeartbeat(heartbeatId: string): { runId: string } | { error:
     announceSkip(hb, prep.reason, nextRunAt);
     return { error: `Heartbeat cannot fire — ${prep.reason}` };
   }
-  const { templateId, projectId, agentId, autonomy, schedule, initialContext } = prep;
+  const { templateId, projectId, agentId, autonomy, schedule, initialContext, confer } = prep;
 
-  const runId = cloneTemplateAsRun(templateId, projectId, initialContext, { agentId, autonomy });
+  const runId = cloneTemplateAsRun(templateId, projectId, initialContext, { agentId, autonomy, confer });
   if (!runId) return { error: `Template ${templateId} not found` };
 
   const now = new Date().toISOString();
@@ -258,7 +281,7 @@ export function checkDueHeartbeats(): SweepResult {
         result.skipped.push({ heartbeatId: hb.id as string, reason: prep.reason });
         continue;
       }
-      const { templateId, projectId, agentId, autonomy, schedule, initialContext } = prep;
+      const { templateId, projectId, agentId, autonomy, schedule, initialContext, confer } = prep;
 
       // USD budget gate: skip if the project's goal has a dollar cap and the
       // goal's real spend (session_usage cost across its cartridges) has reached it.
@@ -286,7 +309,7 @@ export function checkDueHeartbeats(): SweepResult {
         }
       }
 
-      const runId = cloneTemplateAsRun(templateId, projectId, initialContext, { agentId, autonomy });
+      const runId = cloneTemplateAsRun(templateId, projectId, initialContext, { agentId, autonomy, confer });
       if (!runId) {
         console.warn(`[heartbeat] Template ${templateId} not found for heartbeat ${hb.id}`);
         continue;

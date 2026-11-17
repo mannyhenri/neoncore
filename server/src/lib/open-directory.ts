@@ -4,17 +4,16 @@
  */
 
 import fs from 'fs';
-import { getFleetToken } from './auth.js';
-import http from 'http';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execSync, spawn } from 'child_process';
+import { execFileSync, spawn, spawnSync } from 'child_process';
 import { getServerBaseUrl } from './server-url.js';
 // Shared with the runner's own launcher (agent/runner/index.js) so the two launch paths cannot
 // drift. Plain ESM JS with no type declarations, same as the relay's fleet-token.mjs.
 // @ts-expect-error — untyped ESM shared with the agent side.
 import { ensureFolderTrusted } from '../../../agent/lib/folder-trust.mjs';
+import { posixLaunchScript, windowsLaunchScript, launchTempPath } from '../../../agent/lib/launch-script.mjs';
 
 export { ensureFolderTrusted };
 
@@ -22,12 +21,12 @@ export { ensureFolderTrusted };
 // Binary finders
 // ---------------------------------------------------------------------------
 
-function findBinary(candidates: string[], shellCmd: string): string | null {
+function findBinary(candidates: string[], lookup: [string, ...string[]]): string | null {
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
   try {
-    const resolved = execSync(shellCmd, { timeout: 3000 }).toString().trim().split('\n')[0];
+    const resolved = execFileSync(lookup[0], lookup.slice(1), { timeout: 3000 }).toString().trim().split('\n')[0];
     if (resolved && fs.existsSync(resolved)) return resolved;
   } catch { /* ignore */ }
   return null;
@@ -47,7 +46,7 @@ export function findCodeBinary(): string {
         path.join(home, '.local', 'bin', 'code'),
         '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
       ];
-  return findBinary(candidates, process.platform === 'win32' ? 'where code' : 'bash -lc "which code"')
+  return findBinary(candidates, process.platform === 'win32' ? ['where', 'code'] : ['bash', '-lc', 'which code'])
     ?? (isWin ? 'code.cmd' : 'code');
 }
 
@@ -81,27 +80,28 @@ export function writeVscodeSettings(repoPath: string, agentType: string): void {
  * Write a temporary shell script and open it in a terminal window.
  * Returns an error string on failure, null on success.
  */
-export function openInTerminal(repoPath: string, command: string, sessionId: string, extraEnv: Record<string, string> = {}): string | null {
-  const neonUrl = getServerBaseUrl();
-  const winExtraEnv = Object.entries(extraEnv).map(([k, v]) => `set "${k}=${v}"`);
-  const posixExtraEnv = Object.entries(extraEnv).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`);
+export function openInTerminal(repoPath: string, argv: string[], sessionId: string, extraEnv: Record<string, string> = {}): string | null {
+  const env = {
+    NEONCORE_URL: getServerBaseUrl(),
+    NEONCORE_SESSION_ID: sessionId,
+    ...extraEnv,
+  };
 
   // Windows: emit a native .cmd batch script and run it via cmd.exe. (A bash .sh
   // launched through `cmd /k` cannot execute — this is what broke Windows launch.)
+  // The environment travels in a JSON side file: see agent/lib/launch-script.mjs.
   if (process.platform === 'win32') {
-    const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.cmd`);
-    // Do NOT JSON.stringify Windows paths — cmd treats backslashes literally, so
-    // doubled backslashes would corrupt the path. Plain double-quotes suffice.
-    fs.writeFileSync(scriptPath, [
-      '@echo off',
-      `cd /d "${repoPath}"`,
-      `set "NEONCORE_URL=${neonUrl}"`,
-      `set "NEONCORE_SESSION_ID=${sessionId}"`,
-      ...winExtraEnv,
-      command,
-    ].join('\r\n') + '\r\n');
+    const scriptPath = launchTempPath('.cmd');
+    const envFile = launchTempPath('.env.json');
+    try {
+      fs.writeFileSync(scriptPath, windowsLaunchScript({ cwd: repoPath, env, argv, envFile }));
+    } catch (err) {
+      return `Failed to write the launch script: ${err instanceof Error ? err.message : String(err)}`;
+    }
 
-    setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
+    setTimeout(() => {
+      for (const f of [scriptPath, envFile]) { try { fs.unlinkSync(f); } catch { /* ignore */ } }
+    }, 60_000);
 
     try {
       spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', scriptPath], {
@@ -113,19 +113,10 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
     }
   }
 
-  // POSIX (macOS / Linux): bash script that sources rc files for PATH, then runs.
-  const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
-  fs.writeFileSync(scriptPath, [
-    '#!/usr/bin/env bash',
-    `cd ${JSON.stringify(repoPath)}`,
-    `export NEONCORE_URL=${JSON.stringify(neonUrl)}`,
-    `export NEONCORE_SESSION_ID=${JSON.stringify(sessionId)}`,
-    ...posixExtraEnv,
-    '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
-    '[ -f "$HOME/.zshrc"  ] && source "$HOME/.zshrc"  2>/dev/null',
-    '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
-    command,
-  ].join('\n') + '\n');
+  // POSIX (macOS / Linux): bash script that sources rc files for PATH, then runs. Every value in
+  // it is single-quoted — they come from requests and from text people type.
+  const scriptPath = launchTempPath('.sh');
+  fs.writeFileSync(scriptPath, posixLaunchScript({ cwd: repoPath, env, argv }));
   fs.chmodSync(scriptPath, '755');
 
   setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
@@ -133,33 +124,29 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
   // `bash <script>`, not the bare path: a fresh executable waits on macOS's malware scan (and can be killed).
   if (process.platform === 'darwin') {
     let iterm2Running = false;
-    try { execSync('pgrep -x iTerm2', { stdio: 'ignore', timeout: 1000 }); iterm2Running = true; } catch { /* no */ }
+    try { execFileSync('pgrep', ['-x', 'iTerm2'], { stdio: 'ignore', timeout: 1000 }); iterm2Running = true; } catch { /* no */ }
 
     if (iterm2Running) {
       try {
-        execSync(
-          `osascript` +
-          ` -e 'tell application "iTerm2"'` +
-          ` -e 'set w to (create window with default profile)'` +
-          ` -e 'tell current session of w'` +
-          ` -e 'write text ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}'` +
-          ` -e 'end tell'` +
-          ` -e 'end tell'`,
-          { timeout: 8000 }
-        );
+        execFileSync('osascript', [
+          '-e', 'tell application "iTerm2"',
+          '-e', 'set w to (create window with default profile)',
+          '-e', 'tell current session of w',
+          '-e', `write text ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}`,
+          '-e', 'end tell',
+          '-e', 'end tell',
+        ], { timeout: 8000 });
         return null;
       } catch { /* fall through to Terminal.app */ }
     }
 
     try {
-      execSync(
-        `osascript` +
-        ` -e 'tell application "Terminal"'` +
-        ` -e 'do script ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}'` +
-        ` -e 'activate'` +
-        ` -e 'end tell'`,
-        { timeout: 8000 }
-      );
+      execFileSync('osascript', [
+        '-e', 'tell application "Terminal"',
+        '-e', `do script ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}`,
+        '-e', 'activate',
+        '-e', 'end tell',
+      ], { timeout: 8000 });
       return null;
     } catch (err) {
       return `Failed to open Terminal.app: ${err instanceof Error ? err.message : String(err)}`;
@@ -174,7 +161,7 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
     ];
     for (const [term, args] of terminals) {
       try {
-        execSync(`which ${term}`, { stdio: 'ignore', timeout: 1000 });
+        execFileSync('which', [term], { stdio: 'ignore', timeout: 1000 });
         spawn(term, args, { detached: true, stdio: 'ignore' }).unref();
         return null;
       } catch { /* try next */ }
@@ -187,50 +174,8 @@ export function openInTerminal(repoPath: string, command: string, sessionId: str
 }
 
 // ---------------------------------------------------------------------------
-// CLI agent registration
-// ---------------------------------------------------------------------------
-
-/**
- * Register a CLI agent directly via the local API so the cartridge appears
- * in NeonCore immediately when the terminal opens, without waiting for a hook.
- */
-export function registerCliAgent(repoPath: string, agentType: string, sessionId: string): void {
-  const port = process.env.PORT || 4040;
-  const body = JSON.stringify({
-    machine: os.hostname(),
-    repoPath,
-    repoName: path.basename(repoPath),
-    agentType,
-    status: 'idle',
-    sessionId,
-  });
-  try {
-    const req = http.request({
-      hostname: 'localhost',
-      port: Number(port),
-      path: '/api/agents/register',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        // Registers a cartridge exactly once per new repo — rare enough that it would have
-        // sat unnoticed between appearances and 401'd the first launch after strict.
-        ...(getFleetToken() ? { Authorization: `Bearer ${getFleetToken()}` } : {}),
-      },
-    });
-    req.on('error', () => { /* fire-and-forget */ });
-    req.write(body);
-    req.end();
-  } catch { /* ignore */ }
-}
-
-// ---------------------------------------------------------------------------
 // Open directory in VS Code / CLI terminal
 // ---------------------------------------------------------------------------
-
-// Every entry here named an engine that is no longer supported. Kept as an empty map rather
-// than deleted so the terminal-launch branch stays intact for a future CLI engine.
-export const CLI_COMMANDS: Record<string, string> = {};
 
 let _codeBin: string | null = null;
 
@@ -330,12 +275,8 @@ function ensureRelayInstall(): string {
  * bootstrap launches the relay in the terminal's cwd (the cartridge directory),
  * so the agent registers against the right repo.
  */
-function buildRelayLaunchCommand(): string {
-  const launchEntry = ensureRelayInstall();
-  // Plain double-quotes are valid in both POSIX shells and cmd.exe; do NOT use
-  // JSON.stringify here — it would double Windows backslashes, which cmd treats
-  // literally and would break the path.
-  return `node "${launchEntry}"`;
+function buildRelayLaunchCommand(): string[] {
+  return ['node', ensureRelayInstall()];
 }
 
 /**
@@ -390,7 +331,8 @@ export function relayLaunchEnv(
   sessionId: string,
   resumeSessionId = '',
 ): Record<string, string> | null {
-  const type = RELAY_LAUNCH_TYPES[alias];
+  // Own keys only: an agentType of 'constructor' or 'toString' arrives from request bodies.
+  const type = Object.hasOwn(RELAY_LAUNCH_TYPES, alias) ? RELAY_LAUNCH_TYPES[alias] : undefined;
   if (!type) return null;
 
   const env: Record<string, string> = type === 'gridlight'
@@ -437,38 +379,38 @@ export function openDirectory(
     return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, relayEnv);
   }
 
-  // CLI tools
-  if (agentType in CLI_COMMANDS) {
-    const sessionId = `neoncore-${agentType}-${Date.now()}`;
-    const err = openInTerminal(dirPath, CLI_COMMANDS[agentType], sessionId);
-    if (err) return err;
-    registerCliAgent(dirPath, agentType, sessionId);
-    return null;
-  }
-
   // VS Code-based tools (claude, gridlight, codex)
   const resolvedType = agentType === 'gridlight' ? 'gridlight'
     : agentType === 'codex' ? 'codex'
     : 'claude';
   writeVscodeSettings(dirPath, resolvedType);
 
-  if (!_codeBin) _codeBin = findCodeBinary();
+  return openInVsCode(dirPath) ? null : 'Failed to open VS Code. Is the "code" CLI installed?';
+}
 
-  try {
-    execSync(`"${_codeBin}" "${dirPath}"`, { timeout: 5000 });
-    return null;
-  } catch {
-    if (process.platform === 'darwin') {
-      try {
-        execSync(`open -a "Visual Studio Code" "${dirPath}"`, { timeout: 5000 });
-        return null;
-      } catch { /* fall through */ }
-    } else if (process.platform === 'win32') {
-      try {
-        execSync(`start "" "Code" "${dirPath}"`, { timeout: 5000, shell: 'cmd.exe' });
-        return null;
-      } catch { /* fall through */ }
-    }
-    return 'Failed to open VS Code. Is the "code" CLI installed?';
+/**
+ * Open a folder in VS Code. The folder is passed as an ARGUMENT, never pasted into a shell
+ * command line: it arrives in HTTP request bodies, and `"${path}"` inside a shell string runs
+ * whatever `$(…)` or `"; …` the path carries. cmd.exe (needed for code.cmd on Windows) cannot
+ * quote `"` or `%`, so such a path is refused there. True when VS Code was started.
+ */
+export function openInVsCode(target: string, opts: { newWindow?: boolean } = {}): boolean {
+  if (!_codeBin) _codeBin = findCodeBinary();
+  const isWin = process.platform === 'win32';
+  if (isWin && /["%\r\n]/.test(target)) return false;
+  const flag = opts.newWindow ? ['--new-window'] : [];
+  const attempts: [string, string[]][] = isWin
+    ? [
+        ['cmd.exe', ['/d', '/s', '/c', `""${_codeBin}" ${flag.join(' ')} "${target}""`]],
+        ['cmd.exe', ['/d', '/s', '/c', `start "" "Code" ${flag.join(' ')} "${target}"`]],
+      ]
+    : [
+        [_codeBin, [...flag, target]],
+        ...(process.platform === 'darwin' && !opts.newWindow ? [['open', ['-a', 'Visual Studio Code', target]] as [string, string[]]] : []),
+      ];
+  for (const [file, args] of attempts) {
+    const r = spawnSync(file, args, { timeout: 5000, stdio: 'ignore', windowsVerbatimArguments: isWin });
+    if (!r.error && r.status === 0) return true;
   }
+  return false;
 }

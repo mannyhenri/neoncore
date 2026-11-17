@@ -258,3 +258,42 @@ test('the pid cannot go stale when the relay replaces its child', () => {
   assert.match(spawnBody, /process\.exit\(/,
     'the active child must still terminate the relay');
 });
+
+/* ── 5. Only an engine that HAS an addressed inbox records one ───────────── */
+
+test('an engine with no addressed inbox (codex, gridlight) never records one', async () => {
+  /*
+   * Only Claude Code binds /tmp/cc-socks/<pid>.sock. The relay used to report its child's pid
+   * for every engine, so a Codex or Gridlight row carried an "inbox". A command dispatched in
+   * the second before the relay's socket joined its room took the inbox branch, found no
+   * socket, and marked the live cartridge interrupted and offline.
+   */
+  await boot();
+  for (const agentType of ['codex', 'gridlight']) {
+    const { repoPath } = await register({ agentType, inboxPid: 5151, inboxToken: 'tok-not-an-inbox-xx' });
+    const row = rowFor(repoPath);
+    assert.equal(Number(row.inbox_pid), 0, `${agentType} recorded an inbox pid it cannot have`);
+    assert.equal(row.inbox_token, '', `${agentType} recorded an inbox token`);
+  }
+  server.close();
+});
+
+test('a stale inbox on a non-Claude row is cleared by its next registration', async () => {
+  await boot();
+  const { repoPath } = await register({ agentType: 'codex' });
+  db.prepare('UPDATE agents SET inbox_pid = 6161, inbox_token = ? WHERE repo_path = ?').run('tok-stale-before-fix', repoPath);
+  await register({ agentType: 'codex' }, repoPath);
+  assert.equal(Number(rowFor(repoPath).inbox_pid), 0, 'a codex row kept an inbox from before the fix');
+  // A hook payload without agentType (defaults to claude) must not re-open it either.
+  db.prepare('UPDATE agents SET inbox_pid = 6262 WHERE repo_path = ?').run(repoPath);
+  await register({ agentType: undefined }, repoPath);
+  assert.equal(Number(rowFor(repoPath).inbox_pid), 0);
+  server.close();
+});
+
+test('the relay reports an inbox only for Claude', () => {
+  const src = relaySrc();
+  const at = src.indexOf('async function reportInbox');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+  assert.match(body, /AGENT_TYPE !== 'claude'|HAS_INBOX/, 'the relay reports an inbox for engines that have none');
+});

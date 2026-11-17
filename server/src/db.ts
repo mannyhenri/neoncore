@@ -101,11 +101,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_permissions_agent ON permissions(agent_id);
   CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (agent_id) REFERENCES agents(id)
+    updated_at TEXT NOT NULL
   );
 
   -- Capability-gated engine routing. TWO tables, not one, because the grain and the
@@ -260,26 +259,9 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN standard_offered INTEGER NOT NULL DEFAULT 0`);
 }
 
-// Epic Autopilot table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS epic_runs (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    current_task INTEGER NOT NULL DEFAULT 0,
-    tasks TEXT NOT NULL DEFAULT '[]',
-    config TEXT NOT NULL DEFAULT '{}',
-    previous_mode TEXT NOT NULL DEFAULT 'manual',
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    error TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY (agent_id) REFERENCES agents(id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_epic_runs_status ON epic_runs(status);
-  CREATE INDEX IF NOT EXISTS idx_epic_runs_agent ON epic_runs(agent_id);
-`);
+// The Epic Autopilot (`epic_runs`, /api/epics) was removed: no UI, no rows, and nothing ever
+// advanced a run past its first task. Workflows (Epic: Task by Task, Confer) replaced it.
+db.exec('DROP TABLE IF EXISTS epic_runs');
 
 // Workflow table
 db.exec(`
@@ -1157,6 +1139,28 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_goal_pilot_stages_pilot ON goal_pilot_stages(pilot_id);
 
+  -- What a task-list run has got through, as the ENGINE saw it (lib/run-progress.ts): every loop
+  -- dispatch's claim (DONE / BLOCKED / SKIPPED <task> · k remaining) and every coverage check
+  -- (done/total and what the engine did about it). Machine-independent: the progress document
+  -- lives in a repo that may be on another computer; this is what the server itself observed.
+  CREATE TABLE IF NOT EXISTS run_progress (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    step_id TEXT NOT NULL DEFAULT '',
+    step_name TEXT NOT NULL DEFAULT '',
+    -- task | coverage
+    kind TEXT NOT NULL,
+    task_id TEXT NOT NULL DEFAULT '',
+    -- task: DONE | BLOCKED | SKIPPED · coverage: complete | loop-back | held | accepted | continued
+    verdict TEXT NOT NULL DEFAULT '',
+    remaining INTEGER,
+    done INTEGER,
+    total INTEGER,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_run_progress_workflow ON run_progress(workflow_id, created_at);
+
   -- The acceptance contract of a piloted goal (lib/acceptance-contract.ts): numbered criteria, the
   -- tests that encode them (contents + hashes, locked by the person), every check NeonCore ran, and
   -- every amendment. One per pilot.
@@ -1375,6 +1379,32 @@ if (orphanNotes.length > 0) {
   console.log(`[db] Migrated ${orphanNotes.length} notes to project-scoped`);
 }
 
+// Notes belong to a PROJECT, not to a cartridge. The table used to carry a foreign key to
+// agents, so a project note had to borrow "any agent for this project": a project with no
+// cartridge yet could not take a note at all (the constraint refused '__project__' — foreign
+// keys ARE enforced on this connection), and deleting the borrowed cartridge took the notes
+// with it. SQLite cannot drop a constraint in place, so the table is rebuilt once.
+if ((db.prepare('PRAGMA foreign_key_list(notes)').all() as unknown[]).length > 0) {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE notes_rebuilt (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        project TEXT NOT NULL DEFAULT ''
+      );
+      INSERT INTO notes_rebuilt (id, agent_id, content, created_at, updated_at, project)
+        SELECT id, agent_id, content, created_at, updated_at, project FROM notes;
+      DROP TABLE notes;
+      ALTER TABLE notes_rebuilt RENAME TO notes;
+      CREATE INDEX IF NOT EXISTS idx_notes_project ON notes(project);
+    `);
+  })();
+  console.log('[db] notes no longer reference a cartridge');
+}
+
 // ── Seed default workflow templates ──────────────────────────────────────────
 // Creates 5 starter templates if none exist yet. Safe to run on every boot —
 // skips seeding if any pending templates are already present.
@@ -1511,6 +1541,19 @@ for (const [table, column, decl] of [
   ['workflows', 'standard_gate', "TEXT NOT NULL DEFAULT 'auto'"],
   ['workflows', 'autonomy_expires_at', 'TEXT'],
   ['projects', 'default_autonomy', "TEXT NOT NULL DEFAULT 'manual'"],
+  // The run's living progress document — `{ "path": <absolute>, "agentId": <who wrote it> }` — read
+  // from a `PROGRESS: <path>` line in a step's result (lib/run-progress.ts). '' until one says so.
+  ['workflows', 'progress_doc', "TEXT NOT NULL DEFAULT ''"],
+  // A scheduled CONFER: the cartridges that work it together, and how. Empty for an ordinary
+  // schedule, which runs on `agent_id` alone. A confer scheduled with one cartridge died at its
+  // confer step ("needs at least 2 participants") every time it fired.
+  ['heartbeats', 'confer_agent_ids', "TEXT NOT NULL DEFAULT '[]'"],
+  ['heartbeats', 'confer_mode', "TEXT NOT NULL DEFAULT ''"],
+  ['heartbeats', 'confer_isolation', "TEXT NOT NULL DEFAULT ''"],
+  // A Goal Pilot stage worked by SEVERAL cartridges together (a Confer stage): the repos and
+  // engines of every participant, `[{ repoPath, agentType }]`. Empty = one cartridge, in
+  // repo_path/agent_type as before. The first participant is also written to repo_path/agent_type.
+  ['goal_pilot_stages', 'participants', "TEXT NOT NULL DEFAULT '[]'"],
 ] as const) {
   try {
     db.prepare(`SELECT ${column} FROM ${table} LIMIT 1`).get();

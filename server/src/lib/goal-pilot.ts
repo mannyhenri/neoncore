@@ -262,6 +262,11 @@ export interface PilotStage {
   focus: string;
   repoPath: string;
   agentType: string;
+  /**
+   * A stage worked by several cartridges together (a Confer stage): every participant's repo and
+   * engine. Empty for a one-cartridge stage. The first participant is also repoPath/agentType.
+   */
+  participants: { repoPath: string; agentType: string }[];
   projectId: string;
   runId: string;
   agentId: string;
@@ -546,6 +551,8 @@ function rowToStage(row: Record<string, unknown>): PilotStage {
     focus: (row.focus as string) || '',
     repoPath: (row.repo_path as string) || '',
     agentType: (row.agent_type as string) || 'claude',
+    participants: parse<{ repoPath: string; agentType: string }[]>(row.participants, [])
+      .filter((p) => p && typeof p.repoPath === 'string' && p.repoPath.trim()),
     projectId: (row.project_id as string) || '',
     runId: (row.run_id as string) || '',
     agentId: (row.agent_id as string) || '',

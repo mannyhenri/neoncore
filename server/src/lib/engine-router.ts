@@ -165,20 +165,6 @@ export function eligibilityMap(
   return out;
 }
 
-/** Counts by engine and state — the headline a human reads. */
-export function summarise(map: Record<string, RoutingDecision>) {
-  const local = Object.values(map).filter((d) => d.engine === 'local');
-  return {
-    total: Object.keys(map).length,
-    local: local.length,
-    frontier: Object.keys(map).length - local.length,
-    byState: Object.values(map).reduce<Record<string, number>>((acc, d) => {
-      acc[d.state] = (acc[d.state] || 0) + 1;
-      return acc;
-    }, {}),
-  };
-}
-
 function fmt(n: number): string {
   return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : String(n);
 }

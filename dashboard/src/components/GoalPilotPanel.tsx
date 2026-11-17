@@ -17,6 +17,7 @@
  * them only so the panel can say what is missing before a request is refused.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CoverageChoice, RunProgressModal } from './RunProgress';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
@@ -25,7 +26,7 @@ import type { Agent, Goal, GoalPilot, GoalPilotMeta, PilotAnswer, PilotBrief, Pi
 import {
   PILOT_STEPS, stepIndexFor, isLivePilot, waitingOnPlanner, suggestionFor, missingRequired, acceptSuggestions,
   answerLabel, moveItem, draftStagesFrom, includedStages, plannerCandidates, defaultEngine, engineStatus,
-  resolveAssignments, intakeFromGoal, STAGE_TONE, STAGE_ICON, since, pipelineSummary, type DraftStage,
+  resolveAssignments, resolveTeams, intakeFromGoal, STAGE_TONE, STAGE_ICON, since, pipelineSummary, type DraftStage,
   draftCriteriaFrom, criteriaProblems, type DraftCriterion,
 } from '../lib/goalPilot';
 
@@ -575,6 +576,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   const [repos, setRepos] = useState<PilotCandidateRepo[] | null>(null);
   const [chosen, setChosen] = useState<Record<string, string>>({});      // repoPath → engine
   const [assign, setAssign] = useState<Record<string, string>>({});      // stage key → repoPath
+  const [teamPick, setTeamPick] = useState<Record<string, string[]>>({}); // team stage key → repoPaths
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const stages = pilot.plan?.stages ?? [];
@@ -601,7 +603,14 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   }, [pilot.goalId, pilot.plannerAgentId]);
 
   const chosenPaths = Object.keys(chosen);
-  const assignments = resolveAssignments(placed.map((s) => s.key), chosenPaths, assign);
+  // Stages worked by several cartridges together (Confer): two or more repos each, not one.
+  const teamNames = new Set(meta.teamTemplates ?? []);
+  const teamKeys = stages.filter((s) => teamNames.has(s.template)).map((s) => s.key);
+  const { teams, short } = resolveTeams(teamKeys, chosenPaths, teamPick);
+  const assignments: Record<string, string | string[]> = {
+    ...resolveAssignments(placed.map((s) => s.key), chosenPaths, assign),
+    ...teams,
+  };
   const byPath = new Map((repos ?? []).map((r) => [r.repoPath, r]));
 
   const start = async () => {
@@ -664,16 +673,38 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
         )}
       </div>
 
-      {chosenPaths.length > 1 && (
+      {(chosenPaths.length > 1 || teamKeys.length > 0) && (
         <div>
           <h3 className="text-[11px] text-gray-400 uppercase tracking-wider mb-1">Where each stage runs</h3>
           <div className="space-y-1">
-            {placed.map((s, i) => (
+            {placed.map((s, i) => teamKeys.includes(s.key) ? (
+              <div key={s.key} className="text-[12px] space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600 w-4">{i + 1}.</span>
+                  <span className="text-gray-300 flex-1 truncate">{s.title} <span className="text-gray-600">· {s.template} — worked together by:</span></span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pl-6">
+                  {chosenPaths.map((p) => (
+                    <label key={p} className="flex items-center gap-1 text-gray-300">
+                      <input type="checkbox" className="accent-violet-500" checked={teams[s.key]?.includes(p) ?? false}
+                        onChange={() => setTeamPick((prev) => {
+                          const cur = teams[s.key] ?? [];
+                          return { ...prev, [s.key]: cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p] };
+                        })} />
+                      {byPath.get(p)?.repoName ?? p}
+                    </label>
+                  ))}
+                  {short.includes(s.key) && (
+                    <span className="text-amber-300/90">Needs two or more repos{chosenPaths.length < 2 ? ' — choose another repo above' : ''}.</span>
+                  )}
+                </div>
+              </div>
+            ) : (
               <div key={s.key} className="flex items-center gap-2 text-[12px]">
                 <span className="text-gray-600 w-4">{i + 1}.</span>
                 <span className="text-gray-300 flex-1 truncate">{s.title} <span className="text-gray-600">· {s.template}</span></span>
                 <select className="bg-black/30 border border-white/10 rounded px-1.5 py-1 text-[12px] text-gray-300"
-                  value={assignments[s.key]} onChange={(e) => setAssign((prev) => ({ ...prev, [s.key]: e.target.value }))}>
+                  value={String(assignments[s.key] ?? '')} onChange={(e) => setAssign((prev) => ({ ...prev, [s.key]: e.target.value }))}>
                   {chosenPaths.map((p) => <option key={p} value={p}>{byPath.get(p)?.repoName ?? p}</option>)}
                 </select>
               </div>
@@ -696,7 +727,8 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
       {error && <p className="text-[12px] text-amber-300">{error}</p>}
       <div className="flex items-center justify-between gap-2">
         <button onClick={revise} className="text-[11px] text-gray-500 hover:text-gray-300">← Change the plan</button>
-        <button onClick={start} disabled={busy || chosenPaths.length === 0} className={primaryBtn}>
+        <button onClick={start} disabled={busy || chosenPaths.length === 0 || short.length > 0} className={primaryBtn}
+          title={short.length ? 'A stage worked together needs two or more repos' : undefined}>
           {busy ? 'Starting…' : `Start the pipeline · ${stages.length} workflow${stages.length === 1 ? '' : 's'}`}
         </button>
       </div>
@@ -711,11 +743,13 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [progressOpen, setProgressOpen] = useState(false);
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true); setError('');
     try { await fn(); onChanged(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   };
   const live = pilot.phase === 'running' || pilot.phase === 'paused';
+  const team = (stage.participants ?? []).map((p) => p.repoPath.split(/[\\/]/).pop()).filter(Boolean);
   const pct = stage.progress && stage.progress.total ? Math.round((stage.progress.completed / stage.progress.total) * 100) : null;
   const repoName = stage.repoPath.split(/[\\/]/).pop();
   const kindBadge = stage.kind === 'acceptance' ? '⚖ acceptance tests' : stage.kind === 'review' ? '⚖ independent review' : `⇉ ${stage.template}`;
@@ -730,7 +764,9 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
             <span className="text-[13px] text-gray-100 font-medium">{index + 1}. {stage.title}</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stage.kind === 'workflow' ? 'bg-white/[0.05] border-white/10 text-gray-400' : 'bg-sky-900/30 border-sky-700/40 text-sky-200'}`}>{kindBadge}</span>
             <span className="text-[10px] text-gray-600">
-              {stage.agentName || (stage.kind === 'review' ? 'a cartridge that did not do the work' : `${ENGINE_LABEL[stage.agentType] ?? stage.agentType} · ${repoName}`)}
+              {team.length >= 2
+                ? `worked together by ${team.join(' + ')}`
+                : stage.agentName || (stage.kind === 'review' ? 'a cartridge that did not do the work' : `${ENGINE_LABEL[stage.agentType] ?? stage.agentType} · ${repoName}`)}
             </span>
             {stage.attempts > 1 && <span className="text-[10px] text-gray-600">attempt {stage.attempts}</span>}
           </div>
@@ -775,11 +811,25 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
               <pre className="mt-1 text-[11px] text-gray-400 bg-black/30 rounded-md p-2 whitespace-pre-wrap max-h-56 overflow-auto">{stage.resultSummary}</pre>
             </details>
           )}
+          {progressOpen && stage.runId && (
+            <RunProgressModal workflowId={stage.runId} title={stage.title} onClose={() => { setProgressOpen(false); onChanged(); }} />
+          )}
           {error && <p className="text-[12px] text-amber-300 mt-1">{error}</p>}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* A held step is the one kind of "needs you" a single click settles — no reason to send
               the person into the canvas for it. Decisions and questions need the run's own UI. */}
+          {/* Tasks still open and no further progress: keep working, or accept — never decided
+              for you (server lib/coverage-loop.ts). */}
+          {stage.attention?.reason === 'tasks-outstanding' && stage.attention.stepId && stage.runId && (
+            <CoverageChoice compact workflowId={stage.runId} stepId={stage.attention.stepId} onDone={onChanged} />
+          )}
+          {stage.runId && (
+            <button onClick={() => setProgressOpen(true)} title="The run's progress document and what the engine has seen"
+              className="text-[11px] px-2 py-1 rounded border border-white/10 text-sky-300 hover:bg-white/5">
+              Progress
+            </button>
+          )}
           {stage.attention?.reason === 'manual-advance' && stage.attention.stepId && (
             <button
               disabled={busy}

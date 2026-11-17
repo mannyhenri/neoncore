@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { execSync, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -230,10 +230,10 @@ router.post('/create', (req, res) => {
 
     // 2. git init + first commit. -c supplies an identity so the commit never fails when
     //    no global git user is configured on the host.
-    const run = (cmd: string) => execSync(cmd, { cwd: targetPath, stdio: 'pipe' });
-    run('git init -b main');
-    run('git add -A');
-    run('git -c user.name="NeonCore" -c user.email="neoncore@gridlight.ai" commit -m "Initial commit"');
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: targetPath, stdio: 'pipe' });
+    git('init', '-b', 'main');
+    git('add', '-A');
+    git('-c', 'user.name=NeonCore', '-c', 'user.email=neoncore@gridlight.ai', 'commit', '-m', 'Initial commit');
 
     // 3. Create the GitHub repo and push. `gh` must be authed on this host. execFileSync (no
     //    shell) so the free-text description can't inject shell commands.

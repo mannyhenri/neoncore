@@ -111,9 +111,6 @@ Each agent runs in one of three modes (per-cartridge selector):
   `save-to-project`, plus an external `webhook` completion callback. See **[WORKFLOWS.md](WORKFLOWS.md)**.
 - **Steering & lifecycle** — pause / resume / cancel / delete runs; steer or skip individual steps.
 - **Learnings** — insights extracted from runs, scoped per project and fed back into heartbeats.
-- **Epic Autopilot** — an API only (`/api/epics`: scan tasks by prefix, start a batch with a
-  prompt template); there is no dashboard panel and **its server-side executor is disabled** —
-  treat as preview. Run an epic with the **Epic: Task by Task** workflow templates instead.
 
 ## Multi-engine agent support
 

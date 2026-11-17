@@ -27,6 +27,9 @@ import { KNOWLEDGE_FILES } from '../lib/knowledge-files.js';
 
 const router = Router();
 
+/** Engines whose session binds an addressed inbox at /tmp/cc-socks/<pid>.sock. */
+const INBOX_ENGINES = new Set(['claude']);
+
 // Relay fast-path: the agent's relay caught a SIGTERM (parent quit / kill) and
 // reports it is dying BEFORE the PTY is torn down. We immediately flag any of
 // this agent's running workflow steps as interrupted, instead of waiting for the
@@ -200,6 +203,15 @@ router.post('/register', (req, res) => {
     ? (inboxPid as number)
     : null;
   const reportedInboxToken = typeof inboxToken === 'string' && inboxToken !== '' ? inboxToken : null;
+  /*
+   * Only Claude Code binds that socket. Codex and Gridlight have no addressed inbox, so a pid
+   * reported for them is refused and any recorded one cleared (0 / ''): a dispatch that found no
+   * relay socket would otherwise try the "inbox", find nothing, and mark the live cartridge
+   * offline — which happened to every Codex/Gridlight cartridge dispatched to while starting.
+   */
+  const inboxFor = (type: string) => INBOX_ENGINES.has(type)
+    ? { pid: reportedInboxPid, token: reportedInboxToken }
+    : { pid: 0, token: '' };
 
   const now = new Date().toISOString();
 
@@ -267,7 +279,7 @@ router.post('/register', (req, res) => {
       statusToSet, questionToSet,
       now, sessionId || existing.session_id,
       typeToSet, reportedModel,
-      reportedInboxPid, reportedInboxToken,
+      inboxFor(typeToSet).pid, inboxFor(typeToSet).token,
       existing.id
     );
 
@@ -336,8 +348,8 @@ router.post('/register', (req, res) => {
     // First registration is the common case; omitting model here left every new cartridge
     // with model='' and therefore permanently UNMEASURED.
     reportedModel,
-    reportedInboxPid ?? 0,
-    reportedInboxToken ?? ''
+    inboxFor(resolvedType).pid ?? 0,
+    inboxFor(resolvedType).token ?? ''
   );
 
   const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;

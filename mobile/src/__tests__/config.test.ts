@@ -20,8 +20,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 const {
-  loadServers, saveServers, upsertServer, removeServer, setServerHidden,
-  setFleetToken, activeServers, normalizeUrl, loadServerUrl,
+  loadServers, saveServers, upsertServer, normalizeUrl,
 } = await import('../config');
 
 const LEGACY_KEY = 'neoncore.serverUrl';
@@ -73,11 +72,6 @@ describe('migration from the single-server build', () => {
     const servers = await loadServers();
     expect(servers[0].url).toBe('http://desktop.local:4040');
   });
-
-  it('loadServerUrl still answers for push registration and deep links', async () => {
-    store.set(LEGACY_KEY, 'http://desktop.local:4040');
-    expect(await loadServerUrl()).toBe('http://desktop.local:4040');
-  });
 });
 
 describe('url normalization', () => {
@@ -114,25 +108,6 @@ describe('roster operations', () => {
     servers = upsertServer(servers, { url: 'http://a:4040' });
     expect(servers[0].name).toBe('alpha');
     expect(servers[0].serverId).toBe('sid-1');
-  });
-
-  it('hiding keeps a server stored but out of the grid', () => {
-    let servers = upsertServer([], { url: 'http://a:4040' });
-    servers = setServerHidden(servers, 'http://a:4040', true);
-    expect(servers).toHaveLength(1);
-    expect(activeServers(servers)).toHaveLength(0);
-  });
-
-  it('one token applies to the whole fleet', () => {
-    let servers = upsertServer([], { url: 'http://a:4040' });
-    servers = upsertServer(servers, { url: 'http://b:4040' });
-    servers = setFleetToken(servers, 'tok');
-    expect(servers.every((s) => s.token === 'tok')).toBe(true);
-  });
-
-  it('removing normalizes, so the displayed URL is removable', () => {
-    const servers = upsertServer([], { url: 'http://a:4040' });
-    expect(removeServer(servers, 'http://A:4040/')).toHaveLength(0);
   });
 
   it('saved rosters round-trip and stay deduped', async () => {

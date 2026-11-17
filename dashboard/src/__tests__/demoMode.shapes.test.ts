@@ -92,7 +92,7 @@ describe('the demo carries the template library and a real spread of goals', () 
 
   it('carries the templates a demo would be asked about', async () => {
     const names: string[] = (await get('workflows')).map((w: { name: string }) => w.name);
-    for (const want of ['Bug Investigation', 'Daily AI Research Digest', 'Confer', 'Deep Research']) {
+    for (const want of ['Bug Investigation', 'Super QA', 'Confer', 'Deep Research']) {
       expect(names, `"${want}" is missing from the demo library`).toContain(want);
     }
   });

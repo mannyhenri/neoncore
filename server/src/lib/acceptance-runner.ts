@@ -616,11 +616,22 @@ export function pickReviewer(pilot: GoalPilot): { agentId: string; independent: 
   const stages = stagesOf(pilot.id).filter((s) => s.kind === 'workflow' && s.agentId);
   const workerIds = new Set(stages.map((s) => s.agentId));
   const workerEngines = new Set(stages.map((s) => s.agentType));
+  // A stage worked by several cartridges together (a Confer stage) records only its first
+  // cartridge as agent_id. Every participant did the work: none of them is independent.
+  const teamWorker = new Set<string>();
+  for (const s of stages) {
+    for (const p of s.participants ?? []) {
+      teamWorker.add(`${normalizeRepoPath(p.repoPath)}|${p.agentType}`);
+      workerEngines.add(p.agentType);
+    }
+  }
+  const didWork = (a: { id: string; repo_path: string; agent_type: string }) =>
+    workerIds.has(a.id) || teamWorker.has(`${normalizeRepoPath(a.repo_path)}|${a.agent_type}`);
   const live = (db.prepare(`SELECT id, repo_path, agent_type, status FROM agents WHERE status != 'offline' AND dismissed_at IS NULL ORDER BY last_seen DESC`).all() as
     { id: string; repo_path: string; agent_type: string; status: string }[]).filter((a) => repos.has(normalizeRepoPath(a.repo_path)));
   const atHome = live.filter((a) => normalizeRepoPath(a.repo_path) === home);
   const elsewhere = live.filter((a) => normalizeRepoPath(a.repo_path) !== home);
-  const independent = (pool: typeof live) => pool.find((a) => !workerEngines.has(a.agent_type)) ?? pool.find((a) => !workerIds.has(a.id));
+  const independent = (pool: typeof live) => pool.find((a) => !workerEngines.has(a.agent_type)) ?? pool.find((a) => !didWork(a));
   const pick = independent(atHome) ?? independent(elsewhere);
   if (pick) return { agentId: pick.id, independent: true };
   const fallback = atHome[0] ?? live[0];

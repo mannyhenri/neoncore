@@ -256,47 +256,6 @@ export interface StuckAlert {
   detectedAt: string;
 }
 
-export interface Note {
-  id: string;
-  agentId: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Epic Autopilot types
-export interface EpicTaskState {
-  taskId: string;
-  label: string;
-  taskFilePath: string;
-  status: 'pending' | 'running' | 'committing' | 'completed' | 'skipped' | 'failed';
-  startedAt: string;
-  completedAt: string;
-  error: string;
-}
-
-export interface EpicRunConfig {
-  idleThresholdMs: number;
-  commitCommand: string;
-  taskPromptTemplate: string;
-  skipCommitOnLast: boolean;
-  autoEnableTrust: boolean;
-  taskPrefix: string;
-}
-
-export interface EpicRun {
-  id: string;
-  name: string;
-  agentId: string;
-  status: 'pending' | 'running' | 'committing' | 'paused' | 'completed' | 'failed' | 'cancelled';
-  currentTask: number;
-  tasks: EpicTaskState[];
-  config: EpicRunConfig;
-  previousMode: AgentMode;
-  startedAt: string;
-  completedAt: string | null;
-  error: string;
-}
 
 // Workflow types
 export type WorkflowPhase = 'research' | 'coding' | 'review';
@@ -354,6 +313,18 @@ export interface Workflow {
     stepId: string;
     stepName: string;
     detail: string;
+  } | null;
+  /**
+   * Where a task-list run has got to — done/total (from its latest coverage check, or estimated
+   * from dispatch claims) and its progress document. Null for a run that tracks no task list.
+   */
+  progress?: {
+    done: number;
+    total: number | null;
+    blocked: number;
+    basis: 'coverage' | 'claims';
+    docPath: string;
+    updatedAt: string;
   } | null;
   createdAt: string;
   startedAt: string;
@@ -539,7 +510,6 @@ export type ServerToClientEvents = {
   permissions_expired: (data: { count: number }) => void;
   // A completion report came back from a cartridge and is now readable in that repo's journal.
   workflow_report_stored: (data: { id: string; project: string; workflowId: string }) => void;
-  epic_updated: (run: EpicRun) => void;
   workflow_updated: (workflow: Workflow) => void;
   workflow_deleted: (data: { id: string }) => void;
   workflow_step_updated: (step: WorkflowStep) => void;

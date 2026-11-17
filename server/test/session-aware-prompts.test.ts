@@ -10,6 +10,7 @@ import {
   setImmediateAdvance, executorSettled as engineSettled, __setFreshSessionTimingForTests, FRESH_SESSION_AFTER_RUN_DISPATCHES,
 } from '../src/lib/workflow-executor-v2.ts';
 import { loopCountRequirements } from '../src/lib/workflow-loop.ts';
+import { countsOwed } from '../src/lib/coverage-loop.ts';
 import { LEDGER_REFRESH_DISPATCHES, __resetLedgersForTests } from '../src/lib/session-ledger.ts';
 import { startWorkflowApp, stepsOf, verified, type WorkflowApp } from './helpers/workflow-app.ts';
 
@@ -127,10 +128,11 @@ async function drive(runId: string, answer: (name: string, k: number) => string 
       }
       acted = true;
       if (s.executor_type.endsWith('gate')) { await app.post(`/api/workflows/webhook/${s.id}/complete`, { result: 'PASS\nok', next: 'carry on' }); continue; }
-      const owed = loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config) })));
+      // Every count this step owes — counts other steps read from it, and a coverage step's own.
+      const owed = countsOwed({ name: s.name, config: cfg }, loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config) }))));
       const k = Number(cfg._currentLoop) || 1;
       const lines = [cfg.loopCountFrom ? `DONE T-${k} · ${Math.max(0, tasks - k)} remaining` : answer(s.name, k),
-        ...owed.map((o) => o.pattern.replace(/\(\\d\+\)/, String(tasks)).replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1'))];
+        ...owed.map((o) => o.pattern.replace(/\(\\d\+\)/g, String(tasks)).replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1'))];
       const res = await app.post(`/api/workflows/webhook/${s.id}/complete`, verified(lines.join('\n'), { next: `next after ${s.name}` }));
       assert.equal(res.status, 200, JSON.stringify(res.json));
     }

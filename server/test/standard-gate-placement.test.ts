@@ -135,7 +135,8 @@ test('every seeded template that gets the check: it audits work steps, never a c
       }
     }
   }
-  assert.ok(gated >= 8, `only ${gated} templates got the check — the set is too small to mean anything`);
+  // 7 since Epic: Confer Across Repos was merged into Confer (which still gets the check).
+  assert.ok(gated >= 7, `only ${gated} templates got the check — the set is too small to mean anything`);
   assert.deepEqual(wrong, []);
 });
 

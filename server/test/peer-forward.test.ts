@@ -55,7 +55,7 @@ function seedPeers(urls: string[]) {
 // and inheriting NEONCORE_DB_PATH would point that at a developer's real database.
 process.env.NEONCORE_DB_PATH = `/tmp/neoncore-peerfwd-${process.pid}.db`;
 
-const { findAgentOwner, forwardMessageToOwner, listFleetAgents, deliverToAgent, fetchPeerAgent } = await import('../src/lib/peer-forward.ts');
+const { findAgentOwner, forwardMessageToOwner, deliverToAgent, fetchPeerAgent } = await import('../src/lib/peer-forward.ts');
 
 // ─── Ownership resolution ───────────────────────────────────────────────────
 
@@ -146,38 +146,6 @@ test('every failure mode returns a reason instead of throwing', async () => {
     } finally { f.restore(); }
   }
   assert.deepEqual(silent, [], `these failed without explaining why: ${silent.join(', ')}`);
-});
-
-// ─── Fleet-wide agent listing ───────────────────────────────────────────────
-
-test('merges peer agents and tags each with its origin', async () => {
-  seedPeers([PEER_B]);
-  const f = withFleet(() => ({ status: 200, body: [{ id: 'remote-1', name: 'macbook/neoncore' }] }));
-  try {
-    const all = await listFleetAgents([{ id: 'local-1', name: 'macpro/neoncore' }]);
-    assert.equal(all.length, 2);
-    assert.equal(all.find((a) => a.id === 'local-1')!.origin, '');
-    assert.equal(all.find((a) => a.id === 'remote-1')!.origin, PEER_B);
-  } finally { f.restore(); }
-});
-
-test('a duplicate id keeps the LOCAL view', async () => {
-  seedPeers([PEER_B]);
-  const f = withFleet(() => ({ status: 200, body: [{ id: 'dup', name: 'stale-remote-copy' }] }));
-  try {
-    const all = await listFleetAgents([{ id: 'dup', name: 'authoritative-local' }]);
-    assert.equal(all.length, 1);
-    assert.equal(all[0].name, 'authoritative-local');
-  } finally { f.restore(); }
-});
-
-test('an unreachable peer does not blank the local list', async () => {
-  seedPeers([PEER_A]);
-  const f = withFleet(() => 'throw');
-  try {
-    const all = await listFleetAgents([{ id: 'local-1' }]);
-    assert.deepEqual(all.map((a) => a.id), ['local-1']);
-  } finally { f.restore(); }
 });
 
 // ─── Fleet-wide delivery (what the confer conductor uses) ───────────────────

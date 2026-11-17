@@ -17,27 +17,13 @@
  "CE Develop and Optimize": {
   "Develop and Optimize Every Task": [
    "SWITCHED to [id] — [blocked-id] depends on it"
-  ]
- },
- "CE: Full Delivery": {
-  "[P3] Build Summary": [
-   "STATUS:"
   ],
-  "[P4] Codex": [
-   "CODEX:"
+  "Load Work and Goals": [
+   "PROGRESS:"
   ],
-  "[P5] QA Browser Run": [
-   "STATUS:"
-  ],
-  "[P5] QA Report": [
-   "QA STATUS:"
-  ],
-  "[P6] Merge Gate": [
-   "PR:",
-   "QA:"
-  ],
-  "[P6] Canary Watch": [
-   "CANARY:"
+  "Verify Coverage and Evidence": [
+   "COVERAGE:",
+   "OUTSTANDING"
   ]
  },
  "CE: Phase 3 — Implement": {
@@ -70,33 +56,29 @@
    "CANARY STATUS:"
   ]
  },
- "Daily AI Filmmaking Digest": {
-  "Archive Note": [
-   "- YYYY-MM-DD | <title> | <url>"
-  ]
- },
- "Daily AI Research Digest": {
-  "Archive Note": [
-   "- YYYY-MM-DD | <title> | <url>"
-  ]
- },
- "Epic: Confer Across Repos": {
-  "Read the Epic": [
+ "Confer": {
+  "Scope the Work": [
+   "MODE:",
    "OBJECTIVE:",
    "ORDERING:",
+   "PROGRESS:",
    "REPOS:",
+   "STATE:",
    "TASKS:",
+   "TASK_COUNT:",
    "VERIFY:"
   ],
-  "Verify Across Repos": [
+  "Verify Coverage": [
    "BY REPO:",
    "COVERAGE:",
-   "INTERFACE:"
+   "INTERFACE:",
+   "OUTSTANDING"
   ]
  },
  "Epic: Task by Task": {
   "Load Epic": [
    "EPIC:",
+   "PROGRESS:",
    "ROOT:",
    "STATE:",
    "TASKS:",
@@ -124,6 +106,7 @@
   "Scope & Partition": [
    "BLOCKED_BY_A:",
    "EPIC:",
+   "PROGRESS:",
    "REPO_A:",
    "REPO_B:",
    "ROOT_A:",
@@ -162,6 +145,7 @@
   ],
   "Verify Both Repos": [
    "COMMITS:",
+   "COVERAGE:",
    "CROSS-REPO EDITS:",
    "REPO_A:",
    "REPO_B:",
@@ -172,16 +156,6 @@
  "Feature Validation": {
   "Code Implementation": [
    "IMPLEMENTED [file:line] — [brief description of what was changed and why]"
-  ]
- },
- "Gridlight Performance Improvement": {
-  "Load Jira Task": [
-   "QA COMMAND:",
-   "REPO:",
-   "TICKET:"
-  ],
-  "Run Local QA (7B)": [
-   "QA COMMAND:"
   ]
  },
  "Jira Tasks Validation": {

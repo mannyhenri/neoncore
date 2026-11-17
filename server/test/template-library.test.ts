@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import db from '../src/db.ts';
 import { STANDARD_TEMPLATE_NAMES } from '../src/db.ts';
+import { CONFER_EPIC_LINE } from '../src/lib/templates/confer.ts';
 
 const ROOT = path.join(import.meta.dirname, '..', '..');
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -86,7 +87,17 @@ test('the registry and the database agree — no template seeds that nobody decl
 
 // ── The two shells are gone, and stay gone ─────────────────────────────────────────────
 
-const RETIRED_TEMPLATES = ['CI/CD Pipeline', 'New Feature'];
+const RETIRED_TEMPLATES = [
+  'CI/CD Pipeline', 'New Feature',
+  // Removed as unused.
+  'Gridlight Local QA', 'Gridlight Full Release QA', 'Gridlight Performance Improvement',
+  // Removed as duplicates: Full Delivery copied the seven CE phases, Spec Intake overlapped
+  // Feature Validation. Merged: Epic: Confer Across Repos into Confer, the two QA templates
+  // into Super QA.
+  'CE: Full Delivery', 'Spec Intake → Dev Spec', 'Epic: Confer Across Repos', 'Full QA Review', 'Code Review & Audit',
+  // Removed as no longer wanted.
+  'Daily AI Research Digest', 'Daily AI Filmmaking Digest',
+];
 
 test('the promptless shells are retired AND deprecated, not merely unlisted', () => {
   for (const name of RETIRED_TEMPLATES) {
@@ -105,42 +116,125 @@ test('the promptless shells are retired AND deprecated, not merely unlisted', ()
   }
 });
 
-// ── The three new ones, each asserted on the thing it exists to do ─────────────────────
+// ── The templates, each asserted on the thing it exists to do ───────────────────────────
 
-test('Spec Intake reads a document, CHECKS its understanding, then gates development', () => {
-  const tpl = templateNamed('Spec Intake → Dev Spec');
-  assert.ok(tpl, 'Spec Intake → Dev Spec does not exist');
+test('Super QA covers every lens of BOTH templates it replaced', () => {
+  const tpl = templateNamed('Super QA');
+  assert.ok(tpl, 'Super QA does not exist');
   const steps = stepsOf(tpl.id);
-  const all = steps.map((s) => `${s.name} ${JSON.stringify(cfg(s))}`).join('\n');
+  const all = steps.map((s) => `${s.name}\n${String(cfg(s).prompt ?? '')}`).join('\n');
 
-  // The whole point is the comprehension check: a spec parsed wrong and built anyway is worse
-  // than one that was never parsed. So there is a HUMAN gate before any spec is written…
-  const gates = steps.filter((s) => s.auto_advance === 0 || s.executor_type === 'decision');
-  assert.ok(gates.length >= 2,
-    `expected at least 2 human checkpoints (comprehension + start development), found ${gates.length}`);
+  // SET-BASED over the union of what Full QA Review and Code Review & Audit each checked. A lens
+  // dropped in the merge is a class of bug nobody looks for any more.
+  const LENSES: [string, RegExp][] = [
+    ['Full QA: golden paths', /golden path/i],
+    ['Full QA: edge cases', /edge case/i],
+    ['Full QA: error handling', /error handling/i],
+    ['Full QA: performance', /N\+1/],
+    ['Full QA / Code Review: security', /OWASP|injection/i],
+    ['Full QA: accessibility', /WCAG/],
+    ['Full QA: health score', /health score/i],
+    ['Code Review: reads the diff of a change', /git diff main\.\.\.HEAD/],
+    ['Code Review: logic correctness', /AND\/OR|boolean/i],
+    ['Code Review: async and state', /race|awaited/i],
+    ['Code Review: test coverage, and writing the missing tests', /missing tests/i],
+    ['Both: one verdict', /SHIP WITH FIXES/],
+  ];
+  const missing = LENSES.filter(([, re]) => !re.test(all)).map(([name]) => name);
+  assert.deepEqual(missing, [], `Super QA lost: ${missing.join(', ')}`);
 
-  // …and a decision step that is literally "start development".
-  const decisions = steps.filter((s) => s.executor_type === 'decision');
-  assert.ok(decisions.length >= 1, 'no decision step — "hit start development" has nothing to hit');
-
-  assert.match(all, /attach/i, 'never tells the agent where the uploaded document is');
-  assert.match(all, /requirement/i, 'never enumerates requirements out of the document');
-  assert.match(all, /docs\/specs\//, 'writes no spec document to disk');
+  // Both originals ended on a report a human reviews before the run goes on.
+  const report = steps.find((s) => s.name === 'QA Report');
+  assert.ok(report && report.auto_advance === 0, 'the QA report is no longer a human checkpoint');
 });
 
-test('Daily AI Research reaches the WEB and renders an HTML artifact', () => {
-  const tpl = templateNamed('Daily AI Research Digest');
-  assert.ok(tpl, 'Daily AI Research Digest does not exist');
-  const all = stepsOf(tpl.id).map((s) => JSON.stringify(cfg(s))).join('\n');
+test('Confer with a Jira epic looks the epic up FIRST and keeps going until every task is done', () => {
+  const tpl = templateNamed('Confer');
+  assert.ok(tpl, 'Confer does not exist');
+  const steps = stepsOf(tpl.id);
+  const names = steps.map((s) => s.name);
 
-  assert.match(all, /WebSearch/, 'no WebSearch — a research digest that cannot reach the web is a summary of nothing');
-  assert.match(all, /WebFetch/, 'no WebFetch — headlines without the articles behind them');
-  // Self-containment used to be a PROMISE in the prompt. It is now a property of the fixed
-  // renderer (lib/digest-template.ts) and asserted directly in daily-digest-newspaper.test.ts,
-  // which is a stronger check than hoping an agent honoured a sentence.
-  assert.match(all, /api\/digest\/render/, 'the digest no longer goes through the fixed template, so it will look different every morning');
-  assert.match(all, /\.html/, 'produces no HTML file');
-  assert.match(all, /reddit/i, 'no AI noise section — the digest reports what shipped but not what people are saying');
+  // Scope comes before the confer and reads the epic from the launch context's epic line.
+  const scope = steps[0];
+  assert.equal(scope.executor_type, 'claude-code', 'the first step is not the one that reads the epic');
+  assert.ok(names.indexOf('Confer & Build') > 0, 'the confer runs before the epic is looked up');
+  const scopePrompt = String(cfg(scope).prompt ?? '');
+  assert.ok(scopePrompt.includes(CONFER_EPIC_LINE), 'Scope does not look for the epic line the launch form writes');
+  assert.match(scopePrompt, /EVERY child issue/, 'Scope does not collect every task in the epic');
+  assert.match(scopePrompt, /never invent tasks/i, 'with no Jira access, Scope would make tasks up');
+
+  // One cartridge scopes and verifies, even in a confer run.
+  for (const name of ['Scope the Work', 'Verify Coverage']) {
+    assert.equal(cfg(steps.find((s) => s.name === name)!).conferFill, 'single', `${name} would be conferred`);
+  }
+
+  // "Every task": the engine reads Verify Coverage's COVERAGE line (lib/coverage-loop.ts) and sends
+  // the run back to the CONFER while tasks are open. A coverage step that went back to anything
+  // else would re-count the same gap and never do the missing work.
+  const full = db.prepare('SELECT id, name, executor_type, executor_config FROM workflow_steps WHERE workflow_id = ?')
+    .all(tpl.id) as { id: string; name: string; executor_type: string; executor_config: string }[];
+  const byName = new Map(full.map((s) => [s.name, s]));
+  const verify = JSON.parse(byName.get('Verify Coverage')!.executor_config);
+  assert.deepEqual(verify.coverage?.retryFrom, ['Confer & Build'],
+    'Verify Coverage is not a coverage step that sends the run back to the confer');
+  assert.match(String(verify.prompt), /COVERAGE: \[done\]\/\[total\]/, 'Verify Coverage does not report the COVERAGE line the engine reads');
+
+  // Sized to the epic, not a fixed 3 rounds: the confer reads Scope's TASK_COUNT.
+  const confer = JSON.parse(byName.get('Confer & Build')!.executor_config);
+  assert.equal(confer.buildRoundsFrom?.step, 'Scope the Work', 'the confer is not sized from the task count');
+  assert.match(scopePrompt, /TASK_COUNT:/, 'Scope does not report the task count the confer is sized from');
+  assert.match(scopePrompt, /docs\/progress\//, 'Scope does not write the progress document');
+
+  // …and Confer keeps the Work Standard Check: a gate of its own would switch it off.
+  assert.ok(!full.some((s) => s.executor_type === 'quality-gate' || s.executor_type === 'review-gate'),
+    'Confer has its own gate, so it is launched without the Work Standard Check');
+});
+
+test('the launch form and the template agree on the epic line', () => {
+  const dashboard = read('dashboard/src/lib/conferLaunch.ts');
+  assert.ok(dashboard.includes(`export const CONFER_EPIC_LINE = '${CONFER_EPIC_LINE}';`),
+    'dashboard/src/lib/conferLaunch.ts writes a different epic line than Scope the Work looks for');
+});
+
+test('NO template step writes to a path on one person\'s machine', () => {
+  // Deep Research saved every epic to /Users/mannyhenri/Documents/Git/gridlight/.claude/scoping/,
+  // whatever repo the run was on. Set-based over every prompt of every template.
+  const offenders: string[] = [];
+  for (const name of STANDARD_TEMPLATE_NAMES) {
+    const tpl = templateNamed(name)!;
+    for (const s of stepsOf(tpl.id)) {
+      const text = JSON.stringify(cfg(s));
+      if (/\/Users\/|\/home\/[a-z]/.test(text)) offenders.push(`${name} / ${s.name}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('Deep Research saves the epic INTO the repository, where the epic templates look', () => {
+  const tpl = templateNamed('Deep Research')!;
+  const save = stepsOf(tpl.id).find((s) => s.name === 'Save Epic');
+  assert.ok(save, 'no Save Epic step');
+  const prompt = String(cfg(save).prompt ?? '');
+  assert.match(prompt, /git rev-parse --show-toplevel/, 'does not resolve the repository root');
+  assert.match(prompt, /docs\/plans\/EPIC-\[slug\]\.md/, 'does not save under docs/plans/');
+  // …which is one of the places the epic templates resolve an epic from.
+  const epic = stepsOf(templateNamed('Epic: Task by Task')!.id).map((s) => String(cfg(s).prompt ?? '')).join('\n');
+  assert.ok(epic.includes('docs/plans/*.md'), 'Epic: Task by Task no longer looks in docs/plans/');
+});
+
+test('EVERY continue-to-workflow step names a template that exists', () => {
+  const links: string[] = [];
+  const broken: string[] = [];
+  for (const name of STANDARD_TEMPLATE_NAMES) {
+    for (const s of stepsOf(templateNamed(name)!.id)) {
+      const c = cfg(s);
+      if (s.executor_type !== 'connector' || c.connectorType !== 'launch-workflow') continue;
+      links.push(`${name} → ${c.templateName}`);
+      if (!templateNamed(String(c.templateName))) broken.push(`${name} / ${s.name} → "${c.templateName}"`);
+    }
+  }
+  assert.ok(links.includes('CE: Phase 3 — Implement → CE: Phase 4 — Review'), `Phase 3 no longer continues: ${links.join(', ')}`);
+  assert.deepEqual(broken, []);
 });
 
 test('Confer is a template — two or more cartridges on one task', () => {
@@ -160,4 +254,45 @@ test('the top-menu Confer button is gone — it is a workflow now', () => {
     'App.tsx still opens the confer modal — the button was meant to go away, not be hidden');
   assert.ok(!/ConferModal/.test(app),
     'App.tsx still imports ConferModal');
+});
+
+test('WORKFLOWS.md catalogs every template there is — and none that is gone', () => {
+  // The catalog went stale once already: it still described New Feature and CI/CD Pipeline long
+  // after they were removed. Set-based over the registry, so adding or removing a template fails
+  // here until the doc says so.
+  const doc = read('WORKFLOWS.md');
+  const catalog = doc.slice(doc.indexOf('## Template catalog'), doc.indexOf('> **Removed templates**'));
+  assert.ok(catalog.length > 500, 'the template catalog section is missing');
+  const bold = new Set([...catalog.matchAll(/\*\*([^*]+)\*\*/g)].map((m) => m[1]));
+  const missing = STANDARD_TEMPLATE_NAMES.filter((n) => !bold.has(n));
+  assert.deepEqual(missing, [], `WORKFLOWS.md does not catalog: ${missing.join(', ')}`);
+  const stale = RETIRED_TEMPLATES.filter((n) => bold.has(n));
+  assert.deepEqual(stale, [], `WORKFLOWS.md still catalogs removed templates: ${stale.join(', ')}`);
+  const count = doc.match(/seeds \*\*(\d+) workflow templates\*\*/);
+  assert.equal(Number(count?.[1]), STANDARD_TEMPLATE_NAMES.length, 'the template count in the overview is wrong');
+});
+
+test('EVERY task-list template is read by the engine for coverage and keeps a progress document', () => {
+  // A task-list template is one that works a list of tasks: a loop sized from data, or a confer.
+  // Set-based over the library, so a new one is held to the same promise — it does not finish with
+  // work open — without anyone remembering to add it here.
+  const wrong: string[] = [];
+  let found = 0;
+  for (const name of STANDARD_TEMPLATE_NAMES) {
+    const steps = stepsOf(templateNamed(name)!.id);
+    const workers = steps.filter((s) => s.executor_type === 'confer' || !!cfg(s).loopCountFrom).map((s) => s.name);
+    if (workers.length === 0) continue;
+    found++;
+    const coverage = steps.filter((s) => cfg(s).coverage);
+    if (coverage.length !== 1) { wrong.push(`${name}: ${coverage.length} coverage steps, expected 1`); continue; }
+    const retryFrom = (cfg(coverage[0]).coverage as { retryFrom: string[] }).retryFrom;
+    const names = steps.map((s) => s.name);
+    for (const r of retryFrom) if (!names.includes(r)) wrong.push(`${name}: coverage sends the run back to "${r}", which is not a step`);
+    for (const w of workers) if (!retryFrom.includes(w)) wrong.push(`${name}: coverage never sends the run back to "${w}"`);
+    if (!/COVERAGE: \[done\]\/\[total\]/.test(String(cfg(coverage[0]).prompt ?? ''))) wrong.push(`${name}: the coverage step does not report COVERAGE`);
+    const all = steps.map((s) => String(cfg(s).prompt ?? '')).join('\n');
+    if (!/PROGRESS:/.test(all) || !/docs\/progress\//.test(all)) wrong.push(`${name}: no progress document at docs/progress/`);
+  }
+  assert.ok(found >= 4, `expected the task-list templates (Confer, the two epics, CE Develop and Optimize), found ${found}`);
+  assert.deepEqual(wrong, []);
 });

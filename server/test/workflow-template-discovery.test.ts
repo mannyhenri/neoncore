@@ -38,20 +38,20 @@ test('CE delivery paths include the missing lean error-reduction methods', () =>
     SELECT w.name, group_concat(s.executor_config, '\n') AS prompts
     FROM workflows w JOIN workflow_steps s ON s.workflow_id = w.id
     WHERE w.name IN ('CE: Phase 1 — Interrogate', 'CE: Phase 3 — Implement',
-                     'CE: Phase 4 — Review', 'CE: Phase 7 — Compound', 'CE: Full Delivery')
+                     'CE: Phase 4 — Review', 'CE: Phase 7 — Compound')
       AND w.template_id IS NULL
     GROUP BY w.id, w.name
   `).all() as Array<{ name: string; prompts: string }>;
   const byName = new Map(rows.map((row) => [row.name, row.prompts]));
 
-  for (const name of ['CE: Phase 1 — Interrogate', 'CE: Full Delivery']) {
+  for (const name of ['CE: Phase 1 — Interrogate']) {
     assert.match(byName.get(name)!, /ce-prototype/);
     assert.match(byName.get(name)!, /ce-bakeoff/);
   }
-  for (const name of ['CE: Phase 3 — Implement', 'CE: Full Delivery']) {
+  for (const name of ['CE: Phase 3 — Implement']) {
     assert.match(byName.get(name)!, /ce-simplify-code/);
   }
-  for (const name of ['CE: Phase 4 — Review', 'CE: Full Delivery']) {
+  for (const name of ['CE: Phase 4 — Review']) {
     assert.match(byName.get(name)!, /ce-resolve-pr-feedback/);
   }
   assert.match(byName.get('CE: Phase 7 — Compound')!, /ce-compound-refresh/);

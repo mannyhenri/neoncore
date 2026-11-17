@@ -1,5 +1,7 @@
 // FIRST import — everything below reaches db.ts.
 import './helpers/isolated-db.ts';
+import { countsOwed } from '../src/lib/coverage-loop.ts';
+import { loopCountRequirements } from '../src/lib/workflow-loop.ts';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import db from '../src/db.ts';
@@ -71,8 +73,10 @@ async function drive(runId: string, agents: string[]): Promise<{ maxRunningPerAg
     for (const s of running) {
       const gate = s.executor_type.endsWith('gate');
       const cfg = JSON.parse(s.executor_config);
-      const needsCount = all.some((x) => JSON.parse(x.executor_config).loopCountFrom?.step === s.name);
-      const result = gate ? 'PASS\nok' : `${s.name} done${needsCount ? '\nTASKS: 2\nTASKS_A: 2\nTASKS_B: 2' : ''}${cfg.loopCountFrom ? `\nDONE T-${Number(cfg._currentLoop) || 1} · ${2 - (Number(cfg._currentLoop) || 1)} remaining` : ''}`;
+      // Every count this step owes — counts other steps read from it, and a coverage step's own.
+      const owed = countsOwed({ name: s.name, config: cfg }, loopCountRequirements(s.name, all.map((x) => ({ name: x.name, config: JSON.parse(x.executor_config) }))))
+        .map((o) => o.pattern.replace(/\(\\d\+\)/g, '2').replace(/\\s[*+]/g, ' ').replace(/(.)\?/g, '$1').replace(/\\(.)/g, '$1'));
+      const result = gate ? 'PASS\nok' : [`${s.name} done`, ...owed, ...(cfg.loopCountFrom ? [`DONE T-${Number(cfg._currentLoop) || 1} · ${2 - (Number(cfg._currentLoop) || 1)} remaining`] : [])].join('\n');
       await app.post(`/api/workflows/webhook/${s.id}/complete`, gate ? { result } : verified(result));
     }
   }
@@ -80,7 +84,8 @@ async function drive(runId: string, agents: string[]): Promise<{ maxRunningPerAg
 }
 
 test('the set of templates with a parallel stage is not empty', () => {
-  assert.ok(templatesWithParallelStages().length >= 5, templatesWithParallelStages().map((t) => t.name).join(', '));
+  // 4 since CE: Full Delivery (which had two parallel stages) was removed. A floor: the sweep must sweep.
+  assert.ok(templatesWithParallelStages().length >= 4, templatesWithParallelStages().map((t) => t.name).join(', '));
 });
 
 test('on one cartridge, no template ever has two steps in flight — and every run still completes', async () => {

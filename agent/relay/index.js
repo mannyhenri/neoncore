@@ -203,8 +203,10 @@ async function registerAgent(identity) {
 // plus the token that names us on platforms that require one. The token is never
 // logged — it is a credential with the lifetime of this session, and a log file is
 // plain text that outlives it and gets quoted into bug reports.
+// Only Claude Code binds that socket; Codex and Gridlight have no addressed inbox, and a pid
+// reported for them made the server try to deliver there (the server refuses it as well).
 async function reportInbox(pid) {
-  if (!pid) return;
+  if (!pid || AGENT_TYPE !== 'claude') return;
   try {
     const res = await fetch(`${URL}/api/agents/register`, {
       method: 'POST',

@@ -328,13 +328,3 @@ test('the server restarting between /clear and the dispatch loses nothing: the p
   assert.equal(sent.length, 1);
   assert.ok(sent[0].includes('Implement the plan') && sent[0].includes(GOAL_FULL));
 });
-
-// ── The seeded template ────────────────────────────────────────────────────────
-
-test('CE: Full Delivery opens phases 2–7 in a fresh session, and no other step of it asks for one', () => {
-  const tpl = db.prepare("SELECT id FROM workflows WHERE name = 'CE: Full Delivery' AND template_id IS NULL").get() as { id: string };
-  const marked = stepsOf(tpl.id).filter((s) => JSON.parse(s.executor_config).freshSession === true).map((s) => s.name).sort();
-  assert.deepEqual(marked, [
-    '[P2] Load Brainstorm', '[P3] Load Plan + Worktree', '[P4] Load Diff + Build', '[P5] QA Browser Run', '[P6] Document Release', '[P7] CE Compound',
-  ].sort());
-});

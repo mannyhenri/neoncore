@@ -6,11 +6,7 @@
  */
 import type { Database as DatabaseType } from 'better-sqlite3';
 import { randomUUID } from 'crypto';
-import { GRIDLIGHT_QA_TEMPLATE_NAMES, GRIDLIGHT_PERF_TEMPLATE_NAME } from '../gridlight-qa-templates.js';
 import type { SeedKit } from './kit.js';
-import { seedGridlight } from './gridlight.js';
-import { seedSpecIntake } from './spec-intake.js';
-import { seedDigests } from './digests.js';
 import { seedConfer } from './confer.js';
 import { seedDocs } from './docs.js';
 import { seedInvestigation } from './investigation.js';
@@ -27,7 +23,7 @@ import { seedCompoundEngineering } from './compound-engineering.js';
 // (the executor falls back to `description || name`). They looked like the real templates in the
 // picker, which is most of why the list read as convoluted. Both are in `deprecatedNames` below
 // so they are deleted from existing databases too, not merely unlisted.
-export const STANDARD_TEMPLATE_NAMES = ['Spec Intake → Dev Spec', 'Daily AI Research Digest', 'Daily AI Filmmaking Digest', 'Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Epic: Confer Across Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Full QA Review', 'Bug Investigation', 'Code Review & Audit', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'CE: Full Delivery', ...GRIDLIGHT_QA_TEMPLATE_NAMES, GRIDLIGHT_PERF_TEMPLATE_NAME] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Super QA', 'Bug Investigation', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound'] as const;
 
 /**
  * Templates launched WITHOUT the auto-added Work Standard Check (workflows.standard_gate = 'off').
@@ -40,10 +36,9 @@ export const STANDARD_TEMPLATE_NAMES = ['Spec Intake → Dev Spec', 'Daily AI Re
  * (resolves review findings), Phase 5 (fixes the bugs QA finds) and Phase 6 (recovery actions).
  */
 export const NO_STANDARD_GATE_TEMPLATES = [
-  'Daily AI Research Digest', 'Daily AI Filmmaking Digest', 'Deep Research', 'Product Strategy Session',
+  'Deep Research', 'Product Strategy Session',
   'Engineering Architecture Review', 'Release Documentation', 'Jira Tasks Validation',
-  'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 7 — Compound',
-  ...GRIDLIGHT_QA_TEMPLATE_NAMES,
+  'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 7 — Compound', 'Super QA',
 ] as const;
 
 export function runStandardTemplateSeed(db: DatabaseType): void {
@@ -72,7 +67,19 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   // in STANDARD_TEMPLATE_NAMES, so a rename that does not deprecate its old name leaves that row
   // in every existing database forever, beside its replacement with nothing to tell them apart.
   // Invisible on a fresh database, which is where a rename gets tested.
-  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline'];
+  // Removed templates: listing them here deletes the template rows from existing databases.
+  // Past runs (template_id set) are left alone.
+  //   The three Gridlight templates — unused.
+  //   CE: Full Delivery — a hand-copied chain of the seven CE phases whose prompts had drifted
+  //     from the phases' own; Phase 3 now continues into Phase 4 itself.
+  //   Spec Intake → Dev Spec — covered by Feature Validation.
+  //   Epic: Confer Across Repos — merged into Confer (give it a Jira epic).
+  //   Full QA Review, Code Review & Audit — merged into Super QA.
+  //   Daily AI Research Digest, Daily AI Filmmaking Digest — no longer wanted.
+  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline',
+    'Gridlight Local QA', 'Gridlight Full Release QA', 'Gridlight Performance Improvement',
+    'CE: Full Delivery', 'Spec Intake → Dev Spec', 'Epic: Confer Across Repos', 'Full QA Review', 'Code Review & Audit',
+    'Daily AI Research Digest', 'Daily AI Filmmaking Digest'];
   for (const name of deprecatedNames) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {
@@ -129,9 +136,6 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   // Layout constants: all steps x=300, y increments by 175 (fully linear/sequential).
 
   const kit: SeedKit = { db, now, stableId, insertWorkflow, step, cc, gate };
-  seedGridlight(kit);
-  seedSpecIntake(kit);
-  seedDigests(kit);
   seedConfer(kit);
   seedDocs(kit);
   seedInvestigation(kit);

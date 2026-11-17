@@ -14,6 +14,9 @@ import type { Agent, Workflow, StepSummary, WorkflowStep, Project, ConferSession
 import { AutonomyControl } from './AutonomyControl';
 import { workflowAgentOptions, isOfflineOption, offlineOptionCount, conferOptionLabel } from '../lib/workflow-agent-options';
 import { launchBlockers } from '../lib/launchReadiness';
+import { conferLaunchContext } from '../lib/conferLaunch';
+import { RunProgressStrip } from './RunProgress';
+import { progressLine } from '../lib/runProgress';
 import { searchTemplates } from '../lib/templateSearch';
 import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
 import {
@@ -58,42 +61,34 @@ type TemplateTab = 'all' | 'strategy' | 'planning' | 'development' | 'quality' |
 const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Product Strategy Session':       'strategy',
   'Deep Research':                  'strategy',
-  'Daily AI Research Digest':       'strategy',
-  'Daily AI Filmmaking Digest':     'strategy',
   'CE: Phase 1 — Interrogate':      'strategy',
   'Engineering Architecture Review':'planning',
   'CE: Phase 2 — Plan':             'planning',
-  // Planning, not development: the deliverable is the spec on disk, and building it is a
-  // decision step you have to say yes to.
-  'Spec Intake → Dev Spec':         'planning',
   'Confer':                         'development',
   'Bug Investigation':              'development',
   'Epic: Task by Task':             'development',
   'Epic: Two Repos':                'development',
-  'Epic: Confer Across Repos':      'development',
   'CE Develop and Optimize':        'development',
   'CE: Phase 3 — Implement':        'development',
   'QA Testing Guide':               'quality',
   'Feature Validation':             'quality',
-  'Code Review & Audit':            'quality',
-  'Full QA Review':                 'quality',
+  'Super QA':                       'quality',
   'Bug Hunter':                     'quality',
   'Jira Tasks Validation':          'quality',
   'CE: Phase 4 — Review':           'quality',
   'CE: Phase 5 — QA':               'quality',
-  'Gridlight Local QA':             'quality',
-  'Gridlight Full Release QA':      'quality',
-  'Gridlight Performance Improvement': 'quality',
   // The shippable half of delivery — the documents that go OUT with a release, as opposed to
   // Document Release inside Phase 6, which keeps the internal ones current.
   'Release Documentation':          'delivery',
   'CE: Phase 6 — Ship':             'delivery',
-  'CE: Full Delivery':              'delivery',
   'CE: Phase 7 — Compound':         'learning',
 };
 
-/** Templates that cannot start without launch context — the Jira key, or the feature to validate. */
-const REQUIRES_CONTEXT: readonly string[] = ['Feature Validation', 'Gridlight Performance Improvement'];
+/**
+ * Templates that cannot start without launch context — the feature to validate, or for Confer the
+ * task or the Jira epic (either one; see conferLaunchContext).
+ */
+const REQUIRES_CONTEXT: readonly string[] = ['Feature Validation', 'Confer'];
 
 const TAB_LABELS: Record<TemplateTab, string> = {
   all:      'All',
@@ -588,6 +583,9 @@ function ScheduleControl({ templateId, templateName, agents, onClose }: {
   const [weekday, setWeekday] = useState(1);
   const [dayOfMonth, setDayOfMonth] = useState(1);
   const [agentId, setAgentId] = useState('');
+  // More cartridges = the schedule runs as a CONFER on all of them. Confer needs at least two.
+  const [withIds, setWithIds] = useState<string[]>([]);
+  const teamNeeded = templateName === 'Confer';
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [existing, setExisting] = useState<Heartbeat[]>([]);
@@ -602,11 +600,14 @@ function ScheduleControl({ templateId, templateName, agents, onClose }: {
     // A scheduled run has nobody to ask at 09:00, so the cartridge is not optional — the
     // server refuses a heartbeat without one rather than firing a run that cannot dispatch.
     if (!agentId) { setError('Pick a cartridge — a scheduled run has nobody to ask at 09:00.'); return; }
+    const team = [agentId, ...withIds.filter((id) => id !== agentId)];
+    if (teamNeeded && team.length < 2) { setError('Confer is worked by two or more cartridges — add at least one more.'); return; }
     setSaving(true); setError('');
     try {
       await api.createHeartbeat({
         templateId,
         agentId,
+        ...(team.length >= 2 ? { conferAgentIds: team } : {}),
         label: templateName,
         schedule: {
           type: cadence,
@@ -666,6 +667,29 @@ function ScheduleControl({ templateId, templateName, agents, onClose }: {
           <option value="">Cartridge…</option>
           {options.map((a) => <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>)}
         </select>
+        {agentId && (
+          <select
+            value=""
+            onChange={(e) => { const id = e.target.value; if (id) setWithIds((w) => (w.includes(id) ? w : [...w, id])); }}
+            className={sel}
+            aria-label="Work it together with"
+            title="Several cartridges work the run together (a confer)"
+          >
+            <option value="">{teamNeeded ? 'With… (needs 1+ more)' : 'With… (optional)'}</option>
+            {options.filter((a) => a.id !== agentId && !withIds.includes(a.id)).map((a) => (
+              <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}</option>
+            ))}
+          </select>
+        )}
+        {withIds.filter((id) => id !== agentId).map((id) => {
+          const a = options.find((o) => o.id === id);
+          return (
+            <button key={id} onClick={() => setWithIds((w) => w.filter((x) => x !== id))}
+              className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-300 hover:text-red-300" title="Remove">
+              + {a ? (a.repoName || a.name) : id.slice(0, 8)} ×
+            </button>
+          );
+        })}
         <button onClick={save} disabled={saving}
           className="text-xs px-2 py-1 rounded bg-emerald-600/80 hover:bg-emerald-500 text-white disabled:opacity-30">
           {saving ? '…' : 'Schedule'}
@@ -806,6 +830,10 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   const [deferredPrompts, setDeferredPrompts] = useState<Record<string, Record<string, string>>>({});
   const [launchOptionValues, setLaunchOptionValues] = useState<WorkflowLaunchValues>({});
   const [initialContext, setInitialContext] = useState('');
+  // Confer only: an optional Jira epic. Its first step looks the epic up and lists every task.
+  const [conferEpic, setConferEpic] = useState('');
+  /** What this launch hands the run as context — for Confer, the epic line plus the task. */
+  const launchContext = wf.name === 'Confer' ? conferLaunchContext(initialContext, conferEpic) : initialContext;
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [runError, setRunError] = useState('');
@@ -909,6 +937,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       setDeferredPrompts({});
       setLaunchOptionValues(defaultLaunchOptionValues(launchOptions));
       setInitialContext('');
+      setConferEpic('');
       setSelectedProjectId('');
       setRunError('');
       clearAttachments();
@@ -937,7 +966,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
         promptSteps: deferredPopup.promptSteps,
         prompts: deferredPrompts,
         requiresContext: REQUIRES_CONTEXT.includes(wf.name),
-        initialContext,
+        initialContext: launchContext,
       }), ...(deferredPopup.launchConfigError ? [deferredPopup.launchConfigError] : []),
         ...launchOptionErrors(deferredPopup.launchConfig?.options ?? [], launchOptionValues)]
     : [];
@@ -951,7 +980,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       return;
     }
 
-    let effectiveInitialContext = initialContext.trim();
+    let effectiveInitialContext = launchContext.trim();
     if (deferredPopup.launchConfig) {
       try {
         const command = renderLaunchCommand(deferredPopup.launchConfig, launchOptionValues);
@@ -994,6 +1023,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           projectId: selectedProjectId || null,
           label: wf.name,
           initialContext: effectiveInitialContext || undefined,
+          // A scheduled confer keeps ALL its cartridges. It used to keep only the first, and the
+          // run died at its confer step every time it fired.
+          ...(conferAgents.length >= 2 ? { conferAgentIds: conferAgents, conferMode, conferIsolation } : {}),
           ...req,
         });
         setDeferredPopup(null);
@@ -1109,16 +1141,26 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   placeholder="docs/plans/EPIC-search.md   ·   or   GRD-1712"
                 />
               </>
-            ) : wf.name === 'Gridlight Performance Improvement' ? (
+            ) : wf.name === 'Confer' ? (
               <>
-                <span className="text-[13px] text-gray-300 font-medium">Which Jira task?</span>
-                <p className="text-[12px] text-gray-600">The ticket key to improve. Add any extra notes on the metric or target below it; the QA options further down set the 7B run.</p>
+                <span className="text-[13px] text-gray-300 font-medium">What should they work on?</span>
+                <p className="text-[12px] text-gray-600">Describe the task — or give a Jira epic below and the cartridges work every task in it. With both, the text is extra direction for the epic.</p>
                 <textarea
                   value={initialContext}
                   onChange={(e) => setInitialContext(e.target.value)}
-                  rows={2}
+                  rows={3}
                   className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
-                  placeholder="GRD-1234"
+                  placeholder="e.g. Add refunds: the ledger API in harbour-ledger and the refund screen in frontdesk"
+                />
+                <span className="text-[13px] text-gray-300 font-medium block pt-1">Jira epic <span className="text-gray-600 font-normal">(optional)</span></span>
+                <p className="text-[12px] text-gray-600">The epic is looked up first; the run keeps going until every task in it is done.</p>
+                <input
+                  type="text"
+                  value={conferEpic}
+                  onChange={(e) => setConferEpic(e.target.value)}
+                  aria-label="Jira epic"
+                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono"
+                  placeholder="GRD-1712  ·  or the epic's Jira URL"
                 />
               </>
             ) : wf.name === 'Jira Tasks Validation' ? (
@@ -1384,6 +1426,11 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   ? `${wf.stepSummary.completed}/${wf.stepSummary.total}`
                   : `${wf.stepSummary.total} steps`}
               </span>
+              {wf.progress && (
+                <span className="text-sky-400/80 shrink-0 hidden sm:inline" title={progressLine(wf.progress)}>
+                  {wf.progress.total !== null ? `${wf.progress.done}/${wf.progress.total} tasks` : `${wf.progress.done} tasks`}
+                </span>
+              )}
             </>
           )}
           {wf.jiraTaskId && <span className="text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
@@ -1516,7 +1563,12 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
 
       {/* Step progress (V2 canvas) or Phase progress (V1) — templates don't show progress */}
       {wf.stepSummary && wf.templateId ? (
-        <StepProgress summary={wf.stepSummary} />
+        <>
+          <StepProgress summary={wf.stepSummary} />
+          {/* A task-list run: how many tasks are done, its progress document, and — when it
+              stopped with tasks open — the choice only you can make. */}
+          <RunProgressStrip wf={wf} onAction={onAction} />
+        </>
       ) : wf.phases.length > 0 ? (
         <>
           <PhaseProgress phases={wf.phases} currentPhase={wf.currentPhase} />

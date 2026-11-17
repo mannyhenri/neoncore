@@ -188,23 +188,14 @@ router.post('/projects/:project/notes', (req, res) => {
   const { content } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'content required' });
 
-  // Find any agent for this project to satisfy the foreign key
-  const agent = db.prepare("SELECT id FROM agents WHERE repo_name = ? LIMIT 1").get(req.params.project) as { id: string } | undefined;
-  const agentId = agent?.id || '';
-
+  // A project note belongs to the project, not to a cartridge: it used to be stored under "any
+  // agent for this project", and deleting that cartridge (the offline reaper does) deleted the
+  // note with it. Foreign keys are not enforced on this connection (see lib/agent-cleanup.ts).
   const id = uuid();
   const now = new Date().toISOString();
-
-  if (agentId) {
-    db.prepare(
-      "INSERT INTO notes (id, agent_id, project, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(id, agentId, req.params.project, content.trim(), now, now);
-  } else {
-    // No agent exists yet — insert without FK (SQLite only enforces FK if PRAGMA foreign_keys=ON)
-    db.prepare(
-      "INSERT INTO notes (id, agent_id, project, content, created_at, updated_at) VALUES (?, '__project__', ?, ?, ?, ?)"
-    ).run(id, req.params.project, content.trim(), now, now);
-  }
+  db.prepare(
+    "INSERT INTO notes (id, agent_id, project, content, created_at, updated_at) VALUES (?, '__project__', ?, ?, ?, ?)"
+  ).run(id, req.params.project, content.trim(), now, now);
 
   res.status(201).json({ id, content: content.trim(), createdAt: now, updatedAt: now });
 });

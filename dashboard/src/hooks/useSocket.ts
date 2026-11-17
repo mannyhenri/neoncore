@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { Agent, Activity, PermissionRequest, Command, StuckAlert, EpicRun, Workflow, WorkflowStep, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine, ServerEntry } from '../types';
+import type { Agent, Activity, PermissionRequest, Command, StuckAlert, Workflow, WorkflowStep, WorkflowStepLog, VirtualCartridge, WorkflowNotification, Task, Machine, ServerEntry } from '../types';
 import { IS_DEMO } from '../lib/api';
 
 /**
@@ -28,7 +28,6 @@ interface SocketHandlers {
   onAgentUnstuck?: (data: { agentId: string }, origin: string) => void;
   onMemoryUpdated?: (data: { agentId: string }, origin: string) => void;
   onPermissionsExpired?: (data: { count: number }, origin: string) => void;
-  onEpicUpdated?: (run: EpicRun, origin: string) => void;
   onWorkflowUpdated?: (workflow: Workflow, origin: string) => void;
   onWorkflowDeleted?: (data: { id: string }, origin: string) => void;
   onWorkflowStepUpdated?: (step: WorkflowStep, origin: string) => void;
@@ -137,7 +136,6 @@ export function useSockets(servers: ServerEntry[], handlers: SocketHandlers) {
       on<{ agentId: string }>('agent_unstuck', (h) => h.onAgentUnstuck);
       on<{ agentId: string }>('memory_updated', (h) => h.onMemoryUpdated);
       on<{ count: number }>('permissions_expired', (h) => h.onPermissionsExpired);
-      on<EpicRun>('epic_updated', (h) => h.onEpicUpdated);
       on<Workflow>('workflow_updated', (h) => h.onWorkflowUpdated);
       on<{ id: string }>('workflow_deleted', (h) => h.onWorkflowDeleted);
       on<WorkflowStep>('workflow_step_updated', (h) => h.onWorkflowStepUpdated);

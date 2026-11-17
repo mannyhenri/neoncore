@@ -118,6 +118,23 @@ export function engineStatus(repo: PilotCandidateRepo | undefined, agentType: st
 }
 
 /** Every stage assigned to a chosen repo — the first one unless the person picked another. */
+/**
+ * The repos that work each TEAM stage together (a Confer stage). Default: every chosen repo; a
+ * person's picks are kept only while those repos are still chosen. A team stage needs two or more
+ * — `short` names the ones that have fewer, so the form can say so before the server refuses.
+ */
+export function resolveTeams(teamKeys: string[], repos: string[], picked: Record<string, string[]>):
+  { teams: Record<string, string[]>; short: string[] } {
+  const teams: Record<string, string[]> = {};
+  const short: string[] = [];
+  for (const k of teamKeys) {
+    const mine = (picked[k] ?? repos).filter((r) => repos.includes(r));
+    teams[k] = mine;
+    if (mine.length < 2) short.push(k);
+  }
+  return { teams, short };
+}
+
 export function resolveAssignments(stageKeys: string[], repos: string[], picked: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const k of stageKeys) out[k] = picked[k] && repos.includes(picked[k]) ? picked[k] : repos[0] ?? '';

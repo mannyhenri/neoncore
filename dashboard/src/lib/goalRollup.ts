@@ -48,6 +48,7 @@ export const HEALTH_LABEL: Record<AttentionReason, string> = {
   failed: 'A run failed',
   interrupted: 'A run was interrupted',
   decision: 'Waiting on your decision',
+  'tasks-outstanding': 'Tasks still open — keep working or accept?',
   'agent-waiting': 'A cartridge is asking you something',
   'manual-advance': 'Waiting for you to advance',
 };
@@ -61,6 +62,7 @@ const TONE: Record<AttentionReason, 'bad' | 'ask'> = {
   failed: 'bad',
   interrupted: 'bad',
   decision: 'ask',
+  'tasks-outstanding': 'ask',
   'agent-waiting': 'ask',
   'manual-advance': 'ask',
 };

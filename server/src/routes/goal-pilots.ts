@@ -24,6 +24,8 @@ import {
   retryStage, skipStage, pilotView, emitPilotUpdate, announcePilot, ACCEPTANCE_STAGE_KEY, REVIEW_STAGE_KEY,
 } from '../lib/goal-pilot-runner.js';
 import { templateCatalogue } from '../lib/goal-pilot-prompts.js';
+import { availableTemplates } from '../lib/goal-decomposition.js';
+import { templateNeedsParticipants } from '../lib/workflow-launch.js';
 import {
   applyPlannerSummary, generateGoalReport, storedGoalReport, renderGoalReportHtml, renderGoalReportMarkdown,
 } from '../lib/goal-pilot-report.js';
@@ -59,6 +61,9 @@ router.get('/meta', (_req, res) => {
     defaultVerify: Object.fromEntries(WORK_TYPES.map((w) => [w.value, defaultVerify(w.value)])),
     contractStageKeys: { acceptance: ACCEPTANCE_STAGE_KEY, review: REVIEW_STAGE_KEY },
     templates: templateCatalogue(),
+    // Workflows worked by SEVERAL cartridges together (a confer with no roster of its own): at
+    // staffing, such a stage is given two or more repos instead of one.
+    teamTemplates: availableTemplates().filter((t) => templateNeedsParticipants(t.id)).map((t) => t.name),
   });
 });
 

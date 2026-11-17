@@ -17,8 +17,9 @@ import fs from 'fs';
 import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
 import { ensureFolderTrusted } from '../lib/folder-trust.mjs';
+import { posixLaunchScript, windowsLaunchScript, launchTempPath } from '../lib/launch-script.mjs';
 import path from 'path';
-import { spawn, execSync } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { findGitRepos, rescanRoots } from './scan.js';
 import { handleRepoOp } from './repo-ops.js';
@@ -147,37 +148,29 @@ function launchCartridge({ repoPath, agentType, sessionId, context, resumeSessio
   ensureFolderTrusted(repoPath);
 
   try {
+    // Every value is data, never shell: the launch context is text a person typed (backticks and
+    // $VARs included) and the resume id arrives from the portal. See agent/lib/launch-script.mjs.
+    const argv = [nodeBin, RELAY_LAUNCH];
     if (isWin) {
-      const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.cmd`);
-      fs.writeFileSync(scriptPath, [
-        '@echo off',
-        `cd /d "${repoPath}"`,
-        ...Object.entries(env).map(([k, v]) => `set "${k}=${v}"`),
-        `"${nodeBin}" "${RELAY_LAUNCH}"`,
-      ].join('\r\n') + '\r\n');
-      setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
+      const scriptPath = launchTempPath('.cmd');
+      const envFile = launchTempPath('.env.json');
+      fs.writeFileSync(scriptPath, windowsLaunchScript({ cwd: repoPath, env, argv, envFile }));
+      setTimeout(() => { for (const f of [scriptPath, envFile]) { try { fs.unlinkSync(f); } catch { /* ignore */ } } }, 60_000);
       spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', scriptPath], { detached: true, stdio: 'ignore' }).unref();
     } else {
-      const scriptPath = path.join(os.tmpdir(), `neoncore-launch-${Date.now()}.sh`);
-      fs.writeFileSync(scriptPath, [
-        '#!/usr/bin/env bash',
-        `cd ${JSON.stringify(repoPath)}`,
-        ...Object.entries(env).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`),
-        // Source login files so PATH picks up claude/node even under launchd/systemd.
-        '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null',
-        '[ -f "$HOME/.zshrc" ]  && source "$HOME/.zshrc"  2>/dev/null',
-        '[ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null',
-        `"${nodeBin}" ${JSON.stringify(RELAY_LAUNCH)}`,
-      ].join('\n') + '\n');
+      const scriptPath = launchTempPath('.sh');
+      fs.writeFileSync(scriptPath, posixLaunchScript({ cwd: repoPath, env, argv }));
       fs.chmodSync(scriptPath, '755');
       setTimeout(() => { try { fs.unlinkSync(scriptPath); } catch { /* ignore */ } }, 60_000);
 
       // `bash <script>`, not the bare path: a fresh executable waits on macOS's malware scan (and can be killed).
       if (process.platform === 'darwin') {
-        execSync(
-          `osascript -e 'tell application "Terminal"' -e 'do script ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}' -e 'activate' -e 'end tell'`,
-          { timeout: 8000 },
-        );
+        execFileSync('osascript', [
+          '-e', 'tell application "Terminal"',
+          '-e', `do script ${JSON.stringify(`bash ${JSON.stringify(scriptPath)}`)}`,
+          '-e', 'activate',
+          '-e', 'end tell',
+        ], { timeout: 8000 });
       } else {
         const terms = [
           ['gnome-terminal', ['--', 'bash', scriptPath]],
@@ -187,7 +180,7 @@ function launchCartridge({ repoPath, agentType, sessionId, context, resumeSessio
         ];
         let opened = false;
         for (const [term, args] of terms) {
-          try { execSync(`command -v ${term}`, { stdio: 'ignore', timeout: 1000 }); } catch { continue; }
+          try { execFileSync('sh', ['-c', 'command -v "$1"', 'sh', term], { stdio: 'ignore', timeout: 1000 }); } catch { continue; }
           spawn(term, args, { detached: true, stdio: 'ignore' }).unref();
           opened = true;
           break;

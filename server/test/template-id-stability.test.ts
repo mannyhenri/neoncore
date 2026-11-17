@@ -73,11 +73,11 @@ test('ids stay stable across MANY restarts, not just the first', () => {
 
 test('a run launched from a template still resolves to it after a restart', () => {
   // The user-visible consequence, asserted end to end rather than by proxy.
-  const tplId = templateIds().get('CE: Full Delivery')!;
-  assert.ok(tplId, 'CE: Full Delivery must exist for this test to mean anything');
+  const tplId = templateIds().get('CE: Phase 4 — Review')!;
+  assert.ok(tplId, 'CE: Phase 4 — Review must exist for this test to mean anything');
 
   db.prepare(`INSERT INTO workflows (id, name, status, created_at, template_id, run_number)
-              VALUES ('run-stability','CE: Full Delivery','running',?,?,1)`)
+              VALUES ('run-stability','CE: Phase 4 — Review','running',?,?,1)`)
     .run(new Date().toISOString(), tplId);
 
   seedDefaultTemplates();
@@ -87,7 +87,7 @@ test('a run launched from a template still resolves to it after a restart', () =
   const resolved = db.prepare('SELECT name FROM workflows WHERE id = ?').get(run.template_id) as
     { name: string } | undefined;
   assert.ok(resolved, 'the run points at a template id that no longer exists — dangling reference');
-  assert.equal(resolved.name, 'CE: Full Delivery');
+  assert.equal(resolved.name, 'CE: Phase 4 — Review');
 });
 
 test('reseeding still REFRESHES content — stability must not disable the update', () => {

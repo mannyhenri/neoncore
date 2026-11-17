@@ -1,4 +1,4 @@
-/** Standard workflow templates: Product Strategy, Architecture Review, Full QA Review, Bug Investigation, Code Review & Audit. Seeded on every boot by ./index.ts. */
+/** Standard workflow templates: Product Strategy, Architecture Review, Super QA, Bug Investigation. Seeded on every boot by ./index.ts. */
 import { randomUUID } from 'crypto';
 import type { SeedKit } from './kit.js';
 
@@ -137,70 +137,225 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
       { connectorType: 'system-notify', title: 'Architecture Review — Done', message: '{{workflowName}} complete. Review the implementation roadmap in NeonCore.' }, [s7]);
   }
 
-  // ── 12. Full QA Review ────────────────────────────────────────────────────
+  // ── 12. Super QA ──────────────────────────────────────────────────────────
+  //
+  // ONE QA WORKFLOW. "Full QA Review" and "Code Review & Audit" were both static reads of the
+  // code ending in an issue table and a verdict — one aimed at a feature or URL (golden path,
+  // edge cases, errors, performance, accessibility), the other at a branch or PR (logic,
+  // security, test coverage). Merged, the target decides the scope: a change is reviewed as a
+  // change, a feature or app is tested as a whole, and every lens runs either way.
+  //
+  // Security is a review STEP here, not a quality gate. As a gate it scanned only uncommitted
+  // changes (`git diff HEAD`), and a FAIL re-ran the step before it — in Full QA Review that was
+  // Performance Assessment — before failing the run. Findings belong in the report, where the
+  // human gate on "QA Report" decides what happens next. This template changes no product code,
+  // so it is launched without the Work Standard Check (NO_STANDARD_GATE_TEMPLATES).
   {
-    const wfId = stableId('Full QA Review');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID();
-    insertWorkflow.run(wfId, 'Full QA Review',
-      'Set the workflow description to the feature or URL being tested. Golden path → edge cases → error handling → performance → security → accessibility → QA report → notify.', now);
+    const wfId = stableId('Super QA');
+    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s9 = randomUUID();
+    insertWorkflow.run(wfId, 'Super QA',
+      'Put what to QA in the context: a branch, PR or files (reviewed as a change) or a feature, URL or the whole app (tested as a product). Read the code → functional testing (golden paths, edge cases) → logic & error handling → security → performance & accessibility → test coverage → QA report with one verdict (human gate) → capture learnings.', now);
 
-    step(wfId, s1, 'Golden Path Testing',
-      'Test the primary happy path end-to-end. Every core user journey must work correctly.',
+    step(wfId, s1, 'Scope & Read the Code',
+      'Work out what is being QA\'d, read all of it end to end, and list the user journeys to test. No judgments yet.',
       300, 80, 'claude-code',
       {
-        ...cc('tester'), workflowContext: true,
-        prompt: 'The feature or system to QA test is described above. Begin with the golden path — the primary happy path that most users will take.\n\n**PHASE 1 — IDENTIFY GOLDEN PATHS**\nFrom the description (and by reading the relevant code with Grep/Glob/Read), identify the 3-5 primary user journeys. For each journey: start point → steps → expected end state.\n\n**PHASE 2 — TEST EACH GOLDEN PATH**\nFor each journey, trace through the code to verify it works correctly:\n1. Follow the code execution path step by step\n2. Check that each step produces the expected output\n3. Verify the final state matches what the user would expect\n4. Check that error states are handled gracefully\n\n**PHASE 3 — OUTPUT RESULTS**\n```\n## Golden Path Test Results\n\n| Journey | Steps Tested | Result | Notes |\n|---------|-------------|--------|-------|\n| [name] | [N steps] | ✅ PASS / ❌ FAIL | [what works or what broke] |\n\n### Failures (if any)\n#### [Journey Name]\n- **Expected:** [what should happen]\n- **Actual:** [what actually happens]\n- **File:Line:** [where the bug is]\n- **Severity:** critical / high / medium\n\n### Golden Path Summary\nPassed: N/N | Failed: N/N\n```',
+        ...cc('reviewer'), workflowContext: true,
+        prompt: `What to QA is described above. Understand it completely before judging anything.
+
+**1 — SCOPE.** Decide what the target is:
+- A CHANGE (branch, PR, commit range or files): \`git diff main...HEAD\` (or the comparison named above). The changed files are the scope, read in full — not just the diff.
+- A FEATURE, URL or the whole app: find every file, route, component and table it involves with Grep/Glob/Read. If a URL or running app is given, note it for functional testing.
+
+**2 — READ.** For each file in scope: its role, how it connects to the rest, and the data flow through it (input → transformation → output, side effects).
+
+**3 — JOURNEYS.** List the 3–5 primary user journeys through the scope (start → steps → expected end state). The next step tests them.
+
+**OUTPUT**
+\`\`\`
+## Scope: [CHANGE | FEATURE | APP] — [name]
+### Files in scope
+| File | Role | New/Modified |
+### What it does
+[2–4 sentences: intent and mechanism]
+### Data flow
+[enters → transformed → exits]
+### Journeys to test
+1. [journey]: [start] → [steps] → [expected end state]
+### First impressions
+[surprising, more or less complex than expected — no judgments yet]
+\`\`\``,
       }, []);
 
-    step(wfId, s2, 'Edge Case Testing',
-      'Test boundary conditions, empty states, maximum values, concurrent operations, and unusual but valid inputs.',
+    step(wfId, s2, 'Functional Testing',
+      'Golden paths first, then edge cases. Against the running app when a URL is given and a browser is available; otherwise by tracing the code.',
       300, 255, 'claude-code',
       {
         ...cc('tester'),
-        prompt: 'Test edge cases and boundary conditions. These are the cases that work in demos but fail in production.\n\n**Edge case categories to test:**\n\n**Empty / Zero / Null States**\n- Empty lists, zero counts, null/undefined values\n- What shows when there is no data?\n- What happens on first use before any data exists?\n\n**Boundary Values**\n- Minimum and maximum allowed values\n- Exactly at the limit vs one over/under\n- Very large datasets (100+ items)\n- Very long strings in text fields\n\n**Concurrent / Race Conditions**\n- Two operations happening at the same time\n- Rapid repeated clicks/calls\n- Navigation away during an async operation\n\n**Unusual But Valid Inputs**\n- Special characters in text fields\n- Unicode and emoji in string fields\n- Very large numbers where numbers are expected\n- Unexpected but valid data types\n\n**State Transitions**\n- What happens when status changes mid-operation?\n- Refresh during a long operation\n- Back button after a destructive action\n\nFor each edge case tested, document: input → expected behavior → actual behavior → PASS/FAIL.\n\n```\n## Edge Case Results\n| Category | Case | Expected | Actual | Status |\n|----------|------|----------|--------|--------|\n[one row per test]\n\n### Critical Failures\n[Detailed description of any FAIL results with file:line pointers]\n\nEdge Cases: N tested | N passed | N failed\n```',
+        prompt: `Test the journeys from "Scope & Read the Code". If a URL or running app was given and you have a browser tool, exercise it for real; otherwise trace each path through the code step by step. Say which you did.
+
+**GOLDEN PATHS** — each journey end to end: does every step produce the expected output, and does the final state match what the user expects?
+
+**EDGE CASES** — the cases that work in demos and fail in production:
+- Empty / zero / null: empty lists, no data yet, first use
+- Boundaries: min/max, exactly at vs one over the limit, 100+ items, very long strings
+- Concurrency: two operations at once, rapid repeated clicks, navigating away mid-request
+- Unusual but valid input: special characters, unicode and emoji, large numbers
+- State transitions: status changes mid-operation, refresh during a long operation, back after a destructive action
+
+**OUTPUT**
+\`\`\`
+## Functional Testing — [live app | code trace]
+| Journey / Case | Expected | Actual | PASS/FAIL | File:Line |
+### Failures
+[each: expected vs actual, file:line, severity critical/high/medium/low]
+Golden paths: N/N passed · Edge cases: N tested, N failed
+\`\`\``,
       }, [s1]);
 
-    step(wfId, s3, 'Error Handling Review',
-      'Verify that every error path surfaces a useful message, fails gracefully, and recovers correctly.',
+    step(wfId, s3, 'Logic & Error Handling',
+      'Correctness bugs, async and state mistakes, and every error path: does it fail gracefully and recover?',
       300, 430, 'claude-code',
       {
         ...cc('reviewer'),
-        prompt: 'Review all error handling paths in the feature or system. Poor error handling is the most common source of production incidents.\n\n**Check these error categories:**\n\n**Network / API Failures**\n- What happens when an API call times out?\n- What happens when the server returns 500?\n- What happens when the response is malformed?\n\n**User Input Errors**\n- Are validation errors surfaced clearly to the user?\n- Are form fields reset correctly after an error?\n- Is the user told specifically what went wrong and how to fix it?\n\n**Auth / Permission Errors**\n- What happens when a session expires mid-operation?\n- Are 401/403 responses handled with a redirect to login?\n- Are permission errors shown as helpful messages vs cryptic failures?\n\n**Async Operation Failures**\n- Are all promises awaited and their rejections caught?\n- Are loading states cleared when operations fail?\n- Does the UI recover to a usable state after an error?\n\n**Data Corruption Prevention**\n- Is there protection against partial writes?\n- Are transactions used where multiple DB operations must succeed together?\n- Is there a way to undo a destructive operation?\n\n```\n## Error Handling Review\n| Error Type | Handler Found | Quality | Notes |\n|------------|--------------|---------|-------|\n| [category] | YES/NO/PARTIAL | ✅ Good / ⚠️ Weak / ❌ Missing | [file:line if relevant] |\n\n### Unhandled Error Paths\n[Detailed description of any missing error handlers with file:line pointers]\n\n### Summary\nError paths checked: N | Well-handled: N | Weakly handled: N | Missing: N\n```',
+        prompt: `Find bugs in the code in scope — not style issues.
+
+**LOGIC** — does it do what the author intended? Wrong boolean conditions (AND/OR, negation), off-by-one comparisons (< vs <=), type coercion, null/undefined inputs, a list of exactly one item.
+**ASYNC & STATE** — promises not awaited or not caught, updates after unmount, races between concurrent calls, side effects in the wrong order, shared state mutated in place, references escaping their scope.
+**ERROR HANDLING** — for each failure: network timeout, 500, malformed response; validation errors (is the user told what went wrong and how to fix it?); expired session and 401/403 mid-operation; loading states cleared on failure; partial writes (transactions where several writes must succeed together); undo for destructive operations. Are errors propagated, or silently swallowed?
+
+**OUTPUT**
+\`\`\`
+## Logic & Error Handling
+| Severity | File:Line | Issue | Impact | Suggested fix |
+[one row per issue — critical/high/medium/low/nitpick]
+Error paths checked: N · well handled: N · weak: N · missing: N
+Total issues: N | Critical: N | High: N | Medium: N | Low: N
+\`\`\``,
       }, [s2]);
 
-    step(wfId, s4, 'Performance Assessment',
-      'Identify slow queries, large payloads, missing indexes, and operations that will not scale.',
+    step(wfId, s4, 'Security Review',
+      'OWASP Top 10, auth and access control, input validation, secrets and vulnerable dependencies — in the code in scope.',
       300, 605, 'claude-code',
       {
         ...cc('reviewer'),
-        prompt: 'Assess the performance characteristics of the feature or system. Look for patterns that work fine with 10 users but fail with 1000.\n\n**Check for:**\n\n**Database Performance**\n- N+1 query patterns (fetching one item per loop iteration)\n- Missing WHERE clause indexes on frequently-queried columns\n- SELECT * where specific columns suffice\n- Queries inside loops or map/forEach calls\n- Unbounded queries with no LIMIT\n\n**Network Performance**\n- Over-fetching (large responses where small ones suffice)\n- Chatty APIs (many small requests where one batch request would work)\n- Missing pagination on list endpoints\n- Large payloads in WebSocket events\n\n**Rendering / UI Performance**\n- Expensive computations on every render\n- Missing memoization on computed values\n- Large lists without virtualization\n- Unnecessary re-renders from unstable references\n\n**Memory**\n- Long-lived in-memory stores that grow unbounded\n- Event listeners added but never removed\n- Timers/intervals not cleared on component unmount\n\n```\n## Performance Assessment\n| Category | Issue | File:Line | Estimated Impact | Priority |\n|----------|-------|-----------|-----------------|----------|\n[one row per issue found — Priority: critical/high/medium/low]\n\n### Top Performance Risk\n[The single most impactful performance issue found — describe it in detail]\n\n### Summary\nIssues found: N (critical: X, high: Y, medium: Z, low: W)\n```',
+        prompt: `Security review of the code in scope (the whole scope, not only uncommitted changes).
+
+1. **Secrets** — API keys, passwords, tokens or private keys in code, config or history; .env files committed.
+2. **Injection** — SQL, shell command, XSS, template injection, path traversal. Follow untrusted input to where it is used.
+3. **Auth & access control** — is every route and action checked for the right user? Can one user reach another's data by changing an id?
+4. **Data exposure** — PII or secrets in logs, responses or error messages; sensitive data unencrypted.
+5. **Dependencies** — run the project's audit (\`npm audit --audit-level=high\`, \`pip-audit\`, \`cargo audit\`) and report HIGH/CRITICAL findings.
+
+**OUTPUT**
+\`\`\`
+## Security Review
+| Severity | Category | File:Line | Finding | Fix |
+[CRITICAL/HIGH/MEDIUM/LOW — one row per finding]
+Dependency audit: [command] → [N high, N critical]
+Security: CLEAN | N findings (N critical, N high)
+\`\`\``,
       }, [s3]);
 
-    step(wfId, s5, 'Security Scan',
-      'Check for OWASP Top 10, auth gaps, input validation, and credential exposure.',
-      300, 780, 'quality-gate',
-      gate('security'), [s4]);
-
-    step(wfId, s6, 'Accessibility Review',
-      'Verify ARIA labels, keyboard navigation, color contrast, focus management, and screen reader compatibility.',
-      300, 955, 'claude-code',
+    step(wfId, s5, 'Performance & Accessibility',
+      'Patterns that break at 1000 users, and whether the UI works by keyboard and screen reader. Accessibility is skipped when there is no UI in scope.',
+      300, 780, 'claude-code',
       {
         ...cc('reviewer'),
-        prompt: 'Review the accessibility of the feature or system. Accessibility is not optional — it is a quality bar.\n\n**Check each category:**\n\n**ARIA & Semantic HTML**\n- Do interactive elements (buttons, links, inputs) have descriptive labels?\n- Are `aria-label` or `aria-labelledby` used where the visual label is not in the DOM?\n- Is semantic HTML used (button, nav, main, section, h1-h6) rather than divs with click handlers?\n- Are modal dialogs marked with `role="dialog"` and `aria-modal="true"`?\n\n**Keyboard Navigation**\n- Can all interactive elements be reached with Tab?\n- Is the tab order logical (top-to-bottom, left-to-right)?\n- Do modals trap focus correctly (Tab cycles within the modal)?\n- Is there a way to close every modal with Escape?\n- Are custom components (dropdowns, sliders) keyboard-operable?\n\n**Focus Management**\n- Does focus move to the modal when it opens?\n- Does focus return to the trigger element when a modal closes?\n- Are focus styles visible (not hidden with `outline: none` without replacement)?\n\n**Color & Contrast**\n- Do text/background combinations meet WCAG AA (4.5:1 for normal text, 3:1 for large text)?\n- Is information conveyed by color alone (without a secondary indicator)?\n\n**Screen Reader**\n- Do loading states have appropriate `aria-busy` or live region announcements?\n- Are error messages announced to screen readers (not just visually displayed)?\n- Are icon-only buttons labeled?\n\n```\n## Accessibility Review\n| Category | Issue | Element/File | WCAG Criterion | Severity |\n|----------|-------|-------------|----------------|----------|\n[one row per issue — Severity: critical/high/medium/low]\n\n### Summary\nIssues found: N | Critical: N | High: N | Medium: N | Low: N\nOverall accessibility score: N/10\n```',
+        prompt: `**PERFORMANCE** — what works for 10 users and fails for 1000:
+- Database: N+1 queries, queries in loops, missing indexes on filtered columns, unbounded queries with no LIMIT, SELECT *
+- Network: over-fetching, chatty APIs, missing pagination, large payloads
+- Rendering: expensive work on every render, missing memoization, long lists without virtualization
+- Memory: stores that grow unbounded, listeners and timers never removed
+
+**ACCESSIBILITY** — only if the scope has a UI; otherwise write "No UI in scope" and skip:
+- Labels on interactive elements, semantic HTML, dialogs with role="dialog" and aria-modal
+- Keyboard: everything reachable by Tab in a logical order, Escape closes modals, focus trapped in and returned from modals, visible focus styles
+- Contrast (WCAG AA 4.5:1) and nothing conveyed by colour alone
+- Screen readers: loading and error states announced, icon-only buttons labelled
+
+**OUTPUT**
+\`\`\`
+## Performance
+| Priority | Issue | File:Line | Estimated impact |
+Top performance risk: [the single most important one]
+## Accessibility
+| Severity | Issue | Element/File | WCAG criterion |
+Accessibility score: N/10 (or "No UI in scope")
+\`\`\``,
+      }, [s4]);
+
+    step(wfId, s6, 'Test Coverage',
+      'Map which behaviours in scope are tested, and write the missing tests that matter most.',
+      300, 955, 'claude-code',
+      {
+        ...cc('tester'),
+        prompt: `Evaluate the tests for the code in scope.
+
+1. **Find** the existing tests for it (same module, component or route) and read them.
+2. **Map** each function, branch and behaviour: is there a test that exercises it AND asserts the right result (not just that it runs)? Are the edge cases and error states from the earlier steps tested?
+3. **Write** the missing tests for the highest-risk gaps — every failure found in Functional Testing or Logic & Error Handling that has no test should get one. Run them and paste the real output. Do not change product code in this step: a new test that fails because of a real bug stays failing and goes in the report.
+
+**OUTPUT**
+\`\`\`
+## Test Coverage
+| Behaviour | Test file / name | ✅ Covered / ⚠️ Partial / ❌ Not covered |
+### Tests written
+[file — test — what it proves — PASS/FAIL]
+Coverage score: N/10 — [why]
+\`\`\``,
       }, [s5]);
 
     step(wfId, s7, 'QA Report',
-      'Compile the full QA report with health score, issue table, and recommendations. Requires human review.',
+      'One report, one verdict: health score, every issue from every step, what must be fixed before shipping. Requires human review.',
       300, 1130, 'claude-code',
       {
         ...cc('planner'),
-        prompt: 'Compile the complete QA report using all findings from every previous step.\n\n```\n## QA Report: [Feature/System Name]\n**Date:** [today]\n\n---\n\n## Health Score: N/100\n[Deduct points: Critical issue = -15, High = -8, Medium = -3, Low = -1. Start at 100.]\n\n## Summary\n[2-3 sentences: overall quality, biggest concerns, what works well]\n\n---\n\n## All Issues\n| ID | Severity | Category | Description | File:Line |\n|----|----------|----------|-------------|----------|\n| QA-001 | critical | [category] | [description] | [file:line] |\n[one row per issue found across all steps]\n\n---\n\n## Golden Path: [✅ All Pass / ❌ N Failures]\n## Edge Cases: N tested, N failed\n## Error Handling: N paths, N gaps\n## Performance: N issues (N critical)\n## Security: [Clean / N issues]\n## Accessibility: N/10\n\n---\n\n## Critical Issues (fix before ship)\n[Bulleted list — each with file:line and exact fix needed]\n\n## Recommended Fixes (high priority)\n[Bulleted list]\n\n## Nice to Have (medium/low)\n[Bulleted list]\n\n---\n\n## Verdict\n**[SHIP / SHIP WITH FIXES / DO NOT SHIP]**\n[One sentence rationale]\n```',
+        prompt: `Compile the QA report from every previous step. Be direct — one clear verdict.
+
+\`\`\`
+## QA Report: [target] — [CHANGE | FEATURE | APP]
+**Date:** [today]
+
+## Verdict: [SHIP | SHIP WITH FIXES | DO NOT SHIP]
+[one sentence why — for a CHANGE this is the merge decision: SHIP = approve, SHIP WITH FIXES = approve with changes, DO NOT SHIP = request changes]
+
+## Health score: N/100
+[Start at 100: critical −15, high −8, medium −3, low −1]
+
+## Summary
+[2–3 sentences: overall quality, biggest concerns, what works well]
+
+## All issues
+| ID | Severity | Category | File:Line | Issue |
+[QA-001… — every issue from every step, deduplicated]
+
+## Must fix before shipping
+[file:line and the exact change for each critical/high issue]
+## Should fix
+## Nice to have
+
+## Scorecard
+- Functional: golden paths N/N · edge cases N failed
+- Logic & errors: N issues · error paths N missing
+- Security: CLEAN | N findings
+- Performance: N issues · Accessibility: N/10 or n/a
+- Tests: coverage N/10 · N written
+
+## What works well
+[2–3 specific things]
+\`\`\``,
       }, [s6], false);
 
-    step(wfId, s8, 'Notify',
-      'System notification: Full QA Review complete.',
+    step(wfId, s8, 'Capture Learnings',
+      'Save the findings and quality patterns to project learnings.',
       300, 1305, 'connector',
-      { connectorType: 'system-notify', title: 'Full QA Review — Done', message: '{{workflowName}} complete. Review the QA report in NeonCore.' }, [s7]);
+      { connectorType: 'capture-learnings', includeDepOutput: true }, [s7]);
+
+    step(wfId, s9, 'Notify',
+      'System notification: Super QA complete.',
+      300, 1480, 'connector',
+      { connectorType: 'system-notify', title: 'Super QA — Done', message: '{{workflowName}} complete. Review the QA report in NeonCore.' }, [s8]);
   }
 
   // ── 13. Bug Investigation ─────────────────────────────────────────────────
@@ -259,56 +414,6 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
       'Save bug root cause and fix pattern to project learnings.',
       300, 1130, 'connector',
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s6]);
-  }
-
-  // ── 14. Code Review & Audit ───────────────────────────────────────────────
-  {
-    const wfId = stableId('Code Review & Audit');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
-    insertWorkflow.run(wfId, 'Code Review & Audit',
-      'Set the workflow description to the branch, PR, or files to review. Deep code reading → logic review → security audit → test coverage → review report (human gate) → capture learnings.', now);
-
-    step(wfId, s1, 'Code Reading',
-      'Understand every change end-to-end before evaluating anything. No judgments yet.',
-      300, 80, 'claude-code',
-      {
-        ...cc('reviewer'), workflowContext: true,
-        prompt: 'The branch, PR, or code to review is described above. Before forming any opinions, deeply understand what the code does.\n\n**PHASE 1 — IDENTIFY THE CHANGES**\nUse Bash to run `git diff main...HEAD` (or the relevant branch comparison) to see what changed, or use Grep/Glob/Read to find the files described.\n\n**PHASE 2 — READ EVERY CHANGED FILE**\nFor each changed file:\n1. Read the full file (not just the diff)\n2. Understand its role in the system\n3. Trace how it connects to other files\n4. Follow the data flow through the changed code\n\n**PHASE 3 — BUILD A MENTAL MODEL**\nAfter reading all changes, describe:\n- What the code does (the intent)\n- How it does it (the mechanism)\n- What it depends on (inputs, state, external calls)\n- What it produces (outputs, side effects)\n\n**OUTPUT**\n```\n## Code Reading Summary\n\n### Files Changed\n| File | Change Type | Lines Changed | Role |\n|------|-------------|---------------|------|\n[one row per file — Change Type: new/modified/deleted]\n\n### What This Code Does\n[2-4 sentences: the intent and mechanism in plain English]\n\n### Data Flow\n[How data enters → is transformed → exits through the changed code]\n\n### Dependencies\n[What this code depends on that could be affected by bugs here]\n\n### First Impressions\n[No judgments yet — just: is this more complex than expected, simpler, surprising in any way?]\n```',
-      }, []);
-
-    step(wfId, s2, 'Logic Review',
-      'Find logic errors, incorrect assumptions, missing edge cases, and code that could fail under real conditions.',
-      300, 255, 'claude-code',
-      {
-        ...cc('reviewer'),
-        prompt: 'Now that you understand the code, evaluate its correctness. Look for bugs, not style issues.\n\n**What to check:**\n\n**Logic Correctness**\n- Does the code do what its author intended?\n- Are there conditions where the logic produces the wrong result?\n- Are boolean conditions correct? (AND vs OR, negation errors)\n- Are comparison operators correct? (< vs <=, type coercion in ==)\n\n**Edge Cases**\n- What happens with empty arrays or empty strings?\n- What happens with null/undefined inputs?\n- What happens when the value is at the boundary (0, -1, MAX_INT)?\n- What happens when the list has exactly 1 item?\n\n**Async Correctness**\n- Are all promises awaited?\n- Could a state update happen after a component unmounts?\n- Could two concurrent calls produce a race condition?\n- Are side effects triggered in the right order?\n\n**State Mutations**\n- Is any shared state mutated without proper synchronization?\n- Are objects or arrays mutated directly instead of creating new ones?\n- Could a reference escape its intended scope?\n\n**Error Handling**\n- What happens when an API call fails?\n- Are errors propagated correctly or silently swallowed?\n- Does the code recover to a usable state after an error?\n\n**OUTPUT**\n```\n## Logic Review\n\n| Severity | File:Line | Issue | Impact |\n|----------|-----------|-------|--------|\n[one row per issue — Severity: critical/high/medium/low/nitpick]\n\n### Detailed Issues\n#### [Issue 1 — Title]\n**File:Line:** [path:line]\n**Severity:** [level]\n**Issue:** [what is wrong]\n**Impact:** [what breaks if this is not fixed]\n**Suggested Fix:** [concrete fix]\n\n[repeat for each medium+ severity issue]\n\nTotal issues: N | Critical: N | High: N | Medium: N | Low/Nitpick: N\n```',
-      }, [s1]);
-
-    step(wfId, s3, 'Security Audit',
-      'Check for injection vulnerabilities, auth gaps, data exposure, and OWASP Top 10 issues in the changed code.',
-      300, 430, 'quality-gate',
-      gate('security'), [s2]);
-
-    step(wfId, s4, 'Test Coverage Check',
-      'Evaluate whether the changed code is adequately tested. Identify missing test cases.',
-      300, 605, 'claude-code',
-      {
-        ...cc('tester'),
-        prompt: 'Evaluate the test coverage for the code changes under review.\n\n**PHASE 1 — FIND EXISTING TESTS**\nSearch for test files related to the changed code (same module, same component, same API route). Read them.\n\n**PHASE 2 — MAP COVERAGE**\nFor each function, branch, or behavior in the changed code, determine:\n- Is there a test that exercises this code path?\n- Does the test assert the correct behavior (not just that the function runs)?\n- Are edge cases tested (empty input, error states, boundary values)?\n\n**PHASE 3 — IDENTIFY GAPS**\nList every behavior in the changed code that is not covered by existing tests.\n\n**PHASE 4 — WRITE MISSING TESTS (optional but recommended)**\nIf significant gaps exist, write the missing tests. Prefer writing tests over just reporting gaps.\n\n**OUTPUT**\n```\n## Test Coverage Report\n\n### Coverage Map\n| Function/Behavior | Test File | Test Name | Status |\n|-------------------|-----------|-----------|--------|\n[one row per testable behavior — Status: ✅ Covered / ⚠️ Partial / ❌ Not covered]\n\n### Missing Tests\n| Behavior | Why It Matters | Suggested Test |\n|----------|----------------|----------------|\n[one row per gap]\n\n### Tests Written (if any)\n[List new test files/functions written]\n\n### Coverage Score: N/10\n[Brief rationale for the score]\n```',
-      }, [s3]);
-
-    step(wfId, s5, 'Review Report',
-      'Compile the full code review with verdict and action items. Requires human review and approval.',
-      300, 780, 'claude-code',
-      {
-        ...cc('planner'),
-        prompt: 'Compile the complete code review report. Be direct — give a clear verdict.\n\n```\n## Code Review Report\n\n### Summary\n[2-3 sentences: overall quality of the changes, main strengths, main concerns]\n\n### Verdict\n**[APPROVE / APPROVE WITH CHANGES / REQUEST CHANGES / REJECT]**\n[One sentence rationale]\n\n---\n\n### All Issues\n| ID | Severity | Category | File:Line | Issue |\n|----|----------|----------|-----------|-------|\n| CR-001 | critical | logic | [path:line] | [description] |\n[one row per issue found across all review steps]\n\n---\n\n### Blocking Issues (must fix before merge)\n[Bulleted list with specific file:line and exact change required]\n\n### Recommendations (should fix)\n[Bulleted list]\n\n### Minor Comments (can fix or explain)\n[Bulleted list]\n\n---\n\n### What Works Well\n[2-3 specific things done well — be specific, not generic]\n\n---\n\n### Checklist\n- [ ] Logic correct: [YES / NO — N issues]\n- [ ] Security: [CLEAN / N issues]\n- [ ] Tests adequate: [YES / PARTIAL / NO — score N/10]\n- [ ] Error handling complete: [YES / PARTIAL / NO]\n- [ ] No breaking changes: [YES / NO — describe if NO]\n```',
-      }, [s4], false);
-
-    step(wfId, s6, 'Capture Learnings',
-      'Save review findings and code quality patterns to project learnings.',
-      300, 955, 'connector',
-      { connectorType: 'capture-learnings', includeDepOutput: true }, [s5]);
   }
 
   // ══════════════════════════════════════════════════════════════════════

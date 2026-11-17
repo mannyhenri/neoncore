@@ -11,9 +11,6 @@
  * states where a copy would record two.
  */
 export type Goal = import('@neoncore/client').Goal;
-export type GoalProgress = import('@neoncore/client').GoalProgress;
-export type GoalHealth = import('@neoncore/client').GoalHealth;
-export type GoalSchedule = import('@neoncore/client').GoalSchedule;
 export type Task = import('@neoncore/client').Task;
 export type TaskStatus = import('@neoncore/client').TaskStatus;
 /** The run report the journal stores. Shared, not copied — its `report` payload is the

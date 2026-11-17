@@ -46,6 +46,7 @@ const REASON_TEXT: Record<string, string> = {
   failed: 'failed',
   interrupted: 'interrupted',
   decision: 'waiting on a decision',
+  'tasks-outstanding': 'stopped with tasks still open',
   'agent-waiting': 'waiting on you',
   'manual-advance': 'needs a manual advance',
 };

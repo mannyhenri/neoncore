@@ -19,7 +19,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import db from '../src/db.js';
 import { installStubIO } from './helpers/stub-io.js';
-import { goalReach, unassignedProjectCount } from '../src/lib/goal-reach.ts';
+import { goalReach } from '../src/lib/goal-reach.ts';
 import { goalForAgent, goalBriefForAgent } from '../src/lib/goal-brief.ts';
 import { goalCostUsd } from '../src/lib/goal-cost.ts';
 
@@ -125,16 +125,6 @@ test('a goal with projects but no cartridges still reads 0 — the silent case',
   const g = goal();
   project(g);            // no primary_repo, no owned cartridges
   assert.equal(goalReach(g), 0);
-});
-
-test('unassigned projects are countable, since they are now allowed', () => {
-  // The user chose to keep project-without-a-goal legal. That makes counting them the whole
-  // mechanism by which the choice stays visible rather than silently accumulating.
-  const before = unassignedProjectCount();
-  project(null);
-  project(null);
-  project(goal());
-  assert.equal(unassignedProjectCount(), before + 2);
 });
 
 test('reach ignores cartridge liveness — it measures linkage, not who is awake', () => {

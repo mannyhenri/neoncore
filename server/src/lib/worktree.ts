@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -19,14 +19,18 @@ export function createWorktree(
 ): { path: string; branch: string } {
   const repoName = path.basename(repoPath);
   const sanitizedBranch = branch.replace(/[^a-zA-Z0-9._-]/g, '-');
-  const targetPath = worktreePath || path.join(path.dirname(repoPath), `${repoName}-${sanitizedBranch}`);
+  const targetPath = path.resolve(repoPath, worktreePath || path.join('..', `${repoName}-${sanitizedBranch}`));
 
   if (fs.existsSync(targetPath)) return { path: targetPath, branch };
+  // Arguments, never a shell string: the branch and path can come from a request body. A leading
+  // '-' would be read as an option.
+  if (branch.startsWith('-')) throw new Error(`invalid branch name: ${branch}`);
+  const opts = { cwd: repoPath, timeout: 30000, encoding: 'utf-8' as const, stdio: 'pipe' as const };
 
   try {
-    execSync(`git worktree add "${targetPath}" "${branch}"`, { cwd: repoPath, timeout: 30000, encoding: 'utf-8' });
+    execFileSync('git', ['worktree', 'add', targetPath, branch], opts);
   } catch {
-    execSync(`git worktree add -b "${branch}" "${targetPath}"`, { cwd: repoPath, timeout: 30000, encoding: 'utf-8' });
+    execFileSync('git', ['worktree', 'add', '-b', branch, targetPath], opts);
   }
   return { path: targetPath, branch };
 }

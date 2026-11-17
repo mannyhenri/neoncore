@@ -27,7 +27,7 @@ const SOURCES = [
 const handoffs = SOURCES.flatMap((file) =>
   fs.readFileSync(file, 'utf8').split('\n')
     .map((line, i) => ({ file: path.basename(file), line: i + 1, text: line }))
-    .filter(({ text }) => /'(do script|write text) /.test(text)),
+    .filter(({ text }) => /['`](do script|write text) /.test(text)),
 );
 
 test('the complete set of macOS terminal handoffs is found (3)', () => {
@@ -35,6 +35,6 @@ test('the complete set of macOS terminal handoffs is found (3)', () => {
 });
 
 test('every macOS terminal handoff runs the script through bash', () => {
-  const direct = handoffs.filter(({ text }) => !/'(do script|write text) \$\{JSON\.stringify\(`bash /.test(text));
+  const direct = handoffs.filter(({ text }) => !/['`](do script|write text) \$\{JSON\.stringify\(`bash /.test(text));
   assert.deepEqual(direct.map((h) => `${h.file}:${h.line}: ${h.text.trim()}`), []);
 });

@@ -201,3 +201,101 @@ export function unassignedStepNames(
 ): string[] {
   return unrunnableSteps(workflowId, body).map((s) => s.name);
 }
+
+/**
+ * RUN-LEVEL CONFER — turn a freshly created run into one worked by several cartridges together.
+ *
+ * Moved here from the HTTP start handler so every way a run is created applies it the same way:
+ * the Run button, a scheduled run (lib/heartbeat-scheduler.ts) and a Goal Pilot stage
+ * (lib/goal-pilot-runner.ts), all through cloneTemplateAsRun. Those two used to pass ONE cartridge,
+ * so a Confer template started by a schedule or a goal died at its confer step: "needs at least 2
+ * participants; got 0".
+ *
+ * What each step gets is CONFER_FILL / conferFillFor above — the one registry. `agentIds` must be
+ * existing cartridges and at least two; the caller validates, this converts.
+ */
+export function applyConferToRun(
+  runId: string,
+  agentIds: string[],
+  mode: string,
+  isolation: string,
+): { converted: number; assigned: number } {
+  const rows = db.prepare('SELECT id, executor_type, executor_id, executor_config FROM workflow_steps WHERE workflow_id = ?')
+    .all(runId) as { id: string; executor_type: string; executor_id: string; executor_config: string }[];
+
+  // The judge for every single-cartridge step. First participant rather than a random one so
+  // two runs of the same template are comparable, and so the choice is explainable.
+  const judge = agentIds[0];
+
+  let converted = 0;
+  let assigned = 0;
+  for (const r of rows) {
+    const fill = conferFillFor(r.executor_type, r.executor_config);
+    if (!fill || fill === 'none') continue;
+
+    const config = JSON.parse(r.executor_config || '{}') as Record<string, unknown>;
+    const awaiting = awaitsLaunchFill((r.executor_id ?? '').trim());
+
+    if (fill === 'confer-all') {
+      config.conferAgentIds = agentIds;
+      // The requested mode wins over whatever the template happened to carry: the person
+      // launching chose it for this run's work, the template author chose it in general.
+      config.conferMode = mode;
+      config.conferIsolation = isolation;
+      config._wasDeferred = true;
+      // executor_id stops meaning anything for a confer step, and leaving a stale one behind
+      // makes the run look single-owner on every surface that reads it.
+      db.prepare('UPDATE workflow_steps SET executor_type = ?, executor_id = ?, executor_config = ? WHERE id = ?')
+        .run('confer', '', JSON.stringify(config), r.id);
+      converted += 1;
+      continue;
+    }
+
+    // Everything below fills only what is still AWAITING a cartridge. A pin someone made
+    // deliberately — or a stale one the door already refused — is never overwritten here.
+    if (!awaiting) continue;
+
+    if (fill === 'single') {
+      // A gate is a single-judge verdict and a command step dispatches to one cartridge;
+      // converting either would break what it is. They just need somebody.
+      if (r.executor_type === 'review-gate' && !config.reviewAgentId) config.reviewAgentId = judge;
+      db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+        .run(judge, JSON.stringify(config), r.id);
+      assigned += 1;
+    } else if (fill === 'multi-if-empty') {
+      // Already multi-agent. Its own roster wins; an EMPTY roster is what left the
+      // confer-across-repos template unable to launch its own confer step.
+      const key = r.executor_type === 'deliberation' ? 'panelAgentIds' : 'conferAgentIds';
+      const existing = Array.isArray(config[key]) ? (config[key] as unknown[]).filter(Boolean) : [];
+      if (existing.length < 2) config[key] = agentIds;
+      // A template's own confer step takes the run's mode too, or "work together" would
+      // apply to the converted steps and not to the one that was already a confer.
+      if (r.executor_type === 'confer') {
+        config.conferMode = mode;
+        config.conferIsolation = isolation;
+      }
+      db.prepare('UPDATE workflow_steps SET executor_id = ?, executor_config = ? WHERE id = ?')
+        .run('', JSON.stringify(config), r.id);
+      assigned += 1;
+    }
+  }
+  console.log(`[workflow] Run ${runId}: ${converted} step(s) converted to confer across `
+    + `${agentIds.length} cartridges, ${assigned} given a cartridge from the set`);
+  return { converted, assigned };
+}
+
+/**
+ * Does this template need several cartridges to run at all — a `confer` step with no roster of
+ * its own? Such a template cannot be started on one cartridge: a schedule or a Goal Pilot stage
+ * must name two or more.
+ */
+export function templateNeedsParticipants(templateId: string): boolean {
+  const rows = db.prepare("SELECT executor_config FROM workflow_steps WHERE workflow_id = ? AND executor_type = 'confer'")
+    .all(templateId) as { executor_config: string }[];
+  return rows.some((r) => {
+    try {
+      const ids = (JSON.parse(r.executor_config || '{}') as { conferAgentIds?: unknown }).conferAgentIds;
+      return !Array.isArray(ids) || ids.filter(Boolean).length < 2;
+    } catch { return true; }
+  });
+}

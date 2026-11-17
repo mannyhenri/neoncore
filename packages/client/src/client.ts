@@ -155,18 +155,12 @@ export function createClient(config: ClientConfig = {}) {
   return {
   /** Which server this client points at. '' means same-origin. Used to tag data by origin. */
   origin,
-
   // Federation
-  getHealth: () => request<{ status: string; timestamp: string }>('/health'),
   getPeers: () =>
     request<{
       self: { serverId: string; name: string; url: string; version: string };
       peers: import('./types').Peer[];
     }>('/peers'),
-  addPeer: (url: string) =>
-    request<{ ok: boolean; url: string }>('/peers', { method: 'POST', body: JSON.stringify({ url }) }),
-  removePeer: (url: string) =>
-    request<{ ok: boolean }>('/peers', { method: 'DELETE', body: JSON.stringify({ url }) }),
 
   // Queue — request() prefixes /api, so these paths are the /api/queue* routes.
   getQueue: () => request<import('./types').QueueView>('/queue'),
@@ -213,11 +207,6 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').Agent>(`/agents/${id}/dismiss`, { method: 'POST' }),
   restoreAgent: (id: string) =>
     request<import('./types').Agent>(`/agents/${id}/restore`, { method: 'POST' }),
-  updateAgent: (id: string, data: Record<string, unknown>) =>
-    request<import('./types').Agent>(`/agents/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
   getContextOptions: (id: string) =>
     request<{
       sessions: { id: string; startedAt: string; summary: string; branch: string }[];
@@ -307,36 +296,8 @@ export function createClient(config: ClientConfig = {}) {
   deleteMemory: (agentId: string, memoryId: string) =>
     request<void>(`/agents/${agentId}/memory/${memoryId}`, { method: 'DELETE' }),
 
-  // Notes
-  getNotes: (agentId: string) =>
-    request<import('./types').Note[]>(`/agents/${agentId}/notes`),
-  createNote: (agentId: string, content: string) =>
-    request<import('./types').Note>(`/agents/${agentId}/notes`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    }),
-  updateNote: (agentId: string, noteId: string, content: string) =>
-    request<import('./types').Note>(`/agents/${agentId}/notes/${noteId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ content }),
-    }),
-  deleteNote: (agentId: string, noteId: string) =>
-    request<void>(`/agents/${agentId}/notes/${noteId}`, { method: 'DELETE' }),
-
   // Command Templates
   getCommandTemplates: () => request<import('./types').CommandTemplate[]>('/command-templates'),
-  createCommandTemplate: (data: { name: string; content: string; category: string }) =>
-    request<import('./types').CommandTemplate>('/command-templates', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateCommandTemplate: (id: string, data: { name?: string; content?: string; category?: string }) =>
-    request<import('./types').CommandTemplate>(`/command-templates/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  deleteCommandTemplate: (id: string) =>
-    request<void>(`/command-templates/${id}`, { method: 'DELETE' }),
 
   // Settings
   getSettings: () => request<Record<string, string>>('/settings'),
@@ -429,33 +390,6 @@ export function createClient(config: ClientConfig = {}) {
   getGitDiff: (agentId: string, staged = false) =>
     request<{ diff: string }>(`/git/${agentId}/diff${staged ? '?staged=true' : ''}`),
 
-  // Epics — Discovery
-  scanEpics: (agentId: string) =>
-    request<{ epics: { name: string; filename: string; path: string }[]; prefixes: string[]; taskCount: number }>(`/epics/scan/${agentId}`),
-  scanTasks: (agentId: string, prefix: string) =>
-    request<{ tasks: { taskId: string; label: string; filename: string; taskFilePath: string }[]; prefix: string }>(`/epics/scan/${agentId}/tasks?prefix=${encodeURIComponent(prefix)}`),
-
-  // Epics — Runs
-  startEpic: (data: { name: string; agentId: string; tasks: { taskId: string; label?: string; taskFilePath?: string }[]; config?: Partial<import('./types').EpicRunConfig>; startPaused?: boolean }) =>
-    request<import('./types').EpicRun>('/epics/start', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  getEpicRuns: () =>
-    request<import('./types').EpicRun[]>('/epics/runs'),
-  getEpicRun: (id: string) =>
-    request<import('./types').EpicRun>(`/epics/runs/${id}`),
-  pauseEpic: (id: string) =>
-    request<import('./types').EpicRun>(`/epics/runs/${id}/pause`, { method: 'POST' }),
-  resumeEpic: (id: string) =>
-    request<import('./types').EpicRun>(`/epics/runs/${id}/resume`, { method: 'POST' }),
-  cancelEpic: (id: string) =>
-    request<import('./types').EpicRun>(`/epics/runs/${id}/cancel`, { method: 'POST' }),
-  skipEpicTask: (id: string) =>
-    request<import('./types').EpicRun>(`/epics/runs/${id}/skip`, { method: 'POST' }),
-  retryEpicTask: (id: string) =>
-    request<import('./types').EpicRun>(`/epics/runs/${id}/retry`, { method: 'POST' }),
-
   // Workflows
   startWorkflow: (data: {
     name?: string;
@@ -489,11 +423,6 @@ export function createClient(config: ClientConfig = {}) {
   // Virtual Cartridges
   getVirtualCartridges: () =>
     request<import('./types').VirtualCartridge[]>('/virtual-cartridges'),
-  createVirtualCartridge: (data: { name?: string; directoryPath: string }) =>
-    request<import('./types').VirtualCartridge>('/virtual-cartridges', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
   updateVirtualCartridge: (id: string, data: Record<string, unknown>) =>
     request<import('./types').VirtualCartridge>(`/virtual-cartridges/${id}`, {
       method: 'PUT',
@@ -551,28 +480,6 @@ export function createClient(config: ClientConfig = {}) {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  addWorkflowStep: (workflowId: string, step: {
-    name: string;
-    description?: string;
-    positionX: number;
-    positionY: number;
-    executorType: import('./types').StepExecutorType;
-    executorId?: string;
-    executorConfig?: Record<string, unknown>;
-    autoAdvance?: boolean;
-    dependsOn?: string[];
-  }) =>
-    request<import('./types').WorkflowStep>(`/workflows/v2/${workflowId}/steps`, {
-      method: 'POST',
-      body: JSON.stringify(step),
-    }),
-  updateWorkflowStep: (workflowId: string, stepId: string, data: Record<string, unknown>) =>
-    request<import('./types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  deleteWorkflowStep: (workflowId: string, stepId: string) =>
-    request<void>(`/workflows/v2/${workflowId}/steps/${stepId}`, { method: 'DELETE' }),
   // `agentId` is the run-level cartridge: it fills every step that hasn't got one, so you
   // pick once instead of naming a cartridge for each step. `agentOverrides` still wins
   // per-step, for the genuine cross-cartridge case.
@@ -607,22 +514,27 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/advance`, {
       method: 'POST',
     }),
+  /**
+   * Tasks still open (server lib/coverage-loop.ts): `continue` sends the run back to the work on
+   * what is left, `accept` lets it go on as it is.
+   */
+  resolveCoverage: (workflowId: string, stepId: string, action: 'continue' | 'accept') =>
+    request<{ ok: boolean }>(`/workflows/v2/${workflowId}/steps/${stepId}/coverage`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+  /** Where a task-list run has got to: summary, the engine's record, and the progress document. */
+  getWorkflowProgress: (workflowId: string) =>
+    request<import('./types').WorkflowProgress>(`/workflows/${workflowId}/progress`),
   skipWorkflowStep: (workflowId: string, stepId: string) =>
     request<import('./types').WorkflowStep>(`/workflows/v2/${workflowId}/steps/${stepId}/skip`, {
       method: 'POST',
     }),
   completeWorkflowV2: (workflowId: string) =>
     request<import('./types').Workflow>(`/workflows/v2/${workflowId}/complete`, { method: 'POST' }),
-  getWorkflowRuns: (templateId: string) =>
-    request<import('./types').Workflow[]>(`/workflows/v2/${templateId}/runs`),
-
   // Journal / Session Memory
-  getProjects: () =>
-    request<{ project: string; sessionCount: number; lastSession: string }[]>('/journal/projects'),
   getProjectSessions: (project: string, limit = 20) =>
     request<import('./types').Session[]>(`/journal/projects/${encodeURIComponent(project)}/sessions?limit=${limit}`),
-  getSession: (id: string) =>
-    request<import('./types').Session>(`/journal/sessions/${id}`),
   getKnowledgeFile: (project: string, filename: string) =>
     request<import('./types').ProjectKnowledge>(`/journal/projects/${encodeURIComponent(project)}/knowledge/${filename}`),
   updateKnowledgeFile: (project: string, filename: string, content: string) =>
@@ -808,10 +720,6 @@ export function createClient(config: ClientConfig = {}) {
     request<{ createdProjects: number; createdTasks: number; createdRuns: number; skipped: string[]; decomposition: import('./types').GoalDecomposition }>(
       `/goals/decompositions/${id}/accept`, { method: 'POST', body: JSON.stringify({ projectKeys, taskKeys }) },
     ),
-  revertDecomposition: (id: string) =>
-    request<{ deletedTasks: number; deletedProjects: number; kept: string[] }>(
-      `/goals/decompositions/${id}/revert`, { method: 'POST' },
-    ),
 
   /** The ONLY path from generated text to a goal. `fields` must name each accepted key. */
   applyGoalDraft: (draftId: string, fields: string[]) =>
@@ -832,7 +740,6 @@ export function createClient(config: ClientConfig = {}) {
   getGoalPilotMeta: () => request<import('./types').GoalPilotMeta>('/goal-pilots/meta'),
   getGoalPilots: (goalId?: string) =>
     request<import('./types').GoalPilot[]>(`/goal-pilots${goalId ? `?goalId=${goalId}` : ''}`),
-  getGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}`),
   getGoalPilotCandidates: (goalId?: string) =>
     request<import('./types').PilotCandidateRepo[]>(`/goal-pilots/candidates${goalId ? `?goalId=${goalId}` : ''}`),
   getGoalPilotRequest: (requestId: string) =>
@@ -858,7 +765,8 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/accept-plan`, { method: 'POST', body: JSON.stringify(data) }),
   reviseGoalPilotPlan: (id: string) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/revise`, { method: 'POST' }),
-  startGoalPilot: (id: string, data: { repos: { repoPath: string; agentType: string }[]; assignments: Record<string, string> }) =>
+  /** `assignments`: stage key → repo path, or → several repo paths for a stage worked together (Confer). */
+  startGoalPilot: (id: string, data: { repos: { repoPath: string; agentType: string }[]; assignments: Record<string, string | string[]> }) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/start`, { method: 'POST', body: JSON.stringify(data) }),
   pauseGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/pause`, { method: 'POST' }),
   resumeGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/resume`, { method: 'POST' }),
@@ -867,7 +775,6 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/stages/${stageId}/retry`, { method: 'POST' }),
   skipGoalPilotStage: (id: string, stageId: string) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/stages/${stageId}/skip`, { method: 'POST' }),
-  deleteGoalPilot: (id: string) => request<void>(`/goal-pilots/${id}`, { method: 'DELETE' }),
 
   // The acceptance contract — every one of these is the PERSON's decision; no agent tool reaches them.
   /** Run the tests under review now (before any work they should fail). Results arrive by socket. */
@@ -897,17 +804,11 @@ export function createClient(config: ClientConfig = {}) {
   // Goal Projects (separate from journal projects)
   getGoalProjects: (goalId?: string) =>
     request<import('./types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),
-  getGoalProject: (id: string) =>
-    request<{ project: import('./types').Project; workflows: Record<string, unknown>[] }>(`/projects/${id}`),
   createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
     request<import('./types').Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
   updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
     request<import('./types').Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
-
-  // Assign workflow to project
-  assignWorkflowProject: (workflowId: string, projectId: string | null) =>
-    request<void>(`/workflows/${workflowId}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
 
   // Project learnings
   getProjectLearnings: (projectId: string, limit?: number) =>
@@ -930,6 +831,10 @@ export function createClient(config: ClientConfig = {}) {
     initialContext?: string;
     /** The FIRST run, from "Schedule this run". Used verbatim, not rounded to the cadence. */
     firstRunAt?: string;
+    /** A scheduled CONFER: every cartridge that works it (two or more), and how. */
+    conferAgentIds?: string[];
+    conferMode?: string;
+    conferIsolation?: string;
   }) => request<import('./types').Heartbeat>('/heartbeats', { method: 'POST', body: JSON.stringify(data) }),
   updateHeartbeat: (id: string, data: {
     templateId?: string;

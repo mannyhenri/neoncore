@@ -4,10 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const LEGACY_KEY = 'neoncore.serverUrl';
 const KEY = 'neoncore.servers.v1';
 
-// EAS project id — required by expo-notifications to mint an Expo push token in a
-// production build. Mirrors app.json → expo.extra.eas.projectId.
-export const EAS_PROJECT_ID = '58c8efd5-84b8-4476-8f92-fca6bf3bf691';
-
 /** One NeonCore server this phone talks to. */
 export interface ServerEntry {
   url: string;
@@ -149,20 +145,6 @@ export function upsertServer(
   ];
 }
 
-export function removeServer(servers: ServerEntry[], url: string): ServerEntry[] {
-  return servers.filter((s) => s.url !== normalizeUrl(url));
-}
-
-export function setServerHidden(servers: ServerEntry[], url: string, hidden: boolean): ServerEntry[] {
-  const target = normalizeUrl(url);
-  return servers.map((s) => (s.url === target ? { ...s, hidden } : s));
-}
-
-/** Apply one token to every server — the fleet shares a single secret by design. */
-export function setFleetToken(servers: ServerEntry[], token: string | null): ServerEntry[] {
-  return servers.map((s) => ({ ...s, token }));
-}
-
 export function activeServers(servers: ServerEntry[]): ServerEntry[] {
   return servers.filter((s) => !s.hidden);
 }
@@ -183,21 +165,10 @@ export function reachablePeers<T extends { stale?: boolean }>(peers: T[]): T[] {
   return peers.filter((p) => p.stale !== true);
 }
 
-// ─── Back-compat shims ──────────────────────────────────────────────────────
-// push.ts and the Connect flow were written against a single URL. They keep working
-// against the FIRST server, which is the one the phone was originally set up with.
-
-export async function loadServerUrl(): Promise<string | null> {
-  const servers = await loadServers();
-  return servers[0]?.url ?? null;
-}
+// ─── Back-compat shim ───────────────────────────────────────────────────────
+// The Connect flow was written against a single URL; it adds that server to the roster.
 
 export async function saveServerUrl(url: string): Promise<void> {
   const servers = await loadServers();
   await saveServers(upsertServer(servers, { url, manual: true }));
-}
-
-export async function clearServerUrl(): Promise<void> {
-  await AsyncStorage.removeItem(KEY);
-  await AsyncStorage.removeItem(LEGACY_KEY);
 }

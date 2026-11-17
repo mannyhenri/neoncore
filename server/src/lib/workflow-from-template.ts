@@ -21,6 +21,7 @@ import { resolveRunPlaceholders } from './workflow-report.js';
 import { remapStepRefsJson } from './step-refs.js';
 import { advanceWorkflowsSoon } from './workflow-executor-v2.js';
 import { withStandardGateOnTemplateRows } from './standard-gate.js';
+import { applyConferToRun } from './workflow-launch.js';
 
 /**
  * What previous runs OF THIS WORKFLOW learned. THE ONE IMPLEMENTATION — both clone paths call
@@ -57,6 +58,9 @@ function wholeLines(text: string, max: number): string {
   return out.length ? `${out.join('\n')}\n…` : `${text.slice(0, max - 1)}…`;
 }
 
+/** The heading that opens the learnings block — exported so a continuation can strip it. */
+export const LEARNINGS_HEADING = '## What previous runs of this workflow learned';
+
 export function learningsContext(projectId: string, templateId: string): string {
   if (!projectId || !templateId) return '';
   const learnings = db.prepare(
@@ -68,7 +72,7 @@ export function learningsContext(projectId: string, templateId: string): string 
   ).all(projectId, templateId) as { content: string; workflow_name: string }[];
   if (learnings.length === 0) return '';
   return [
-    '## What previous runs of this workflow learned',
+    LEARNINGS_HEADING,
     ...learnings.map((l, i) =>
       `### ${i + 1}. From "${l.workflow_name}"\n${wholeLines(l.content, 600)}`),
     '---',
@@ -98,6 +102,13 @@ export interface CloneOptions {
    * auto-resolves NOTHING and halts at the first of ten attention reasons with nobody there.
    */
   autonomy?: string;
+  /**
+   * Run it as a CONFER: these cartridges (two or more, existing) work it together, exactly as
+   * the Run button's "Run on" with several cartridges does (applyConferToRun). When set, deferred
+   * steps are NOT pre-filled with `agentId` — the conversion fills them, and a template's own
+   * confer step only takes the roster while it is still awaiting one.
+   */
+  confer?: { agentIds: string[]; mode?: string; isolation?: string };
 }
 
 export function cloneTemplateAsRun(
@@ -155,6 +166,8 @@ export function cloneTemplateAsRun(
   // The same Work Standard Check a run launched from the dashboard gets (lib/standard-gate.ts). A
   // scheduled run used to get none: the same template was audited when you pressed Run and not when
   // it ran at 3am with nobody watching — the run that needs the audit most.
+  const conferIds = opts.confer && opts.confer.agentIds.filter(Boolean).length >= 2
+    ? opts.confer.agentIds.filter(Boolean) : null;
   const templateSteps = withStandardGateOnTemplateRows(
     db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(templateId) as Record<string, unknown>[],
     { skip: template.standard_gate === 'off' },
@@ -182,7 +195,7 @@ export function cloneTemplateAsRun(
       // Fill only what is AWAITING a cartridge. A template step deliberately pinned to a
       // specific cartridge keeps it — the fill is for '__deferred__', not a blanket overwrite.
       s.executor_type,
-      awaitsLaunchFill(String(s.executor_id ?? '')) && opts.agentId
+      awaitsLaunchFill(String(s.executor_id ?? '')) && opts.agentId && !conferIds
         ? opts.agentId
         : (s.executor_id ?? ''),
       // A run has an id; a template does not, which is why its stored prompt carries
@@ -198,6 +211,10 @@ export function cloneTemplateAsRun(
   // Same layout authority as every other path — a scheduled run must open looking like a
   // hand-launched one.
   layoutSteps(db, runId);
+  if (conferIds) {
+    applyConferToRun(runId, conferIds, opts.confer!.mode === 'collaborate' ? 'collaborate' : 'divide',
+      opts.confer!.isolation === 'worktree' ? 'worktree' : 'shared');
+  }
   // A scheduled run starts now, not on the next poll.
   advanceWorkflowsSoon();
 

@@ -2,17 +2,6 @@ import type { Database } from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
 
-export interface WorkflowJournalEntry {
-  id: string;
-  workflowId: string;
-  stepId: string;
-  stepName: string;
-  eventType: string;
-  message: string;
-  data: Record<string, unknown>;
-  createdAt: string;
-}
-
 function json(value: unknown): string {
   try {
     return JSON.stringify(value ?? {});

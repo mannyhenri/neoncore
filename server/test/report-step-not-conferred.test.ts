@@ -38,7 +38,7 @@ import type { Server } from 'http';
 import db from '../src/db.ts';
 import workflowsRouter, { backfillReportsFromDisk } from '../src/routes/workflows.ts';
 import journalRouter from '../src/routes/journal.ts';
-import { isReportStep, RUN_ID_PLACEHOLDER } from '../src/lib/workflow-report.ts';
+import { isReportStep, reportStepConfig, RUN_ID_PLACEHOLDER, WORKFLOW_REPORT_PROMPT } from '../src/lib/workflow-report.ts';
 import { installStubIO } from './helpers/stub-io.ts';
 import { cloneTemplateAsRun } from '../src/lib/workflow-from-template.ts';
 
@@ -47,6 +47,39 @@ const iso = () => new Date().toISOString();
 let base = '';
 let server: Server;
 let n = 0;
+
+/**
+ * A template whose customized report writes a file under `.neoncore/reports/<workflowRunId>/`.
+ *
+ * The placeholder tests below need at least one template that carries `<workflowRunId>`, or
+ * they sweep the templates and find nothing to check. No standard template carries it since
+ * the Gridlight QA templates (the only ones that did) were removed, but a user-built template
+ * with a customized report still can — so the resolution is still needed and still tested.
+ */
+const PLACEHOLDER_TEMPLATE = 'Fixture: Scorecard Report';
+{
+  const wfId = `fixture-tpl-${Date.now()}`;
+  const now = iso();
+  db.prepare(
+    `INSERT INTO workflows (id, name, description, status, target_repos, created_at, started_at)
+     VALUES (?, ?, ?, 'pending', '[]', ?, '')`,
+  ).run(wfId, PLACEHOLDER_TEMPLATE, 'Run a script, then write a scorecard into the run directory.', now);
+  const insertStep = db.prepare(
+    `INSERT INTO workflow_steps
+       (id, workflow_id, name, description, position_x, position_y,
+        executor_type, executor_id, executor_config, auto_advance, depends_on, created_at)
+     VALUES (?, ?, ?, ?, 300, ?, 'claude-code', '__deferred__', ?, 1, ?, ?)`,
+  );
+  const runStepId = `${wfId}-run`;
+  insertStep.run(runStepId, wfId, 'Run Script', 'Run the script.', 50, JSON.stringify({
+    role: 'tester', includeDepOutput: true, systemPromptMode: 'free', systemPrompt: '', loopCount: 1,
+    prompt: 'Run the script and report its exit code.',
+  }), '[]', now);
+  insertStep.run(`${wfId}-report`, wfId, 'Workflow Completion Report', 'Write the scorecard.', 225, JSON.stringify({
+    ...reportStepConfig(), reportPromptManaged: false,
+    prompt: `${WORKFLOW_REPORT_PROMPT}\n\nWrite the scorecard to \`.neoncore/reports/${RUN_ID_PLACEHOLDER}/scorecard.html\`.`,
+  }), JSON.stringify([runStepId]), now);
+}
 
 test.before(async () => {
   const app = express();
@@ -276,7 +309,7 @@ test('the TEMPLATES keep the placeholder — there is no run id to bake in yet',
         AND executor_config LIKE '%.neoncore/reports/%' LIMIT 1`,
   ).get() as { executor_config: string } | undefined;
   // The generic report names no directory (it is delivered through report_step_done); a
-  // template whose report writes a file there — Gridlight QA's scorecard — still does.
+  // template whose report writes a file there — PLACEHOLDER_TEMPLATE's scorecard — still does.
   assert.ok(tpl, 'no template report names a reports directory');
   assert.ok(tpl!.executor_config.includes(RUN_ID_PLACEHOLDER),
     'the substitution was pushed back into the template, where the id it names does not exist');

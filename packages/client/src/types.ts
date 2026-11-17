@@ -143,14 +143,6 @@ export interface StuckAlert {
   detectedAt: string;
 }
 
-export interface Note {
-  id: string;
-  agentId: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface AgentMemory {
   id: string;
   agentId: string;
@@ -184,40 +176,6 @@ export interface ProjectKnowledge {
   filename: string;
   content: string;
   updatedAt: string;
-}
-
-// Epic Autopilot types
-export interface EpicTaskState {
-  taskId: string;
-  label: string;
-  taskFilePath: string;
-  status: 'pending' | 'running' | 'committing' | 'completed' | 'skipped' | 'failed';
-  startedAt: string;
-  completedAt: string;
-  error: string;
-}
-
-export interface EpicRunConfig {
-  idleThresholdMs: number;
-  commitCommand: string;
-  taskPromptTemplate: string;
-  skipCommitOnLast: boolean;
-  autoEnableTrust: boolean;
-  taskPrefix: string;
-}
-
-export interface EpicRun {
-  id: string;
-  name: string;
-  agentId: string;
-  status: 'pending' | 'running' | 'committing' | 'paused' | 'completed' | 'failed' | 'cancelled';
-  currentTask: number;
-  tasks: EpicTaskState[];
-  config: EpicRunConfig;
-  previousMode: AgentMode;
-  startedAt: string;
-  completedAt: string | null;
-  error: string;
 }
 
 // Workflow types
@@ -289,6 +247,18 @@ export interface Workflow {
     stepName: string;
     detail: string;
   } | null;
+  /**
+   * Where a task-list run has got to — done/total (from its latest coverage check, or estimated
+   * from dispatch claims) and its progress document. Null for a run that tracks no task list.
+   */
+  progress?: {
+    done: number;
+    total: number | null;
+    blocked: number;
+    basis: 'coverage' | 'claims';
+    docPath: string;
+    updatedAt: string;
+  } | null;
   createdAt: string;
   startedAt: string;
   completedAt: string | null;
@@ -324,7 +294,7 @@ export interface CommandTemplate {
  * Named once here so the run badge and the goal rollup cannot describe the same state
  * with two different vocabularies.
  */
-export type AttentionReason = 'failed' | 'interrupted' | 'decision' | 'agent-waiting' | 'manual-advance';
+export type AttentionReason = 'failed' | 'interrupted' | 'decision' | 'tasks-outstanding' | 'agent-waiting' | 'manual-advance';
 
 /** Derived completion for a goal. See server/src/lib/goal-progress.ts. */
 export interface GoalProgress {
@@ -466,6 +436,8 @@ export interface GoalPilotMeta {
   defaultVerify: Record<string, VerifyMethod>;
   /** Stage keys of the contract's own stages, assignable to a repo at staffing. */
   contractStageKeys: { acceptance: string; review: string };
+  /** Workflows worked by several cartridges together (Confer): staffed with two or more repos. */
+  teamTemplates?: string[];
 }
 
 // ── the acceptance contract (server/src/lib/acceptance-contract.ts) ───────────────
@@ -638,6 +610,8 @@ export interface PilotStage {
   focus: string;
   repoPath: string;
   agentType: string;
+  /** A stage worked by several cartridges together (Confer): every participant. Empty = one cartridge. */
+  participants?: { repoPath: string; agentType: string }[];
   projectId: string;
   runId: string;
   agentId: string;
@@ -859,6 +833,10 @@ export interface Heartbeat {
   templateName: string | null;
   agentId: string;
   agentName: string | null;
+  /** A scheduled confer: every cartridge that works it. Empty for an ordinary schedule. */
+  conferAgentIds?: string[];
+  conferMode?: string;
+  conferIsolation?: string;
   /**
    * Mirrors SCHEDULE_TYPES (server/src/lib/heartbeat-scheduler.ts), all SIX of them.
    *
@@ -1183,4 +1161,26 @@ export interface WorkflowReport {
    * those from an http page, which is how a finished report could sit on disk unreachable.
    */
   htmlUrl?: string;
+}
+
+/** One thing the engine saw a task-list run do (server lib/run-progress.ts). */
+export interface WorkflowProgressEvent {
+  at: string;
+  stepName: string;
+  /** `task`: a loop dispatch's claim. `coverage`: a coverage check and what the engine did. */
+  kind: 'task' | 'coverage';
+  taskId: string;
+  /** task: DONE | BLOCKED | SKIPPED · coverage: complete | loop-back | held | accepted | continued */
+  verdict: string;
+  remaining: number | null;
+  done: number | null;
+  total: number | null;
+  detail: string;
+}
+
+export interface WorkflowProgress {
+  summary: NonNullable<Workflow['progress']> | null;
+  events: WorkflowProgressEvent[];
+  /** The progress document — its text when the server can read it, else why not. */
+  doc: { path: string; content: string | null; unavailable: string } | null;
 }

@@ -39,38 +39,6 @@ export interface FleetAgent {
   origin?: string;
 }
 
-/**
- * Every agent this server can see, its own plus each reachable peer's.
- *
- * allSettled, never all: one unreachable peer must not blank the fleet — the same tolerance
- * the dashboard applies. Peers are asked WITHOUT recursion (`?fleet=` is not propagated), so
- * this stays one hop deep.
- */
-export async function listFleetAgents(localAgents: FleetAgent[]): Promise<FleetAgent[]> {
-  const peers = listPeers();
-  if (peers.length === 0) return localAgents.map((a) => ({ ...a, origin: '' }));
-
-  const results = await Promise.allSettled(
-    peers.map(async (p) => {
-      const res = await fetch(`${p.url}/api/agents`, {
-        headers: authHeaders(),
-        signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const list = (await res.json()) as FleetAgent[];
-      return list.map((a) => ({ ...a, origin: p.url }));
-    }),
-  );
-
-  const remote = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
-  // Local wins on an id collision: this server's own view of its own agent is authoritative.
-  const seen = new Set(localAgents.map((a) => a.id));
-  return [
-    ...localAgents.map((a) => ({ ...a, origin: '' })),
-    ...remote.filter((a) => !seen.has(a.id)),
-  ];
-}
-
 /** Which peer, if any, holds this agent. Null when nobody in the fleet admits to it. */
 export async function findAgentOwner(agentId: string): Promise<string | null> {
   if (!agentId) return null;
