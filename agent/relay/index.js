@@ -42,6 +42,7 @@ import os from 'os';
 import { authHeaders } from '../lib/fleet-token.mjs';
 import { resumeArgsFor, canVerifyTranscript, transcriptExists } from './resume-args.mjs';
 import { codexArgsForMode } from './codex-mode.mjs';
+import { resolveAgentCommand } from './agent-cmd.mjs';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -78,6 +79,8 @@ const PROTECT_RELAY = process.env.NEONCORE_RELAY_PROTECT === '1';
 // the runner, which only sets AGENT_TYPE) would silently fall back to `claude`.
 const AGENT_CMD = process.env.NEONCORE_AGENT_CMD
   || (process.platform === 'win32' ? `${AGENT_TYPE}.cmd` : AGENT_TYPE);
+// What pty.spawn actually runs: AGENT_CMD resolved to a real file at startup (agent-cmd.mjs).
+let agentCmdPath = AGENT_CMD;
 // Everything after a literal `--` is forwarded to the agent CLI.
 const dashIdx = process.argv.indexOf('--');
 const EXPLICIT_ARGS = dashIdx >= 0 ? process.argv.slice(dashIdx + 1) : [];
@@ -256,6 +259,28 @@ async function main() {
   identityForInbox = identity;
   log(`Starting relay: url=${URL} type=${AGENT_TYPE} cmd=${AGENT_CMD} repo=${identity.repoPath}`);
 
+  // 0. Find the agent CLI BEFORE registering. A missing binary used to surface only as
+  // "Agent exited with code 1" in relay.log ~20 ms after a registration — a cartridge on the
+  // dashboard with no command channel and a terminal that said nothing. See agent-cmd.mjs.
+  const resolved = resolveAgentCommand(AGENT_CMD);
+  if (!resolved) {
+    const msg = `NeonCore relay: cannot find \`${AGENT_CMD}\` on PATH or in the usual install locations `
+      + `(~/.local/bin, ~/.nvm/versions/node/*/bin, /opt/homebrew/bin, /usr/local/bin).\n`
+      + (AGENT_TYPE === 'claude'
+        ? '  Install Claude Code\'s native build (`claude install` from any shell where claude still runs),\n'
+        : '')
+      + '  or set NEONCORE_AGENT_CMD to the full path of the binary.\n';
+    process.stderr.write(msg);
+    log(`agent command not found: ${AGENT_CMD} (PATH=${process.env.PATH || ''})`);
+    process.exit(127);
+  }
+  agentCmdPath = resolved.path;
+  if (resolved.via === 'fallback') {
+    log(`${AGENT_CMD} is not on PATH; using ${resolved.path}`);
+    // The agent's own subprocesses (hooks, `claude` re-execs) need it too.
+    process.env.PATH = `${path.dirname(resolved.path)}${path.delimiter}${process.env.PATH || ''}`;
+  }
+
   // 1. Register first so the agent row + id exist before we join its socket room.
   let agentId;
   let initialMode = 'manual';
@@ -290,7 +315,7 @@ async function main() {
     const args = AGENT_TYPE === 'codex'
       ? codexArgsForMode(BASE_AGENT_ARGS, mode, sessionId)
       : BASE_AGENT_ARGS;
-    const proc = pty.spawn(AGENT_CMD, args, {
+    const proc = pty.spawn(agentCmdPath, args, {
       name: process.env.TERM || 'xterm-256color',
       cols: process.stdout.columns || 80,
       rows: process.stdout.rows || 30,
@@ -305,6 +330,8 @@ async function main() {
       if (proc !== ptyProc) return;
       log(`Agent exited with code ${exitCode}`);
       cleanup();
+      // The terminal is the only place a person is looking; relay.log alone hid launch failures.
+      if (exitCode) process.stderr.write(`\nNeonCore relay: ${AGENT_CMD} exited with code ${exitCode}. Details: ${LOG_FILE}\n`);
       process.exit(exitCode || 0);
     });
     reportInbox(proc.pid);
