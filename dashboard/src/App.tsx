@@ -20,22 +20,29 @@ import type { AgentType, Activity, VirtualCartridge } from './types';
 import { IS_DEMO } from './lib/api';
 import { setDemoEnabled, resetDemoData } from './lib/demoMode';
 
-/** One tab of the header's view switcher (Goals · Agents · Tasks · Tokens). */
-function ViewTab({ active, onClick, neutral = false, children }: { active: boolean; onClick: () => void; neutral?: boolean; children: React.ReactNode }) {
+/** One entry of the left view bar (Agents · Projects · Tasks · Tokens). */
+function NavItem({ active, onClick, label, badge, children }: { active: boolean; onClick: () => void; label: string; badge?: number; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`px-3 py-1 text-[13px] font-medium rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+      className={`relative flex flex-col items-center justify-center gap-1 w-14 py-2 rounded-[14px] text-[11px] font-semibold transition-colors ${
         active
-          ? (neutral ? 'bg-white/10 text-gray-100' : 'bg-violet-900/60 text-violet-200')
-          : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.05]'
+          ? 'bg-neon-600/20 border border-neon-500/50 text-neon-200 shadow-[0_0_16px_rgba(77,163,255,0.35)]'
+          : 'border border-transparent text-gray-400 hover:text-gray-100 hover:bg-white/[0.04]'
       }`}
     >
       {children}
+      {label}
+      {badge ? (
+        <span className="absolute top-0.5 right-1 text-[10px] leading-4 px-1.5 rounded-full bg-neon-500 text-ink">{badge}</span>
+      ) : null}
     </button>
   );
 }
+
+const ICON = 'w-[22px] h-[22px]';
+const VIEW_TITLE = { agents: 'Agents', goals: 'Projects', tasks: 'Tasks', tokens: 'Tokens' } as const;
 
 export default function App() {
   // Virtual cartridges
@@ -154,179 +161,111 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-full text-white">
-      {demoBanner}
-      {/* Header */}
-      <header className="glass-light px-3 py-2 md:px-5 md:py-2.5 border-b border-white/[0.06] relative z-20">
-        {/* THREE TRACKS, so the regions cannot collide.
-            History, because this bar has now been fixed twice for the same symptom. The switcher
-            was originally `md:absolute left-1/2 -translate-x-1/2` — out of flow, so nothing
-            reserved space for it, and the in-flow right cluster grew leftward over it every time
-            its width changed: "+ Launch bleeds into the 3 sections on and off". A grid fixed the
-            overlap by giving each region its own column.
-            `1fr auto 1fr` then CENTRED the switcher on the bar. That was fine until Confer joined
-            the right cluster and widened it enough to close the gap again — the columns still did
-            not overlap, but they touched, which reads as the same bug. Centring is what made the
-            gap depend on the cluster's width at all.
-            `1fr auto auto` ends it: the identity track absorbs all free space, so the switcher and
-            the cluster sit together at the right edge, separated by the cluster's own `md:pl-8`.
-            The spacing is now a constant instead of a residue, so no control added to the right
-            can ever squeeze it.
-            The third round: the flexible track may shrink to nothing (`minmax(0,1fr)`), and its
-            contents did not — the burn-rate readout painted UNDER Goals/Agents/Tasks at 1024-1440px.
-            The identity block now clips (`min-w-0 overflow-hidden`), the readout only shows where
-            it fits (xl+), the "Orchestrator" label is gone, and the chrome buttons drop their
-            labels to icons below 2xl — so the switcher always has its own room. */}
-        <div className="flex flex-wrap items-center justify-between gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_auto] md:gap-0 md:justify-normal">
-          <div className="flex items-center gap-2 md:gap-3 min-w-0 overflow-hidden md:pr-4">
-            <img src="/logo.png" alt="Gridlight" className="w-7 h-7 md:w-8 md:h-8 flex-shrink-0" />
-            {/* md–lg: the logo alone — the wordmark is what the switcher would otherwise clip. */}
-            <h1 className="font-pixel text-xs md:text-sm tracking-wide flex-shrink-0 md:hidden lg:block" style={{ imageRendering: 'pixelated' }}>
-              <span className="text-gl-blue">Neon</span>
-              <span className="text-gl-pink">Core</span>
-            </h1>
-            {/* Asked for: the fleet burn rate reads first, right after the wordmark. */}
-            <BurnRate servers={servers} onOpen={() => setActiveView('tokens')} />
-          </div>
-          {/* The middle track, right-aligned against the chrome cluster rather than centred on
-              the bar — asked for after Confer widened the cluster enough to touch it.
-              Reading order is Goals → Agents → Tasks; Agents is where the dashboard opens. */}
-            <div role="navigation" aria-label="Views" className="flex md:justify-self-end items-center gap-0.5 p-0.5 rounded-lg border border-white/10 bg-white/[0.03] w-fit">
-              <ViewTab active={activeView === 'goals'} onClick={() => setActiveView('goals')}>Goals</ViewTab>
-              <ViewTab active={activeView === 'agents'} onClick={() => setActiveView('agents')} neutral>Agents</ViewTab>
-              <ViewTab active={activeView === 'tasks'} onClick={() => setActiveView('tasks')}>
-                Tasks
-                {activeTaskCount > 0 && (
-                  <span className="text-[10px] px-1.5 rounded-full bg-violet-500/30 text-violet-200">{activeTaskCount}</span>
-                )}
-              </ViewTab>
-              <ViewTab active={activeView === 'tokens'} onClick={() => setActiveView('tokens')}>Tokens</ViewTab>
-            </div>
+    <div className="min-h-full text-gray-100 bg-ink flex flex-col md:flex-row">
+      {/* THE VIEW BAR. Night Glass moves navigation out of the top bar into a slim left bar
+          (a bottom tab bar below md), Agents first because it is where the day is spent.
+          Guide and Settings are chrome, so they sit at the bar's foot. */}
+      <nav
+        aria-label="Views"
+        className="order-last md:order-first fixed md:sticky bottom-0 md:top-0 inset-x-0 md:inset-x-auto z-30 md:h-screen md:w-[76px] flex-shrink-0 flex md:flex-col items-center justify-around md:justify-start gap-2 px-2 py-2 md:py-[18px] border-t md:border-t-0 md:border-r border-white/[0.08] bg-gray-950"
+      >
+        <NavItem active={activeView === 'agents'} onClick={() => setActiveView('agents')} label="Agents">
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+        </NavItem>
+        <NavItem active={activeView === 'goals'} onClick={() => setActiveView('goals')} label="Projects">
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+        </NavItem>
+        <NavItem active={activeView === 'tasks'} onClick={() => setActiveView('tasks')} label="Tasks" badge={activeTaskCount}>
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
+        </NavItem>
+        <NavItem active={activeView === 'tokens'} onClick={() => setActiveView('tokens')} label="Tokens">
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M22 19H2" /></svg>
+        </NavItem>
+        <div className="hidden md:block flex-1" />
+        <button
+          onClick={() => setGuideOpen(true)}
+          className="hidden md:flex w-11 h-11 rounded-xl items-center justify-center text-gray-400 hover:text-gray-100 hover:bg-white/[0.05]"
+          title="How NeonCore works"
+          aria-label="Guide"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01" /></svg>
+        </button>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="hidden md:flex w-11 h-11 rounded-xl items-center justify-center text-gray-400 hover:text-gray-100 hover:bg-white/[0.05]"
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a7.723 7.723 0 0 1 0 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+          </svg>
+        </button>
+      </nav>
 
-          {/* The right edge of the bar, left to right: the two things you START a session
-              with sit closest to the view switcher, then chrome, then status pinned to the
-              far right where a glance goes for "is anything wrong" — bell last. */}
-          <div className="flex items-center gap-2 xl:gap-3 text-base ml-auto md:ml-0 md:pl-6 md:justify-self-end justify-end whitespace-nowrap">
-            {/* Confer used to be a button here. It is a WORKFLOW TEMPLATE now ("Confer"), which
-                is what it always was: cartridges working one task together. As a header button
-                it was the only way of starting work with no run history, no project, no report
-                and no place on the canvas — every one of which it gets for free as a template. */}
-            {/* Launch a cartridge on any registered machine (local or remote) */}
-            <MachineLauncher servers={servers} />
-            {/* New repo — create a folder, git init, push to GitHub, launch an agent */}
-            <button
-              onClick={() => setNewRepoOpen(true)}
-              className="text-sm text-gray-400 hover:text-gl-purple border border-white/10 hover:border-gl-purple/40 px-2.5 py-1 rounded-md transition-colors"
-              title="Create a new folder, git init, push to GitHub, and start working"
-            >
-              + <span className="hidden xl:inline">New </span>Repo
-            </button>
-            {/* Settings gear */}
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/25 px-2 py-1 rounded-md transition-colors flex items-center justify-center gap-1.5"
-              title="Settings"
-              aria-label="Settings"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a7.723 7.723 0 0 1 0 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-              </svg>
-              {/* Icon-only until there is room: the labels were what pushed the bar into overlap. */}
-              <span className="hidden 2xl:inline">Settings</span>
-            </button>
-            {/* Guide button */}
-            <button
-              onClick={() => setGuideOpen(true)}
-              className="text-sm text-gray-400 hover:text-violet-300 border border-white/10 hover:border-violet-500/40 px-2 py-1 rounded-md transition-colors flex items-center gap-1.5"
-              title="How NeonCore works"
-              aria-label="Guide"
-            >
-              <svg className="w-5 h-5 2xl:w-3.5 2xl:h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-              </svg>
-              <span className="hidden 2xl:inline">Guide</span>
-            </button>
-            <span className="hidden xl:inline text-sm text-gray-500">
-              {onlineAgents.length} online
-            </span>
-            <ServerPicker
-              servers={servers}
-              statuses={serverStatuses}
-              onAdd={addServer}
-              onForget={forgetServer}
-              onHide={hideServer}
-              onSetToken={applyFleetToken}
-            />
-            {/* Notification center — bell with dropdown */}
-            <NotificationCenter
-              pendingPermissions={pendingPermissions}
-              stuckAlerts={stuckAlertsArray}
-              workflowNotifications={workflowNotifications}
-              agents={agents}
-              onDecide={decidePermission}
-              onDismissStuck={dismissStuckAlert}
-              onDismissWorkflow={dismissWorkflowNotification}
-            />
-          </div>
-        </div>
+      <div className="flex-1 min-w-0 flex flex-col pb-20 md:pb-0">
+      {demoBanner}
+      {/* THE TOP BAR: what you are looking at, the one number you read (burn), then the things
+          you START a session with, then fleet status and the bell pinned to the far right. */}
+      <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 px-4 md:px-6 py-3.5 border-b border-white/[0.08] bg-gray-950/85 backdrop-blur">
+        <h1 className="font-display text-2xl font-semibold mr-1">{VIEW_TITLE[activeView]}</h1>
+        <BurnRate servers={servers} onOpen={() => setActiveView('tokens')} />
+        <div className="flex-1" />
+        <MachineLauncher servers={servers} />
+        <button
+          onClick={() => setNewRepoOpen(true)}
+          className="btn-ghost h-10 px-3.5 rounded-[10px] text-sm font-semibold transition-colors"
+          title="Create a new folder, git init, push to GitHub, and start working"
+        >
+          + New Repo
+        </button>
+        <span className="hidden xl:inline text-[13px] text-gray-400">{onlineAgents.length} online</span>
+        <ServerPicker
+          servers={servers}
+          statuses={serverStatuses}
+          onAdd={addServer}
+          onForget={forgetServer}
+          onHide={hideServer}
+          onSetToken={applyFleetToken}
+        />
+        <NotificationCenter
+          pendingPermissions={pendingPermissions}
+          stuckAlerts={stuckAlertsArray}
+          workflowNotifications={workflowNotifications}
+          agents={agents}
+          onDecide={decidePermission}
+          onDismissStuck={dismissStuckAlert}
+          onDismissWorkflow={dismissWorkflowNotification}
+        />
       </header>
 
-      {/* Main content — a persistent command rail on the left, work on the right.
-          Everything you ACT with lives in the rail and stays put while the cartridges
-          scroll, so starting a confer no longer means scrolling back up to find the
-          button. The rail is sticky and scrolls independently; below lg it stacks
-          back to one column, where a sidebar would just be a header you scroll past. */}
-      {/* The rail's contents are per-view, and the two never stack: Workflows on Agents,
-          the goals list on Goals. GoalsProvider wraps the whole grid because its two
-          surfaces land in different regions of it — see GoalsPage.tsx. It stays mounted
-          across view switches and fetches only when Goals is active, so changing views
-          neither refetches the hierarchy nor remounts the cartridge tree beside it. */}
+      {/* Work area — a persistent rail on the left (Workflows on Agents, the goals list on
+          Projects), the working surface on the right. The rail is sticky and scrolls on its
+          own; below lg it stacks above the main column. Tokens has no rail. */}
       <GoalsProvider active={activeView === 'goals'} agents={agents}>
-      <div className="p-3 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 items-start">
-        {/* `lg:pr-4`, not `pr-1`. The rail scrolls itself, so its scrollbar is drawn INSIDE this
-            box — at 4px the template cards ran flush against it. The gutter is declared here and
-            nowhere else: padding the workflow panel instead would fix the Agents view and leave
-            the Goals rail a different width, so the rail edge would jump between views. */}
-        <aside className="lg:col-span-1 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-4 space-y-4 md:space-y-6">
-          {/* Workflows live in the rail: they are something you START, not something
-              you read alongside the cartridges. */}
+      <div className={`p-4 md:p-6 grid grid-cols-1 gap-6 items-start ${activeView === 'tokens' || activeView === 'tasks' ? '' : 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]'}`}>
+        <aside className={`${activeView === 'tokens' || activeView === 'tasks' ? 'hidden' : ''} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
           {activeView === 'agents' && (
             <section>
               <WorkflowPanel agents={agents} />
             </section>
           )}
-          {/* Asked for: "the list of goals on the 1/3 section with the 2/3 the place where
-              we work". The aside scrolls independently, so a long list of goals never
-              pushes the working surface beside it down the page. */}
           {activeView === 'goals' && <GoalsRail />}
         </aside>
 
-        <main className={`${activeView === 'tokens' ? 'lg:col-span-3' : 'lg:col-span-2'} space-y-4 md:space-y-6 min-w-0`}>
+        <main className="space-y-5 min-w-0">
           {activeView === 'goals' ? (
             <GoalsWorkspace />
           ) : activeView === 'tokens' ? (
-            /* Token reporting: burn over time, so a change in approach can be read off what
-               it cost. Full width — it has no rail. */
             <TokensPage servers={servers} />
           ) : activeView === 'tasks' ? (
-            /* ONE place for everything a cartridge will work through. "What is queued" and
-               "what is running" are the same question, and splitting them across two tabs
-               made the user ask why there were two Tasks sections — they were right. */
               <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
           ) : (
             <section>
-              {/* The type filter belongs WITH the cartridges it filters: it answers
-                  "which of these am I looking at", which is a question you ask of the
-                  grid, not a command you issue from the rail. */}
-              <div className="flex items-center justify-between gap-3 flex-wrap mb-3 md:mb-4">
-                <h2 className="text-gray-400 text-sm md:text-base font-semibold uppercase tracking-wide">
-                  Cartridges
-                </h2>
-                {/* Both filters together, so the row reads: title | how you are
-                    slicing it. */}
-                <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                <h2 className="font-display text-xl font-semibold text-gray-100">Cartridges</h2>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                <div role="group" aria-label="Status" className="flex items-center gap-1 p-1 rounded-xl bg-gl-surface/70 border border-white/[0.08]">
                   {([
                     { key: 'all', label: 'All' },
                     { key: 'working', label: 'Working' },
@@ -336,31 +275,20 @@ export default function App() {
                     <button
                       key={key}
                       onClick={() => setStatusFilter(key)}
-                      className={`text-xs px-3 py-1.5 rounded-md transition-colors font-medium ${
+                      aria-pressed={statusFilter === key}
+                      className={`h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
                         statusFilter === key
-                          ? 'bg-gl-purple/20 text-gl-purple border border-gl-purple/40'
-                          : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.08] hover:text-gray-300'
+                          ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]'
+                          : 'text-gray-400 hover:text-gray-200'
                       }`}
                     >
                       {label}
-                      {statusCounts[key] > 0 && (
-                        <span className={`ml-1.5 text-[13px] px-1.5 py-0.5 rounded-full ${
-                          statusFilter === key ? 'bg-gl-purple/30 text-gl-purple' : 'bg-white/[0.06] text-gray-500'
-                        }`}>
-                          {statusCounts[key]}
-                        </span>
-                      )}
+                      {statusCounts[key] > 0 && <span className="ml-1 opacity-80">· {statusCounts[key]}</span>}
                     </button>
                   ))}
                 </div>
-                <div className="flex rounded-lg overflow-hidden border border-white/10">
+                <div role="group" aria-label="Engine" className="flex items-center gap-1 p-1 rounded-xl bg-gl-surface/70 border border-white/[0.08]">
                   {visibleTypeFilters.map((t) => {
-                    const ACTIVE_COLORS: Partial<Record<AgentType | 'all', string>> = {
-                      all:      'bg-white/10 text-gray-200',
-                      gridlight:'bg-pink-900/60 text-pink-300',
-                      claude:   'bg-blue-900/60 text-blue-300',
-                      codex:    'bg-green-900/60 text-green-300',
-                    };
                     const LABELS: Partial<Record<AgentType | 'all', string>> = {
                       all: 'All', gridlight: 'Gridlight', claude: 'Claude', codex: 'Codex',
                     };
@@ -368,10 +296,11 @@ export default function App() {
                       <button
                         key={t}
                         onClick={() => setTypeFilter(t)}
-                        className={`px-3 py-1 text-xs font-medium transition-colors ${
+                        aria-pressed={typeFilter === t}
+                        className={`h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
                           typeFilter === t
-                            ? (ACTIVE_COLORS[t] ?? 'bg-white/10 text-gray-200')
-                            : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                            ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]'
+                            : 'text-gray-400 hover:text-gray-200'
                         }`}
                       >
                         {LABELS[t] ?? t}
@@ -381,11 +310,6 @@ export default function App() {
                 </div>
                 </div>
               </div>
-            {/* The heading row owns the status SELECTION; the grid owns the derivation
-                — dedup, dismissal and virtual cartridges all decide who is counted, and
-                duplicating that here is how the chip counts would drift from the cards
-                under them. Without these two props the control renders but changes
-                nothing and its chips stay at zero: a switch wired to nothing. */}
             <CartridgeGrid
               agents={filteredAgents}
               statusFilter={statusFilter}
@@ -414,6 +338,7 @@ export default function App() {
         </main>
       </div>
       </GoalsProvider>
+      </div>
 
       {/* Guide Modal */}
       {guideOpen && (
