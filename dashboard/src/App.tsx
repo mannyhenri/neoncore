@@ -9,7 +9,8 @@ import { NewRepoModal } from './components/NewRepoModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { ProjectsProvider, ProjectsRail, ProjectsWorkspace } from './components/ProjectsPage';
-import { BridgeCaptain, BridgeGauges, bridgeDeckProps } from './world/bridge/Bridge';
+import { BridgeCaptain, BridgeGauges } from './world/bridge/Bridge';
+import { EngineerPost, FlowGauges, CorePost, TokenGauges, QuartermasterPost, TaskGauges, deckProps, isDeckView } from './world/bridge/Decks';
 import { isProjectsHash } from './lib/projectSelection';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
@@ -89,9 +90,6 @@ export default function App() {
     completeTask,
     servers,
     serverStatuses,
-    addServer,
-    forgetServer,
-    hideServer,
     applyFleetToken,
   } = useAgents(handleVirtualCartridgeUpdated);
 
@@ -239,14 +237,7 @@ export default function App() {
           + New Repo
         </button>
         <span className="hidden xl:inline text-[13px] text-gray-400">{onlineAgents.length} online</span>
-        <ServerPicker
-          servers={servers}
-          statuses={serverStatuses}
-          onAdd={addServer}
-          onForget={forgetServer}
-          onHide={hideServer}
-          onSetToken={applyFleetToken}
-        />
+        <ServerPicker statuses={serverStatuses} onSetToken={applyFleetToken} />
         <NotificationCenter
           pendingPermissions={pendingPermissions}
           stuckAlerts={stuckAlertsArray}
@@ -263,8 +254,8 @@ export default function App() {
           padding, edge to edge, from the top bar to the bottom of the window. */}
       <ProjectsProvider active={activeView === 'projects'} agents={agents}>
       <div
-        className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? `lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)] ${bridgeDeckProps().className}` : ''}`}
-        style={activeView === 'projects' ? bridgeDeckProps().style : undefined}
+        className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]' : ''} ${isDeckView(activeView) ? deckProps(activeView).className : ''}`}
+        style={isDeckView(activeView) ? deckProps(activeView).style : undefined}
       >
         <aside className={`${activeView === 'projects' ? '' : 'hidden'} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
           {/* The Projects bridge: the captain over the project list (world/bridge). */}
@@ -275,14 +266,24 @@ export default function App() {
           {activeView === 'projects' ? (
             <><div className="bridge-panel bridge-console"><ProjectsWorkspace /></div><BridgeGauges /></>
           ) : activeView === 'tokens' ? (
-            <TokensPage servers={servers} />
+            /* The power core: the reactor and the quota tank beside the same tokens page. */
+            <div className="bridge-split">
+              <aside><CorePost /></aside>
+              <div className="min-w-0"><div className="bridge-panel bridge-console"><TokensPage servers={servers} /></div><TokenGauges /></div>
+            </div>
           ) : activeView === 'tasks' ? (
-              <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
+            /* The cargo bay: the quartermaster beside the same task queue. */
+            <div className="bridge-split">
+              <aside><QuartermasterPost tasks={tasks} /></aside>
+              <div className="min-w-0"><div className="bridge-panel bridge-console"><TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} /></div><TaskGauges tasks={tasks} /></div>
+            </div>
           ) : activeView === 'workflows' ? (
             /* V3: the workflow templates and runs, on their own screen. */
-            <section className="max-w-[1180px]">
-              <WorkflowPanel agents={agents} />
-            </section>
+            /* The engine deck: the engineer beside the same workflow panel. */
+            <div className="bridge-split">
+              <aside><EngineerPost /></aside>
+              <div className="min-w-0"><div className="bridge-panel bridge-console"><WorkflowPanel agents={agents} /></div><FlowGauges /></div>
+            </div>
           ) : (() => {
             // The same controls drive both layouts, so they are built once: over the scene
             // they float as its HUD, above the list they sit in its header.

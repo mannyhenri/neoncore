@@ -280,4 +280,13 @@ select.glass-input optgroup {
 .bridge .bridge-bars span { width: 5px; background: rgba(124, 196, 255, 0.16); border-radius: 1px; }
 .bridge .bridge-bars span[data-on] { background: #2EE6D6; box-shadow: 0 0 6px rgba(46, 230, 214, 0.6); }
 .bridge .bridge-gauge[data-gauge="spent"] .bridge-bars span[data-on] { background: #F5A524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.6); }
+.bridge .bridge-split { display: grid; grid-template-columns: minmax(200px, 270px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.bridge .bridge-readout[data-alert] { color: #FFC14D; border-color: rgba(245, 165, 36, 0.7); }
+.bridge .bridge-rate { width: 100%; text-align: center; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.06em; color: #BFF7F1; padding: 8px 10px; border: 1px solid rgba(46, 230, 214, 0.55); border-radius: 5px; background: rgba(4, 12, 22, 0.88); box-shadow: inset 0 0 14px rgba(46, 230, 214, 0.14); }
+.bridge .bridge-tank { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid rgba(124, 196, 255, 0.3); border-radius: 5px; background: rgba(4, 12, 22, 0.88); }
+.bridge .bridge-tank[data-alert] { border-color: rgba(245, 165, 36, 0.8); }
+.bridge .bridge-tank-glass { position: relative; flex: none; width: 34px; height: 84px; border: 2px solid #6B7C99; border-radius: 6px; background: rgba(3, 8, 18, 0.9); overflow: hidden; box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.7); }
+.bridge .bridge-tank-glass > div { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #7FF3EA, #1CB5A8); box-shadow: 0 0 10px rgba(46, 230, 214, 0.7); }
+.bridge .bridge-tank[data-alert] .bridge-tank-glass > div { background: linear-gradient(180deg, #FFC85A, #F08A12); box-shadow: 0 0 10px rgba(245, 165, 36, 0.7); }
+.bridge .bridge-gauge[data-tone="amber"] .bridge-bars span[data-on] { background: #F5A524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.6); }
 /* ── end of the Projects bridge ── */

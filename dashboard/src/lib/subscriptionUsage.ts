@@ -87,6 +87,21 @@ export function usageAnchorLabel(a: UsageAnchor): string {
   return `${provider} ${pct} · ${when}`;
 }
 
+/**
+ * WHEN DO WE REACH 100%? — the one sentence the Tokens page shows for a reading.
+ * Four cases, and only four: already there; the limit comes before the reset; the reset
+ * comes first; nothing is being used so there is no pace to project.
+ */
+export function reachEstimate(a: UsageAnchor): string {
+  const reset = hoursLabel(a.hoursToReset);
+  if (a.pctUsed >= 1) return `at 100% now — resets in ${reset}`;
+  if (a.hoursToWall === null) return `not moving toward 100% — resets in ${reset}`;
+  const wall = hoursLabel(a.hoursToWall);
+  return a.hitsWallBeforeReset
+    ? `reaches 100% in ${wall} — before it resets (in ${reset})`
+    : `resets in ${reset}, before reaching 100% (${wall} away at this pace)`;
+}
+
 /** One reading as a server stores it. */
 export interface UsageCheckpoint {
   id: string; provider: string; window: UsageWindow; pctUsed: number;

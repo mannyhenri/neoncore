@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testing-library/react';
 import type { Agent, PermissionRequest } from '../../types';
 
 // The drawer reuses the real cartridge card. Here it is a stub that reports WHO it was given,
@@ -15,9 +15,17 @@ const extras = vi.hoisted(() => ({ queue: { items: [], lanes: [] } as { items: u
 vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 
 import { WorldScene } from '../WorldScene';
+import { api } from '../../lib/api';
 import { CREW_STATUSES } from '../crew';
 import { WORK_CYCLE } from '../anim';
 import { OUTPOST } from '../sites';
+import { KIT } from '../kit';
+import { AMBIENT_GROUND, AMBIENT_PROPS } from '../ambient.generated';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const PUBLIC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../public');
 
 const iso = () => new Date().toISOString();
 function agent(over: Partial<Agent> & { id: string }): Agent {
@@ -282,7 +290,19 @@ describe('WorldScene', () => {
     expect(waiting.querySelector('[data-burn]')).toBeNull();
   });
 
-  it('a finished agent shows its last message over its head until it is clicked — for idle agents only', () => {
+  it('a selected crew card opens the agent\'s full final answer', async () => {
+    localStorage.clear();
+    const full = vi.spyOn(api, 'getFinalAnswer').mockResolvedValue({ text: 'Everything it said, in full.', complete: true, sessionId: 's', at: new Date().toISOString() });
+    render(<WorldScene agents={[agent({ id: 'reader', status: 'working', lastMessage: 'Working on it.' })]} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
+    expect(screen.queryByRole('button', { name: /final answer/i })).toBeNull();
+    fireEvent.click(document.querySelector<HTMLElement>('.world-member button[aria-pressed]')!);
+    fireEvent.click(screen.getByRole('button', { name: /final answer/i }));
+    expect(full).toHaveBeenCalledWith('reader');
+    expect(await screen.findByText('Everything it said, in full.')).toBeTruthy();
+    full.mockRestore();
+  });
+
+  it('a finished agent shows its last message over its head until it is read — for idle agents only', async () => {
     localStorage.clear();
     const said = 'The login redirect is fixed. I added a regression test and it passes.';
     const withMessages = CREW_STATUSES.map((st) => agent({ id: `said-${st}`, status: st, lastMessage: said }));
@@ -298,10 +318,18 @@ describe('WorldScene', () => {
     unmount();
     const again = render(<WorldScene agents={withMessages} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
     expect(bubbles()).toHaveLength(1);
-    // …and gone once clicked, without opening the card, and stays gone.
+    // Clicked, it opens the agent's FULL final answer (not the card); closing that is reading it —
+    // the bubble goes, and stays gone.
+    const full = vi.spyOn(api, 'getFinalAnswer').mockResolvedValue({ text: `${said} And the whole rest of the answer.`, complete: true, sessionId: 's', at: new Date().toISOString() });
     fireEvent.click(bubbles()[0]);
-    expect(bubbles()).toHaveLength(0);
+    expect(full).toHaveBeenCalledWith('said-idle');
+    const dialog = screen.getByRole('dialog', { name: /final answer/i });
     expect(screen.queryByTestId('card')).toBeNull();
+    await waitFor(() => expect(dialog.textContent).toMatch(/whole rest of the answer/));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(bubbles()).toHaveLength(0);
+    full.mockRestore();
     again.unmount();
     const third = render(<WorldScene agents={withMessages} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
     expect(bubbles()).toHaveLength(0);
@@ -474,6 +502,36 @@ describe('WorldScene', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('the pond, the hologram and the water station move all the time — with nobody on the map and nothing happening', () => {
+    render(<WorldScene agents={[]} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
+    const strips = [...document.querySelectorAll<HTMLElement>('[data-ambient]')];
+    // Every ambient thing the art build produced is on the map, exactly once.
+    const want = [...Object.keys(AMBIENT_GROUND), ...OUTPOST.structures.filter((st) => AMBIENT_PROPS[st.sprite]).map((st) => st.id)].sort();
+    expect(want).toEqual(expect.arrayContaining(['pond', 'holo-table', 'water-station', 'dish']));
+    expect(strips.map((e) => e.dataset.ambient).sort()).toEqual(want);
+    for (const el of strips) {
+      const strip = el.querySelector<HTMLElement>('.world-strip')!;
+      const art = AMBIENT_GROUND[el.dataset.ambient!] ?? AMBIENT_PROPS[OUTPOST.structures.find((st) => st.id === el.dataset.ambient)!.sprite];
+      // A drawn strip, stepped frame by frame, looping for ever, and never in the way of a click.
+      expect(strip.style.backgroundImage).toContain(art.src);
+      expect(strip.style.animationTimingFunction).toBe(`steps(${art.frames})`);
+      expect(parseFloat(strip.style.animationDuration)).toBeCloseTo(art.frames / art.fps, 3);
+      expect(strip.style.width).toBe(`${art.frames * 100}%`);
+      expect(el.className).toContain('pointer-events-none');
+      expect(art.frames).toBeGreaterThanOrEqual(4);
+      expect(existsSync(resolve(PUBLIC, `.${art.src}`)), `${art.src} is missing from public/`).toBe(true);
+    }
+    // A moving structure is drawn at the same scale as its still sprite, however much room its motion needs.
+    for (const st of OUTPOST.structures.filter((x) => AMBIENT_PROPS[x.sprite])) {
+      const el = document.querySelector<HTMLElement>(`[data-ambient="${st.id}"]`)!;
+      const art = AMBIENT_PROPS[st.sprite];
+      expect(parseFloat(el.style.width), st.id).toBeCloseTo(st.w * (art.w / KIT[st.sprite].w) * 100, 3);
+      expect(art.w).toBeGreaterThanOrEqual(KIT[st.sprite].w);
+    }
+    // Structures that are animated are still the structures they were.
+    expect(document.querySelector('[data-structure="holo-table"]')).toBe(document.querySelector('[data-ambient="holo-table"]'));
   });
 
   // ── The connections: project → zone, repo → building, feature → gate, confer → table ──────

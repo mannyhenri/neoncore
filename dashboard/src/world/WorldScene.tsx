@@ -10,6 +10,7 @@
  * Art rule (docs/DESIGN.md "The World view"): the plate and the avatars are pixel art; every
  * panel drawn over them is Night Glass.
  */
+import { FinalAnswerModal } from '../components/FinalAnswerModal';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SendOutcome } from '../lib/deliveryNotice';
@@ -36,6 +37,8 @@ import { queueFor, burnShares, formatRate } from './extras';
 import type { CrewQueue, CrewBurn } from './extras';
 import { useCrewExtras } from './useCrewExtras';
 import { KIT, crateSpriteFor, cellSpriteFor } from './kit';
+import { AMBIENT_GROUND, AMBIENT_PROPS } from './ambient.generated';
+import type { AmbientStrip as AmbientArt } from './ambient.generated';
 import { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, scaleFor, clampCamera, homeCamera, zoomAt, panBy } from './camera';
 import type { Camera } from './camera';
 import { summarize, isReport, messageId, loadRead, markRead, isUnread } from './summary';
@@ -96,6 +99,8 @@ export function WorldScene({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [tick, setTick] = useState(() => Date.now());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The full final answer being read (FinalAnswerModal); onClose marks that answer read.
+  const [answerFor, setAnswerFor] = useState<{ agentId: string; name: string; onClose: () => void } | null>(null);
   const { confers, runs } = useLiveWork();
 
   // Statuses age with the clock (an agent goes quiet), not only with events.
@@ -399,6 +404,11 @@ export function WorldScene({
             className={`absolute inset-0 w-full h-full select-none ${cam && cam.zoom > MIN_ZOOM ? 'cursor-grab active:cursor-grabbing' : ''}`}
             style={{ objectFit: 'cover', touchAction: 'none' }}
           />
+          {/* AMBIENT MOTION: the water, drawn over the terrain and under everything else. It
+              plays all the time, whatever the agents are doing (ambient.generated.ts). */}
+          {Object.entries(AMBIENT_GROUND).map(([id, art]) => (
+            <AmbientStrip key={id} id={id} art={art} style={{ left: `${art.x * 100}%`, top: `${art.y * 100}%`, width: `${art.w * 100}%`, height: `${art.h * 100}%`, zIndex: 0 }} />
+          ))}
           {plate.structures.map((st) => {
             if (st.when === 'in-service') {
               return ready ? <ShuttleCraft key={st.id} st={st} online={(service.get(st.on ?? '') ?? 0) > 0} /> : null;
@@ -407,6 +417,20 @@ export function WorldScene({
               // FEATURE → GATE: open while the district's project has a feature under way.
               const open = zones.some((z) => z.districts.includes(st.district ?? '') && z.features.active > 0);
               return ready ? <FeatureGate key={st.id} st={st} open={open} /> : null;
+            }
+            const moving = AMBIENT_PROPS[st.sprite];
+            if (moving) {
+              // A structure that moves all the time (the hologram, the station's tank).
+              return (
+                <AmbientStrip
+                  key={st.id}
+                  id={st.id}
+                  structure
+                  art={moving}
+                  // A frame can be wider than the still sprite (room to move in): keep the art at the same scale.
+                  style={{ left: `${st.x * 100}%`, top: `${st.y * 100}%`, width: `${st.w * (moving.w / KIT[st.sprite].w) * 100}%`, aspectRatio: `${moving.w} / ${moving.h}`, transform: 'translate(-50%, -100%)', zIndex: Math.round(st.y * 1000) }}
+                />
+              );
             }
             return (
               <img
@@ -499,7 +523,8 @@ export function WorldScene({
                 progress={cartridgeProgress(m.agent, m.agentIds.slice(1), confers, runs)}
                 finished={finished}
                 finishedAsReport={finished.length > 0 && isReport(m.lastMessage)}
-                onReadFinished={() => setRead(markRead(m.key, said))}
+                // Reading the full answer is reading it: closing the answer dismisses the bubble.
+                onOpenAnswer={() => setAnswerFor({ agentId: m.agent.id, name: m.name, onClose: () => setRead(markRead(m.key, said)) })}
                 queue={queueFor(m, agents, extras.queue)}
                 burn={burn.get(m.key) ?? null}
                 onDecide={onDecidePermission}
@@ -510,6 +535,10 @@ export function WorldScene({
           })}
         </div>
       </div>
+
+      {answerFor && (
+        <FinalAnswerModal agentId={answerFor.agentId} name={answerFor.name} onClose={() => { answerFor.onClose(); setAnswerFor(null); }} />
+      )}
 
       {hud && <div className="absolute top-3 left-3 right-3 flex items-start gap-2.5 flex-wrap pointer-events-none [&>*]:pointer-events-auto">{hud}</div>}
 
@@ -618,6 +647,38 @@ export function WorldScene({
           />
         </aside>
       )}
+    </div>
+  );
+}
+
+// ── Ambient motion ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Something on the map that moves ALL THE TIME — water, a hologram — tied to no event. Its
+ * frames sit side by side in one image (scripts/world/build_ambient.py makes them from the
+ * drawn art) and the same CSS player as the crew steps through them. Reduced-motion users see
+ * the first frame, which is the still art.
+ */
+function AmbientStrip({ id, art, style, structure }: { id: string; art: AmbientArt; style: React.CSSProperties; structure?: boolean }) {
+  return (
+    <div
+      data-ambient={id}
+      data-structure={structure ? id : undefined}
+      aria-hidden="true"
+      className="absolute overflow-hidden select-none pointer-events-none"
+      style={style}
+    >
+      <div
+        className="world-strip h-full"
+        style={{
+          width: `${art.frames * 100}%`,
+          backgroundImage: `url(${art.src})`,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          animationDuration: `${art.frames / art.fps}s`,
+          animationTimingFunction: `steps(${art.frames})`,
+        }}
+      />
     </div>
   );
 }
@@ -844,7 +905,7 @@ function DepartingFigure({ ghost, avatarHeight, onGone }: { ghost: Ghost; avatar
  * dropped (remembered per browser). A press without movement is a click and opens the card;
  * a double-click sends it back to its site.
  */
-function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, character, compact, startAt, avatarHeight, selected, progress, finished, finishedAsReport, onReadFinished, queue, burn, onDecide, onSelect, onMove }: {
+function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, character, compact, startAt, avatarHeight, selected, progress, finished, finishedAsReport, onOpenAnswer, queue, burn, onDecide, onSelect, onMove }: {
   member: CrewMember;
   /** Where the figure belongs right now: its site, or wherever it was dropped. */
   spot: Spot;
@@ -866,7 +927,8 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
   /** The summary of what it said when it finished; empty when there is nothing unread. */
   finished: string[];
   finishedAsReport: boolean;
-  onReadFinished: () => void;
+  /** Open the full final answer (the bubble, and the crew card's button). */
+  onOpenAnswer: () => void;
   queue: CrewQueue;
   burn: CrewBurn | null;
   onDecide: (id: string, decision: 'allowed' | 'denied') => void;
@@ -985,9 +1047,9 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
         <button
           type="button"
           data-finished-bubble
-          onClick={onReadFinished}
-          aria-label={`${member.name} finished: ${finished.join(' ')} — click to dismiss`}
-          title="Click to dismiss"
+          onClick={onOpenAnswer}
+          aria-label={`${member.name} finished: ${finished.join(' ')} — click to read the full answer`}
+          title="Click to read the full answer"
           className="relative w-[236px] text-left px-3 py-2 rounded-[12px] border border-emerald-400/70 bg-[rgba(8,20,22,0.95)] shadow-[0_0_16px_rgba(74,222,128,0.35)] hover:border-emerald-300"
         >
           <span className="block text-[10px] font-bold uppercase tracking-wide text-emerald-300 mb-0.5">Finished</span>
@@ -999,7 +1061,7 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
           <span aria-hidden="true" className="absolute left-1/2 -bottom-[5px] -ml-[5px] w-[10px] h-[10px] rotate-45 border-r border-b border-emerald-400/70 bg-[rgba(8,20,22,0.95)]" />
         </button>
       )}
-      <CrewPanel member={member} selected={selected} compact={compact} progress={progress} queue={queue} burn={burn} onDecide={onDecide} onSelect={onSelect} />
+      <CrewPanel member={member} selected={selected} compact={compact} progress={progress} queue={queue} burn={burn} onDecide={onDecide} onSelect={onSelect} onOpenAnswer={onOpenAnswer} />
       <div
         data-drag-handle
         onPointerDown={onPointerDown}
@@ -1045,7 +1107,7 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
  *   approval request          Approve / Deny right here; a question opens the card to answer
  *   stuck agent               a red pulsing marker over the panel
  */
-function CrewPanel({ member, selected, compact, progress, queue, burn, onDecide, onSelect }: {
+function CrewPanel({ member, selected, compact, progress, queue, burn, onDecide, onSelect, onOpenAnswer }: {
   member: CrewMember;
   selected: boolean;
   /** A crowded scene: show the name only, and the rest on hover, selection or alert. */
@@ -1055,6 +1117,8 @@ function CrewPanel({ member, selected, compact, progress, queue, burn, onDecide,
   burn: CrewBurn | null;
   onDecide: (id: string, decision: 'allowed' | 'denied') => void;
   onSelect: () => void;
+  /** Open the agent's full final answer. */
+  onOpenAnswer: () => void;
 }) {
   const stuck = member.attention === 'stuck';
   const needsYou = member.attention !== null || member.status === 'waiting';
@@ -1177,6 +1241,16 @@ function CrewPanel({ member, selected, compact, progress, queue, burn, onDecide,
           className="mt-1 w-full h-7 rounded-[8px] text-[11px] font-semibold bg-ember-500/20 border border-ember-500/60 text-ember-300 hover:bg-ember-500/30"
         >
           Answer
+        </button>
+      )}
+      {selected && member.lastMessage && (
+        <button
+          type="button"
+          onClick={onOpenAnswer}
+          aria-label={`Read ${member.name}'s final answer`}
+          className="mt-1 w-full h-7 rounded-[8px] text-[11px] font-semibold bg-[rgba(10,16,32,0.92)] border border-white/[0.18] text-gray-200 hover:border-white/30"
+        >
+          Final answer
         </button>
       )}
     </div>

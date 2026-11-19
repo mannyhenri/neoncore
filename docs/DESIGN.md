@@ -88,6 +88,8 @@ Enforced by the last two tests in `designGuard.test.ts`.
 
 **The shared map.** The scene opens on one base (`OUTPOST` in `src/world/sites.ts`, plate id `base`): four districts around a central commons, a landing field to the east. Figures there are drawn at `figureScale` 0.55, and each plate carries its own `spacing` for the site-overlap test. Idle agents rest in the commons. The shuttle is a four-frame drawn animation (`shuttle-0..3`, `dust-0..3`): it lands when a cartridge is launched and leaves once the agent has stepped out. All of it is sliced from `designs/` by `scripts/world/build_world_kit.py`.
 
+**Ambient motion.** A few things on the map move all the time, tied to no event: the pond's water ripples and glints, the commons hologram drifts and pulses, the water station's tank glows. Their frames are made from the drawn art itself by `scripts/world/build_ambient.py` (the water is the terrain's own pixels, displaced; the glow is the sprite's own lit pixels) — nothing is drawn in code. Ambient motion never carries meaning: anything that means something still follows "one look per state".
+
 **One look per state.** What a figure is doing IS its state, wherever it stands: on the floor with a tool = working; standing still = idle; waving = needs you (approval, question, review, waiting); calling out = stuck; a jump = its turn just finished; walking = it is going somewhere because something changed. No state borrows another's look (`anim.ts animationFor`, checked for every status × attention × posture).
 
 **What drives the scene.** Every moving thing is tied to a record, and only a CHANGE animates (what is already true when the screen opens is simply drawn that way; nothing is drawn until machines and projects have loaded once):
@@ -126,3 +128,11 @@ workflows.
 The Projects screen is dressed as a ship's operations deck (`dashboard/src/world/bridge/`): a drawn captain stands over the project list, the workspace sits in a console frame, and a strip of gauges (repos, spent, features) reads the selected project. What the screen does is unchanged — the list and workspace are the ordinary Projects components; the console look is CSS scoped to `.bridge` (index.css), so no other screen is affected.
 
 The captain is a drawn sprite sheet with one look per state, like the crew: **calling** = the project in front of you needs you; **briefing** (tapping his board) = you just selected a project; **standing by** = nothing to say. No art, no figure: `scripts/world/build_bridge.py` builds him and the deck backdrop from `designs/captain-sheet.png` and `designs/bridge-deck.png`.
+
+**The other decks.** Flows is the engine deck, Tasks is the cargo bay and Tokens is the power core, built the same way (`world/bridge/Decks.tsx`, `deckState.ts`): the page's own component in a console frame, a drawn figure beside it, gauges under it, all inside `.bridge`.
+
+| Deck | Figure | Its looks, and what each means |
+|---|---|---|
+| Flows | engineer + helper robot | wrenching = a run is running; waving = a live run cannot go on without you; arms crossed = nothing running |
+| Tasks | quartermaster + cargo drone | scanning a crate = a task is claimed or in progress; waving = a task failed in the last 6 hours; standing = nothing being worked |
+| Tokens | reactor core + drone | low / steady / hot = the fleet's tokens per hour (steps at 1M and 20M); red base + drone alarm = quota nearly gone (provider says hold, or ≥ 85% used). The tank beside it holds what is LEFT of the quota |

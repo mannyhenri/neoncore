@@ -3,11 +3,10 @@ import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeSeries, type UsageSeries, type FleetSeries } from '../lib/usageSeries';
 import { mergeBurnRates, budgetStats, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
-import { describeProblems } from '../lib/serverAnswer';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
 import {
-  SUBSCRIPTION_PROVIDERS, subscriptionPillLabel, usageAnchorLabel, hoursLabel, groupFleetReadings,
+  SUBSCRIPTION_PROVIDERS, reachEstimate, groupFleetReadings,
   type SubscriptionProvider, type UsageWindow, type UsageCheckpoint, type FleetReading,
 } from '../lib/subscriptionUsage';
 
@@ -82,12 +81,6 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const [rate, setRate] = useState<FleetBurnRate | null>(null);
   const [limitProvider, setLimitProvider] = useState<SubscriptionProvider>('claude');
-  const [limitAt, setLimitAt] = useState(() => {
-    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000);
-    return d.toISOString().slice(0, 16);
-  });
-  const [limitMessage, setLimitMessage] = useState('');
-  const [markingLimit, setMarkingLimit] = useState(false);
   const [limitRefresh, setLimitRefresh] = useState(0);
   // A reading of the provider's own meter — see server/src/lib/usage-checkpoint.ts.
   const [cpWindow, setCpWindow] = useState<UsageWindow>('weekly');
@@ -195,31 +188,6 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
 
   const stats = useMemo(() => (rate ? budgetStats(rate) : null), [rate]);
 
-  const markLimit = async () => {
-    setMarkingLimit(true);
-    setLimitMessage('');
-    try {
-      const hit = new Date(limitAt);
-      if (!limitAt || !Number.isFinite(hit.getTime())) {
-        setLimitMessage('Choose a valid date and time.');
-        return;
-      }
-      const targets = activeServers(servers);
-      const settled = await Promise.allSettled(targets.map((s) =>
-        (s.url ? apiFor(s.url, s.token) : api).markTokenLimit(limitProvider, hit.toISOString())));
-      const failures = settled.filter((r) => r.status === 'rejected');
-      if (failures.length) {
-        setLimitMessage(`Could not calibrate ${failures.length} of ${targets.length} server(s).`);
-        setLimitRefresh((n) => n + 1);
-        return;
-      }
-      setLimitMessage(`${limitProvider === 'claude' ? 'Claude' : 'Codex'} 100% recorded.`);
-      setLimitRefresh((n) => n + 1);
-    } finally {
-      setMarkingLimit(false);
-    }
-  };
-
   const logCheckpoint = async () => {
     setLoggingCp(true);
     setCpMessage('');
@@ -269,7 +237,6 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   }, [data, metric, cumulative]);
 
   const max = points.reduce((m, p) => Math.max(m, p.v), 0) || 1;
-  const problems = data?.problems ?? [];
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -289,13 +256,6 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
           </div>
         )}
       </div>
-
-      {problems.length > 0 && (
-        <div className="text-[13px] text-amber-200 border border-amber-400/40 bg-amber-400/[0.07] rounded-xl px-4 py-2.5">
-          Partial: {data!.serversReporting} of {data!.serversAsked} servers reported.
-          The figures below are lower than reality — {describeProblems(problems)}.
-        </div>
-      )}
 
       {stats && (
         <section>
@@ -321,11 +281,8 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
       <section className="glass-light rounded-[18px] p-5 space-y-3">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="text-[17px] font-semibold text-gray-100">Usage reading — what the provider shows</h3>
-            <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-              Type in the percentage and reset time from the provider's own usage meter. One reading pins the
-              gauge to reality; two in the same window measure your pace and let the gauge keep moving between readings.
-            </p>
+            {/* The usage log: type what the provider's meter shows; read back when 100% arrives. */}
+            <h3 className="text-[17px] font-semibold text-gray-100">Usage log</h3>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
@@ -355,25 +312,16 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         </div>
         {cpMessage && <p className="text-xs text-emerald-200">{cpMessage}</p>}
         {rate?.usageAnchor?.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
+          <ul className="space-y-1.5" aria-label="estimate">
             {rate.usageAnchor.map((a) => (
-              <div key={`${a.provider}-${a.window}`} className="rounded-xl bg-gl-code border border-white/[0.1] p-3 font-mono text-sm">
-                <div className={a.pace === 'hold' ? 'text-red-300' : a.pace === 'watch' ? 'text-amber-300' : 'text-emerald-300'}>
-                  {usageAnchorLabel(a)} <span className="text-gray-500">· {a.window === 'weekly' ? 'weekly' : '5-hour'} · {a.pace}</span>
-                </div>
-                <div className="text-gray-400 mt-1 whitespace-normal">{a.recommendation}</div>
-                <div className="text-gray-500 mt-1">
-                  read {Math.round(a.pctAtCheckpoint * 100)}% · pace {(a.pctPerDay * 100).toFixed(1)}%/day · resets in {hoursLabel(a.hoursToReset)}
-                  {a.tokensPerPct
-                    ? ` · 1% ≈ ${compact(a.tokensPerPct)} tokens (${a.samples} readings)`
-                    : ' · log a second reading in this window to measure tokens per %'}
-                  {a.basis === 'rollover' ? ' · projected from local tokens since the reset' : ''}
-                </div>
-              </div>
+              <li key={`${a.provider}-${a.window}`} data-testid="reach-estimate"
+                className={`rounded-xl bg-gl-code border border-white/[0.1] px-3 py-2.5 font-mono text-sm ${a.pace === 'hold' ? 'text-red-300' : a.pace === 'watch' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                {a.provider === 'claude' ? 'Claude' : a.provider === 'codex' ? 'Codex' : a.provider} {a.window === 'weekly' ? 'weekly' : '5-hour'} · {Math.round(Math.max(0, a.pctUsed) * 100)}% used · {reachEstimate(a)}
+              </li>
             ))}
-          </div>
+          </ul>
         ) : (
-          <p className="text-xs text-gray-500">No reading yet. Open the provider's usage page and log what it shows.</p>
+          <p className="text-xs text-gray-500">No reading yet. Log what the provider's usage page shows to get an estimate.</p>
         )}
         {readings.length > 0 && (
           <ul className="text-xs font-mono space-y-1" aria-label="logged readings">
@@ -396,49 +344,6 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
             ))}
           </ul>
         )}
-      </section>
-
-      <section className="glass-light rounded-[18px] p-5 space-y-3">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h3 className="text-[17px] font-semibold text-gray-100">Subscription usage gauges</h3>
-            <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-              When a provider reaches 100%, record the time. NeonCore snapshots the preceding seven days
-              as that subscription's observed token ceiling and improves the estimate after each mark.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
-              aria-label="provider that reached 100%"
-              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300">
-              {SUBSCRIPTION_PROVIDERS.map((provider) => (
-                <option key={provider} value={provider}>{provider === 'claude' ? 'Claude' : 'Codex'}</option>
-              ))}
-            </select>
-            <input type="datetime-local" value={limitAt} onChange={(e) => setLimitAt(e.target.value)}
-              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300" />
-            <button onClick={markLimit} disabled={markingLimit}
-              className="btn-primary h-10 rounded-[10px] px-3.5 text-[13px] font-semibold disabled:opacity-50">
-              {markingLimit ? 'Recording…' : 'Mark 100%'}
-            </button>
-          </div>
-        </div>
-        {limitMessage && <p className="text-xs text-amber-200">{limitMessage}</p>}
-        {rate?.subscriptionUsage?.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {rate.subscriptionUsage.map((row) => (
-              <div key={row.provider} className="rounded-xl bg-gl-code border border-white/[0.1] p-3 font-mono text-sm">
-                <div className="text-amber-300">{subscriptionPillLabel(row)}</div>
-                <div className="text-gray-500 mt-1">
-                  100% ≈ {compact(row.ceilingTokens)} tokens/week · {row.samples} observation{row.samples === 1 ? '' : 's'} · {Math.round(row.confidence * 100)}% confidence
-                </div>
-                <div className="mt-2 h-2 rounded bg-white/5 overflow-hidden">
-                  <div className="h-full seg-on" style={{ width: `${Math.min(100, Math.max(0, row.pctUsed * 100))}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : <p className="text-xs text-gray-500">No 100% observations recorded yet.</p>}
       </section>
 
       {/* Controls. Range and granularity are separate questions: "how far back" and "how fine". */}

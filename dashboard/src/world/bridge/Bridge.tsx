@@ -36,14 +36,6 @@ function useBridge(): { projects: BridgeProject[]; selectedId: string | null } {
   return { projects, selectedId };
 }
 
-/** The deck behind the whole screen: the drawn backdrop when it exists, and the `.bridge` scope. */
-export function bridgeDeckProps(): { className: string; style?: React.CSSProperties } {
-  return {
-    className: 'bridge',
-    style: BRIDGE.deck ? { backgroundImage: `linear-gradient(rgba(5,9,20,0.12), rgba(5,9,20,0.5) 38%, rgba(5,9,20,0.72)), url(${BRIDGE.deck})` } : undefined,
-  };
-}
-
 /** The captain, above the project list. His cycle is his state (captainState.ts). */
 export function BridgeCaptain({ height = 190 }: { height?: number }) {
   const { projects, selectedId } = useBridge();
