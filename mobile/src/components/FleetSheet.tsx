@@ -49,7 +49,6 @@ export function FleetSheet({ visible, onClose }: { visible: boolean; onClose: ()
                     <View style={styles.rowText}>
                       <Text style={styles.rowName} numberOfLines={1}>
                         {server.name}
-                        {server.manual === false && <Text style={styles.faint}>  found</Text>}
                         {server.hidden && <Text style={styles.faint}>  hidden</Text>}
                       </Text>
                       <Text style={styles.rowUrl} numberOfLines={1}>{server.url}</Text>
@@ -115,8 +114,7 @@ export function FleetSheet({ visible, onClose }: { visible: boolean; onClose: ()
             )}
 
             <Text style={styles.help}>
-              Servers found through gossip appear on their own. Forgetting one only hides it
-              until the next discovery — use hide to keep it out for good.
+              The phone talks only to the servers you add here — servers are not linked to each other.
             </Text>
 
             <TouchableOpacity onPress={onClose} style={styles.close}>

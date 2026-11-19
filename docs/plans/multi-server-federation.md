@@ -1,3 +1,7 @@
+> **Removed 2026-11-19.** Server-to-server federation (gossip, the roster, forwarding to a peer's
+> agents, the merged multi-server grid) was taken out: each NeonCore server is isolated to its own
+> machine. This plan is kept as the record of what it was. See [FLEET.md](../../FLEET.md).
+
 # Plan: Multi-Server Federation
 
 Status: REVIEWED (plan-eng-review, 2026-07-27)

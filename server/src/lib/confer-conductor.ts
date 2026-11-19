@@ -7,7 +7,7 @@ import { libelleContexte } from './context-label.js';
 import { getIO, agentHasLiveSocket } from '../ws.js';
 import { inboxReachable } from './inbox-client.js';
 import { sendCommandToAgent } from './send-command.js';
-import { deliverToAgent, fetchPeerAgent } from './peer-forward.js';
+import { noChannel } from './delivery.js';
 import { busyRepoSiblings } from './queue-runner.js';
 import { getServerBaseUrl, AUTH_CURL_HEADER } from './server-url.js';
 import { createWorktree } from './worktree.js';
@@ -538,41 +538,19 @@ function loadParticipants(ids: string[]): Participant[] {
 }
 
 /**
- * Participants, including any owned by a peer server.
- *
- * A cartridge registers with exactly one server, so in a two-machine fleet half the
- * participants are routinely absent from this database. The local-only query did not just
- * fail to message them — it dropped them from the list, and the confer then ran as though
- * that machine had never been invited, waiting forever for a signal from an agent it had
- * silently excluded.
- *
- * A participant we cannot find anywhere is skipped rather than faked: better a confer with
- * a missing member, loudly, than one that pretends to include a machine that is switched off.
+ * Deliver confer traffic to a participant registered with THIS server. An inbox hand-off counts:
+ * it reaches the cartridge, and the command row records the outcome. Servers are not linked, so
+ * a participant this server does not know is simply not reachable.
  */
-async function loadParticipantsAcrossFleet(ids: string[]): Promise<Participant[]> {
-  const local = loadParticipants(ids);
-  const found = new Set(local.map((p) => p.id));
-  const missing = ids.filter((id) => !found.has(id));
-  if (missing.length === 0) return local;
-
-  const hydrated = await Promise.all(missing.map((id) => fetchPeerAgent(id)));
-  const remote: Participant[] = [];
-  hydrated.forEach((a, i) => {
-    if (!a) {
-      console.warn(`[confer] participant ${missing[i]} is not on this server or any reachable peer — excluded`);
-      return;
-    }
-    remote.push({
-      id: (a.id as string) || missing[i],
-      agentType: (a.agentType as string) || 'claude',
-      name: (a.name as string) || '',
-      status: (a.status as string) || 'idle',
-      repoPath: (a.repoPath as string) || '',
-    });
-  });
-  // Preserve the caller's ordering so "you are agent 2 of 3" stays stable.
-  const byId = new Map([...local, ...remote].map((p) => [p.id, p]));
-  return ids.map((id) => byId.get(id)).filter(Boolean) as Participant[];
+export function deliverToAgent(
+  agentId: string,
+  text: string,
+  send: (id: string, body: string) => { delivered?: boolean; transport?: string } | null,
+): { delivered: boolean; reason?: string } {
+  const out = send(agentId, text);
+  if (!out) return { delivered: false, reason: 'not registered with this server' };
+  if (noChannel(out)) return { delivered: false, reason: 'no live command channel on this server' };
+  return { delivered: true };
 }
 
 /**
@@ -708,7 +686,7 @@ export function cancelConfer(id: string): ConferSession | null {
     const participantIds: string[] = JSON.parse((row.participant_ids as string) || '[]');
     for (const pid of participantIds) {
       try {
-        void deliverToAgent(
+        deliverToAgent(
           pid,
           '[NeonCore Confer · cancelled] This confer has been cancelled. Stop working on the confer task and wait for new instructions.',
           (id, body) => sendCommandToAgent(id, body, false, undefined, { trackObjective: false }),
@@ -764,7 +742,7 @@ export async function resumeConfer(id: string): Promise<{ ok: true; session: Con
   for (const pid of pending) {
     const url = `${baseUrl()}/api/confer/${id}/milestone/${pid}/done`;
     const text = `[NeonCore Confer · resumed] Continue ${milestone.name} (${idx + 1}/${session.milestones!.length}) on ${session.repoName}. Previous milestones and your peers' completion signals were preserved. Coordinate with your peer(s), then report YOUR result with: curl -s -X POST "${url}" ${AUTH_CURL_HEADER} -H "Content-Type: application/json" -d '{"result":"<brief summary>"}'`;
-    const out = await deliverToAgent(pid, text, (agentId, body) => sendCommandToAgent(agentId, body, false));
+    const out = deliverToAgent(pid, text, (agentId, body) => sendCommandToAgent(agentId, body, false));
     if (out.delivered) delivered++;
   }
   if (delivered !== pending.length) {
@@ -940,7 +918,7 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
   const row = sessionRow(sessionId);
   if (!row) return;
   const session = hydrateSession(row);
-  const participants = await loadParticipantsAcrossFleet(session.participantIds);
+  const participants = loadParticipants(session.participantIds);
   const msRow = db.prepare('SELECT id, name FROM confer_milestones WHERE session_id = ? AND idx = ?').get(sessionId, idx) as { id: string; name: string } | undefined;
   if (!msRow) return;
 
@@ -958,14 +936,10 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
   for (const me of participants) {
     const peers = participants.filter((p) => p.id !== me.id);
     const prompt = buildMilestonePrompt(session, idx, me, peers, attachmentBlocks, sessionLedger(me.id));
-    // Fleet-aware: participants on a peer server are reached through their owner. Local
-    // delivery still runs first and synchronously, so a single-server confer is unchanged.
-    const out = await deliverToAgent(me.id, prompt, (id, body) => sendCommandToAgent(id, body, false));
+    const out = deliverToAgent(me.id, prompt, (id, body) => sendCommandToAgent(id, body, false));
     if (!out.delivered) {
       undelivered += 1;
       console.error(`[confer] ${sessionId} milestone ${idx} (${milestoneName}): NOT delivered to ${me.agentType} ${me.id} — ${out.reason || 'unknown'}`);
-    } else if (out.origin) {
-      console.log(`[confer] ${sessionId} milestone ${idx} → ${me.id} forwarded to ${out.origin}`);
     }
   }
   if (undelivered > 0) {

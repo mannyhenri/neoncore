@@ -228,40 +228,12 @@ finished — overridable with `force`, but deliberately, not by default.
 
 ---
 
-## Multiple computers: the fleet
+## One server per machine
 
-Run a server on each computer you work from. **There is no hub and no primary.** Every server keeps
-its own database and its own queue; they gossip every 15 seconds, and *clients merge at read time*.
-
-```
-        ┌──────────────┐    gossip / 15s    ┌──────────────┐
-        │  studio-mac  │◀──────────────────▶│  build-box   │
-        │  own DB      │                    │  own DB      │
-        │  own queue   │                    │  own queue   │
-        └──────┬───────┘                    └──────┬───────┘
-               └──────────────┬───────────────────┘
-                     ┌────────┴────────┐
-                     │  browser · iOS  │   one merged grid
-                     └─────────────────┘
-```
-
-This is why a machine going to sleep degrades the view instead of breaking it: the others keep
-serving, and the dead one is marked stale rather than retried forever.
-
-Adding a second computer takes one command, using the token from the first:
-
-```bash
-./install-neoncore.sh --start \
-  --fleet-token <TOKEN> \
-  --peer http://first-machine.local:4040
-```
-
-Both machines' cartridges now appear in one grid from either dashboard — and from the phone.
-Full guide: **[FLEET.md](FLEET.md)**.
-
-> **Prune dead peers.** A peer that has been failing for days is still advertised to every client.
-> Remove it in **Settings ▸ Fleet** — a client that adopts an unreachable server wastes a request
-> timeout on every refresh.
+NeonCore runs one server on the machine you work on — its own database, its own queue. Servers are
+**not linked**: no gossip between machines, no merged grid, no forwarding to another server's
+agents. The server stays reachable on your network for the dashboard, the iOS app, and relays you
+point at it. Details: **[FLEET.md](FLEET.md)**.
 
 ---
 
@@ -338,8 +310,8 @@ bare terminal is not supported.
 <details>
 <summary><b>Everything is slow, or one machine hangs the view</b></summary>
 
-Look for a dead peer in **Settings ▸ Fleet** or `GET /api/peers` — a machine that is *asleep*
-accepts the connection and never answers, which is far worse than one that is off. Remove it.
+Check what the app is pointed at: a machine that is *asleep* accepts the connection and never
+answers, which is far worse than one that is off. Point the app at the machine you work on.
 </details>
 
 <details>
@@ -390,7 +362,7 @@ It is enforced by hooks, not by good intentions. (This copy ships without the te
 | [FEATURES.md](FEATURES.md) | Complete map of what NeonCore does |
 | [INSTALL.md](INSTALL.md) | Install and distribute, per-OS agent packages |
 | [SETUP.md](SETUP.md) | Connecting machines: hooks, extension, relay, trust mode |
-| [FLEET.md](FLEET.md) | Multi-computer setup and peer gossip |
+| [FLEET.md](FLEET.md) | One server per machine, the fleet token, remote access |
 | [WORKFLOWS.md](WORKFLOWS.md) | Canvas workflow reference |
 | [docs/GOALS.md](docs/GOALS.md) · [docs/TASKS.md](docs/TASKS.md) | Projects, features, budgets, the task queue |
 | [mobile/RELEASE.md](mobile/RELEASE.md) | Building and shipping the iOS app |

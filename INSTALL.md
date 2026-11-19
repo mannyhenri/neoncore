@@ -16,9 +16,8 @@ The three distributable packages are built into `dist/` by [`scripts/package.sh`
 
 The machine that everyone else connects to.
 
-You can run **one per LAN**, or **one on every computer you work from**. With more than
-one, the servers gossip and every client shows a single merged grid — see
-**[FLEET.md](FLEET.md)**. Servers stay independent: separate databases, separate queues.
+Run it on the machine you work on. Each NeonCore server is independent — servers are not
+linked to each other — see **[FLEET.md](FLEET.md)**.
 
 **Prerequisites:** [Node.js 18+](https://nodejs.org) (ships with npm).
 
@@ -78,33 +77,10 @@ Flags: `--start` (start without prompting), `--no-start` (build only), `--dev` (
 
 ---
 
-### Adding a second computer
+### A second computer
 
-One command on the new machine, using the fleet token from the first:
-
-```bash
-# Mac / Linux
-./install-neoncore.sh --start --fleet-token <TOKEN> --peer http://first-machine.local:4040
-```
-
-```powershell
-# Windows
-powershell -ExecutionPolicy Bypass -File .\install-neoncore.ps1 -Start `
-  -FleetToken <TOKEN> -Peer http://first-machine.local:4040
-```
-
-The token is printed once in the first server's startup banner. If it has scrolled away:
-
-```bash
-sqlite3 server/neoncore.db "SELECT value FROM settings WHERE key='fleet_token';"
-```
-
-Both flags matter:
-
-- **`--fleet-token`** — without it the new machine mints its own token and the two servers
-  reject each other with `401`. It is saved on first launch, so you pass it once.
-- **`--peer`** — one introduction, one direction. Gossip does the rest. Optional; you can
-  add the address later from the dashboard's fleet panel.
+A second computer runs its own, separate server — install it the same way. Servers are not
+linked: each has its own dashboard. (`--peer` / `-Peer` is ignored.)
 
 Full details, remote access and troubleshooting: **[FLEET.md](FLEET.md)**.
 

@@ -9,7 +9,6 @@
  * attachments were validated, then dropped on the floor; when the item dispatched later it
  * called sendCommandToAgent with `undefined` attachments. An idle cartridge still got its
  * picture, which is why it looked intermittent: it depended on whether the agent was mid-turn.
- * The peer-forward path (a cartridge owned by another server) dropped them the same way.
  *
  * SET-BASED over every road a composer attachment takes to a cartridge:
  *   1. direct       — idle cartridge, delivered now
@@ -29,7 +28,6 @@ import db from '../src/db.ts';
 import commandsRouter from '../src/routes/commands.ts';
 import { QUEUE_KINDS } from '../src/lib/queue-kinds.ts';
 import { rowToItem } from '../src/lib/queue-runner.ts';
-import { forwardMessageToOwner } from '../src/lib/peer-forward.ts';
 
 installStubIO();
 
@@ -101,32 +99,6 @@ test('2. queued: a busy cartridge gets the picture when the queue delivers it', 
 
   const cmd = db.prepare('SELECT text FROM commands WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1').get(id) as { text: string };
   assert.match(cmd.text, /screenshot\.png/, 'the prompt the cartridge receives does not point at the picture');
-});
-
-test('3. forwarded: a cartridge owned by a peer server gets the picture in the forwarded request', async () => {
-  const PEER = 'http://peer-owner.local:4040';
-  db.prepare("INSERT OR REPLACE INTO peers (url, server_id, name, version, added_at) VALUES (?, '', '', '', ?)")
-    .run(PEER, new Date().toISOString());
-  const sent: unknown[] = [];
-  const original = globalThis.fetch;
-  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-    const u = String(url);
-    if (u.startsWith(PEER) && u.includes('/api/agents/')) return new Response(JSON.stringify({ id: 'remote-agent' }), { status: 200 });
-    if (u.startsWith(PEER) && u.endsWith('/api/commands/send')) {
-      sent.push(JSON.parse(String(init?.body)));
-      return new Response(JSON.stringify({ delivered: true }), { status: 201 });
-    }
-    return new Response('{}', { status: 404 });
-  }) as typeof fetch;
-  try {
-    const out = await forwardMessageToOwner('remote-agent', 'look at this', [picture]);
-    assert.equal(out.ok, true);
-    assert.equal((sent[0] as { attachments?: unknown[] }).attachments?.length, 1,
-      'the forwarded request dropped the picture, so the owning server never sees it');
-  } finally {
-    globalThis.fetch = original;
-    db.prepare('DELETE FROM peers WHERE url = ?').run(PEER);
-  }
 });
 
 test('clients see that a queued prompt has a picture, never its bytes', async () => {

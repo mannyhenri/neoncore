@@ -1,106 +1,35 @@
-# Running NeonCore on several computers
+# One server per machine
 
-One NeonCore server per computer, each with its own database. Every client — the web app
-on any machine, and the iOS app — talks to **all** of them and shows one merged grid.
+NeonCore runs **one server on the machine you work on**, with its own database, queue, goals and
+cost rollups. Servers are **not linked to each other**: there is no gossip between machines, no
+merged grid, and no forwarding of prompts or confers to an agent another server owns. (Server
+federation was removed on 2026-11-19 — see [docs/plans/multi-server-federation.md](docs/plans/multi-server-federation.md)
+for what it was.)
 
-```
-        ┌──────────┐   gossip 15s   ┌──────────┐
-        │ desktop  │◀──────────────▶│  studio  │
-        │ :4040    │                │  :4040   │
-        │ own DB   │                │  own DB  │
-        └────┬─────┘                └────┬─────┘
-             │                           │
-             └─────────────┬─────────────┘
-                           │  token-authed
-                  ┌────────┴────────┐
-                  │  web  /  iOS    │
-                  │  MERGED GRID    │
-                  └─────────────────┘
-```
+The server stays reachable on your network, so these still talk to it:
 
-Servers stay independent: separate databases, task queues, goals and cost rollups. The
-merge happens **in the client, at read time** — there is no hub and no primary. Any
-server going down costs you that server's cartridges and nothing else.
+- the **web dashboard** — on this machine, or from another browser on the LAN;
+- the **iOS app** — point it at this machine's address (`machine.local:4040`);
+- **relays and runners** on other computers that you deliberately point at this server
+  (`NEONCORE_URL`) — their cartridges register here like local ones.
+
+Running NeonCore on a second computer gives you a second, separate server. The two do not know
+about each other; open each one's own dashboard.
 
 ---
 
-## Add a second computer
+## The fleet token
 
-**1. Get the fleet token from the machine you already run.**
-
-It was printed once in that server's startup banner. If it has scrolled away:
+Every client presents it: relays, runners, the dashboard and the apps. It is printed once in the
+server's startup banner. If it has scrolled away:
 
 ```bash
 sqlite3 server/neoncore.db "SELECT value FROM settings WHERE key='fleet_token';"
 ```
 
-All machines share one token. It is what lets servers gossip, and what the apps present.
-
-**2. On the new computer**, unzip `neoncore-full.zip` and run one command:
-
-```bash
-./install-neoncore.sh --start \
-  --fleet-token <TOKEN> \
-  --peer http://first-machine.local:4040
-```
-
-Windows:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install-neoncore.ps1 -Start `
-  -FleetToken <TOKEN> -Peer http://first-machine.local:4040
-```
-
-That installs, builds, starts, and introduces itself to your existing server.
-
-Requirements: Node.js 18+ and npm. Nothing else.
-
-**3. Done.** Open `http://localhost:4040` on either machine — both machines' cartridges
-appear in one grid, each labelled with the server it came from.
-
-### Why those two flags matter
-
-- **`--fleet-token`** — without it the new machine mints its *own* token on first launch
-  and the two servers reject each other with `401`. It is saved on first launch, so you
-  pass it once and every later `npm start` keeps it.
-- **`--peer`** — one introduction in one direction is enough. Gossip teaches the rest of
-  the fleet about the new machine, and teaches the new machine about everyone else,
-  within a tick.
-
-You can skip `--peer` and add the address later from the fleet panel instead.
-
----
-
-## Managing the fleet
-
-**Web** — the pill in the header, where "Live / Polling" used to be. With one server it
-still reads `Live`; with more it reads `2/3 servers`. Click it to:
-
-- add a server by address (`studio.local:4040` — the scheme is optional)
-- see per-server health
-- hide or forget a server
-- set the fleet token for every server at once
-
-**iOS** — the same panel behind the `2/3 SERVERS` pill in the app header.
-
-Servers discovered through gossip appear on their own, marked `found`. **Forgetting** a
-discovered server only hides it until the next discovery re-learns it — use **hide** to
-keep one out of the grid for good.
-
----
-
-## What you will see when something is down
-
-A machine being asleep is normal, not an error, and the apps are built for it:
-
-| State | What happens |
-|---|---|
-| A server sleeps | Its cartridges keep showing, marked stale. The grid never blanks. |
-| A server 401s | Called out as **"Token rejected — not a network problem"** |
-| A server is slow | 5s per-peer timeout; it cannot stall the others |
-
-That distinction is deliberate. A rejected token and an unreachable laptop look identical
-otherwise, and only one of them is fixed by waiting.
+In the dashboard, the pill in the header (`Live` / `Polling`) shows the connection to this
+server; click it to set the token. A rejected token is called out as **"Token rejected"** —
+it looks like an outage otherwise, and only one of the two is fixed by waiting.
 
 ---
 
@@ -137,8 +66,8 @@ Two things that are easy to miss:
 
 ## Security
 
-One shared token authenticates three directions: client→server, server→server, and
-agent→server. The peer list therefore carries **no secrets** — only URLs.
+One token authenticates everything that talks to this server: the dashboard, the apps,
+relays and runners, and the agents' own calls.
 
 Auth ships in **permissive** mode:
 
@@ -159,8 +88,8 @@ Once `[auth] unauthenticated …` stops appearing in your logs, switch over:
 NEONCORE_AUTH_MODE=strict npm start
 ```
 
-`/api/health` stays open in both modes — it is how you diagnose a fleet that has gone
-quiet, and how peers check reachability.
+`/api/health` stays open in both modes — it is how you diagnose a server that has gone
+quiet.
 
 > The web app stores the token in `localStorage`, so any script on the page can read it.
 > That is an accepted trade for a LAN tool with one shared secret; do not reuse this token
@@ -170,17 +99,13 @@ quiet, and how peers check reachability.
 
 ## Troubleshooting
 
-**Every cartridge appears twice.** A server reached by two names (`localhost` and
-`mac.local`) used to be adopted as two servers. Fixed by de-duplicating on the server's
-stable id — reload the page and it heals itself.
+**The pill says "Token rejected".** The token the dashboard holds is not this server's. Set
+it from the pill, or restart the server with `NEONCORE_FLEET_TOKEN=<token> npm start`
+(it is saved on first launch).
 
-**A peer sits at `401`.** The two machines have different tokens. Set one for all servers
-from the fleet panel, or restart the odd one out with
-`NEONCORE_FLEET_TOKEN=<token> npm start` (it is saved on first launch).
-
-**A peer never appears.** Check the address is reachable from the *other* machine:
-`curl http://this-machine.local:4040/api/health`. Firewalls and VPN split-tunnelling are
-the usual causes.
+**The phone or a relay on another computer cannot reach the server.** Check the address
+from that machine: `curl http://this-machine.local:4040/api/health`. Firewalls and VPN
+split-tunnelling are the usual causes.
 
 **A cartridge lingers after you close the session.** Claude and Codex report their own
 exit and disappear immediately. If Codex ones linger, re-run the install-hooks flow for

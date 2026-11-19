@@ -20,17 +20,14 @@
     Install, then run hot-reload dev mode.
 
 .PARAMETER FleetToken
-    Join an existing fleet of NeonCore servers. Saved on first launch, so you pass
-    it once and every later `npm start` keeps it. Without it this machine mints its
-    OWN token and cannot talk to your other servers - they reject each other with 401.
+    The token this server's clients (relays, runners, the apps) present. Saved on
+    first launch; without it this machine mints its own.
 
 .PARAMETER Peer
-    Address of a server already in the fleet, e.g. http://desktop.local:4040.
-    One introduction in one direction is enough; gossip does the rest.
+    Ignored. NeonCore no longer links servers together - each machine runs its own.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\install-neoncore.ps1 -Start `
-      -FleetToken abc123 -Peer http://desktop.local:4040
+    powershell -ExecutionPolicy Bypass -File .\install-neoncore.ps1 -Start -FleetToken abc123
 #>
 
 [CmdletBinding()]
@@ -50,30 +47,9 @@ Set-Location $Root
 # one-time flag rather than something to remember on every start.
 if ($FleetToken) { $env:NEONCORE_FLEET_TOKEN = $FleetToken }
 
-# Introducing ONE server to another is enough: gossip teaches the rest of the fleet about
-# this machine within a tick, and teaches this machine about everyone else.
-function Start-PeerSeed {
-    if (-not $Peer) { return }
-    $tok = $env:NEONCORE_FLEET_TOKEN
-    $peerUrl = $Peer
-    # Honour PORT. Hardcoding 4040 meant a server on any other port never joined, and the
-    # background job timed out with nothing in the foreground to say so.
-    $selfPort = if ($env:PORT) { $env:PORT } elseif ($env:NEONCORE_PORT) { $env:NEONCORE_PORT } else { "4040" }
-    Start-Job -ScriptBlock {
-        param($peerUrl, $tok, $selfPort)
-        for ($i = 0; $i -lt 60; $i++) {
-            try {
-                Invoke-RestMethod -Uri "http://localhost:$selfPort/api/health" -TimeoutSec 2 | Out-Null
-                $headers = @{ "Content-Type" = "application/json" }
-                if ($tok) { $headers["Authorization"] = "Bearer $tok" }
-                Invoke-RestMethod -Uri "http://localhost:$selfPort/api/peers" -Method Post `
-                    -Headers $headers -Body (@{ url = $peerUrl } | ConvertTo-Json) -TimeoutSec 5 | Out-Null
-                return
-            } catch { Start-Sleep -Seconds 1 }
-        }
-    } -ArgumentList $peerUrl, $tok, $selfPort | Out-Null
-    Info "Will join the fleet via $Peer once the server is up."
-}
+# -Peer is accepted so an old command line still runs, and ignored: NeonCore no longer links
+# servers together — each machine runs its own.
+if ($Peer) { Write-Host "  !   -Peer is ignored: NeonCore no longer links servers together." -ForegroundColor Yellow }
 
 function Info($m) { Write-Host "  $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "  OK  $m" -ForegroundColor Green }
@@ -131,14 +107,12 @@ Write-Host ""
 # --- Start --------------------------------------------------------------------
 if ($Dev) {
     Info "Starting dev mode with hot reload (Ctrl-C to stop)..."
-    Start-PeerSeed
     & $npm.Source run dev
 } elseif ($NoStart) {
     Info "Not starting. Launch it anytime with:  npm start"
     if ($Peer) { Info "Add $Peer from the dashboard's fleet panel once it is running." }
 } elseif ($Start) {
     Info "Starting server (Ctrl-C to stop)..."
-    Start-PeerSeed
     & $npm.Source start
 } else {
     $ans = Read-Host "  Start the NeonCore server now? [Y/n]"
@@ -146,7 +120,6 @@ if ($Dev) {
         Info "Not starting. Launch it anytime with:  npm start"
     } else {
         Info "Starting server (Ctrl-C to stop)..."
-        Start-PeerSeed
-        & $npm.Source start
+            & $npm.Source start
     }
 }

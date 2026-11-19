@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { api, ApiError, setServerToken } from './api';
 import {
-  type ServerEntry, activeServers, fallbackName, reachablePeers, saveServers, upsertServer,
+  type ServerEntry, activeServers, fallbackName, applyServerIdentity, saveServers, upsertServer,
 } from './config';
 import type { Agent, ConferSession, PermissionRequest, TranscriptEvent, Workflow, WorkflowStep } from './types';
 
@@ -145,11 +145,12 @@ export function NeonCoreProvider({
     await Promise.allSettled(serversRef.current.map((s) => refreshServer(s)));
   }, [refreshServer]);
 
-  // ─── Discovery ────────────────────────────────────────────────────────────
-  // Point the phone at one server and the rest of the fleet appears by itself.
+  // ─── Identity ─────────────────────────────────────────────────────────────
+  // Each server's id and name, from its GET /api/peers. Its peers are not adopted: servers are
+  // not linked, so the phone talks only to the ones you added (config.applyServerIdentity).
   useEffect(() => {
     let cancelled = false;
-    const discover = async () => {
+    const identify = async () => {
       const results = await Promise.allSettled(
         serversRef.current.map(async (s) => ({ from: s, roster: await api.getPeers(s.url) })),
       );
@@ -159,29 +160,19 @@ export function NeonCoreProvider({
         let next = prev;
         for (const r of results) {
           if (r.status !== 'fulfilled') continue;
-          const { from, roster } = r.value;
-          next = next.map((s) =>
-            s.url === from.url
-              ? { ...s, serverId: roster.self.serverId || s.serverId, name: s.manual && s.name ? s.name : roster.self.name || s.name }
-              : s,
-          );
-          // Only peers the serving machine can currently reach. A peer it has given up on
-          // is a machine this phone will hang on too, and discovery is how it would get
-          // into the roster in the first place.
-          for (const peer of reachablePeers(roster.peers)) {
-            next = upsertServer(next, { url: peer.url, name: peer.name, serverId: peer.serverId, manual: false });
-          }
+          next = applyServerIdentity(next, r.value.from.url, r.value.roster);
         }
-        if (next !== prev) {
+        if (next.some((s, i) => s !== prev[i])) {
           saveServers(next).catch(() => {});
           onServersChange?.(next);
+          return next;
         }
-        return next;
+        return prev;
       });
     };
 
-    discover();
-    const interval = setInterval(discover, 30_000);
+    identify();
+    const interval = setInterval(identify, 30_000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [active.length, onServersChange]);
 

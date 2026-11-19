@@ -25,7 +25,7 @@ import { randomUUID } from 'crypto';
 import db from '../src/db.ts';
 import { installStubIO } from './helpers/stub-io.ts';
 import { tickWorkflowsOnce } from '../src/lib/workflow-executor-v2.ts';
-import { deliverToAgent } from '../src/lib/peer-forward.ts';
+import { deliverToAgent } from '../src/lib/confer-conductor.ts';
 import { sendCommandToAgent } from '../src/lib/send-command.ts';
 import { inboxPathFor } from '../src/lib/inbox-client.ts';
 
@@ -116,7 +116,7 @@ for (const c of CASES) {
 }
 
 test('deliverToAgent counts a live-inbox hand-off as delivered', async () => {
-  const out = await deliverToAgent(cartridge(process.pid), 'milestone',
+  const out = deliverToAgent(cartridge(process.pid), 'milestone',
     (id, body) => sendCommandToAgent(id, body, false));
   assert.equal(out.delivered, true, `reported undelivered: ${out.reason}`);
 });

@@ -30,7 +30,6 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 const { api, requestConfig, ApiError } = await import('../api');
-const { reachablePeers } = await import('../config');
 
 describe('a request to a server that never answers', () => {
   const realFetch = globalThis.fetch;
@@ -103,25 +102,6 @@ describe('a real socket that accepts the connection and goes silent', () => {
     expect(err.message).toMatch(/timed out/i);
     // Generous, because the assertion is "it returns at all", not "it returns in 400ms".
     expect(elapsed).toBeLessThan(5_000);
-  });
-});
-
-describe('peers the server has already marked stale', () => {
-  it('are not adopted as servers to talk to', () => {
-    const peers = [
-      { url: 'http://alive.local:4040', serverId: 'a', name: 'Alive', stale: false },
-      { url: 'http://dead.local:4040', serverId: 'b', name: 'Dead', stale: true },
-    ];
-    expect(reachablePeers(peers).map((p) => p.url)).toEqual(['http://alive.local:4040']);
-  });
-
-  it('are kept when the server does not say either way', () => {
-    // An older server sends no `stale` field at all. Dropping those would shrink the fleet
-    // on the phone because of the server's age, not because anything is unreachable.
-    const peers: { url: string; serverId: string; name: string; stale?: boolean }[] = [
-      { url: 'http://unknown.local:4040', serverId: 'c', name: 'Unknown' },
-    ];
-    expect(reachablePeers(peers)).toHaveLength(1);
   });
 });
 

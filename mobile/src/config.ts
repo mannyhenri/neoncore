@@ -78,7 +78,9 @@ export async function loadServers(): Promise<ServerEntry[]> {
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return dedupe(parsed.filter((s) => s && typeof s.url === 'string'));
+      // Servers an earlier version adopted from a peer roster (`manual: false`) are dropped:
+      // NeonCore no longer links servers, so the phone keeps only the ones you gave it.
+      if (Array.isArray(parsed)) return dedupe(parsed.filter((s) => s && typeof s.url === 'string' && s.manual !== false));
     } catch {
       // Corrupt storage falls through to the legacy path rather than bricking the app.
     }
@@ -150,19 +152,22 @@ export function activeServers(servers: ServerEntry[]): ServerEntry[] {
 }
 
 /**
- * Peers worth adopting from a roster.
- *
- * GET /api/peers reports `stale` for a peer the server has been failing to reach — one of
- * ours sits at 5064 consecutive timeouts. Adopting it anyway put a machine that cannot
- * answer into the phone's server list, where it can sort first and become the server every
- * single-server screen talks to. The server already knows this; the phone just had to stop
- * ignoring it.
- *
- * Absent means keep: an older server does not send the field, and dropping unknown peers
- * would quietly shrink the fleet on the phone instead of on the machine that is down.
+ * What a server's GET /api/peers answer does to the list: it names the server that sent it (its
+ * id, and its name unless you named it yourself). Nothing else — the roster's peers are NOT
+ * adopted: NeonCore no longer links servers, and the phone talks only to the ones you added.
  */
-export function reachablePeers<T extends { stale?: boolean }>(peers: T[]): T[] {
-  return peers.filter((p) => p.stale !== true);
+export function applyServerIdentity(
+  servers: ServerEntry[],
+  from: string,
+  roster: { self: { serverId?: string; name?: string } },
+): ServerEntry[] {
+  return servers.map((s) => {
+    if (s.url !== from) return s;
+    const serverId = roster.self.serverId || s.serverId;
+    const name = s.manual && s.name ? s.name : roster.self.name || s.name;
+    // Unchanged → the same object, so the 30 s poll does not rewrite storage for nothing.
+    return serverId === s.serverId && name === s.name ? s : { ...s, serverId, name };
+  });
 }
 
 // ─── Back-compat shim ───────────────────────────────────────────────────────

@@ -7,10 +7,10 @@
  *
  * THE HAZARD THIS TEST PINS DOWN. A confer that is ALREADY RUNNING is the current item; its
  * milestone traffic is that item's internals, not new work. The conductor and the workflow
- * executor call sendCommandToAgent in-process so they bypass the route — but peer-forward
- * delivers to REMOTE participants over POST /api/commands/send, which means a naive "queue
- * everything aimed at a busy agent" would swallow milestone dispatches to another machine and
- * deadlock every cross-machine confer. So queueing is OPT-IN per caller: user surfaces ask for
+ * executor call sendCommandToAgent in-process so they bypass the route — but participants message
+ * each other (neoncore_message_agent) over POST /api/commands/send, which means a naive "queue
+ * everything aimed at a busy agent" would park those messages behind the confer they belong to
+ * and deadlock it. So queueing is OPT-IN per caller: user surfaces ask for
  * it, system delivery never does. Both directions are asserted below, because only testing the
  * happy one is how that deadlock would ship.
  */
@@ -99,16 +99,16 @@ test('a DIRECT PROMPT queues when the cartridge is busy — same rule as confers
   assert.deepEqual(missing, [], `these prompt paths interrupt a busy cartridge instead of queueing:\n  ${missing.join('\n  ')}`);
 });
 
-test('SYSTEM delivery never queues — peer-forward carries live confer milestones', async () => {
-  // The deadlock guard. peer-forward is how a milestone reaches a participant on another
-  // machine; if it ever set queueIfBusy, that milestone would be parked behind the very confer
-  // it belongs to and the session would never advance.
+test('SYSTEM delivery never queues — the confer conductor carries live confer milestones', async () => {
+  // The deadlock guard. The conductor is how a milestone reaches each participant; if it ever
+  // set queueIfBusy, that milestone would be parked behind the very confer it belongs to and the
+  // session would never advance.
   const fs = await import('node:fs');
   const path = await import('node:path');
-  const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/lib/peer-forward.ts'), 'utf8');
+  const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/lib/confer-conductor.ts'), 'utf8');
   assert.doesNotMatch(
     src, /queueIfBusy\s*:\s*true/,
-    'peer-forward must never queue — it delivers in-flight confer traffic to remote participants',
+    'the confer conductor must never queue — it delivers in-flight confer traffic to participants',
   );
 });
 
@@ -148,5 +148,5 @@ test('the send route honours queueIfBusy and defaults to NOT queueing', async ()
   const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'src/routes/commands.ts'), 'utf8');
   assert.match(src, /queueIfBusy/, 'the send route does not implement queueIfBusy at all');
   assert.match(src, /guardBusy/, 'the send route never consults busy state');
-  assert.match(src, /queueIfBusy === true/, 'the send route must stay OPT-IN — see the peer-forward deadlock above');
+  assert.match(src, /queueIfBusy === true/, 'the send route must stay OPT-IN — see the confer deadlock above');
 });

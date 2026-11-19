@@ -871,32 +871,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_virtual_cartridges_path ON virtual_cartridges(directory_path);
 `);
 
-// Federation peers — the other NeonCore servers this one gossips with.
-//
-// This is a grow-only set of URLs, NOT a replicated dataset. Union is the whole merge
-// algorithm; removal is a staleness rule, not consensus. Deliberately no tombstones and
-// no conflict resolution — a peer list of URLs does not warrant either.
-//
-// `url` is the primary key and is stored NORMALIZED (see normalizePeerUrl in
-// lib/federation.ts). Without that, `host:4040` and `host:4040/` are two rows and the
-// same server gets pinged, counted, and merged twice.
-//
-// The peer list carries NO SECRETS — only URLs. The one fleet token authenticates every
-// direction, so there is nothing per-peer to store.
-db.exec(`
-  CREATE TABLE IF NOT EXISTS peers (
-    url TEXT PRIMARY KEY,
-    server_id TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    version TEXT NOT NULL DEFAULT '',
-    last_ok_at TEXT NOT NULL DEFAULT '',
-    last_error TEXT NOT NULL DEFAULT '',
-    consecutive_failures INTEGER NOT NULL DEFAULT 0,
-    added_at TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_peers_last_ok ON peers(last_ok_at);
-`);
+// Federation was removed: NeonCore no longer links servers together. The roster of other
+// servers it used to gossip with is dropped, so nothing can read it back.
+db.exec('DROP TABLE IF EXISTS peers');
 
 // Cleanup: expire stale pending permissions from past sessions
 const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();

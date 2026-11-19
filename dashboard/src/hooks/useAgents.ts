@@ -5,10 +5,7 @@ import type {
 } from '../types';
 import { ApiError } from '@neoncore/client';
 import { api, apiFor } from '../lib/api';
-import {
-  loadServers, saveServers, upsertServer, removeServer, setServerHidden,
-  setFleetToken, activeServers, fallbackName, dedupeByServerId,
-} from '../lib/servers';
+import { loadServers, saveServers, setFleetToken, activeServers, fallbackName } from '../lib/servers';
 import { useSockets } from './useSocket';
 import { browserNotificationsWanted, setDesktopStatus } from '../lib/osNotify';
 
@@ -171,71 +168,6 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     return () => clearInterval(interval);
   }, [refreshData]);
 
-  /**
-   * Learn about peers from every server we can reach, and adopt them automatically.
-   *
-   * This is what makes federation feel like one system: point the app at one server and
-   * the rest of the fleet appears. Discovered servers are marked non-manual so the UI can
-   * distinguish "I added this" from "this was found".
-   */
-  useEffect(() => {
-    let cancelled = false;
-    const discover = async () => {
-      const results = await Promise.allSettled(
-        serversRef.current.map(async (s) => ({ from: s, roster: await clientFor(s).getPeers() })),
-      );
-      if (cancelled) return;
-
-      setServersState((prev) => {
-        let next = prev;
-
-        // PASS 1 — record what each server says its own identity is.
-        //
-        // This must complete before any peer is merged. A peer's roster names the other
-        // servers by whatever URL they advertise, which for THIS server is usually not
-        // the URL the browser is using (`Mac.local` vs `localhost`). Until we know our
-        // own serverId there is nothing to recognise that alias against, and we adopt
-        // ourselves a second time — doubling every cartridge in the grid.
-        for (const r of results) {
-          if (r.status !== 'fulfilled') continue;
-          const { from, roster } = r.value;
-          next = next.map((s) =>
-            s.url === from.url
-              ? {
-                  ...s,
-                  serverId: roster.self.serverId || s.serverId,
-                  name: s.manual && s.name ? s.name : roster.self.name || s.name,
-                }
-              : s,
-          );
-        }
-
-        // PASS 2 — merge peers, now that every known serverId is in hand.
-        for (const r of results) {
-          if (r.status !== 'fulfilled') continue;
-          for (const peer of r.value.roster.peers) {
-            next = upsertServer(next, {
-              url: peer.url,
-              name: peer.name,
-              serverId: peer.serverId,
-              manual: false,
-            });
-          }
-        }
-
-        // Belt-and-braces: collapse any alias that slipped in before its id was known
-        // (e.g. added by hand, then identified on the next tick).
-        next = dedupeByServerId(next);
-
-        if (next !== prev) saveServers(next);
-        return next;
-      });
-    };
-
-    discover();
-    const interval = setInterval(discover, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [active.length]);
 
   // Reconcile stuck alerts against live agents (unchanged behaviour, now fleet-wide).
   const allAgentsRaw = useMemo(
@@ -532,19 +464,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     return updated;
   }, [taskServer, patchTask]);
 
-  // ─── Server management (exposed for the picker UI) ────────────────────────
-
-  const addServer = useCallback((url: string, token?: string | null) => {
-    setServers(upsertServer(serversRef.current, { url, token, manual: true }));
-  }, [setServers]);
-
-  const forgetServer = useCallback((url: string) => {
-    setServers(removeServer(serversRef.current, url));
-  }, [setServers]);
-
-  const hideServer = useCallback((url: string, hidden: boolean) => {
-    setServers(setServerHidden(serversRef.current, url, hidden));
-  }, [setServers]);
+  // ─── The fleet token for this server (the picker's one setting) ───────────
 
   const applyFleetToken = useCallback((token: string | null) => {
     setServers(setFleetToken(loadServers(), token));
@@ -597,12 +517,9 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     updateTask,
     dispatchTask,
     completeTask,
-    // Federation
+    // This server (the list holds it alone — lib/servers.ts)
     servers,
     serverStatuses,
-    addServer,
-    forgetServer,
-    hideServer,
     applyFleetToken,
     refreshData,
   };

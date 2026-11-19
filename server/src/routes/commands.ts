@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
-import { forwardMessageToOwner } from '../lib/peer-forward.js';
 import { guardBusy } from '../lib/queue-if-busy.js';
 import { publicQueueItem } from '../lib/queue-runner.js';
 import { resolveSender, composePeerMessage } from '../lib/peer-message.js';
@@ -36,11 +35,10 @@ router.post('/send', asyncRoute(async (req, res) => {
   // QUEUE INSTEAD OF INTERRUPT. A cartridge works one thing at a time, so a prompt typed while
   // it is busy used to land on top of work in progress. Now it lines up behind it.
   //
-  // OPT-IN, and that is load-bearing rather than cautious: this same route carries in-flight
-  // confer traffic to participants on OTHER machines (peer-forward.ts posts here). If queueing
-  // were the default, a milestone dispatch to a remote participant would be parked behind the
-  // very confer it belongs to and the session would never advance. User surfaces ask for it;
-  // system delivery does not.
+  // OPT-IN, and that is load-bearing rather than cautious: this same route carries agent-to-agent
+  // messages (neoncore_message_agent) between confer participants. If queueing were the default,
+  // a participant's message would be parked behind the very confer it belongs to and the session
+  // would never advance. User surfaces ask for it; system delivery does not.
   if (queueIfBusy === true) {
     const guard = guardBusy({
       // Everything sendCommandToAgent takes, not just the text: the item dispatches later, and
@@ -79,16 +77,9 @@ router.post('/send', asyncRoute(async (req, res) => {
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-  // Not ours — ask the fleet. A cartridge registers with exactly ONE server, so an agent
-  // missing here is routinely alive on a peer; before this, that was simply a 404 and any
-  // cross-machine coordination (a confer, an agent messaging its peer) died right here.
-  if (!command) {
-    const forwarded = await forwardMessageToOwner(agentId, outgoing, validAttachments);
-    if (forwarded.ok) {
-      return res.status(201).json({ forwardedTo: forwarded.origin, delivered: true });
-    }
-    return res.status(404).json({ error: `Agent not found locally; ${forwarded.reason}` });
-  }
+  // Not registered with this server: nothing to deliver to. (Servers are not linked — a
+  // cartridge registered with another server is not reachable from here.)
+  if (!command) return res.status(404).json({ error: 'Agent not found' });
 
   res.status(201).json(command);
 }));

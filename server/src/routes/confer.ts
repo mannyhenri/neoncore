@@ -3,7 +3,6 @@ import { Router } from 'express';
 import { advanceWorkflowsSoon } from '../lib/workflow-executor-v2.js';
 import db from '../db.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
-import { fetchPeerAgent } from '../lib/peer-forward.js';
 import { isLocalMachine, machineLabel } from '../lib/machine-locality.js';
 import {
   startConfer,
@@ -52,26 +51,10 @@ router.post('/start', asyncRoute(async (req, res) => {
   const dbRows = (db.prepare(`SELECT id, repo_name, repo_path, status, machine FROM agents WHERE id IN (${ph})`).all(...ids) as ConferRow[])
     .map((r) => ({ ...r, remote: !isLocalMachine(r.machine) }));
 
-  // A cartridge registers with exactly ONE server, so in a two-machine fleet the other
-  // machine's participants are legitimately absent here. Rejecting them as "no longer
-  // exist" is what made every cross-machine confer impossible to even start.
-  const knownIds = new Set(dbRows.map((r) => r.id));
-  const remoteIds = ids.filter((id) => !knownIds.has(id));
-  const hydrated = await Promise.all(remoteIds.map((id) => fetchPeerAgent(id)));
-  const remoteRows = hydrated
-    .map((a, i) => (a ? {
-      id: (a.id as string) || remoteIds[i],
-      repo_name: (a.repoName as string) || '',
-      repo_path: (a.repoPath as string) || '',
-      status: (a.status as string) || 'idle',
-      remote: true,
-    } : null))
-    .filter(Boolean) as ConferRow[];
-
-  const rows = [...dbRows, ...remoteRows];
+  const rows = dbRows;
   if (rows.length !== ids.length) {
     return res.status(400).json({
-      error: 'One or more selected cartridges no longer exist on this server or any reachable peer.',
+      error: 'One or more selected cartridges no longer exist on this server.',
     });
   }
   const offline = rows.filter((r) => r.status === 'offline');

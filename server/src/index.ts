@@ -37,7 +37,6 @@ import pushRouter from './routes/push.js';
 import machinesRouter from './routes/machines.js';
 import peersRouter from './routes/peers.js';
 import { fleetAuth, ensureFleetToken, getAuthMode, writeTokenFile, TOKEN_FILE } from './lib/auth.js';
-import { startPeerScheduler, stopPeerScheduler } from './lib/peer-scheduler.js';
 import { findZombies } from './lib/zombie-reaper.js';
 import { findDeadInboxes, markUnreachable } from './lib/dead-inbox.js';
 import { startStuckDetector } from './stuck-detector.js';
@@ -346,7 +345,6 @@ startHeartbeatScheduler();
 startGoalPilotRunner();
 startConferConductor();
   startQueueRunner();
-startPeerScheduler();
 
 // N3: fan attention events out as notices. Started AFTER the channels are registered — a
 // sweep that runs before them would compute the right answer and have
@@ -359,7 +357,6 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     console.log(`[shutdown] ${sig} received — stopping schedulers`);
     stopHeartbeatScheduler();
-    stopPeerScheduler();
     process.exit(0);
   });
 }

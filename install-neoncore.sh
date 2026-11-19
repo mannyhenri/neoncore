@@ -12,25 +12,21 @@
 #   ./install-neoncore.sh --no-start # install, build only
 #   ./install-neoncore.sh --dev      # install, then run hot-reload dev mode
 #
-# Joining an existing fleet (a second/third computer):
-#   ./install-neoncore.sh --start --fleet-token <TOKEN> [--peer http://first-machine.local:4040]
-#
-# --fleet-token is saved on first launch, so you pass it once and every later
-# `npm start` keeps it. Without it this machine mints its OWN token and cannot
-# talk to your other servers -- they reject each other with 401.
+# --fleet-token sets the token this server's clients (relays, runners, the apps) present.
+# It is saved on first launch; without it this machine mints its own.
+# Each machine runs its OWN server: NeonCore no longer links servers (--peer is ignored).
 
 set -euo pipefail
 
 START_MODE="prompt"   # prompt | yes | no | dev
 FLEET_TOKEN=""
-PEER_URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --start)    START_MODE="yes"; shift ;;
     --no-start) START_MODE="no";  shift ;;
     --dev)      START_MODE="dev"; shift ;;
     --fleet-token) FLEET_TOKEN="${2:-}"; shift 2 ;;
-    --peer)        PEER_URL="${2:-}";    shift 2 ;;
+    --peer)        echo "  ! --peer is ignored: NeonCore no longer links servers together."; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -92,33 +88,9 @@ info "Agents on other machines connect with the agent package (bootstrap.sh /"
 info "bootstrap.ps1), pointing at the Network URL above. See INSTALL.md."
 echo
 
-# --- Join the fleet -----------------------------------------------------------
-# Introducing ONE server to another is enough: gossip teaches the rest of the fleet
-# about this machine within a tick, and teaches this machine about everyone else.
-seed_peer_when_up() {
-  [[ -z "$PEER_URL" ]] && return 0
-  # Honour PORT. Hardcoding 4040 meant a server started on any other port never joined —
-  # the background poll simply timed out with nothing in the foreground to say so.
-  local self_port="${PORT:-${NEONCORE_PORT:-4040}}"
-  (
-    for _ in $(seq 1 60); do
-      if curl -fsS -m 2 "http://localhost:${self_port}/api/health" >/dev/null 2>&1; then
-        curl -fsS -m 5 -X POST "http://localhost:${self_port}/api/peers" \
-          -H 'Content-Type: application/json' \
-          ${NEONCORE_FLEET_TOKEN:+-H "Authorization: Bearer $NEONCORE_FLEET_TOKEN"} \
-          -d "{\"url\":\"$PEER_URL\"}" >/dev/null 2>&1 \
-          && printf '  \033[32mOK  Joined the fleet via %s\033[0m\n' "$PEER_URL"
-        return 0
-      fi
-      sleep 1
-    done
-    printf '  \033[33m!   Server did not come up in time - add %s from the dashboard instead\033[0m\n' "$PEER_URL"
-  ) &
-}
-
 # --- Start --------------------------------------------------------------------
-run_start() { seed_peer_when_up; exec npm start; }
-run_dev()   { seed_peer_when_up; exec npm run dev; }
+run_start() { exec npm start; }
+run_dev()   { exec npm run dev; }
 
 case "$START_MODE" in
   yes) info "Starting server (Ctrl-C to stop)..."; run_start ;;

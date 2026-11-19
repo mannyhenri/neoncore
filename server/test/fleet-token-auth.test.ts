@@ -1,32 +1,25 @@
 /**
- * Two real NeonCore servers, two ports, two databases, talking over real HTTP.
+ * The fleet token: who may call a NeonCore server's API.
  *
- * These run as child PROCESSES rather than in-process. db.ts holds a module-level
- * singleton, so two servers in one process would share one database — collapsing the very
- * independence the topology depends on and making self-exclusion untestable.
- *
- * Covers the plan's two loudest risks:
- *   - the auth decision table (a wrong call here is a silent fleet-wide blackout)
- *   - the gossip exchange (union merge, self-exclusion, and one hung peer not stalling
- *     liveness for the rest)
+ * Real servers (child PROCESSES — db.ts holds a module-level singleton, so each instance needs its
+ * own process and database), one permissive and one strict, over real HTTP. A wrong call here is a
+ * silent blackout: every hook, relay, runner and the phone app talks to the server through it.
+ * (These ran beside the server-to-server gossip tests, which went with federation.)
  */
-
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createServer, type Server } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const TMP = mkdtempSync(join(tmpdir(), 'neoncore-fleet-'));
-const HELPER = resolve(import.meta.dirname, 'helpers', 'peer-server.ts');
+const HELPER = resolve(import.meta.dirname, 'helpers', 'auth-server.ts');
 const TOKEN = 'test-fleet-token-aaaaaaaaaaaaaaaaaaaa';
 
 interface Node { proc: ChildProcess; url: string; port: number }
 
 const running: Node[] = [];
-let blackhole: Server | null = null;
 
 /** Boot a server and wait for it to actually listen — never sleep-and-hope. */
 function startNode(opts: { port: number; name: string; mode?: 'permissive' | 'strict'; token?: string | null }): Promise<Node> {
@@ -74,32 +67,17 @@ function req(url: string, path: string, init: RequestInit & { token?: string | n
   });
 }
 
-const tick = (url: string) => req(url, '/api/test/tick', { method: 'POST', token: TOKEN });
-const roster = async (url: string) => {
-  const r = await req(url, '/api/peers', { token: TOKEN });
-  return (await r.json()) as { self: { serverId: string; name: string }; peers: { url: string; stale: boolean; serverId: string }[] };
-};
-
-let A: Node, B: Node, C: Node, S: Node;
+let A: Node, S: Node;
 
 before(async () => {
-  [A, B, C, S] = await Promise.all([
+  [A, S] = await Promise.all([
     startNode({ port: 4611, name: 'alpha' }),
-    startNode({ port: 4612, name: 'bravo' }),
-    startNode({ port: 4613, name: 'charlie' }),
     startNode({ port: 4614, name: 'strict', mode: 'strict' }),
   ]);
-
-  // A TCP socket that accepts connections and then says nothing at all — a sleeping
-  // laptop. It does NOT refuse, which is what makes it dangerous: without an explicit
-  // timeout the request hangs until the OS gives up, minutes later.
-  blackhole = createServer(() => { /* accept, never respond */ });
-  await new Promise<void>((r) => blackhole!.listen(4615, '127.0.0.1', r));
 });
 
 after(async () => {
   for (const n of running) n.proc.kill('SIGKILL');
-  await new Promise<void>((r) => (blackhole ? blackhole.close(() => r()) : r()));
   rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -181,79 +159,4 @@ test('PUT of the redaction placeholder does NOT overwrite the real secret', asyn
   assert.equal((await req(A.url, '/api/peers', { token: TOKEN })).status, 200);
   const settings = (await (await req(A.url, '/api/settings', { token: TOKEN })).json()) as Record<string, string>;
   assert.equal(settings.theme, 'dark', 'the non-secret field in the same PUT still applied');
-});
-
-// ─── Gossip ─────────────────────────────────────────────────────────────────
-
-test('gossip: a seeded peer is discovered in BOTH directions from one tick', async () => {
-  await req(A.url, '/api/peers', { method: 'POST', token: TOKEN, body: JSON.stringify({ url: B.url }) });
-  await tick(A.url);
-
-  const a = await roster(A.url);
-  assert.deepEqual(a.peers.map((p) => p.url), [B.url]);
-  assert.ok(a.peers[0].serverId, 'A learned B identity from the ping reply');
-
-  // B learned about A from being pinged — it was never configured with A's URL.
-  const b = await roster(B.url);
-  assert.deepEqual(b.peers.map((p) => p.url), [A.url]);
-});
-
-test('gossip: a server never ends up in its own roster', async () => {
-  const a = await roster(A.url);
-  assert.ok(!a.peers.some((p) => p.url === A.url), 'self-ping loop');
-  assert.ok(!a.peers.some((p) => p.serverId === a.self.serverId), 'self under an alias');
-});
-
-test('gossip: C propagates transitively — A learns it via B, never having been told', async () => {
-  // Introduce C to B only. A knows B; B now knows C; so the next tick should teach A
-  // about C. This is the union merge doing the entire job.
-  await req(B.url, '/api/peers', { method: 'POST', token: TOKEN, body: JSON.stringify({ url: C.url }) });
-  await tick(B.url);
-  await tick(A.url);
-
-  const a = await roster(A.url);
-  assert.deepEqual(a.peers.map((p) => p.url).sort(), [B.url, C.url].sort());
-});
-
-test('gossip: re-ticking adds nothing and duplicates nothing', async () => {
-  const before = (await roster(A.url)).peers.length;
-  await tick(A.url);
-  await tick(A.url);
-  assert.equal((await roster(A.url)).peers.length, before);
-});
-
-test('gossip: one HUNG peer does not stall the tick or the healthy peers', async () => {
-  // The blackhole accepts and never replies. Without a per-request timeout this tick
-  // would hang for minutes and every other peer would lose its liveness update.
-  await req(A.url, '/api/peers', {
-    method: 'POST', token: TOKEN, body: JSON.stringify({ url: 'http://127.0.0.1:4615' }),
-  });
-
-  const started = Date.now();
-  await tick(A.url);
-  const elapsed = Date.now() - started;
-
-  assert.ok(elapsed < 20_000, `tick took ${elapsed}ms — the 5s ping timeout did not fire`);
-
-  const a = await roster(A.url);
-  const hung = a.peers.find((p) => p.url === 'http://127.0.0.1:4615');
-  const healthy = a.peers.find((p) => p.url === B.url);
-  assert.ok(hung, 'the hung peer stays in the roster, counting toward staleness');
-  assert.equal(healthy?.stale, false, 'the healthy peer still got its liveness update');
-});
-
-test('gossip: a peer with the WRONG token is recorded as failing, not as reachable', async () => {
-  // A 401 must not read as "reachable". It also must not read as a network fault — that
-  // sends you debugging the LAN when the fix is the token.
-  const odd = await startNode({ port: 4616, name: 'oddtoken', token: 'a-different-fleet-token' });
-  await req(A.url, '/api/peers', { method: 'POST', token: TOKEN, body: JSON.stringify({ url: odd.url }) });
-  await tick(A.url);
-
-  const entry = (await roster(A.url)).peers.find((p) => p.url === odd.url);
-  assert.ok(entry, 'peer is still listed');
-  assert.match(
-    (entry as unknown as { lastError: string }).lastError ?? '',
-    /401/,
-    'the failure names the token, not a phantom network problem',
-  );
 });
