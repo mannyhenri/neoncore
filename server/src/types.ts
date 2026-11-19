@@ -364,8 +364,35 @@ export interface CommandTemplate {
 }
 
 // Goal Cascade types
+/** One line about a feature's pipeline, for the feature list. See server routes/goals.ts pilotSummary. */
+export interface FeaturePilotSummary {
+  id: string;
+  phase: 'scoping' | 'clarifying' | 'planning' | 'proposed' | 'staffing' | 'running' | 'paused' | 'completed' | 'cancelled';
+  attention: string;
+  stagesDone: number;
+  stagesTotal: number;
+  /** A stage is waiting on the person (approve the acceptance tests, confirm verdicts). */
+  awaitingReview: boolean;
+  /** The planner did not answer its last request. */
+  plannerFailed: boolean;
+}
+
 export interface Goal {
   id: string;
+  /**
+   * PROJECT → FEATURES. A goal row is a FEATURE of the project it is filed under; null for an
+   * old-style goal that is not filed under one yet. `position` is its place in the project's list.
+   */
+  projectId?: string | null;
+  position?: number;
+  /** 'imported' = it already existed when the project was taken on (generated from the codebase — "✦ Generate with AI"). */
+  origin?: 'imported' | '';
+  /** When it was marked done ('' while it is not). */
+  doneAt?: string;
+  /** Where the person placed it on the roadmap: '' = automatic, else 'now' | 'next' | 'later'. */
+  roadmapLane?: '' | 'now' | 'next' | 'later';
+  /** Where the feature's pipeline stands (its latest pilot); null when it was never started. */
+  pilot?: FeaturePilotSummary | null;
   name: string;
   description: string;
   successMetric: string;
@@ -440,6 +467,20 @@ export interface Project {
   lastRunStatus?: string | null;
   lastRunAt?: string | null;
   activeRunCount?: number;
+  /** How the product is built (markdown) — read by the planner when it scopes each feature. */
+  architecture?: string;
+  /** Rewrite docs/product/ in the main repo whenever a feature changes. */
+  docsAutoPublish?: boolean;
+  /** When docs/product/ was last written ('' = never), and why the last attempt failed. */
+  docsPublishedAt?: string;
+  docsPublishError?: string;
+  /** PROJECT → FEATURES: how many features the project lists, and how far along they are. */
+  featureCount?: number;
+  /** Features that already existed when the project was taken on (imported) — not counted above. */
+  featuresExisting?: number;
+  featuresDone?: number;
+  featuresActive?: number;
+  featuresNeedYou?: number;
 }
 
 // Workflow Step types (V2 canvas workflows)

@@ -159,7 +159,7 @@ const RENDER_SITES: { file: string; must: RegExp; why: string }[] = [
     why: 'queue rows would go back to printing a repo path or an id fragment',
   },
   {
-    file: 'dashboard/src/components/GoalsPage.tsx',
+    file: 'dashboard/src/components/ProjectParts.tsx',
     must: /firedRunName/,
     why: '"Run started — ID: 4a2f1b0c…" names a run you then cannot find in the list',
   },

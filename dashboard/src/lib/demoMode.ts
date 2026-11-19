@@ -118,23 +118,21 @@ function seed() {
     ],
     projects: [
       /**
-       * `goalId` LIVES ON THE PROJECT, not as `projectIds` on the goal — that is the direction
-       * the goals screen resolves (a goal's reach is the projects pointing AT it). Without it
-       * every goal rendered "0 projects · reaches nothing" and the page warned that no project
-       * had a goal, which is a demo showing the empty state of its own headline feature.
+       * PROJECT → FEATURES: a project names the work and the repos involved; its features are goal
+       * rows filed under it (`projectId` on the goal). The counts are what the rail shows.
        */
-      { id: 'demo-p1', name: 'Atlas', description: 'Customer-facing API and web app.', primaryRepo: '/demo/atlas-api', color: '#5AAEFF', goalId: 'demo-g2', cartridges: ['/demo/atlas-api', '/demo/atlas-web'], createdAt: ago(9000), updatedAt: ago(30) },
-      { id: 'demo-p2', name: 'Ledger', description: 'Billing and reconciliation.', primaryRepo: '/demo/ledger-svc', color: '#38bdf8', goalId: 'demo-g1', cartridges: ['/demo/ledger-svc'], createdAt: ago(9000), updatedAt: ago(60) },
-      { id: 'demo-p3', name: 'Pulse', description: 'Field mobile app — visits, offline capture.', primaryRepo: '/demo/pulse-mobile', color: '#34d399', goalId: 'demo-g3', cartridges: ['/demo/pulse-mobile'], createdAt: ago(7000), updatedAt: ago(90) },
+      { id: 'demo-p1', name: 'Atlas', description: 'Customer-facing API and web app.', primaryRepo: '/demo/atlas-api', color: '#5AAEFF', goalId: null, cartridges: ['/demo/atlas-api', '/demo/atlas-web'], createdAt: ago(9000), updatedAt: ago(30), featureCount: 4, featuresDone: 1, featuresActive: 1, featuresNeedYou: 1, costUsd: 18.35, runCount: 29 },
+      { id: 'demo-p2', name: 'Ledger', description: 'Billing and reconciliation.', primaryRepo: '/demo/ledger-svc', color: '#38bdf8', goalId: null, cartridges: ['/demo/ledger-svc'], createdAt: ago(9000), updatedAt: ago(60), featureCount: 2, featuresDone: 0, featuresActive: 1, featuresNeedYou: 0, costUsd: 7.31, runCount: 12 },
+      { id: 'demo-p3', name: 'Pulse', description: 'Field mobile app — visits, offline capture.', primaryRepo: '/demo/pulse-mobile', color: '#34d399', goalId: null, cartridges: ['/demo/pulse-mobile'], createdAt: ago(7000), updatedAt: ago(90), featureCount: 1, featuresDone: 0, featuresActive: 1, featuresNeedYou: 1, costUsd: 2.64, runCount: 5 },
     ],
     /**
-     * More than one goal, because a goals screen with a single row shows the shape but not the
-     * point: goals differ by status, by how many projects they span, and by whether anyone is
-     * moving on them. One of these is deliberately stalled and one is done.
+     * The features (goal rows), filed under the projects above and ordered by `position`. They
+     * differ by where their pipeline stands — running, waiting on you, not started, done — because
+     * a feature list where every row looks the same shows the shape but not the point.
      */
     goals: [
       {
-        id: 'demo-g1', name: 'Ship metered billing by Q3', status: 'active',
+        id: 'demo-g1', projectId: 'demo-p2', position: 0, pilot: { id: 'demo-pilot-1', phase: 'running', attention: '', stagesDone: 2, stagesTotal: 4, awaitingReview: false, plannerFailed: false }, name: 'Ship metered billing by Q3', status: 'active',
         successMetric: 'First paying customer on a metered plan',
         description: 'Usage is already metered internally; customers still pay a flat fee, so heavy accounts are subsidised by light ones.',
         acceptanceCriteria: 'WHEN a billing period closes THE SYSTEM SHALL invoice on recorded usage within 1%. WHEN usage is disputed THE SYSTEM SHALL show the per-event ledger behind the total.',
@@ -150,7 +148,7 @@ function seed() {
         schedule: { targetDate: '2026-09-30', daysRemaining: 8, state: 'due-soon', detail: '8 days to target, 55% complete.' },
       },
       {
-        id: 'demo-g2', name: 'Cut p95 checkout latency below 400ms', status: 'active',
+        id: 'demo-g2', projectId: 'demo-p1', position: 1, pilot: { id: 'demo-pilot-2', phase: 'running', attention: '', stagesDone: 1, stagesTotal: 3, awaitingReview: false, plannerFailed: false }, name: 'Cut p95 checkout latency below 400ms', status: 'active',
         successMetric: 'p95 under 400ms for seven consecutive days',
         description: 'Checkout p95 sits at 1.2s and cart abandonment tracks it closely.',
         acceptanceCriteria: 'WHEN a checkout request completes THE SYSTEM SHALL record server timing per stage.',
@@ -166,7 +164,7 @@ function seed() {
         schedule: null,
       },
       {
-        id: 'demo-g3', name: 'Offline-first mobile sync', status: 'active',
+        id: 'demo-g3', projectId: 'demo-p3', position: 0, pilot: { id: 'demo-pilot-3', phase: 'clarifying', attention: '', stagesDone: 0, stagesTotal: 0, awaitingReview: false, plannerFailed: false }, name: 'Offline-first mobile sync', status: 'active',
         successMetric: 'A flight-mode session reconciles with no lost edits',
         description: 'Field users lose connectivity mid-visit and currently lose whatever they typed.',
         acceptanceCriteria: 'WHEN the device reconnects THE SYSTEM SHALL reconcile local edits without prompting the user.',
@@ -182,7 +180,7 @@ function seed() {
         schedule: { targetDate: '2026-09-05', daysRemaining: -17, state: 'overdue', detail: '17 days past target, 25% complete.' },
       },
       {
-        id: 'demo-g4', name: 'Retire the legacy ledger importer', status: 'paused',
+        id: 'demo-g4', projectId: 'demo-p2', position: 1, pilot: null, name: 'Retire the legacy ledger importer', status: 'paused',
         successMetric: 'No traffic on the v1 import endpoint for 30 days',
         description: 'Two importers exist and the old one has no tests; every ledger bug starts with working out which ran.',
         acceptanceCriteria: 'WHEN a v1 import is attempted THE SYSTEM SHALL redirect it to v2 and log the caller.',
@@ -198,7 +196,7 @@ function seed() {
         schedule: { targetDate: '2026-08-15', daysRemaining: -38, state: 'overdue', detail: '38 days past target, and no work has run against this goal.' },
       },
       {
-        id: 'demo-g5', name: 'SOC 2 evidence automation', status: 'achieved',
+        id: 'demo-g5', projectId: 'demo-p1', position: 0, pilot: { id: 'demo-pilot-5', phase: 'completed', attention: '', stagesDone: 3, stagesTotal: 3, awaitingReview: false, plannerFailed: false }, name: 'SOC 2 evidence automation', status: 'achieved',
         successMetric: 'Quarterly evidence pack generated without manual steps',
         description: 'Evidence collection took nine engineer-days last quarter, mostly screenshots.',
         acceptanceCriteria: 'WHEN a quarter closes THE SYSTEM SHALL produce the pack with no human step.',
@@ -212,6 +210,22 @@ function seed() {
         progress: { completedSteps: 96, totalSteps: 96, fraction: 1, runsCounted: 21 },
         health: null,
         schedule: { targetDate: '2026-07-01', daysRemaining: 3, state: 'met', detail: 'Finished with 3 days to spare.' },
+      },
+      {
+        id: 'demo-g6', projectId: 'demo-p1', position: 2, pilot: null, name: 'Rate-limit headers on the public API', status: 'active',
+        successMetric: '', description: 'Clients cannot see how close they are to the limit until they are throttled.',
+        acceptanceCriteria: '', invariants: '', noGos: '', rabbitHoles: '', createdAt: ago(3000), updatedAt: ago(3000),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '', owner: '', investmentCategory: '', autonomy: '',
+        projectCount: 0, runCount: 0, reach: 2, tokensUsed: 0, costUsd: 0,
+        progress: { completedSteps: 0, totalSteps: 0, fraction: null, runsCounted: 0 }, health: null, schedule: null,
+      },
+      {
+        id: 'demo-g7', projectId: 'demo-p1', position: 3, pilot: null, name: 'Dark mode for the web app', status: 'active',
+        successMetric: '', description: '', acceptanceCriteria: '', invariants: '', noGos: '', rabbitHoles: '',
+        createdAt: ago(2000), updatedAt: ago(2000),
+        keyResults: [], tokenBudget: null, budgetUsd: null, targetDate: '', owner: '', investmentCategory: '', autonomy: '',
+        projectCount: 0, runCount: 0, reach: 2, tokensUsed: 0, costUsd: 0,
+        progress: { completedSteps: 0, totalSteps: 0, fraction: null, runsCounted: 0 }, health: null, schedule: null,
       },
     ],
     activity: [

@@ -29,17 +29,18 @@ const useless: CapabilityProfile = {
   trials: { toolCall: 30, safeEdit: 30, comprehension: 30, synthesis: 30, planning: 30, judgement: 30, instructionAdherence: 30 },
 };
 
-test('the registry is the 48 functions the design enumerates', () => {
+test('the registry is the 49 functions the design enumerates', () => {
   // 44 → 45 with `neoncore_submit_goal_draft` (Phase 4), 45 → 46 with
   // `neoncore_submit_goal_decomposition` (Phase 5), 46 → 47 with the `confer` executor type
   // (a workflow step where several cartridges work one objective together), 47 → 48 with
-  // `neoncore_submit_goal_pilot` (Goal Pilot planning — T5, see the routing doc). The count is
+  // `neoncore_submit_goal_pilot` (Goal Pilot planning — T5, see the routing doc), 48 → 49 with
+  // `neoncore_submit_project_import` (V6 "Generate with AI" — T5). The count is
   // hard-coded rather than
   // derived deliberately: it is the tripwire
   // that makes ADDING a function a decision about routing rather than something that happens
   // silently, and the coverage test in function-registry-coverage.test.ts checks the other
   // direction — that docs/local-model-routing.md actually assigns the new one a tier.
-  assert.equal(FUNCTIONS.length, 48, `expected 48 functions, got ${FUNCTIONS.length}`);
+  assert.equal(FUNCTIONS.length, 49, `expected 49 functions, got ${FUNCTIONS.length}`);
   const ids = FUNCTIONS.map((f) => f.id);
   assert.equal(new Set(ids).size, ids.length, 'duplicate function ids in the registry');
 });

@@ -266,7 +266,7 @@ function ChecklistConfirm({ pilot, c, act, busy }: { pilot: GoalPilot; c: Accept
     <div className="rounded-lg border border-amber-700/40 bg-amber-950/20 p-3 space-y-2">
       <p className="text-[14px] text-amber-100 font-medium">Checklist verdicts to confirm</p>
       <p className="text-[12px] text-amber-100/70">
-        Judged by {review.reviewerName || 'a cartridge'}{review.independent ? ', which did not do the work' : ' — it also worked on this goal, so this is NOT an independent review'}.
+        Judged by {review.reviewerName || 'a cartridge'}{review.independent ? ', which did not do the work' : ' — it also worked on this feature, so this is NOT an independent review'}.
         Your decision is what counts; overruling needs a note.
       </p>
       {review.verdicts.map((v) => {

@@ -1,9 +1,17 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
+
+// The release number shown at the foot of the view bar — read from the ROOT package.json so the
+// label and the package version can never disagree.
+const APP_VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   resolve: {
     alias: {
       // Resolve the shared client to its TypeScript SOURCE rather than through

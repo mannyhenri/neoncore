@@ -9,7 +9,7 @@ import type {
 } from '../types';
 
 /** The five steps the person sees. The phases map onto them. */
-export const PILOT_STEPS = ['Goal', 'Scope', 'Workflows', 'Cartridges', 'Run'] as const;
+export const PILOT_STEPS = ['Feature', 'Scope', 'Workflows', 'Repos', 'Run'] as const;
 
 export function stepIndexFor(phase: PilotPhase): number {
   switch (phase) {
@@ -96,12 +96,23 @@ export function includedStages(stages: DraftStage[]): PilotProposedStage[] {
   return stages.filter((s) => s.include).map(({ include: _include, ...s }) => s);
 }
 
-/** Online cartridges that can plan, Claude first (it has the MCP tool built in), then newest. */
-export function plannerCandidates(agents: Agent[]): Agent[] {
+/**
+ * Online cartridges that can plan (or read a codebase): those in the project's repos first (they can
+ * read the code the work is about), then ones not in Manual mode (which would stop for approval on
+ * every command), then Claude first (it has the MCP tool built in), then newest.
+ */
+export function plannerCandidates(agents: Agent[], preferRepos: string[] = []): Agent[] {
   const rank = (a: Agent) => (a.agentType === 'claude' ? 0 : a.agentType === 'codex' ? 1 : 2);
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const mine = new Set(preferRepos.map(norm));
+  const inProject = (a: Agent) => (mine.has(norm(a.repoPath || '')) ? 0 : 1);
+  // A cartridge in Manual mode stops for a person on every command — reading a repo included — so
+  // one that can work unattended is offered first. It stays in the list: it is still a valid choice.
+  const attended = (a: Agent) => (a.mode === 'manual' ? 1 : 0);
   return agents
     .filter((a) => a.status !== 'offline')
-    .sort((x, y) => rank(x) - rank(y) || String(y.lastSeen ?? '').localeCompare(String(x.lastSeen ?? '')));
+    .sort((x, y) => inProject(x) - inProject(y) || attended(x) - attended(y) || rank(x) - rank(y)
+      || String(y.lastSeen ?? '').localeCompare(String(x.lastSeen ?? '')));
 }
 
 /** The engine a repo should default to: a live one first, Claude among equals. */
@@ -141,7 +152,7 @@ export function resolveAssignments(stageKeys: string[], repos: string[], picked:
   return out;
 }
 
-/** The intake, pre-filled from a goal that already exists — nothing typed twice. */
+/** The intake, pre-filled from a feature (goal) that already exists — nothing typed twice. */
 export function intakeFromGoal(goal: Goal): Record<string, string> {
   const autonomyToInvolvement: Record<string, string> = {
     guided: 'hands-on', supervised: 'hands-on', collaborative: 'balanced', assisted: 'hands-off',
@@ -154,6 +165,8 @@ export function intakeFromGoal(goal: Goal): Record<string, string> {
     deadline: goal.targetDate || '',
     budgetUsd: goal.budgetUsd != null ? String(goal.budgetUsd) : '',
     involvement: autonomyToInvolvement[goal.autonomy || ''] || 'balanced',
+    // A feature on a project's list is, by default, a feature — change it if it is a fix or a study.
+    workType: 'feature',
   };
 }
 

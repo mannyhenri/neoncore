@@ -639,6 +639,9 @@ export interface GoalPilot {
   id: string;
   goalId: string;
   goalName: string;
+  /** The project the feature belongs to ('' for an old-style goal not filed under one). */
+  projectId?: string;
+  projectName?: string;
   phase: PilotPhase;
   plannerAgentId: string;
   plannerName: string;
@@ -741,8 +744,35 @@ export interface PilotCandidateRepo {
   engines: { agentType: string; agentId: string; status: string; name: string }[];
 }
 
+/** One line about a feature's pipeline, for the feature list. See server routes/goals.ts pilotSummary. */
+export interface FeaturePilotSummary {
+  id: string;
+  phase: 'scoping' | 'clarifying' | 'planning' | 'proposed' | 'staffing' | 'running' | 'paused' | 'completed' | 'cancelled';
+  attention: string;
+  stagesDone: number;
+  stagesTotal: number;
+  /** A stage is waiting on the person (approve the acceptance tests, confirm verdicts). */
+  awaitingReview: boolean;
+  /** The planner did not answer its last request. */
+  plannerFailed: boolean;
+}
+
 export interface Goal {
   id: string;
+  /**
+   * PROJECT → FEATURES. A goal row is a FEATURE of the project it is filed under; null for an
+   * old-style goal that is not filed under one yet. `position` is its place in the project's list.
+   */
+  projectId?: string | null;
+  position?: number;
+  /** 'imported' = it already existed when the project was taken on (generated from the codebase — "✦ Generate with AI"). */
+  origin?: 'imported' | '';
+  /** When it was marked done ('' while it is not). */
+  doneAt?: string;
+  /** Where the person placed it on the roadmap: '' = automatic, else 'now' | 'next' | 'later'. */
+  roadmapLane?: '' | 'now' | 'next' | 'later';
+  /** Where the feature's pipeline stands (its latest pilot); null when it was never started. */
+  pilot?: FeaturePilotSummary | null;
   name: string;
   description: string;
   successMetric: string;
@@ -824,6 +854,20 @@ export interface Project {
   lastRunStatus?: string | null;
   lastRunAt?: string | null;
   activeRunCount?: number;
+  /** How the product is built (markdown) — read by the planner when it scopes each feature. */
+  architecture?: string;
+  /** Rewrite docs/product/ in the main repo whenever a feature changes. */
+  docsAutoPublish?: boolean;
+  /** When docs/product/ was last written ('' = never), and why the last attempt failed. */
+  docsPublishedAt?: string;
+  docsPublishError?: string;
+  /** PROJECT → FEATURES: how many features the project lists, and how far along they are. */
+  featureCount?: number;
+  /** Features that already existed when the project was taken on (imported) — not counted above. */
+  featuresExisting?: number;
+  featuresDone?: number;
+  featuresActive?: number;
+  featuresNeedYou?: number;
 }
 
 export interface Heartbeat {
@@ -1184,3 +1228,103 @@ export interface WorkflowProgress {
   /** The progress document — its text when the server can read it, else why not. */
   doc: { path: string; content: string | null; unavailable: string } | null;
 }
+
+// ── The project as the single place: spec, roadmap, changelog, import (server lib/project-*.ts) ──
+
+export type SpecStatus = 'existing' | 'planned' | 'in-progress' | 'delivered' | 'done' | 'paused';
+/** 'documented' = an existing feature whose current behaviour was written up (Generate with AI) but not verified. */
+export type SpecAlignment = 'verified' | 'partial' | 'unverified' | 'intent-only' | 'pending' | 'documented';
+
+export interface SpecCriterion {
+  id: string;
+  text: string;
+  expect: string;
+  verify: 'test' | 'checklist';
+  result: 'met' | 'not-met' | 'not-checked';
+  outcome: string;
+  evidence: string;
+}
+
+export interface SpecFeature {
+  id: string;
+  name: string;
+  slug: string;
+  position: number;
+  status: SpecStatus;
+  origin: 'imported' | 'planned';
+  alignment: SpecAlignment;
+  intent: { summary: string; doneWhen: string; inScope: string; outOfScope: string; invariants: string; assumptions: string };
+  criteria: SpecCriterion[];
+  criteriaMet: number;
+  delivery: {
+    reportStatus: string; startedAt: string | null; finishedAt: string | null; summary: string;
+    whatChanged: string[]; followUps: string[]; openItems: string[]; workflows: string[]; costUsd: number;
+  } | null;
+  targetDate: string;
+  /** Where the person placed it on the roadmap ('' = automatic). */
+  lane: '' | 'now' | 'next' | 'later';
+  /** The roadmap column it is in, decided by the server — null for an existing feature (not on the roadmap). */
+  column: 'now' | 'next' | 'later' | 'done' | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface ProjectSpec {
+  generatedAt: string;
+  project: { id: string; name: string; description: string; repos: string[]; mainRepo: string; color: string };
+  architecture: string;
+  features: SpecFeature[];
+  totals: {
+    features: number; existing: number; planned: number; inProgress: number; delivered: number; done: number; paused: number;
+    verified: number; gaps: number; intentOnly: number;
+  };
+}
+
+export type ChangeKind = 'added' | 'changed' | 'fixed' | 'removed' | 'security';
+
+export interface ChangelogEntry {
+  id: string;
+  projectId: string;
+  goalId: string;
+  kind: ChangeKind;
+  title: string;
+  body: string;
+  release: string;
+  releasedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What "Generate with AI" can be asked to produce (server lib/project-import.ts). */
+export type ImportPart = 'architecture' | 'features' | 'changelog' | 'backlog';
+
+export interface ProjectImport {
+  id: string;
+  projectId: string;
+  agentId: string;
+  parts: ImportPart[];
+  status: 'pending' | 'ready' | 'failed' | 'applied' | 'superseded';
+  proposal: {
+    message: string;
+    architecture: string;
+    features: { name: string; description: string; area: string; evidence: string; criteria: { text: string; expect: string }[] }[];
+    backlog: { name: string; description: string; source: string }[];
+    changelog: { id: string; kind: ChangeKind; title: string; body: string; release: string; date: string }[];
+  } | null;
+  notes: string[];
+  error: string;
+  applied: { architecture: boolean; features: string[]; backlog: string[]; changelog?: number } | null;
+  createdAt: string;
+  dispatchedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface DocsPublishResult {
+  repo: string;
+  dir: string;
+  written: string[];
+  unchanged: string[];
+  retired: string[];
+  at: string;
+}
+

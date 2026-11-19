@@ -228,7 +228,8 @@ test('deliverNow on a cartridge whose SESSION HAS EXITED does not claim the inbo
 
 test('all eight guardBusy call sites are still there', () => {
   // 7 → 8 with the Goal Pilot planner request (lib/goal-pilot-runner.ts, dispatchPlannerRequest),
-  // which queues as its own `goal-pilot` kind. A count that changes must change on purpose.
+  // which queues as its own `goal-pilot` kind. 8 → 9 with "Generate with AI" (routes/projects.ts,
+  // the project-import request to a cartridge, V6 drop). A count that changes must change on purpose.
   const walk = (d: string, out: string[] = []): string[] => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
@@ -241,7 +242,7 @@ test('all eight guardBusy call sites are still there', () => {
     if (f.endsWith('queue-if-busy.ts')) continue;
     sites += [...fs.readFileSync(f, 'utf8').matchAll(/guardBusy\(/g)].length;
   }
-  assert.equal(sites, 8, `expected 8 guardBusy call sites, found ${sites}`);
+  assert.equal(sites, 9, `expected 9 guardBusy call sites, found ${sites}`);
 });
 
 /* ── Open question 4 ─────────────────────────────────────────────────────── */

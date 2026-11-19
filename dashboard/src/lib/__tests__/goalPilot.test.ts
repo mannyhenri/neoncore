@@ -90,9 +90,9 @@ describe('goal pilot panel logic', () => {
     expect(resolveAssignments(['s1', 's2', 's3'], ['/a', '/b'], { s2: '/b', s3: '/gone' })).toEqual({ s1: '/a', s2: '/b', s3: '/a' });
   });
 
-  it('piloting an existing goal pre-fills the intake from it', () => {
+  it('starting an existing feature pre-fills the intake from it — typed as a feature', () => {
     const goal = { name: 'G', description: 'why', successMetric: 'done', noGos: 'no', invariants: 'inv', targetDate: '2027-01-01', budgetUsd: 12, autonomy: 'assisted' } as unknown as Goal;
-    expect(intakeFromGoal(goal)).toEqual({ goal: 'G', context: 'why', done: 'done', constraints: 'no\ninv', deadline: '2027-01-01', budgetUsd: '12', involvement: 'hands-off' });
+    expect(intakeFromGoal(goal)).toEqual({ goal: 'G', context: 'why', done: 'done', constraints: 'no\ninv', deadline: '2027-01-01', budgetUsd: '12', involvement: 'hands-off', workType: 'feature' });
   });
 
   it('the pipeline summary names the stage that matters now', () => {

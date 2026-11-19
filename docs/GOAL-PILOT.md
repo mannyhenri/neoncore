@@ -1,23 +1,29 @@
-# Goal Pilot — a goal as a managed pipeline of agents and workflows
+# The feature pipeline (Goal Pilot) — one feature as a managed pipeline of agents and workflows
 
-A goal used to be a label that cost and runs rolled up to. With Goal Pilot, a goal is where the
-work is **driven from**: you say what you want, a planner cartridge asks whatever is still needed
-for the scope to be unambiguous, proposes the workflows that will deliver it, and — once you
-accept and say which repos to use — runs them one after another, handing each the scope and the
-results of the ones before it.
+> **Projects hold features.** A project names the work and the repos involved and lists the features
+> to build ([GOALS.md](GOALS.md)); each **feature** is taken through this pipeline on its own. In
+> the code a feature is a goal row filed under its project, so the pipeline is still called the
+> *goal pilot* (`goal_pilots`, `/api/goal-pilots`, `neoncore_submit_goal_pilot`) and "goal" below
+> means the feature.
+
+A feature is where the work is **driven from**: you say what you want, a planner cartridge asks
+whatever is still needed for the scope to be unambiguous, proposes the workflows that will deliver
+it, and — once you accept and confirm which of the project's repos to use — runs them one after
+another, handing each the scope and the results of the ones before it.
 
 ```
- 1. Goal        2. Scope             3. Workflows           4. Cartridges        5. Run
+ 1. Feature     2. Scope             3. Workflows           4. Repos             5. Run
  ───────────    ─────────────────    ───────────────────    ─────────────────    ─────────────────────────────────
  general        planner asks the     planner writes the     you pick repos +     0. tests written, you approve
  questions  →   open questions,   →  brief, the numbered →  engine per repo, →   → stage 1 → NeonCore checks
  (the form)     you answer/delegate  ACCEPTANCE CRITERIA    and where each       → stage 2 → checks → …
                 — as many rounds     and the workflows;     stage runs           → independent checklist review
-                as it needs          you edit + accept                           → goal report (criteria-based)
+                as it needs          you edit + accept                           → feature report (criteria-based)
 ```
 
-Open it from **Goals → + Goal → ✦ Guided — Goal Pilot** (creates the goal), or **✦ Pilot this
-goal** on an existing goal's page (the form is pre-filled from the goal).
+Open it from **Projects → (a project) → ▶ Start** on a feature of the list (the form is pre-filled
+from the feature), or from the **Up next** card. The planner is told the project — its description,
+its repos, and the project's **other features**, which it keeps out of this feature's scope.
 
 ---
 
@@ -75,13 +81,19 @@ done-when, acceptance criteria, invariants, no-gos and rabbit holes are written 
 (an empty field leaves the goal's own value alone). From then on they reach **every** prompt
 dispatched under the goal through the goal brief. Nothing runs yet.
 
-## 4. Cartridges
+## 4. Repos
 
-Pick the repos that execute the goal and the engine in each (Claude Code, Codex, Gridlight…),
-and — with more than one repo — which stage runs where. The contract's own stages are placed like
-any other: the acceptance tests live (and run) in the repo of stage 0. Each repo becomes a project under the
-goal (an existing one is reused), which is what makes the goal's cost, reach and brief follow
-the work.
+The project's repos are pre-selected (the planner's repo first, so it is where stages run by
+default). Untick any the feature does not touch, pick the engine in each (Claude Code, Codex,
+Gridlight…), and — with more than one repo — which stage runs where. The contract's own stages are
+placed like any other: the acceptance tests live (and run) in the repo of stage 0. Every stage's run
+is attached to the feature's project and tagged with the feature (`workflows.goal_id`); a repo
+picked here that the project did not list yet is added to the project. (An old-style goal with no
+project still gets a project per repo created under it, as before.)
+
+**Workflows worked by several cartridges together** (a Confer stage — a template whose confer step
+leaves its participants to the launch) are staffed with two or more of the chosen repos; by default
+every chosen repo. The stage starts once every participant's cartridge is running and free.
 
 A stage names a **repo + engine, not a cartridge id**: cartridge ids change every time a
 cartridge restarts, and a pipeline outlives many restarts. The live cartridge is resolved when
@@ -102,15 +114,15 @@ backstop. Each run opens with a launch context built for it:
 - what the next stage will need.
 
 The rest of the brief (acceptance criteria, invariants, no-gos, rabbit holes) reaches every step
-through the goal brief — and it is **this** goal's brief even when the repo also belongs to
-another goal, because a step dispatched for a run attached to a project uses that project's goal
-(`goalId` option of `sendCommandToAgent`).
+through the goal brief — and it is **this** feature's brief even though the project has other
+features, because a step dispatched for a run uses the run's own feature tag (`workflows.goal_id`,
+then the legacy project → goal link; `goalId` option of `sendCommandToAgent`).
 
 | A stage… | The pipeline… |
 |---|---|
 | has no live cartridge of its engine in its repo | **waits** (says so), and starts by itself when one connects |
 | has a busy cartridge | **waits** until it is free — never starts on top of running work |
-| would start with the goal's budget spent | **pauses**: raise the budget, then Resume |
+| would start with the feature's budget spent | **pauses**: raise the budget, then Resume |
 | is waiting on you (decision, review gate, held step) | shows **needs you** with the step; **Open run** opens it in place |
 | completes | **NeonCore checks it** against the locked tests (below), then starts the next stage |
 | changed a locked acceptance test | **stops**: restore the approved version, or accept the change with a reason |
@@ -158,8 +170,8 @@ code landed. The contract takes both out of the agents' hands:
    checked once it is locked. No agent-facing tool can approve, unlock, restore or accept a change.
 5. **Checklist items** are judged after the last stage by an **independent** cartridge — one that did
    not do the work (a different engine first, then a cartridge that ran no stage; in the tests' repo
-   first). It submits a verdict and the evidence per item; you confirm or overrule each (overruling
-   needs a note). If only an author is available it is used, and the report says the review was not
+   first). It is told which repo the criteria and locked tests live in, since in a multi-repo project
+   the independent reviewer usually sits in another repo. It submits a verdict and the evidence per item; you confirm or overrule each (overruling needs a note). If only an author is available it is used, and the report says the review was not
    independent.
 6. **Every prompt** dispatched for the goal carries the locked contract (`[NeonCore acceptance
    contract vN — LOCKED by the person]`: each test's command and files, "do not edit these") in full
@@ -173,7 +185,7 @@ outruns `NEONCORE_ACCEPTANCE_TIMEOUT_MS` (default 5 min) is killed, and `NEONCOR
 (tokens) are not passed to it. Nothing an agent submits is executed before a person has seen it:
 commands run when you click *Run them now* / *Approve & lock*, and after that only locked ones.
 
-### The goal report
+### The feature report (goal report)
 
 When the last stage finishes, NeonCore builds the **goal report** — one document for the whole goal:
 status — with a contract, **SUCCESS only when every criterion passes on NeonCore's own evidence**

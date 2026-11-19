@@ -10,7 +10,6 @@
  *     verbatim and may submit again.
  */
 import { Router, type Response } from 'express';
-import { randomUUID } from 'crypto';
 import db from '../db.js';
 import { cartridgeExists } from '../lib/cartridge-exists.js';
 import { normalizeRepoPath } from '../lib/resolve-agent.js';
@@ -35,6 +34,9 @@ import {
   restoreTests, acceptTestChange, verifyAgain, confirmChecklist,
 } from '../lib/acceptance-runner.js';
 import { asyncRoute } from '../lib/async-route.js';
+import { createFeature } from './goals.js';
+import { goalRepos } from '../lib/goal-scope.js';
+import { docsChangedForGoal } from '../lib/project-docs.js';
 
 const router = Router();
 
@@ -92,12 +94,10 @@ router.get('/candidates', (req, res) => {
     if (e.engines.some((x) => x.agentType === a.agent_type)) continue;   // newest per engine wins (ORDER BY last_seen)
     e.engines.push({ agentType: a.agent_type, agentId: a.id, status: a.status, name: a.name });
   }
+  // "Owned" = the feature's project's repos (and, for an old-style goal, its projects' repos) —
+  // goal-scope.ts is the one answer to that, so this list and the feature's reach cannot disagree.
   if (goalId) {
-    const owned = db.prepare(
-      `SELECT p.primary_repo AS repo FROM projects p WHERE p.goal_id = ? AND p.primary_repo != ''
-       UNION SELECT pc.repo_path AS repo FROM project_cartridges pc JOIN projects p ON p.id = pc.project_id WHERE p.goal_id = ?`,
-    ).all(goalId, goalId) as { repo: string }[];
-    for (const o of owned) entry(o.repo, '', '').owned = true;
+    for (const repo of goalRepos(goalId)) entry(repo, '', '').owned = true;
   }
   res.json([...byRepo.values()].sort((a, b) =>
     Number(b.owned) - Number(a.owned)
@@ -209,8 +209,8 @@ router.get('/:id', (req, res) => {
  * Dispatches the first scoping request to the planner cartridge.
  */
 router.post('/', (req, res) => {
-  const { intake: rawIntake, goalId, plannerAgentId, replace } = (req.body ?? {}) as {
-    intake?: unknown; goalId?: string; plannerAgentId?: string; replace?: boolean;
+  const { intake: rawIntake, goalId, projectId, plannerAgentId, replace } = (req.body ?? {}) as {
+    intake?: unknown; goalId?: string; projectId?: string; plannerAgentId?: string; replace?: boolean;
   };
   const { intake, missing } = normalizeIntake(rawIntake);
   if (missing.length) return res.status(400).json({ error: `please answer: ${missing.join('; ')}` });
@@ -220,23 +220,30 @@ router.post('/', (req, res) => {
   let gid = (goalId || '').trim();
   try {
     if (gid) {
-      if (!db.prepare('SELECT 1 FROM goals WHERE id = ?').get(gid)) return res.status(404).json({ error: 'goal not found' });
+      if (!db.prepare('SELECT 1 FROM goals WHERE id = ?').get(gid)) return res.status(404).json({ error: 'feature not found' });
       const active = activePilotForGoal(gid);
       if (active) {
-        if (!replace) return res.status(409).json({ error: 'this goal already has a pilot in progress — cancel it or start over', pilotId: active.id });
+        if (!replace) return res.status(409).json({ error: 'this feature already has a pilot in progress — cancel it or start over', pilotId: active.id });
         cancelPilot(active.id);
       }
-    } else {
-      gid = randomUUID();
-      const t = new Date().toISOString();
+      // What the intake says about the feature is written onto it, so piloting a backlog feature
+      // that was only a title leaves it with its description, "done when", date and budget.
       const budget = intake.budgetUsd ? Number(intake.budgetUsd) : null;
-      db.prepare(
-        `INSERT INTO goals (id, name, description, success_metric, token_budget, budget_usd, status, created_at, updated_at,
-                            acceptance_criteria, no_gos, rabbit_holes, invariants, key_results, target_date, owner,
-                            investment_category, autonomy)
-         VALUES (?, ?, ?, ?, NULL, ?, 'active', ?, ?, '', '', '', '', '[]', ?, '', '', ?)`,
-      ).run(gid, intake.goal.slice(0, 200), intake.context ?? '', intake.done ?? '', budget && budget > 0 ? budget : null, t, t,
-        intake.deadline ?? '', involvementOf(intake.involvement).goalAutonomy);
+      db.prepare(`UPDATE goals SET name = ?, description = ?, success_metric = ?, budget_usd = COALESCE(?, budget_usd),
+                         target_date = CASE WHEN ? != '' THEN ? ELSE target_date END, autonomy = ?, updated_at = ? WHERE id = ?`)
+        .run(intake.goal.slice(0, 200), intake.context ?? '', intake.done ?? '', budget && budget > 0 ? budget : null,
+          intake.deadline ?? '', intake.deadline ?? '', involvementOf(intake.involvement).goalAutonomy, new Date().toISOString(), gid);
+    } else {
+      // A new feature. Inside a project when one is named — the normal path — else an unfiled one.
+      if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+        return res.status(404).json({ error: 'project not found' });
+      }
+      const budget = intake.budgetUsd ? Number(intake.budgetUsd) : null;
+      gid = createFeature({
+        projectId: projectId || '', name: intake.goal, description: intake.context ?? '', successMetric: intake.done ?? '',
+        budgetUsd: budget && budget > 0 ? budget : null, targetDate: intake.deadline ?? '',
+        autonomy: involvementOf(intake.involvement).goalAutonomy,
+      });
     }
 
     const pilot = createPilotRow({ goalId: gid, plannerAgentId, intake });
@@ -267,6 +274,7 @@ router.post('/:id/accept-plan', (req, res) => {
     const { brief, stages, criteria } = (req.body ?? {}) as { brief?: Record<string, unknown>; stages?: unknown; criteria?: unknown };
     const pilot = acceptPlan(req.params.id, { brief, stages, criteria });
     emitPilotUpdate(pilot.id);
+    docsChangedForGoal(pilot.goalId);   // the feature now has its intent and criteria
     res.json(view(pilot.id));
   } catch (err) { fail(res, err); }
 });

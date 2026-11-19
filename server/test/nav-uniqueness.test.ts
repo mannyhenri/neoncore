@@ -29,6 +29,9 @@ function navLabels(): string[] {
   const labels: string[] = [];
   // The label follows the tag that binds the handler — on its own line, or inline
   // (`<ViewTab … onClick={() => setActiveView('goals')}>Goals</ViewTab>`).
+  // Night Glass view bar: <NavItem … onClick={() => setActiveView('x')} label="X">.
+  const viaProp = [...src.matchAll(/setActiveView\('(\w+)'\)\}\s*label="([^"]+)"/g)].map((m) => m[2].trim());
+  if (viaProp.length) return viaProp;
   const re = /setActiveView\('(\w+)'\)[\s\S]{0,400}?>\s*\n?\s*([A-Z][A-Za-z ]{1,20}?)\s*(?:\n|<)/g;
   // NOT `re.exec(src) ? src.matchAll(re) : []` — exec() on a /g regex advances lastIndex, so
   // matchAll would then start past the first button and silently drop it. That is what the

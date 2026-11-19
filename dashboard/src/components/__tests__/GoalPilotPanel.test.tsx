@@ -115,10 +115,10 @@ const SHOWS: Record<PilotPhase, RegExp> = {
   clarifying: /Which currency do invoices use\?/,
   planning: /choosing the workflows/,
   proposed: /Accept plan · 2 workflows/,
-  staffing: /Which repos execute this goal\?/,
+  staffing: /Which repos build this feature\?/,
   running: /needs you · decision/,
   paused: /Resume/,
-  completed: /Mark goal achieved/,
+  completed: /Mark feature done/,
   cancelled: /cancelled before anything ran/,
 };
 
@@ -130,7 +130,7 @@ beforeEach(() => {
 async function mount(p: GoalPilot | null) {
   state.current = p ? [p] : [];
   const view = render(<GoalPilotPanel goal={goal} agents={agents} onGoalChanged={() => {}} />);
-  await view.findByText(/Goal Pilot/);
+  await view.findByText(/Feature pipeline/);
   return view;
 }
 
@@ -146,13 +146,14 @@ describe('GoalPilotPanel', () => {
     });
   }
 
-  it('with no pilot it offers one; the intake pre-fills from the goal and sends the missing answer', async () => {
+  it('with no pilot it offers one; the intake pre-fills from the feature, work type included', async () => {
     const view = await mount(null);
-    fireEvent.click(await view.findByText('✦ Pilot this goal'));
+    fireEvent.click(await view.findByText('✦ Start this feature'));
     const start = await view.findByText('Start scoping');
-    expect((start as HTMLButtonElement).disabled).toBe(true);       // work type is still unanswered
-    fireEvent.click(view.getByText('New feature'));
+    // A feature on a project's list starts typed as a feature (lib/goalPilot intakeFromGoal), so
+    // nothing required is missing and scoping can start at once.
     await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
+    expect(view.getByText('New feature')).toBeTruthy();
     fireEvent.click(start);
     await waitFor(() => expect(calls.createGoalPilot).toHaveLength(1));
     const sent = calls.createGoalPilot[0][0] as { intake: Record<string, string>; goalId: string; plannerAgentId: string };
@@ -267,9 +268,9 @@ describe('GoalPilotPanel', () => {
     await waitFor(() => expect(calls.buildGoalPilotReport).toEqual([['demo-pilot-1']]));
   });
 
-  it('completed: the goal can be marked achieved', async () => {
+  it('completed: the feature can be marked done', async () => {
     const view = await mount(pilotIn('completed'));
-    fireEvent.click(await view.findByText('Mark goal achieved'));
+    fireEvent.click(await view.findByText('Mark feature done'));
     await waitFor(() => expect(calls.updateGoal).toEqual([['demo-g1', { status: 'achieved' }]]));
   });
 });

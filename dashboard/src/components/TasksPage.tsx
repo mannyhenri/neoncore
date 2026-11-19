@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SectionTitle } from './SectionTitle';
 import { QueuePanel } from './QueuePanel';
 import { api } from '../lib/api';
-import type { Task, TaskStatus, Agent, Goal, Project, QueueItem } from '../types';
+import type { Task, TaskStatus, Agent, Project, QueueItem } from '../types';
 import { orderQueueRows, lanePosition } from '../lib/queueOrder';
 
 interface TasksPageProps {
@@ -56,12 +56,10 @@ function timeAgo(iso: string | null): string {
 function CreateTaskModal({
   onClose,
   onCreate,
-  goals,
   projects,
 }: {
   onClose: () => void;
   onCreate: TasksPageProps['createTask'];
-  goals: Goal[];
   projects: Project[];
 }) {
   const [title, setTitle] = useState('');
@@ -71,16 +69,6 @@ function CreateTaskModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Group projects under their goal so the picker reads "assign to a goal → cartridge".
-  const grouped = useMemo(() => {
-    const byGoal = new Map<string | null, Project[]>();
-    for (const p of projects) {
-      const key = p.goalId ?? null;
-      if (!byGoal.has(key)) byGoal.set(key, []);
-      byGoal.get(key)!.push(p);
-    }
-    return byGoal;
-  }, [projects]);
 
   const selected = projects.find((p) => p.id === projectId);
 
@@ -135,19 +123,11 @@ function CreateTaskModal({
           className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500 mb-1"
         >
           <option value="">— Any agent (unpinned) —</option>
-          {[...grouped.entries()].map(([goalId, ps]) => {
-            const goal = goals.find((g) => g.id === goalId);
-            const label = goal ? goal.name : 'No goal';
-            return (
-              <optgroup key={goalId ?? 'none'} label={label}>
-                {ps.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}{p.primaryRepo ? ` (${p.primaryRepo.split('/').filter(Boolean).pop()})` : ' — no repo'}
-                  </option>
-                ))}
-              </optgroup>
-            );
-          })}
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}{p.primaryRepo ? ` (${p.primaryRepo.split('/').filter(Boolean).pop()})` : ' — no repo'}
+            </option>
+          ))}
         </select>
         <p className="text-[11px] text-gray-500 mb-3">
           {selected
@@ -187,7 +167,6 @@ function CreateTaskModal({
 function TaskDetailModal({
   task,
   agents,
-  goals,
   projects,
   onClose,
   updateTask,
@@ -197,7 +176,6 @@ function TaskDetailModal({
 }: {
   task: Task;
   agents: Agent[];
-  goals: Goal[];
   projects: Project[];
   onClose: () => void;
   updateTask: TasksPageProps['updateTask'];
@@ -232,15 +210,6 @@ function TaskDetailModal({
     if (!targetAgentId && eligibleAgents.length > 0) setTargetAgentId(eligibleAgents[0].id);
   }, [eligibleAgents, targetAgentId]);
 
-  const grouped = useMemo(() => {
-    const byGoal = new Map<string | null, Project[]>();
-    for (const p of projects) {
-      const key = p.goalId ?? null;
-      if (!byGoal.has(key)) byGoal.set(key, []);
-      byGoal.get(key)!.push(p);
-    }
-    return byGoal;
-  }, [projects]);
 
   const dirty = editable && (
     title.trim() !== task.title || prompt !== task.prompt || priority !== task.priority || (projectId || null) !== task.projectId
@@ -339,18 +308,11 @@ function TaskDetailModal({
                 className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500"
               >
                 <option value="">— Any agent (unpinned) —</option>
-                {[...grouped.entries()].map(([gid, ps]) => {
-                  const goal = goals.find((g) => g.id === gid);
-                  return (
-                    <optgroup key={gid ?? 'none'} label={goal ? goal.name : 'No goal'}>
-                      {ps.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}{p.primaryRepo ? ` (${p.primaryRepo.split('/').filter(Boolean).pop()})` : ' — no repo'}
-                        </option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.primaryRepo ? ` (${p.primaryRepo.split('/').filter(Boolean).pop()})` : ' — no repo'}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="w-28">
@@ -722,15 +684,14 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
   const [filter, setFilter] = useState<'all' | 'active' | TaskStatus>('active');
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [goals, setGoals] = useState<Goal[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
   const selectedTask = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
 
   useEffect(() => {
-    Promise.all([api.getGoals(), api.getGoalProjects()])
-      .then(([g, p]) => { setGoals(g); setProjects(p); })
-      .catch(() => { /* tasks still work unpinned if goals/projects fail to load */ });
+    api.getGoalProjects()
+      .then(setProjects)
+      .catch(() => { /* tasks still work unpinned if projects fail to load */ });
   }, []);
 
   /**
@@ -837,12 +798,11 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
         </div>
       )}
 
-      {creating && <CreateTaskModal onClose={() => setCreating(false)} onCreate={createTask} goals={goals} projects={projects} />}
+      {creating && <CreateTaskModal onClose={() => setCreating(false)} onCreate={createTask} projects={projects} />}
       {selectedTask && (
         <TaskDetailModal
           task={selectedTask}
           agents={agents}
-          goals={goals}
           projects={projects}
           onClose={() => setSelectedId(null)}
           updateTask={updateTask}

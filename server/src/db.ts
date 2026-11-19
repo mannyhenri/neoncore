@@ -840,7 +840,7 @@ try {
 // flag such steps and drive transcript-replay recovery without adding a new
 // value to the executor's status state machine (status stays 'running';
 // recovery_status carries the recovery flow). See
-// .neoncore/docs/recovery-subsystem-plan.md.
+// docs/plans/recovery-subsystem-plan.md.
 //   recovery_status: '' | 'interrupted' | 'recovering' | 'recovered' | 'recovery_failed'
 try {
   db.prepare('SELECT recovery_status FROM workflow_steps LIMIT 1').get();
@@ -1554,12 +1554,112 @@ for (const [table, column, decl] of [
   // engines of every participant, `[{ repoPath, agentType }]`. Empty = one cartridge, in
   // repo_path/agent_type as before. The first participant is also written to repo_path/agent_type.
   ['goal_pilot_stages', 'participants', "TEXT NOT NULL DEFAULT '[]'"],
+
+  // PROJECT → FEATURES (docs/FEATURES-PIPELINE.md). The hierarchy used to be goal → projects: a
+  // goal was the objective and its projects were the repos serving it. It is now project →
+  // features: a project names the work and the repos/cartridges involved, and lists the features
+  // to build; each feature runs the pipeline a goal used to (scoping → workflows → run).
+  //
+  // A feature IS a `goals` row — every piece of the pipeline (pilots, the acceptance contract, the
+  // brief every prompt carries, the report, cost and progress) is keyed by goal id and keeps working
+  // unchanged. What is new is where it lives:
+  //   goals.project_id   the project a feature belongs to ('' = not filed under a project yet)
+  //   goals.position     its place in the project's feature list (the order you want them built)
+  //   workflows.goal_id  the feature a run was launched for. A project now has MANY features, so
+  //                      "which feature is this run for" can no longer be read off run → project.
+  ['goals', 'project_id', "TEXT NOT NULL DEFAULT ''"],
+  ['goals', 'position', 'INTEGER NOT NULL DEFAULT 0'],
+  ['workflows', 'goal_id', "TEXT NOT NULL DEFAULT ''"],
+
+  // THE PROJECT AS THE SINGLE PLACE (docs/PROJECT-SPEC.md): its living spec, roadmap, changelog
+  // and architecture, all built from the records and publishable into the repo.
+  //   goals.origin                'imported' = a feature that already existed when the project was
+  //                               taken on (generated from the codebase — "✦ Generate with AI"); '' = planned here
+  //   projects.architecture       markdown: how the product is built — read by the planner when it
+  //                               scopes each feature, and published as ARCHITECTURE.md
+  //   projects.docs_auto_publish  1 = rewrite docs/product/ in the main repo whenever a feature changes
+  //   projects.docs_published_at  when docs/product/ was last written ('' = never)
+  //   projects.docs_publish_error why the last publish failed ('' = it did not)
+  ['goals', 'origin', "TEXT NOT NULL DEFAULT ''"],
+  // When the feature was marked done — a date that does not move when it is edited later.
+  ['goals', 'done_at', "TEXT NOT NULL DEFAULT ''"],
+  // Where the person PUT it on the roadmap: '' = automatic (Now while its pipeline is live, else
+  // Next/Later by list position), or 'now' | 'next' | 'later'. Done always follows status.
+  ['goals', 'roadmap_lane', "TEXT NOT NULL DEFAULT ''"],
+  ['projects', 'architecture', "TEXT NOT NULL DEFAULT ''"],
+  ['projects', 'docs_auto_publish', 'INTEGER NOT NULL DEFAULT 0'],
+  ['projects', 'docs_published_at', "TEXT NOT NULL DEFAULT ''"],
+  ['projects', 'docs_publish_error', "TEXT NOT NULL DEFAULT ''"],
 ] as const) {
   try {
     db.prepare(`SELECT ${column} FROM ${table} LIMIT 1`).get();
   } catch {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
   }
+}
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_goals_project ON goals(project_id);
+  CREATE INDEX IF NOT EXISTS idx_workflows_goal ON workflows(goal_id);
+
+  -- The project's changelog (lib/project-changelog.ts). An entry is written when a feature is marked
+  -- done, from its report; a person adds, edits or removes entries, and cutting a release stamps the
+  -- unreleased ones with a version. Keep-a-Changelog kinds.
+  CREATE TABLE IF NOT EXISTS project_changelog (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'added',       -- added | changed | fixed | removed | security
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    release TEXT NOT NULL DEFAULT '',         -- '' = unreleased, else the version it shipped in
+    released_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_changelog_project ON project_changelog(project_id);
+
+  -- Generate with AI (lib/project-import.ts): a cartridge reads the project's repos and PROPOSES any of
+  -- the architecture, the features that already exist (with their spec), the changelog and the backlog. Same
+  -- never-auto-apply contract as goal drafts: only POST /apply creates anything, item by item.
+  CREATE TABLE IF NOT EXISTS project_imports (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL DEFAULT '',
+    parts TEXT NOT NULL DEFAULT '[]',         -- JSON: which of architecture | features | changelog | backlog were asked for
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | ready | failed | applied | superseded
+    prompt TEXT NOT NULL DEFAULT '',
+    proposal TEXT NOT NULL DEFAULT '',        -- JSON: { architecture, features[], backlog[] }
+    notes TEXT NOT NULL DEFAULT '[]',
+    error TEXT NOT NULL DEFAULT '',
+    applied TEXT NOT NULL DEFAULT '',         -- JSON: what the person accepted
+    created_at TEXT NOT NULL,
+    dispatched_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_imports_project ON project_imports(project_id);
+`);
+// project_imports.parts arrived after the table did (same probe-then-ALTER rule as above).
+try { db.prepare('SELECT parts FROM project_imports LIMIT 1').get(); } catch {
+  db.exec("ALTER TABLE project_imports ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'");
+}
+
+// File old-style goals under their project, once. Under the old hierarchy a goal OWNED projects
+// (projects.goal_id). A goal owned by exactly ONE project maps onto the new shape without a
+// guess: that project is where the feature lives. A goal spread over several projects is left
+// unfiled — which of them it "belongs" to is a person's call, and the dashboard lists unfiled
+// features with a picker. Nothing is deleted and projects.goal_id is left as it was, so the
+// legacy attribution (goal-scope.ts) keeps every old run and cost where it was.
+// Once: a marker in `settings` keeps a later, deliberate move from being undone on the next boot.
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'migration.goals_filed_as_features'").get()) {
+  const filed = db.prepare(`
+    UPDATE goals SET project_id = (SELECT p.id FROM projects p WHERE p.goal_id = goals.id)
+     WHERE project_id = ''
+       AND (SELECT COUNT(*) FROM projects p WHERE p.goal_id = goals.id) = 1
+  `).run().changes;
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('migration.goals_filed_as_features', ?, ?)")
+    .run(String(filed), new Date().toISOString());
+  if (filed > 0) console.log(`[db] Filed ${filed} goal(s) as features under their project`);
 }
 
 seedDefaultTemplates();

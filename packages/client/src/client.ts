@@ -676,11 +676,12 @@ export function createClient(config: ClientConfig = {}) {
     ),
 
   // Goals
-  getGoals: () => request<import('./types').Goal[]>('/goals'),
+  /** Every goal/feature, or one project's features in build order (`projectId`). */
+  getGoals: (projectId?: string) => request<import('./types').Goal[]>(`/goals${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
   // The intent fields are what actually reach the agents at dispatch (lib/goal-brief.ts).
-  createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string }) =>
+  createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string }) =>
     request<import('./types').Goal>('/goals', { method: 'POST', body: JSON.stringify(data) }),
-  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string }) =>
+  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string; roadmapLane?: '' | 'now' | 'next' | 'later' }) =>
     request<import('./types').Goal>(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteGoal: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
 
@@ -745,7 +746,8 @@ export function createClient(config: ClientConfig = {}) {
   getGoalPilotRequest: (requestId: string) =>
     request<import('./types').PilotRequest & { prompt: string }>(`/goal-pilots/requests/${requestId}`),
   /** Starts piloting: a new goal from the intake, or `goalId` for an existing one. */
-  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; replace?: boolean }) =>
+  /** `projectId` files a NEW feature under that project; `goalId` pilots an existing feature. */
+  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; projectId?: string; replace?: boolean }) =>
     request<{ pilot: import('./types').GoalPilot; goalId: string; queued: boolean; error: string | null }>(
       '/goal-pilots', { method: 'POST', body: JSON.stringify(data) },
     ),
@@ -806,9 +808,41 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),
   createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
     request<import('./types').Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
+  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[]; architecture?: string; docsAutoPublish?: boolean }) =>
     request<import('./types').Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+  /** Deleting a project deletes its features too, unless `keepFeatures` (they are left unfiled). */
+  deleteProject: (id: string, keepFeatures = false) => request<void>(`/projects/${id}${keepFeatures ? '?keepFeatures=1' : ''}`, { method: 'DELETE' }),
+  /** Add features to the end of a project's list — one or many (a pasted list). Nothing starts. */
+  addProjectFeatures: (projectId: string, features: { name: string; description?: string }[]) =>
+    request<{ ids: string[] }>(`/projects/${projectId}/features`, { method: 'POST', body: JSON.stringify({ features }) }),
+  /** The living spec: every feature's intent beside the evidence for each acceptance criterion. */
+  getProjectSpec: (projectId: string) => request<import('./types').ProjectSpec>(`/projects/${projectId}/spec`),
+  /** Write docs/product/ (spec, features, roadmap, changelog, architecture) into the project's main repo. */
+  publishProjectDocs: (projectId: string) =>
+    request<import('./types').DocsPublishResult>(`/projects/${projectId}/docs/publish`, { method: 'POST' }),
+  getProjectChangelog: (projectId: string) =>
+    request<{ kinds: import('./types').ChangeKind[]; entries: import('./types').ChangelogEntry[] }>(`/projects/${projectId}/changelog`),
+  addChangelogEntry: (projectId: string, data: { kind: string; title: string; body?: string }) =>
+    request<import('./types').ChangelogEntry>(`/projects/${projectId}/changelog`, { method: 'POST', body: JSON.stringify(data) }),
+  updateChangelogEntry: (projectId: string, entryId: string, data: { kind?: string; title?: string; body?: string }) =>
+    request<import('./types').ChangelogEntry>(`/projects/${projectId}/changelog/${entryId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteChangelogEntry: (projectId: string, entryId: string) =>
+    request<void>(`/projects/${projectId}/changelog/${entryId}`, { method: 'DELETE' }),
+  /** Cut a release: every unreleased changelog entry ships in `version`. */
+  releaseChangelog: (projectId: string, version: string) =>
+    request<{ shipped: number; entries: import('./types').ChangelogEntry[] }>(`/projects/${projectId}/changelog/release`, { method: 'POST', body: JSON.stringify({ version }) }),
+  getProjectImports: (projectId: string) => request<import('./types').ProjectImport[]>(`/projects/${projectId}/imports`),
+  /** Ask a cartridge to read the project's repos and propose its architecture, existing features and backlog. */
+  /** Ask a cartridge to take stock of the project's repos — only the `parts` named (default: all four). */
+  startProjectImport: (projectId: string, agentId: string, parts?: import('./types').ImportPart[]) =>
+    request<{ import: import('./types').ProjectImport; queued: boolean }>(`/projects/${projectId}/imports`, { method: 'POST', body: JSON.stringify({ agentId, parts }) }),
+  getProjectImport: (importId: string) => request<import('./types').ProjectImport>(`/project-imports/${importId}`),
+  /** Keep what the person ticked: the architecture (as edited), existing features, backlog items. */
+  applyProjectImport: (importId: string, data: { architecture?: string; features: string[]; backlog: string[]; changelog: string[] }) =>
+    request<{ imp: import('./types').ProjectImport; created: { existing: string[]; planned: string[]; changelog: number } }>(`/project-imports/${importId}/apply`, { method: 'POST', body: JSON.stringify(data) }),
+  /** The order the project's features are to be built in. */
+  reorderProjectFeatures: (projectId: string, ids: string[]) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/features/order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
 
   // Project learnings
   getProjectLearnings: (projectId: string, limit?: number) =>

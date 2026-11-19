@@ -26,7 +26,8 @@ const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const WEB_SCREENS = [
   'dashboard/src/components/TasksPage.tsx',
   'dashboard/src/components/QueuePanel.tsx',
-  'dashboard/src/components/GoalsPage.tsx',
+  'dashboard/src/components/ProjectsPage.tsx',
+  'dashboard/src/components/ProjectHub.tsx',
   'dashboard/src/components/WorkflowPanel.tsx',
 ];
 

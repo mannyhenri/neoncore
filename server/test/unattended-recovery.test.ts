@@ -151,7 +151,7 @@ test('EVERY workflow-launch surface can still choose an offline cartridge', () =
   const UI = resolve(dirname(fileURLToPath(import.meta.url)), '../../dashboard/src');
   const SURFACES = [
     { file: 'components/WorkflowPanel.tsx', what: 'launch a workflow run' },
-    { file: 'components/GoalsPage.tsx', what: 'run a workflow from a project' },
+    { file: 'components/ProjectParts.tsx', what: 'run a workflow from a project' },
     { file: 'components/WorkflowCanvasEditor.tsx', what: 'assign a cartridge to a step' },
   ];
   const hiding: string[] = [];

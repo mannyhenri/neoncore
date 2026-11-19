@@ -160,7 +160,9 @@ describe('agent traffic never steals focus from the user', () => {
 const GESTURE_ONLY: Record<string, string> = {
   'components/CartridgeCard.tsx': 'custom-answer + reject-feedback boxes open on click',
   'components/NewRepoModal.tsx': 'modal opened by the user',
-  'components/GoalsPage.tsx': 'path picker manual mode / create modals opened by the user',
+  'components/ProjectParts.tsx': 'path picker manual mode (after "Enter path manually") / feature and project forms inside modals the user opened',
+  'components/ProjectsPage.tsx': 'add-features box: refocus after the user presses Add; the list textarea opens when the user pastes several lines',
+  'components/ProjectHub.tsx': 'changelog entry editor opens on "+ Add an entry" / "Edit"',
   'components/MachineLauncher.tsx': 'launcher dropdown opened by the user',
   'components/TasksPage.tsx': 'create-task modal opened by the user',
   'components/WorkflowCanvasEditor.tsx': 'node rename after the user clicks edit',

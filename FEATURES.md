@@ -60,37 +60,51 @@ Each agent runs in one of three modes (per-cartridge selector):
   the result to an agent).
 - Full reference: **[docs/TASKS.md](docs/TASKS.md)**.
 
-## Goals, projects & cost
+## Projects, features & cost
 
-- **Goals** — top-level objectives with a mission, success metric, and **token + USD budget**.
-- **Projects** — work areas under a goal, each pinned to a primary repo (which links cartridges
-  and tasks to the project by repo path).
+- **Projects** — the thing you are building: a name, a description and the **repos/cartridges
+  involved** (any number). The project holds the **list of features** to build, in order.
+- **Features** — one thing to build each. Add them one at a time or paste a whole list; reorder
+  them; each row says where it stands and whether it needs you ("Questions for you", "Plan ready",
+  "Running · 2/4", "Done"…). An **Up next** card starts the next one. (A feature is a goal row under
+  the hood — every goal capability below applies to it.)
+- **The project as the single place** — tabs beside the feature list: **Spec** (every feature's
+  intent beside the evidence for each acceptance criterion, and where they differ), **Roadmap**
+  (Now / Next / Later / Done — drag features between columns — with a shareable page for executives),
+  **Changelog** (written when a feature is marked done; edit, add, cut releases) and **Architecture**.
+  For a codebase new to NeonCore, **✦ Generate with AI** has a cartridge write the architecture, the
+  existing features with specs of how they behave today, the changelog from git history, and the backlog
+  the code points at — reviewed and kept item by item. Published into the repo as `docs/product/`, on
+  demand or kept in sync.
+  Full reference: **[docs/PROJECT-SPEC.md](docs/PROJECT-SPEC.md)**.
 - **Real USD cost rollup** — token usage is priced per model (Opus/Sonnet/Haiku/Fable, including
-  cache-read/write) and rolls up `session → project → goal`. The same number shows on cartridge
-  cards, in the Goals view, and enforces budgets.
-- **Goal Pilot** — run a goal as a managed pipeline: answer a few general questions, a planner
-  cartridge asks what is still open (as many rounds as it needs — answer, accept its suggestion or
-  let the agents decide), writes the scope brief and proposes the workflows that deliver it; you
-  edit and accept, pick the repos/engines, and each workflow runs in turn with the brief, every
-  scoping decision and the earlier stages' results. Stages wait for a live, idle cartridge, stop
-  at the goal's budget, and surface anything that needs you. Full reference:
-  **[docs/GOAL-PILOT.md](docs/GOAL-PILOT.md)**.
-- **Acceptance contract** — a piloted goal's criteria are numbered, each with its exact expected
+  cache-read/write). A feature is billed for **its own work** (its runs' steps and the requests put
+  to cartridges for it), so features sharing a project's repos never bill each other; a project's
+  cost is everything spent in its repos. Feature budgets pause its pipeline.
+- **The feature pipeline (Goal Pilot)** — take one feature at a time through a managed pipeline:
+  answer a few questions (pre-filled from the list), a planner cartridge asks what is still open
+  (as many rounds as it needs — answer, accept its suggestion or let the agents decide), writes the
+  scope brief and proposes the workflows that deliver it; you edit and accept, confirm which of the
+  project's repos build it, and each workflow runs in turn with the brief, every scoping decision and
+  the earlier stages' results. The planner is told the project and its other features, and keeps
+  them out of this one's scope. Stages wait for a live, idle cartridge, stop at the feature's budget,
+  and surface anything that needs you. Full reference: **[docs/GOAL-PILOT.md](docs/GOAL-PILOT.md)**.
+- **Acceptance contract** — a feature's criteria are numbered, each with its exact expected
   result, and frozen when the plan is accepted. Before any work, a cartridge writes one failing test
   per criterion; you review them (criterion ↔ test ↔ contents), run them red and **lock** them.
   After every stage NeonCore itself re-hashes the locked files (a changed test stops the pipeline
   until you restore it or accept the change with a reason) and runs every test — locally, or through
   the machine's runner for a repo elsewhere. Only you can unlock a criterion; every amendment is
   versioned. Checklist criteria (research, docs, "done" in your words) are judged by an independent
-  cartridge and confirmed by you. The goal report is SUCCESS only when every criterion passes on
+  cartridge and confirmed by you. The feature report is SUCCESS only when every criterion passes on
   that evidence.
-- Full reference: **[docs/GOALS.md](docs/GOALS.md)**.
+- Full reference: **[docs/GOALS.md](docs/GOALS.md)** (projects, features & cost).
 
 ## Heartbeat scheduler
 
 - Cron-like **recurring workflow runs** (hourly / daily / weekly) that clone a workflow template
   into a fresh run and inject the project's recent learnings as context.
-- **Budget gate** — a scheduled run is **skipped when its goal is over `budget_usd`**.
+- **Budget gate** — a scheduled run of an old-style project (attached to a goal) is **skipped when that goal is over `budget_usd`**.
 - **"Fire now"** to trigger a heartbeat manually.
 
 ## Canvas workflows (V2)

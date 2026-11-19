@@ -204,15 +204,30 @@ router.post('/start', (req, res) => {
 
 // List workflows (includes step summary for V2 workflows)
 // ?templates=true returns only templates, ?runs=true returns only runs
+/**
+ * The workflow list: EVERY template, plus the most recent runs.
+ *
+ * This used to be one query — the 50 newest rows of templates and runs MIXED — and the Workflows
+ * panel picks the templates out of whatever comes back. Templates are seeded once per boot, so
+ * once 50 runs had been made since then, every template fell past the limit and the Templates
+ * section vanished from the Agents screen (the panel showed "Recent runs 50" and nothing to run).
+ * A project's features make runs quickly — every pipeline stage is one — so that limit was reached
+ * in an afternoon. Templates are a catalogue and are never cut; only runs are capped.
+ *
+ * `?templates=true` → templates only; `?runs=true` → the most recent runs only.
+ */
+export const RECENT_RUNS_LIMIT = 50;
+
 router.get('/', (req, res) => {
-  let sql = 'SELECT * FROM workflows';
-  if (req.query.templates === 'true') {
-    sql += ' WHERE template_id IS NULL';
-  } else if (req.query.runs === 'true') {
-    sql += ' WHERE template_id IS NOT NULL';
-  }
-  sql += ' ORDER BY created_at DESC LIMIT 50';
-  const rows = db.prepare(sql).all() as Record<string, unknown>[];
+  const templatesSql = 'SELECT * FROM workflows WHERE template_id IS NULL ORDER BY created_at DESC';
+  const runsSql = `SELECT * FROM workflows WHERE template_id IS NOT NULL ORDER BY created_at DESC LIMIT ${RECENT_RUNS_LIMIT}`;
+  const rows = (req.query.templates === 'true'
+    ? db.prepare(templatesSql).all()
+    : req.query.runs === 'true'
+      ? db.prepare(runsSql).all()
+      : [...db.prepare(templatesSql).all(), ...db.prepare(runsSql).all()]
+        .sort((a, b) => String((b as Record<string, unknown>).created_at).localeCompare(String((a as Record<string, unknown>).created_at)))
+  ) as Record<string, unknown>[];
   const workflows = rows.map((row) => {
     const wf: Record<string, unknown> = { ...normalizeWorkflow(row) };
     const summary = buildStepSummary(wf.id as string);
@@ -1424,7 +1439,7 @@ function reportSources(stepId: string): { agentId: string; dir: string }[] {
    * resolveRunPlaceholders), and the agents used the one identifier they did have: the confer
    * session's. That is not a guess. Run 567fe12b's report step carries
    * `conferSessionId: a6c37e54…`, and a6c37e54 is exactly the directory sitting in both
-   * baseback and backend-interlag — the report the user could not find in the journal.
+   * frontdesk and backend-harbour — the report the user could not find in the journal.
    *
    * Run id first, so a correctly-named report always wins over a legacy one.
    */
@@ -1546,7 +1561,7 @@ function storeStepReport(stepId: string, report: unknown, htmlPath = '', sourceA
      * `sourceAgentId` (the disk the report was read off) beats the step's own executor, because
      * a legacy conferred step HAS no executor and would file the report under project '' —
      * present in the table, invisible in every repo's journal. That is the state the
-     * baseback / backend-interlag reports were in.
+     * frontdesk / backend-harbour reports were in.
      */
     const ownerId = sourceAgentId || step.executor_id || reportSources(stepId)[0]?.agentId || '';
     const agent = db.prepare('SELECT repo_name FROM agents WHERE id = ?')

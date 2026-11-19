@@ -25,6 +25,8 @@ import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '.
 import { releaseReadyTasks } from './tasks.js';
 import { pilotsForGoal, deletePilotsForGoal } from '../lib/goal-pilot.js';
 import { cancelPilot } from '../lib/goal-pilot-runner.js';
+import { entryForDoneFeature, retractEntryForReopenedFeature } from '../lib/project-changelog.js';
+import { docsChanged } from '../lib/project-docs.js';
 
 
 /**
@@ -48,9 +50,79 @@ function estimateTokens(inputChars: number, outputChars: number): number {
   return Math.round((inputChars + outputChars) / 4);
 }
 
+/**
+ * Where a feature's pipeline stands, in one line the feature list can show without loading the
+ * whole pilot: the latest pilot's phase, what (if anything) it needs from the person, and how far
+ * its stages got. Null when the feature has never been piloted — it is still in the backlog.
+ */
+export function pilotSummary(goalId: string): Goal['pilot'] {
+  const p = db.prepare(
+    `SELECT id, phase, attention, current_request_id FROM goal_pilots WHERE goal_id = ? ORDER BY created_at DESC LIMIT 1`,
+  ).get(goalId) as { id: string; phase: string; attention: string; current_request_id: string } | undefined;
+  if (!p) return null;
+  const st = db.prepare(
+    `SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('completed','skipped') THEN 1 ELSE 0 END) AS done,
+            SUM(CASE WHEN status IN ('review') THEN 1 ELSE 0 END) AS review
+       FROM goal_pilot_stages WHERE pilot_id = ?`,
+  ).get(p.id) as { total: number; done: number | null; review: number | null };
+  const req = p.current_request_id
+    ? db.prepare('SELECT status FROM goal_pilot_requests WHERE id = ?').get(p.current_request_id) as { status?: string } | undefined
+    : undefined;
+  return {
+    id: p.id,
+    phase: p.phase as NonNullable<Goal['pilot']>['phase'],
+    attention: p.attention || '',
+    stagesDone: st.done ?? 0,
+    stagesTotal: st.total ?? 0,
+    awaitingReview: (st.review ?? 0) > 0,
+    plannerFailed: req?.status === 'failed',
+  };
+}
+
+/** The next position at the end of a project's feature list. */
+function nextPosition(projectId: string): number {
+  if (!projectId) return 0;
+  return ((db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS n FROM goals WHERE project_id = ?').get(projectId) as { n: number }).n);
+}
+
+export interface NewFeature {
+  projectId: string;
+  name: string;
+  description?: string;
+  successMetric?: string;
+  budgetUsd?: number | null;
+  targetDate?: string;
+  autonomy?: string;
+  status?: string;
+}
+
+/**
+ * Create a feature — a goals row filed under a project, at the end of its list. The one insert
+ * every path uses (the feature list's quick add, a pasted list, the guided intake), so a feature is
+ * the same row whichever way it was made.
+ */
+export function createFeature(f: NewFeature): string {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO goals (id, name, description, success_metric, token_budget, budget_usd, status, created_at, updated_at,
+                       acceptance_criteria, no_gos, rabbit_holes, invariants, key_results,
+                       target_date, owner, investment_category, autonomy, project_id, position)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, '', '', '', '', '[]', ?, '', '', ?, ?, ?)
+  `).run(id, f.name.trim().slice(0, 200), (f.description || '').trim(), (f.successMetric || '').trim(), f.budgetUsd ?? null,
+    f.status === 'paused' || f.status === 'achieved' ? f.status : 'active', now, now,
+    String(f.targetDate || '').trim().slice(0, 10), normalizeAutonomy(f.autonomy), f.projectId || '', nextPosition(f.projectId));
+  return id;
+}
+
 function normalizeGoal(row: Record<string, unknown>, extra?: Partial<Goal>): Goal {
   return {
     id: row.id as string,
+    projectId: (row.project_id as string) || null,
+    position: (row.position as number) ?? 0,
+    origin: row.origin === 'imported' ? 'imported' : '',
+    doneAt: (row.done_at as string) || '',
+    roadmapLane: (['now', 'next', 'later'].includes(row.roadmap_lane as string) ? row.roadmap_lane : '') as Goal['roadmapLane'],
     name: row.name as string,
     description: (row.description as string) || '',
     successMetric: (row.success_metric as string) || '',
@@ -73,8 +145,12 @@ function normalizeGoal(row: Record<string, unknown>, extra?: Partial<Goal>): Goa
   };
 }
 
-router.get('/', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM goals ORDER BY created_at DESC').all() as Record<string, unknown>[];
+router.get('/', (req, res) => {
+  // `?projectId=` — one project's features, in the order they are to be built.
+  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : '';
+  const rows = (projectId
+    ? db.prepare('SELECT * FROM goals WHERE project_id = ? ORDER BY position, created_at').all(projectId)
+    : db.prepare('SELECT * FROM goals ORDER BY position, created_at DESC').all()) as Record<string, unknown>[];
 
   const goals = rows.map((row) => {
     const goalId = row.id as string;
@@ -111,6 +187,7 @@ router.get('/', (_req, res) => {
       // "Late" is only computable once progress exists (Phase 3), which is why this arrives
       // now and not with the other PM fields.
       schedule: goalSchedule(goalId),
+      pilot: pilotSummary(goalId),
     });
   });
 
@@ -137,14 +214,16 @@ router.get('/portfolio', (_req, res) => {
 router.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Goal not found' });
-  res.json(normalizeGoal(row));
+  res.json(normalizeGoal(row, { pilot: pilotSummary(row.id as string) }));
 });
 
 router.post('/', (req, res) => {
   const { name, description, successMetric, tokenBudget, budgetUsd, status,
           acceptanceCriteria, noGos, rabbitHoles, invariants, keyResults,
-          targetDate, owner, investmentCategory, autonomy } = req.body;
+          targetDate, owner, investmentCategory, autonomy, projectId } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  const pid = typeof projectId === 'string' ? projectId.trim() : '';
+  if (pid && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(pid)) return res.status(404).json({ error: 'project not found' });
 
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -152,17 +231,18 @@ router.post('/', (req, res) => {
   db.prepare(`
     INSERT INTO goals (id, name, description, success_metric, token_budget, budget_usd, status, created_at, updated_at,
                        acceptance_criteria, no_gos, rabbit_holes, invariants, key_results,
-                       target_date, owner, investment_category, autonomy)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       target_date, owner, investment_category, autonomy, project_id, position)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, name.trim(), description?.trim() || '', successMetric?.trim() || '', tokenBudget ?? null, budgetUsd ?? null, status || 'active', now, now,
          acceptanceCriteria?.trim() || '', noGos?.trim() || '', rabbitHoles?.trim() || '', invariants?.trim() || '',
          JSON.stringify(Array.isArray(keyResults) ? keyResults : []),
          // Normalized at the boundary: an unknown category or posture becomes '' (unset)
          // rather than being stored and silently ignored everywhere downstream.
          String(targetDate || '').trim().slice(0, 10), String(owner || '').trim(),
-         normalizeCategory(investmentCategory), normalizeAutonomy(autonomy));
+         normalizeCategory(investmentCategory), normalizeAutonomy(autonomy), pid, nextPosition(pid));
 
   const created = db.prepare('SELECT * FROM goals WHERE id = ?').get(id) as Record<string, unknown>;
+  docsChanged(pid);
   res.status(201).json(normalizeGoal(created));
 });
 
@@ -172,8 +252,24 @@ router.put('/:id', (req, res) => {
 
   const { name, description, successMetric, tokenBudget, budgetUsd, status,
           acceptanceCriteria, noGos, rabbitHoles, invariants, keyResults,
-          targetDate, owner, investmentCategory, autonomy } = req.body;
+          targetDate, owner, investmentCategory, autonomy, projectId, roadmapLane } = req.body;
   const now = new Date().toISOString();
+  if (status !== undefined && status !== '' && !['active', 'achieved', 'paused'].includes(String(status))) {
+    return res.status(400).json({ error: 'status must be active, achieved or paused' });
+  }
+
+  // Placing it on the roadmap: 'now' | 'next' | 'later', or '' for automatic.
+  if (roadmapLane !== undefined) {
+    const lane = ['now', 'next', 'later'].includes(String(roadmapLane)) ? String(roadmapLane) : '';
+    db.prepare('UPDATE goals SET roadmap_lane = ? WHERE id = ?').run(lane, req.params.id);
+  }
+
+  // Moving a feature to another project (or filing an unfiled one): it goes to the end of that list.
+  if (projectId !== undefined && String(projectId || '') !== String(row.project_id || '')) {
+    const pid = String(projectId || '').trim();
+    if (pid && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(pid)) return res.status(404).json({ error: 'project not found' });
+    db.prepare('UPDATE goals SET project_id = ?, position = ? WHERE id = ?').run(pid, nextPosition(pid), req.params.id);
+  }
 
   db.prepare(`
     UPDATE goals SET name = ?, description = ?, success_metric = ?, token_budget = ?, budget_usd = ?, status = ?, updated_at = ?,
@@ -200,19 +296,42 @@ router.put('/:id', (req, res) => {
     req.params.id,
   );
 
+  // Marked done: when (a date later edits do not move), and the changelog entry written from the
+  // feature's own records (lib/project-changelog.ts). Reopened: the date clears, and the entry comes out
+  // unless it was released or edited by a person.
+  if (status === 'achieved' && row.status !== 'achieved') {
+    db.prepare('UPDATE goals SET done_at = ? WHERE id = ?').run(now, req.params.id);
+    try { entryForDoneFeature(req.params.id); } catch (err) { console.warn('[changelog] entry for a done feature failed:', err); }
+  } else if (status && status !== 'achieved' && row.status === 'achieved') {
+    // An existing (imported) feature reopened is work to do again: it joins the list as planned.
+    db.prepare("UPDATE goals SET done_at = '', origin = '' WHERE id = ?").run(req.params.id);
+    retractEntryForReopenedFeature(req.params.id);
+  }
+  docsChanged(row.project_id as string);
+  if (projectId !== undefined && projectId !== row.project_id) docsChanged(String(projectId || ''));
+
   const updated = db.prepare('SELECT * FROM goals WHERE id = ?').get(req.params.id) as Record<string, unknown>;
-  res.json(normalizeGoal(updated));
+  res.json(normalizeGoal(updated, { pilot: pilotSummary(req.params.id) }));
 });
 
-router.delete('/:id', (req, res) => {
-  // A goal's pilot goes with it — and a live pipeline is stopped first, so its current run does
-  // not carry on working for a goal that no longer exists. The cascade would remove the rows, but
-  // not stop the run the pipeline had in flight — that is what cancelPilot is for.
-  for (const p of pilotsForGoal(req.params.id)) {
+/**
+ * Delete a feature (goal) and its pilots. A live pipeline is stopped first, so its current run does
+ * not carry on working for a feature that no longer exists. The cascade would remove the rows, but
+ * not stop the run the pipeline had in flight — that is what cancelPilot is for. Runs stay as
+ * history.
+ */
+export function deleteFeatureCascade(goalId: string): void {
+  for (const p of pilotsForGoal(goalId)) {
     if (p.phase !== 'completed' && p.phase !== 'cancelled') cancelPilot(p.id);
   }
-  deletePilotsForGoal(req.params.id);
-  db.prepare('DELETE FROM goals WHERE id = ?').run(req.params.id);
+  deletePilotsForGoal(goalId);
+  db.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
+}
+
+router.delete('/:id', (req, res) => {
+  const pid = (db.prepare('SELECT project_id FROM goals WHERE id = ?').get(req.params.id) as { project_id?: string } | undefined)?.project_id;
+  deleteFeatureCascade(req.params.id);
+  docsChanged(pid);
   res.status(204).send();
 });
 

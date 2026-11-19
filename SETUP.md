@@ -271,6 +271,6 @@ Once a machine is connected, explore the core features:
 
 - **[Task queue](docs/TASKS.md)** — queue work for agents, pin it to a project,
   dispatch it into a terminal, and track it to completion.
-- **[Goals & cost](docs/GOALS.md)** — group projects under goals, set a budget,
-  and watch real USD spend roll up from agent sessions.
+- **[Projects, features & cost](docs/GOALS.md)** — name a project and its repos, list its
+  features, build them one at a time, and watch real USD spend per feature.
 - **[Workflows](WORKFLOWS.md)** — author multi-step canvas workflows.

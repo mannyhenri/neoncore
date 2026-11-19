@@ -57,6 +57,7 @@ import {
   driveContract, verifyStage, advanceReviewStage, waiveTests, resetTestsRequest, contractView, type ContractView,
 } from './acceptance-runner.js';
 import { generateGoalReport } from './goal-pilot-report.js';
+import { docsChangedForGoal } from './project-docs.js';
 
 /** The engines that can carry a stage — the three NeonCore supports (see the engine-removal test). */
 export const PILOT_ENGINES = ['claude', 'codex', 'gridlight'] as const;
@@ -85,11 +86,11 @@ export function emitPilotUpdate(pilotId: string): void {
 export function announcePilot(pilotId: string, event: string, headline: string, body: string, urgency: 'action' | 'info', runId = ''): void {
   const pilot = getPilot(pilotId);
   if (!pilot) return;
-  const goalName = (db.prepare('SELECT name FROM goals WHERE id = ?').get(pilot.goalId) as { name?: string } | undefined)?.name ?? 'Goal';
+  const goalName = (db.prepare('SELECT name FROM goals WHERE id = ?').get(pilot.goalId) as { name?: string } | undefined)?.name ?? 'Feature';
   const title = `${goalName} — ${headline}`;
   try {
     getIO().emit('workflow_notification', {
-      id: randomUUID(), workflowId: runId, workflowName: `Goal Pilot · ${goalName}`,
+      id: randomUUID(), workflowId: runId, workflowName: `Feature · ${goalName}`,
       title, body, projects: [], timestamp: nowIso(),
     });
   } catch { /* no socket server */ }
@@ -101,7 +102,7 @@ export function announcePilot(pilotId: string, event: string, headline: string, 
 
 /** A planner request failed: the pilot cannot move until the person asks again. */
 function announcePlannerFailed(pilotId: string, error: string): void {
-  announcePilot(pilotId, 'planner-failed', 'the planner did not answer', `${error} Ask again from the Goal Pilot panel.`, 'action');
+  announcePilot(pilotId, 'planner-failed', 'the planner did not answer', `${error} Ask again from the feature's page.`, 'action');
 }
 
 // ── asking the planner ─────────────────────────────────────────────────────────
@@ -366,9 +367,15 @@ export function startPilot(pilotId: string, input: StartInput): GoalPilot {
     return [];
   };
 
-  const goal = db.prepare('SELECT name FROM goals WHERE id = ?').get(pilot.goalId) as { name: string } | undefined;
-  if (!goal) throw new PilotError('the goal no longer exists', 404);
+  const goal = db.prepare('SELECT name, project_id FROM goals WHERE id = ?').get(pilot.goalId) as { name: string; project_id: string } | undefined;
+  if (!goal) throw new PilotError('the feature no longer exists', 404);
   const involvement = involvementOf(pilot.involvement);
+  // A feature of a project runs in that project: every stage's run is attached to it, and a repo
+  // picked here that the project did not list yet is added to it — the project stays the one place
+  // that says which repos its work happens in. Only an old-style goal (no project) still gets a
+  // project per repo created under it.
+  const featureProject = goal.project_id && db.prepare('SELECT 1 FROM projects WHERE id = ?').get(goal.project_id)
+    ? goal.project_id : '';
 
   // The acceptance contract (lib/acceptance-contract.ts): test criteria get a stage 0 that writes
   // their tests before anything is built; checklist criteria get an independent review at the end.
@@ -381,10 +388,16 @@ export function startPilot(pilotId: string, input: StartInput): GoalPilot {
     db.prepare('DELETE FROM goal_pilot_stages WHERE pilot_id = ?').run(pilot.id);
     const projectByRepo = new Map<string, string>();
     const projectOf = (repoPath: string) => {
+      if (featureProject) return featureProject;
       const norm = normalizeRepoPath(repoPath);
       if (!projectByRepo.has(norm)) projectByRepo.set(norm, projectForRepo(pilot.goalId, goal.name, repoPath));
       return projectByRepo.get(norm)!;
     };
+    if (featureProject) {
+      const owned = getProjectCartridges(featureProject);
+      const missing = repos.map((r) => r.repoPath).filter((p) => !owned.some((o) => normalizeRepoPath(o) === normalizeRepoPath(p)));
+      if (missing.length) setProjectCartridges(featureProject, [...owned, ...missing]);
+    }
     const insert = db.prepare(
       `INSERT INTO goal_pilot_stages (id, pilot_id, position, kind, stage_key, template_id, template_name, title, why, focus,
          repo_path, agent_type, project_id, status, participants)
@@ -445,9 +458,11 @@ export function buildStageContext(pilot: GoalPilot, stage: PilotStage, stages: P
   const decided = pilot.rounds.flatMap((r) => r.questions.map((q) => `- ${q.text} → ${answerText(q, r.answers[q.id])}`));
   const inGoalBrief = BRIEF_FIELDS.filter((f) => f.goalColumn && brief?.[f.key]).map((f) => f.label.toLowerCase());
 
+  const project = db.prepare('SELECT p.name, p.docs_published_at, p.primary_repo FROM projects p JOIN goals g ON g.project_id = p.id WHERE g.id = ?')
+    .get(pilot.goalId) as { name?: string; docs_published_at?: string; primary_repo?: string } | undefined;
   const parts: string[] = [
-    `# Goal Pilot — stage ${idx + 1} of ${stages.length}: ${stage.title}`,
-    `This run is one stage of a pipeline planned for the goal "${goalName}". The person settled the scope `
+    `# Feature pipeline — stage ${idx + 1} of ${stages.length}: ${stage.title}`,
+    `This run is one stage of a pipeline planned for the feature "${goalName}"${project?.name ? ` of the project "${project.name}"` : ''}. The person settled the scope `
       + 'before any work started: treat everything below as decided and do not ask it again. If something is '
       + 'still genuinely open, go with what is most consistent with these decisions and state the assumption '
       + 'in your report.',
@@ -457,9 +472,15 @@ export function buildStageContext(pilot: GoalPilot, stage: PilotStage, stages: P
     parts.push(`## Scope\n${brief.summary}`);
     if (brief.inScope) parts.push(`## In scope\n${brief.inScope}`);
     if (brief.assumptions) parts.push(`## Assumptions already made\n${brief.assumptions}`);
-    if (inGoalBrief.length) parts.push(`(The goal's ${inGoalBrief.join(', ')} arrive with the goal brief on every step.)`);
+    if (inGoalBrief.length) parts.push(`(The feature's ${inGoalBrief.join(', ')} arrive with the goal brief on every step.)`);
   }
   if (decided.length) parts.push(`## Decisions made while scoping\n${decided.join('\n')}`);
+  // The project's living spec, when it has been published into the repo (lib/project-docs.ts).
+  if (project?.docs_published_at) {
+    parts.push(`## The project's spec\ndocs/product/ in ${project.primary_repo || 'the main repo'} holds every feature of the project (README.md), `
+      + 'each one\'s intent and criteria (features/<slug>.md) and how the product is built (ARCHITECTURE.md). Read what touches this '
+      + 'stage; do not edit those files — NeonCore regenerates them.');
+  }
   const contract = getContract(pilot.id);
   if (contract && contract.tests.length && contract.status !== 'waived') {
     parts.push(`## Acceptance contract\n${contract.tests.length} acceptance test${contract.tests.length === 1 ? '' : 's'} were written before any work and LOCKED by the person — `
@@ -600,7 +621,7 @@ function launchStage(pilot: GoalPilot, stage: PilotStage, stages: PilotStage[]):
 
   const context = buildStageContext(pilot, stage, stages);
   const runId = cloneTemplateAsRun(templateId, stage.projectId || null, context, {
-    agentId, autonomy: involvementOf(pilot.involvement).runAutonomy,
+    agentId, autonomy: involvementOf(pilot.involvement).runAutonomy, goalId: pilot.goalId,
     ...(team ? { confer: { agentIds: team, mode: 'divide', isolation: 'shared' } } : {}),
   });
   if (!runId) {
@@ -631,7 +652,7 @@ export function advancePilot(pilotId: string): void {
       let pilot = getPilot(pilotId);
       if (!pilot || pilot.phase !== 'running') return;
       if (!db.prepare('SELECT 1 FROM goals WHERE id = ?').get(pilot.goalId)) {
-        setPhase(pilot.id, 'cancelled', { attention: 'The goal was deleted.' });
+        setPhase(pilot.id, 'cancelled', { attention: 'The feature was deleted.' });
         return;
       }
       // The acceptance contract first: it may have a tests request to send, a failed one to turn
@@ -737,12 +758,14 @@ export function advancePilot(pilotId: string): void {
  */
 export function finishWithReport(pilotId: string): void {
   const report = generateGoalReport(pilotId);
+  const finished = getPilot(pilotId);
+  if (finished) docsChangedForGoal(finished.goalId);   // delivered: the spec's evidence just changed
   emitPilotUpdate(pilotId);
   const stages = stagesOf(pilotId).filter((s) => s.kind === 'workflow').length;
   const a = report?.acceptance;
   const criteria = a && a.total ? ` ${a.passing} of ${a.total} acceptance criteria pass on NeonCore's own check.` : '';
-  announcePilot(pilotId, 'completed', `goal report ready${report ? ` — ${report.status}` : ''}`,
-    `All ${stages} workflow${stages === 1 ? '' : 's'} finished.${criteria} The goal report is ready: read it, then mark the goal achieved.`,
+  announcePilot(pilotId, 'completed', `feature report ready${report ? ` — ${report.status}` : ''}`,
+    `All ${stages} workflow${stages === 1 ? '' : 's'} finished.${criteria} The feature report is ready: read it, then mark the feature done.`,
     'action');
   if (report) {
     try { dispatchPlannerRequest(pilotId, 'report'); } catch (err) { console.warn('[goal-pilot] report summary request failed:', err); }
@@ -869,6 +892,9 @@ export interface StageView extends PilotStage {
 
 export interface PilotView extends GoalPilot {
   goalName: string;
+  /** The project the feature belongs to ('' for an old-style goal). */
+  projectId: string;
+  projectName: string;
   plannerName: string;
   stages: StageView[];
   /** The acceptance contract with every criterion's evidence (lib/acceptance-runner.ts contractView). */
@@ -902,10 +928,13 @@ export function pilotView(pilot: GoalPilot): PilotView {
       agentName: agentName(s.agentId),
     };
   });
-  const goalName = (db.prepare('SELECT name FROM goals WHERE id = ?').get(pilot.goalId) as { name?: string } | undefined)?.name ?? '';
+  const g = db.prepare('SELECT g.name, g.project_id, p.name AS project_name FROM goals g LEFT JOIN projects p ON p.id = g.project_id WHERE g.id = ?')
+    .get(pilot.goalId) as { name?: string; project_id?: string; project_name?: string | null } | undefined;
   return {
     ...pilot,
-    goalName,
+    goalName: g?.name ?? '',
+    projectId: g?.project_id ?? '',
+    projectName: g?.project_name ?? '',
     plannerName: agentName(pilot.plannerAgentId),
     stages,
     acceptance: contractView(getContract(pilot.id)),

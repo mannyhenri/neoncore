@@ -91,8 +91,8 @@ export interface IntakeQuestion {
  */
 export const INTAKE_QUESTIONS: IntakeQuestion[] = [
   {
-    key: 'goal', label: 'What do you want to achieve?', kind: 'text', required: true,
-    help: 'One sentence. It becomes the goal\'s name.',
+    key: 'goal', label: 'What is the feature?', kind: 'text', required: true,
+    help: 'One sentence. It becomes the feature\'s name.',
     placeholder: 'Add an expenses tracking section to the app',
   },
   {
@@ -118,7 +118,7 @@ export const INTAKE_QUESTIONS: IntakeQuestion[] = [
     help: 'Behaviour that must keep working, areas nobody should touch, technology to avoid.',
   },
   { key: 'deadline', label: 'Target date', kind: 'date', required: false, help: 'Optional. Agents scope to fit it.' },
-  { key: 'budgetUsd', label: 'Budget (USD)', kind: 'number', required: false, help: 'Optional spend ceiling for the whole goal.' },
+  { key: 'budgetUsd', label: 'Budget (USD)', kind: 'number', required: false, help: 'Optional spend ceiling for this feature — the pipeline pauses when it is reached.' },
   {
     key: 'involvement', label: 'How involved do you want to be while it runs?', kind: 'choice', required: true,
     help: 'You can change a single run\'s posture later from its card.',

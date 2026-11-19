@@ -109,6 +109,12 @@ export interface CloneOptions {
    * confer step only takes the roster while it is still awaiting one.
    */
   confer?: { agentIds: string[]; mode?: string; isolation?: string };
+  /**
+   * The feature (goal) the run is launched for — stored on the run (workflows.goal_id) so its
+   * progress, cost, brief and contract resolve to that feature and not to a sibling in the same
+   * project.
+   */
+  goalId?: string;
 }
 
 export function cloneTemplateAsRun(
@@ -143,6 +149,7 @@ export function cloneTemplateAsRun(
   );
 
   if (projectId) db.prepare('UPDATE workflows SET project_id = ? WHERE id = ?').run(projectId, runId);
+  if (opts.goalId) db.prepare('UPDATE workflows SET goal_id = ? WHERE id = ?').run(opts.goalId, runId);
 
   // Set the posture BEFORE any step can be picked up by the executor poll. Explicit rather
   // than relying on the column default — see DEFAULT_AUTONOMY.
@@ -175,6 +182,23 @@ export function cloneTemplateAsRun(
   const oldToNew = new Map<string, string>();
   for (const s of templateSteps) oldToNew.set(s.id as string, randomUUID());
 
+  /**
+   * A review gate carries a SECOND cartridge in its config — the reviewer — which the canvas lets
+   * you leave as "choose at launch" (`reviewAgentId: '__deferred__'`). The Run button fills it with
+   * the run's cartridge; this path did not (and the confer conversion only fills an EMPTY reviewer),
+   * so the gate dispatched to the literal '__deferred__' and a pipeline or scheduled run of such a
+   * template stalled there. Same rule as the Run button; in a confer, the first participant judges.
+   */
+  const reviewer = conferIds ? conferIds[0] : (opts.agentId || '');
+  const configFor = (s: Record<string, unknown>): string => {
+    const raw = String(s.executor_config ?? '{}');
+    if (s.executor_type !== 'review-gate' || !reviewer) return raw;
+    try {
+      const cfg = JSON.parse(raw || '{}') as Record<string, unknown>;
+      return cfg.reviewAgentId === '__deferred__' ? JSON.stringify({ ...cfg, reviewAgentId: reviewer }) : raw;
+    } catch { return raw; }
+  };
+
   for (const s of templateSteps) {
     const deps = (() => {
       try {
@@ -203,7 +227,7 @@ export function cloneTemplateAsRun(
       // and decompositions), and a fix applied only to the HTTP start handler would have left
       // every scheduled report telling the agent to invent an id. See resolveRunPlaceholders.
       // …and remap routing / decision targets to the run's step ids (lib/step-refs.ts).
-      remapStepRefsJson(resolveRunPlaceholders(String(s.executor_config ?? '{}'), runId), oldToNew),
+      remapStepRefsJson(resolveRunPlaceholders(configFor(s), runId), oldToNew),
       deps, s.auto_advance ?? 1, now,
     );
   }

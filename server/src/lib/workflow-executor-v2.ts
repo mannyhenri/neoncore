@@ -196,14 +196,18 @@ function attachmentBlockForStep(workflowId: string, agentId: string): string {
 }
 
 /**
- * The goal a run works toward, through its project — or null for a run attached to nothing, which
- * keeps the old repo-based resolution. See the `goalId` option of sendCommandToAgent.
+ * The feature (goal) a run works toward: the one it was launched for (workflows.goal_id), else —
+ * for an old-style run — its project's goal. Null for a run attached to nothing, which keeps the
+ * old repo-based resolution. See the `goalId` option of sendCommandToAgent.
+ *
+ * The run's own tag comes first because a project now has many features: "the project's goal" no
+ * longer exists for it, and guessing one would hand a run another feature's brief and contract.
  */
 function runGoalId(workflowId: string): string | null {
   const row = db.prepare(
-    `SELECT p.goal_id AS goalId FROM workflows w JOIN projects p ON p.id = w.project_id WHERE w.id = ?`,
-  ).get(workflowId) as { goalId?: string | null } | undefined;
-  return row?.goalId || null;
+    `SELECT w.goal_id AS own, p.goal_id AS legacy FROM workflows w LEFT JOIN projects p ON p.id = w.project_id WHERE w.id = ?`,
+  ).get(workflowId) as { own?: string | null; legacy?: string | null } | undefined;
+  return row?.own || row?.legacy || null;
 }
 
 function dispatchStepCommand(step: WorkflowStep, agentId: string, text: string, includeMemory: boolean): boolean {
@@ -983,7 +987,7 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   // Omitting them here was invisible in the worst way: the bytes DID land on disk, so the files
   // were there and nothing errored — but no participant was ever told they existed, and an
   // agent reads files, not intentions. Reported as "the attached pictures don't get to
-  // interlag"; run #26 held the block on its workflow row while the confer it spawned stored {}.
+  // harbour"; run #26 held the block on its workflow row while the confer it spawned stored {}.
   const wfRow = db.prepare('SELECT attachments FROM workflows WHERE id = ?')
     .get(step.workflowId) as { attachments?: string } | undefined;
 
@@ -1916,6 +1920,18 @@ async function executeDecisionStep(step: WorkflowStep): Promise<void> {
   // Step stays in `running` state; the /decide endpoint completes it.
 }
 
+/**
+ * fetch() for a connector, plus one step-log line when the response says it was SIMULATED — the
+ * offline sandbox answers outside requests itself (sandbox/sim/offline-net.mjs) and marks them
+ * with `x-sandbox-simulated`, so the run shows that nothing was actually posted.
+ */
+async function connectorFetch(step: WorkflowStep, url: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  const simulated = res.headers.get('x-sandbox-simulated');
+  if (simulated) emitStepLog(step.workflowId, step.id, step.name, `Sandbox: simulated ${simulated}`, 'info');
+  return res;
+}
+
 /** Execute an external connector step (Slack, GitHub, Linear, or generic HTTP) */
 async function executeConnectorStep(step: WorkflowStep): Promise<void> {
   const config = step.executorConfig;
@@ -1959,7 +1975,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         (config.messageTemplate as string) || '{{workflowName}} — {{stepName}} completed:\n{{result}}',
         vars,
       );
-      const res = await fetch(webhookUrl, {
+      const res = await connectorFetch(step, webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -1980,7 +1996,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         'Content-Type': 'application/json',
       };
       if (action === 'create_issue') {
-        const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+        const res = await connectorFetch(step, `https://api.github.com/repos/${repo}/issues`, {
           method: 'POST', headers,
           body: JSON.stringify({
             title: substituteVars((config.githubTitle as string) || '{{workflowName}}: {{stepName}}', vars),
@@ -1991,7 +2007,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       } else if (action === 'comment_pr') {
         const prNumber = config.githubPrNumber as string;
         if (!prNumber) throw new Error('GitHub comment_pr requires githubPrNumber');
-        const res = await fetch(`https://api.github.com/repos/${repo}/issues/${prNumber}/comments`, {
+        const res = await connectorFetch(step, `https://api.github.com/repos/${repo}/issues/${prNumber}/comments`, {
           method: 'POST', headers,
           body: JSON.stringify({ body: substituteVars((config.githubBody as string) || '{{result}}', vars) }),
         });
@@ -1999,7 +2015,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       } else if (action === 'trigger_workflow') {
         const workflowId = config.githubWorkflowId as string;
         if (!workflowId) throw new Error('GitHub trigger_workflow requires githubWorkflowId');
-        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflowId}/dispatches`, {
+        const res = await connectorFetch(step, `https://api.github.com/repos/${repo}/actions/workflows/${workflowId}/dispatches`, {
           method: 'POST', headers,
           body: JSON.stringify({ ref: 'main' }),
         });
@@ -2018,7 +2034,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       if (!teamId) throw new Error('Linear connector requires linearTeamId');
       const headers = { 'Authorization': apiKey, 'Content-Type': 'application/json' };
       if (action === 'create_issue') {
-        const res = await fetch('https://api.linear.app/graphql', {
+        const res = await connectorFetch(step, 'https://api.linear.app/graphql', {
           method: 'POST', headers,
           body: JSON.stringify({
             query: `mutation CreateIssue($title: String!, $description: String, $teamId: String!) {
@@ -2037,7 +2053,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       } else if (action === 'update_issue') {
         const issueId = config.linearIssueId as string;
         if (!issueId) throw new Error('Linear update_issue requires linearIssueId');
-        const res = await fetch('https://api.linear.app/graphql', {
+        const res = await connectorFetch(step, 'https://api.linear.app/graphql', {
           method: 'POST', headers,
           body: JSON.stringify({
             query: `mutation UpdateIssue($id: String!, $description: String) {
@@ -2062,7 +2078,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
       const method = (config.httpMethod as string) || 'POST';
       const customHeaders = (config.httpHeaders as Record<string, string>) || {};
       const bodyTemplate = (config.httpBodyTemplate as string) || '{"message": "{{result}}"}';
-      const res = await fetch(substituteVars(url, vars), {
+      const res = await connectorFetch(step, substituteVars(url, vars), {
         method,
         headers: { 'Content-Type': 'application/json', ...customHeaders },
         body: method !== 'GET' ? substituteVars(bodyTemplate, vars) : undefined,

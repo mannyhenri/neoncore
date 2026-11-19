@@ -38,7 +38,7 @@ It runs entirely on your own machines. No cloud service, no account, no telemetr
 - [How it works](#how-it-works)
 - [Quick start](#quick-start) · [Connect your first agent](#connect-your-first-agent)
 - [Using it: cartridges, approvals, queue](#using-it)
-- [Goals and tasks](#goals-and-tasks)
+- [Projects, features and tasks](#projects-features-and-tasks)
 - [Multiple computers](#multiple-computers-the-fleet)
 - [The mobile app](#the-mobile-app)
 - [Security model](#security-model)
@@ -197,19 +197,27 @@ silently, and you can hold one item without stopping the rest.
 
 ---
 
-## Goals and tasks
+## Projects, features and tasks
 
-**Goals** are the "why" above the work: intent, budget, and what done means.
+A **project** is the thing you are building: its name and the repos (cartridges) it lives in. It
+holds the **list of features** you want built — add them one by one or paste the whole list — and
+you take them **one at a time**: a planner cartridge scopes the feature with you, writes the brief
+and acceptance criteria, proposes the workflows, and runs them in the project's repos once you
+accept. See [docs/GOALS.md](docs/GOALS.md) and [docs/GOAL-PILOT.md](docs/GOAL-PILOT.md).
+
+Beside the list, each project keeps its **spec, roadmap, changelog and architecture** — generated from
+the records as features are built, and for a codebase new to NeonCore written by a cartridge from the
+repos (**✦ Generate with AI**) — and can publish them into the repo as `docs/product/`. See
+[docs/PROJECT-SPEC.md](docs/PROJECT-SPEC.md).
 
 ![The goals view](docs/images/goals.jpg)
 
-The intent fields are not decoration — **they are injected into the agent's prompt at dispatch**.
-Acceptance criteria, no-gos, rabbit holes and invariants are how you fight over-reach, which is
-why the panel tracks how many are filled and warns when a goal **reaches no cartridge** (a brief
-that reaches nothing changes nothing, and costs nothing).
+A feature's brief is not decoration — **it is injected into the agent's prompt at dispatch**.
+Acceptance criteria, no-gos, rabbit holes and invariants are how you fight over-reach; the feature
+page tracks how many are filled.
 
 Progress has **three** states, not two: real progress, genuine zero, and *nothing to measure yet*.
-An empty goal never renders as 0% — that would claim work started and got nowhere.
+A feature with no runs never renders as 0% — that would claim work started and got nowhere.
 
 **Tasks** are discrete units of work you can dispatch to a cartridge.
 
@@ -373,13 +381,7 @@ Contributions welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 Every change follows **[docs/WORK-STANDARD.md](docs/WORK-STANDARD.md)**: enumerate the complete set
 from the code, write a test that fails on a partial fix, fix the whole set, and paste real output.
-It is enforced by hooks, not by good intentions.
-
-```bash
-npm test --workspace=server
-npm test --workspace=dashboard
-npm test --workspace=mobile
-```
+It is enforced by hooks, not by good intentions. (This copy ships without the test suites.)
 
 ## Documentation
 
@@ -390,7 +392,7 @@ npm test --workspace=mobile
 | [SETUP.md](SETUP.md) | Connecting machines: hooks, extension, relay, trust mode |
 | [FLEET.md](FLEET.md) | Multi-computer setup and peer gossip |
 | [WORKFLOWS.md](WORKFLOWS.md) | Canvas workflow reference |
-| [docs/GOALS.md](docs/GOALS.md) · [docs/TASKS.md](docs/TASKS.md) | Goals, budgets, the task queue |
+| [docs/GOALS.md](docs/GOALS.md) · [docs/TASKS.md](docs/TASKS.md) | Projects, features, budgets, the task queue |
 | [mobile/RELEASE.md](mobile/RELEASE.md) | Building and shipping the iOS app |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 

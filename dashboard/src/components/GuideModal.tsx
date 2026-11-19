@@ -4,7 +4,7 @@ const SECTIONS = [
   { id: 'overview', label: 'Overview' },
   { id: 'agents', label: 'Agents' },
   { id: 'canvas', label: 'Canvas Workflows' },
-  { id: 'goals', label: 'Goals & Projects' },
+  { id: 'goals', label: 'Projects & Features' },
   { id: 'heartbeat', label: 'Heartbeat Scheduler' },
   { id: 'learnings', label: 'Workflow Learnings' },
   { id: 'decisions', label: 'Decision Steps' },
@@ -243,15 +243,28 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             ref={(el) => { if (el) sectionRefs.current[3] = el; }}
             className="mb-8 scroll-mt-4"
           >
-            <SectionHeader>Goals & Projects</SectionHeader>
+            <SectionHeader>Projects & Features</SectionHeader>
             <BodyText>
-              Goals represent business objectives with a name, success metric, status, and optional budget cap.
-              Projects are work areas under a goal, each tied to a primary repo.
+              A project is the thing you are building: a name, a description, and the repos (cartridges) it
+              lives in. Under it is the list of features you want built, in order. You take them one at a
+              time: a planner cartridge scopes the feature with you (asking only what is still open), writes
+              the brief and the acceptance criteria, proposes the workflows, and — once you accept and confirm
+              which of the project's repos to use — runs them one after another. Each feature has its own
+              budget, progress, acceptance contract and report.
+            </BodyText>
+            <BodyText>
+              Beside the list, the project's Spec shows every feature's intent next to what was verified;
+              the Roadmap is a Now / Next / Later / Done view (drag features between columns) with a
+              shareable page; the Changelog gets an entry each time a feature is marked done; Architecture
+              holds how the product is built. For a codebase new to NeonCore, ✦ Generate with AI has a
+              cartridge write the architecture, the existing features with their specs, the changelog from
+              git and the backlog — you review before anything is kept. All of it can be published into the
+              repo as docs/product/ and kept in sync.
             </BodyText>
             <div className="glass-light rounded-2xl p-3 mb-4">
               <p className="text-[12px] font-medium text-gray-400 mb-1">The cascade</p>
               <div className="flex items-center gap-2 flex-wrap">
-                {['Goal', 'Project', 'Workflow', 'Step'].map((item, i, arr) => (
+                {['Project', 'Feature', 'Workflow', 'Step'].map((item, i, arr) => (
                   <span key={item} className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-300 font-medium">{item}</span>
                     {i < arr.length - 1 && (
@@ -264,9 +277,10 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <BodyText>
-              Assign any workflow run to a project. Costs are real USD rollups computed from actual token usage
-              per session, priced at each model's own rate (shown as "$X spent"). Budget caps appear as
-              color-coded progress bars — yellow at 70%, red at 90%.
+              A feature's runs belong to it, so its cost is what its own work spent — real USD computed from
+              actual token usage, priced at each model's own rate (shown as "$X spent"). A project's cost is
+              everything spent in its repos. A feature's budget pauses its pipeline when it is reached. You can
+              also run a single workflow in a project from the project's page.
             </BodyText>
           </div>
 
@@ -286,8 +300,8 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <BodyText>
               The server polls for due heartbeats every 60 seconds and fires them automatically. A fired
               heartbeat clones the template into a new run, assigns it to the project, and injects recent
-              learnings as context. Heartbeats are skipped if the project's goal has a budget cap and the
-              project has exceeded it.
+              learnings as context. Heartbeats of an old-style project (one attached to a goal) are skipped
+              when that goal's budget cap is exceeded.
             </BodyText>
           </div>
 

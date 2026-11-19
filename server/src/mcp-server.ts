@@ -16,6 +16,7 @@
  *   neoncore_report_task_done   — complete a claimed task with a result
  *   neoncore_submit_goal_draft  — submit a proposed goal intent (a draft; changes nothing)
  *   neoncore_submit_goal_decomposition — submit a proposed goal → projects → tasks plan (creates nothing)
+ *   neoncore_submit_project_import — answer "Generate with AI": architecture, existing features + specs, changelog, backlog (a proposal)
  *   neoncore_submit_goal_pilot  — answer a Goal Pilot request: scoping questions or brief + criteria, the pipeline, the report summary, acceptance tests, checklist verdicts
  *   neoncore_list_agents        — see sibling agents for coordination
  *   neoncore_message_agent      — send a message into another agent's session (confer/hand off)
@@ -32,7 +33,8 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import os from 'os';
-import { getServerBaseUrl } from './lib/server-url.js';
+// server-address, NOT server-url: this process must never open the database (see lib/server-address.ts).
+import { getServerBaseUrl } from './lib/server-address.js';
 import { noChannel, inboxPending } from './lib/delivery.js';
 
 // NEONCORE_URL wins (correct for remote agents pointing at the server's LAN URL);
@@ -302,6 +304,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ['decompositionId', 'proposal'],
+      },
+    },
+    {
+      name: 'neoncore_submit_project_import',
+      description:
+        'Answer a NeonCore project import request you were given (its header reads "[NeonCore project import request …]"): taking stock of a codebase. Read the repos — existing docs first, then the code; change nothing. Submit ONLY the parts the request asks for: {message, architecture:"<markdown: components, data flow, stack, tests, real paths>", features:[{name, description, area, evidence, criteria:[{text:"When …, the system shall …", expect:"<inputs → exact result>"}]}], changelog:[{kind:"added|changed|fixed|removed|security", title, body, release, date:"YYYY-MM-DD"}], backlog:[{name, description, source}]}. features = what the product already does, named as a user would, with its CURRENT behaviour as criteria; changelog = history from git log/tags and any existing CHANGELOG, grouped by release; backlog = work the code points at (TODO/FIXME, half-built paths). This stores a PROPOSAL the person reviews item by item. If rejected, the reply says why — fix it and submit again.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          requestId: { type: 'string', description: 'The request id from the header of the request you were given' },
+          result: {
+            type: 'object',
+            properties: {
+              message: { type: 'string' },
+              architecture: { type: 'string' },
+              features: { type: 'array', items: { type: 'object', properties: {
+                name: { type: 'string' }, description: { type: 'string' }, area: { type: 'string' }, evidence: { type: 'string' },
+                criteria: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, expect: { type: 'string' } } } },
+              }, required: ['name'] } },
+              changelog: { type: 'array', items: { type: 'object', properties: {
+                kind: { type: 'string', enum: ['added', 'changed', 'fixed', 'removed', 'security'] }, title: { type: 'string' },
+                body: { type: 'string' }, release: { type: 'string' }, date: { type: 'string' },
+              }, required: ['title'] } },
+              backlog: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, source: { type: 'string' } }, required: ['name'] } },
+            },
+          },
+        },
+        required: ['requestId', 'result'],
       },
     },
     {
@@ -652,6 +682,22 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       log(`submit_goal_decomposition rejected: ${err}`);
       return text(`Decomposition ${decompositionId} was NOT accepted. ${err}`);
+    }
+  }
+
+  if (name === 'neoncore_submit_project_import') {
+    const { requestId, result } = args as { requestId?: string; result?: unknown };
+    if (!requestId) return text('ERROR: requestId is required.');
+    try {
+      const out = await post(`/api/project-imports/${requestId}/submit`, { result }) as { notes?: string[] };
+      const notes = out?.notes ?? [];
+      return text(
+        `Project import ${requestId} answered — stored for the person to review item by item. Do not create or change anything yourself.` +
+        (notes.length ? `\n\nValidation adjusted your submission:\n- ${notes.join('\n- ')}` : ''),
+      );
+    } catch (err) {
+      log(`submit_project_import rejected: ${err}`);
+      return text(`Project import ${requestId} was NOT accepted. ${err}`);
     }
   }
 

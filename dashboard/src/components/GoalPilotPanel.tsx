@@ -1,13 +1,14 @@
 /**
- * GOAL PILOT — a goal run as a managed pipeline of agents and workflows.
+ * THE FEATURE PIPELINE (the goal pilot) — one feature of a project, run as a managed pipeline of
+ * agents and workflows. A feature is a goal row filed under a project (see ProjectsPage.tsx).
  *
- *   Goal → Scope → Workflows → Cartridges → Run
+ *   Feature → Scope → Workflows → Repos → Run
  *
- * 1. GOAL        the general questions (GoalPilotIntake). Creates the goal, or pilots one that exists.
+ * 1. FEATURE     the general questions (GoalPilotIntake). Creates the feature, or starts one from the list.
  * 2. SCOPE       a planner cartridge asks what is still open; the person answers, delegates, or
  *                accepts suggestions — as many rounds as the planner needs.
  * 3. WORKFLOWS   the planner's scope brief and proposed workflows, editable, accepted explicitly.
- * 4. CARTRIDGES  which repos (and which engine in each) execute it, and which stage runs where.
+ * 4. REPOS       which of the project's repos (and which engine in each) execute it, and which stage runs where.
  * 5. RUN         the stages run in order; anything that needs the person says so here.
  *
  * The planner is a CARTRIDGE, like every other piece of generated text in NeonCore: the server
@@ -62,8 +63,8 @@ function Pill({ on, children, onClick, title }: { on: boolean; children: React.R
   );
 }
 
-function PlannerPicker({ agents, value, onChange }: { agents: Agent[]; value: string; onChange: (id: string) => void }) {
-  const options = plannerCandidates(agents);
+function PlannerPicker({ agents, value, onChange, preferRepos }: { agents: Agent[]; value: string; onChange: (id: string) => void; preferRepos?: string[] }) {
+  const options = plannerCandidates(agents, preferRepos);
   if (options.length === 0) {
     return (
       <p className="text-[13px] text-amber-300/90">
@@ -85,12 +86,16 @@ function PlannerPicker({ agents, value, onChange }: { agents: Agent[]; value: st
 // ── 1. the general questions ───────────────────────────────────────────────────
 
 /**
- * The guided goal form. With `goal`, pilots an existing goal (its fields pre-fill the answers);
- * without, the answers create the goal.
+ * The guided feature form. With `goal`, starts a feature already on the list (its fields pre-fill
+ * the answers); without, the answers create a new feature — in `projectId` when given.
+ * `preferRepos` (the project's repos) puts the cartridges that can read the feature's code first
+ * in the planner picker.
  */
-export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
+export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreated, onCancel }: {
   agents: Agent[];
   goal?: Goal;
+  projectId?: string;
+  preferRepos?: string[];
   onCreated: (goalId: string) => void;
   onCancel: () => void;
 }) {
@@ -102,7 +107,7 @@ export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
 
-  const candidates = useMemo(() => plannerCandidates(agents), [agents]);
+  const candidates = useMemo(() => plannerCandidates(agents, preferRepos), [agents, preferRepos]);
   useEffect(() => { if (!planner && candidates.length) setPlanner(candidates[0].id); }, [candidates, planner]);
 
   const missing = meta ? meta.intakeQuestions.filter((q) => q.required && !String(values[q.key] ?? '').trim()) : [];
@@ -111,7 +116,7 @@ export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
   const submit = async (replace = false) => {
     setBusy(true); setError('');
     try {
-      const out = await api.createGoalPilot({ intake: values, plannerAgentId: planner, goalId: goal?.id, replace });
+      const out = await api.createGoalPilot({ intake: values, plannerAgentId: planner, goalId: goal?.id, projectId: goal ? undefined : projectId, replace });
       if (out.error) setError(`Created, but: ${out.error}`);
       onCreated(out.goalId);
     } catch (e) {
@@ -123,50 +128,63 @@ export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
 
   if (!meta) return <p className="text-[13px] text-gray-500">Loading…</p>;
 
+  const optionalOpen = meta.intakeQuestions.some((q) => !q.required && String(values[q.key] ?? '').trim() !== '');
+  const renderQuestion = (q: (typeof meta.intakeQuestions)[number]) => (
+    <div key={q.key}>
+      <label className="block text-[13px] text-gray-300 mb-1">
+        {q.label}{q.required && <span className="text-violet-400"> *</span>}
+      </label>
+      {q.kind === 'textarea' ? (
+        <textarea rows={3} className={input} placeholder={q.placeholder} value={values[q.key] ?? ''} onChange={(e) => set(q.key, e.target.value)} />
+      ) : q.kind === 'choice' ? (
+        <div className="flex flex-wrap gap-1.5">
+          {q.options!.map((o) => (
+            <Pill key={o.value} on={values[q.key] === o.value} onClick={() => set(q.key, o.value)} title={o.hint}>{o.label}</Pill>
+          ))}
+        </div>
+      ) : q.kind === 'date' ? (
+        <DatePicker value={values[q.key] ?? ''} onChange={(v) => set(q.key, v)} placeholder="No target date" />
+      ) : (
+        <input
+          className={input}
+          type={q.kind === 'number' ? 'number' : 'text'}
+          min={q.kind === 'number' ? 0 : undefined}
+          placeholder={q.placeholder}
+          value={values[q.key] ?? ''}
+          onChange={(e) => set(q.key, e.target.value)}
+        />
+      )}
+      {q.kind === 'choice' && values[q.key]
+        ? <p className="text-[12px] text-gray-500 mt-1">{q.options!.find((o) => o.value === values[q.key])?.hint}</p>
+        : <p className="text-[12px] text-gray-500 mt-1">{q.help}</p>}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-gray-500 leading-relaxed">
-        Answer a few general questions. A planner cartridge then asks whatever is still needed so the
-        agents never have to ask once work starts, proposes the workflows that will deliver it, and
-        runs them in order once you accept. Nothing runs until you say so.
+        A few questions about this feature. A planner cartridge then asks whatever is still needed so the
+        agents never have to ask once work starts, proposes the workflows that will build it, and runs
+        them in order in the project's repos once you accept. Nothing runs until you say so.
       </p>
-      {meta.intakeQuestions.map((q) => (
-        <div key={q.key}>
-          <label className="block text-[13px] text-gray-300 mb-1">
-            {q.label}{q.required && <span className="text-violet-400"> *</span>}
-          </label>
-          {q.kind === 'textarea' ? (
-            <textarea rows={3} className={input} placeholder={q.placeholder} value={values[q.key] ?? ''} onChange={(e) => set(q.key, e.target.value)} />
-          ) : q.kind === 'choice' ? (
-            <div className="flex flex-wrap gap-1.5">
-              {q.options!.map((o) => (
-                <Pill key={o.value} on={values[q.key] === o.value} onClick={() => set(q.key, o.value)} title={o.hint}>{o.label}</Pill>
-              ))}
-            </div>
-          ) : q.kind === 'date' ? (
-            <DatePicker value={values[q.key] ?? ''} onChange={(v) => set(q.key, v)} placeholder="No target date" />
-          ) : (
-            <input
-              className={input}
-              type={q.kind === 'number' ? 'number' : 'text'}
-              min={q.kind === 'number' ? 0 : undefined}
-              placeholder={q.placeholder}
-              value={values[q.key] ?? ''}
-              onChange={(e) => set(q.key, e.target.value)}
-            />
-          )}
-          {q.kind === 'choice' && values[q.key]
-            ? <p className="text-[12px] text-gray-500 mt-1">{q.options!.find((o) => o.value === values[q.key])?.hint}</p>
-            : <p className="text-[12px] text-gray-500 mt-1">{q.help}</p>}
+      {/* The required questions up front; the optional ones one click away, opened by themselves
+          when any of them already has an answer (a feature that carries a date or a budget). */}
+      {meta.intakeQuestions.filter((q) => q.required).map(renderQuestion)}
+      <details className="group rounded-xl border border-white/[0.08] bg-gl-code/60" open={optionalOpen}>
+        <summary className="cursor-pointer select-none px-3.5 py-2.5 text-[13px] text-gray-300 hover:text-gray-100">
+          More detail <span className="text-gray-500">— who it is for, what must not change, target date, budget (optional)</span>
+        </summary>
+        <div className="px-3.5 pb-3.5 space-y-4">
+          {meta.intakeQuestions.filter((q) => !q.required).map(renderQuestion)}
         </div>
-      ))}
+      </details>
 
       <div>
         <label className="block text-[13px] text-gray-300 mb-1">Which cartridge does the planning?</label>
-        <PlannerPicker agents={agents} value={planner} onChange={setPlanner} />
+        <PlannerPicker agents={agents} value={planner} onChange={setPlanner} preferRepos={preferRepos} />
         <p className="text-[12px] text-gray-500 mt-1">
           It reads your answers (and the repo it is in) and submits questions, a brief and a pipeline back to NeonCore.
-          Its spend counts toward this goal.
+          Its spend counts toward this feature.
         </p>
       </div>
 
@@ -184,7 +202,7 @@ export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
           className={primaryBtn}
           title={missing.length ? `Still needed: ${missing.map((m) => m.label).join(', ')}` : undefined}
         >
-          {busy ? 'Sending…' : goal ? 'Start scoping' : 'Create goal & start scoping'}
+          {busy ? 'Sending…' : goal ? 'Start scoping' : 'Add feature & start scoping'}
         </button>
       </div>
     </div>
@@ -483,7 +501,7 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
       <div>
         <div className="flex items-center justify-between gap-2 mb-2">
           <h3 className="text-[12px] text-gray-400 uppercase tracking-wider">Scope brief</h3>
-          <span className="text-[11px] text-gray-500">Fields marked → goal are written onto the goal and reach every agent.</span>
+          <span className="text-[11px] text-gray-500">Fields marked → feature are written onto the feature and reach every agent working on it.</span>
         </div>
         <div className="space-y-3 bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
           <div>
@@ -495,7 +513,7 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
             <div key={f.key}>
               <label className="flex items-center gap-2 text-[12px] text-gray-400 mb-1" title={f.guidance}>
                 {f.label}
-                {f.onGoal && <span className="text-[9px] px-1 py-px rounded bg-violet-900/50 text-violet-300 border border-violet-700/40">→ goal</span>}
+                {f.onGoal && <span className="text-[9px] px-1 py-px rounded bg-violet-900/50 text-violet-300 border border-violet-700/40">→ feature</span>}
               </label>
               <textarea
                 rows={Math.min(8, Math.max(2, String(brief[f.key] ?? '').split('\n').length + 1))}
@@ -534,7 +552,7 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
                   {s.why && <p className="text-[13px] text-gray-500 pl-6">{s.why}</p>}
                   <details className="pl-6">
                     <summary className="text-[12px] text-gray-500 hover:text-gray-400 cursor-pointer">What this stage will be told</summary>
-                    <textarea rows={4} className={`${input} mt-1 text-[13px]`} value={s.focus} placeholder="The focus for this stage on this goal"
+                    <textarea rows={4} className={`${input} mt-1 text-[13px]`} value={s.focus} placeholder="The focus for this stage on this feature"
                       onChange={(e) => setStages((prev) => prev.map((x, j) => (j === i ? { ...x, focus: e.target.value } : x)))} />
                   </details>
                 </div>
@@ -564,7 +582,7 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
 
       {error && <p className="text-[13px] text-amber-300">{error}</p>}
       <div className="flex items-center justify-end gap-3">
-        <span className="text-[12px] text-gray-500">Accepting freezes the criteria and writes the → goal fields onto the goal. Nothing runs yet.</span>
+        <span className="text-[12px] text-gray-500">Accepting freezes the criteria and writes the → feature fields onto the feature. Nothing runs yet.</span>
         <button onClick={accept} disabled={busy || included === 0 || !brief.summary.trim() || criteriaIssues.length > 0} className={primaryBtn}
           title={criteriaIssues.length ? criteriaIssues.join(' ') : undefined}>
           {busy ? 'Saving…' : `Accept plan · ${included} workflow${included === 1 ? '' : 's'}`}
@@ -598,10 +616,13 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   useEffect(() => {
     api.getGoalPilotCandidates(pilot.goalId).then((list) => {
       setRepos(list);
-      // Pre-select what the goal already owns, else the planner's own repo if it is a candidate.
+      // Pre-select the project's repos, else the planner's own repo if it is a candidate.
       const owned = list.filter((r) => r.owned);
       const planner = list.find((r) => r.engines.some((e) => e.agentId === pilot.plannerAgentId));
-      const pick = owned.length ? owned : planner ? [planner] : [];
+      let pick = owned.length ? owned : planner ? [planner] : [];
+      // The first chosen repo is where every stage runs unless you move it — so it should be the
+      // repo the planner read the feature in, not whichever name sorts first.
+      if (planner && pick.includes(planner)) pick = [planner, ...pick.filter((r) => r !== planner)];
       setChosen(Object.fromEntries(pick.map((r) => [r.repoPath, defaultEngine(r)])));
     }).catch((e) => setError(errorText(e)));
   }, [pilot.goalId, pilot.plannerAgentId]);
@@ -631,9 +652,10 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[12px] text-gray-400 uppercase tracking-wider mb-1">Which repos execute this goal?</h3>
+        <h3 className="text-[12px] text-gray-400 uppercase tracking-wider mb-1">Which repos build this feature?</h3>
         <p className="text-[12px] text-gray-500 mb-2">
-          Pick the repos and the engine that works in each. Each becomes a project under this goal, so its cost and brief roll up here.
+          The project's repos are picked for you — untick any this feature does not touch, and choose the engine that works in each.
+          A repo from outside the project is added to the project when the run starts.
           A stage whose cartridge is not running waits for it and starts by itself when it connects.
         </p>
         {repos === null ? <p className="text-[13px] text-gray-500">Loading repos…</p> : repos.length === 0 ? (
@@ -654,7 +676,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
                   <div className="min-w-0 flex-1">
                     <div className="text-[14px] text-gray-100 flex items-center gap-2">
                       {r.repoName}
-                      {r.owned && <span className="text-[9px] px-1 rounded bg-white/[0.06] text-gray-400">already on this goal</span>}
+                      {r.owned && <span className="text-[9px] px-1 rounded bg-violet-900/40 text-violet-300">in this project</span>}
                     </div>
                     <div className="text-[11px] text-gray-500 font-mono truncate">{r.repoPath}</div>
                   </div>
@@ -724,7 +746,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
             ? <>Before any workflow runs, an agent writes {tested.length} failing test{tested.length === 1 ? '' : 's'} ({tested.map((c) => c.id).join(', ')}). You review and approve them; then they are locked and NeonCore runs them after every stage. </>
             : null}
           {checklist.length > 0 && <>At the end, a cartridge that did not do the work judges {checklist.map((c) => c.id).join(', ')}; you confirm each verdict. </>}
-          The goal report is a success only if every criterion passes.
+          The feature report is a success only if every criterion passes.
         </div>
       )}
 
@@ -888,7 +910,7 @@ const REPORT_TONE: Record<string, string> = {
 };
 
 /**
- * The goal report: what the whole pipeline did, in one place. The full document (every stage's run
+ * The feature report (the goal report): what the whole pipeline did, in one place. The full document (every stage's run
  * report, the scope, decisions, learnings, open items) opens as a page or downloads as Markdown.
  */
 function GoalReportCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () => void }) {
@@ -906,7 +928,7 @@ function GoalReportCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () 
     <div className="rounded-lg border border-violet-700/40 bg-violet-950/30 p-3.5 space-y-2.5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <h4 className="text-[14px] text-violet-100 font-semibold">Goal report</h4>
+          <h4 className="text-[14px] text-violet-100 font-semibold">Feature report</h4>
           <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${REPORT_TONE[r.status] ?? 'text-gray-300 border-white/20'}`}>{r.status}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -993,11 +1015,11 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
           <p className="text-[14px] text-emerald-200">
             Every stage finished.{pilot.acceptance && pilot.acceptance.total > 0
               ? ` ${pilot.acceptance.passing} of ${pilot.acceptance.total} acceptance criteria pass on NeonCore's own check.`
-              : ' Check the results against “done when”.'} Then close the goal.
+              : ' Check the results against “done when”.'} Then mark the feature done.
           </p>
           {goal.status !== 'achieved' && (
             <button disabled={busy} onClick={() => act(async () => { await api.updateGoal(goal.id, { status: 'achieved' }); onGoalChanged(); })} className={primaryBtn}>
-              Mark goal achieved
+              Mark feature done
             </button>
           )}
         </div>
@@ -1018,10 +1040,18 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
 // ── the panel ──────────────────────────────────────────────────────────────────
 
 /**
- * The Goal Pilot section of a goal's page. With no pilot, an offer to start one; otherwise the
+ * The pipeline section of a feature's page. With no pilot, an offer to start one; otherwise the
  * step the pilot is on.
  */
-export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; agents: Agent[]; onGoalChanged: () => void }) {
+export function GoalPilotPanel({ goal, agents, onGoalChanged, projectRepos, startOpen = false }: {
+  goal: Goal;
+  agents: Agent[];
+  onGoalChanged: () => void;
+  /** The feature's project's repos — its cartridges are offered first as the planner. */
+  projectRepos?: string[];
+  /** Open straight onto the questions when the feature was never started (the "Start" click). */
+  startOpen?: boolean;
+}) {
   const meta = useMeta();
   const [pilots, setPilots] = useState<GoalPilot[] | null>(null);
   const [starting, setStarting] = useState(false);
@@ -1032,6 +1062,8 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
     try { setPilots(await api.getGoalPilots(goal.id)); } catch { setPilots((p) => p ?? []); }
   }, [goal.id]);
   useEffect(() => { setPilots(null); setStarting(false); load(); }, [load]);
+  // A feature that was never started opens on its questions when asked to — the list's "Start".
+  useEffect(() => { if (startOpen && pilots && pilots.length === 0) setStarting(true); }, [startOpen, pilots]);
 
   const pilot = useMemo(() => (pilots ?? []).find(isLivePilot) ?? (pilots ?? [])[0] ?? null, [pilots]);
 
@@ -1061,7 +1093,7 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
   }, [pilot, stageSignature, onGoalChanged]);
 
   const cancel = async () => {
-    if (!pilot || !confirm('Cancel this Goal Pilot? A running stage\'s run is cancelled too. The goal and its projects stay.')) return;
+    if (!pilot || !confirm('Cancel this feature\'s pipeline? A running stage\'s run is cancelled too. The feature stays on the list, and you can start it again.')) return;
     try { await api.cancelGoalPilot(pilot.id); load(); } catch (e) { setError(errorText(e)); }
   };
 
@@ -1071,7 +1103,7 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
     <section className="rounded-[22px] border border-[rgba(124,108,255,0.45)] bg-[rgba(10,16,32,0.85)] shadow-[0_0_36px_rgba(124,108,255,0.14)] p-6 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h3 className="font-display text-[22px] text-gray-100 font-semibold flex items-center gap-2">
-          <span aria-hidden="true" className="text-[#B9AEFF]">✦</span> Goal Pilot
+          <span aria-hidden="true" className="text-[#B9AEFF]">✦</span> Feature pipeline
         </h3>
         {header}
       </div>
@@ -1084,25 +1116,25 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
       return shell(
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-[13px] text-gray-400 max-w-xl">
-            Let a planner cartridge scope this goal with you, propose the workflows that deliver it, and run them in order
-            on the repos you choose — so no agent has to ask anything once work starts.
+            Let a planner cartridge scope this feature with you, propose the workflows that build it, and run them in order
+            in the project's repos — so no agent has to ask anything once work starts.
           </p>
-          <button onClick={() => setStarting(true)} className={primaryBtn}>✦ Pilot this goal</button>
+          <button onClick={() => setStarting(true)} className={primaryBtn}>✦ Start this feature</button>
         </div>,
       );
     }
     return shell(
-      <GoalPilotIntake agents={agents} goal={goal} onCancel={() => setStarting(false)} onCreated={() => { setStarting(false); load(); onGoalChanged(); }} />,
+      <GoalPilotIntake agents={agents} goal={goal} preferRepos={projectRepos} onCancel={() => setStarting(false)} onCreated={() => { setStarting(false); load(); onGoalChanged(); }} />,
     );
   }
 
   const header = (
     <div className="flex items-center gap-3 flex-wrap">
       {isLivePilot(pilot) ? (
-        <button onClick={cancel} className={dangerBtn}>Cancel pilot</button>
+        <button onClick={cancel} className={dangerBtn}>Cancel pipeline</button>
       ) : (
         <button onClick={() => setStarting(true)} className={primaryBtn}>
-          {pilot.phase === 'cancelled' ? 'Start over' : 'Pilot again'}
+          {pilot.phase === 'cancelled' ? 'Start over' : 'Run again'}
         </button>
       )}
     </div>

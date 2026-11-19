@@ -112,7 +112,8 @@ test('gates and human steps are NOT converted', () => {
 const LAUNCH_SURFACES = [
   { file: 'dashboard/src/components/WorkflowPanel.tsx',         picks: 'runAgentId + per-step' },
   { file: 'dashboard/src/components/WorkflowCanvasEditor.tsx',  picks: 'deferredAssignments' },
-  { file: 'dashboard/src/components/GoalsPage.tsx',             picks: 'agentId' },
+  // V6: the project's "run a workflow" launcher moved from GoalsPage to ProjectParts.
+  { file: 'dashboard/src/components/ProjectParts.tsx',          picks: 'agentId' },
   { file: 'mobile/src/screens/WorkflowsScreen.tsx',             picks: 'agentId + per-step' },
 ] as const;
 
