@@ -67,6 +67,9 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   { name: 'Agents view switch', marker: /setActiveView\('agents'\)/, region: 'nav' },
   { name: 'Projects view switch', marker: /setActiveView\('projects'\)/, region: 'nav' },
   { name: 'Tasks view switch', marker: /setActiveView\('tasks'\)/, region: 'nav' },
+  // V3 (2026-11-18, asked for: "the workflows templates will move to its own screen"):
+  // Workflows is a view like the others, so its switch sits in the view bar with them.
+  { name: 'Workflows view switch', marker: /setActiveView\('workflows'\)/, region: 'nav' },
   { name: 'Guide', marker: /setGuideOpen\(true\)/, region: 'nav' },
   { name: 'Settings', marker: /setSettingsOpen\(true\)/, region: 'nav' },
   // Asked for: the whole "Show" section sits with the cartridges. Both filters ask
@@ -94,9 +97,13 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // a full-width chart has nowhere to go.
   { name: 'Token report', marker: /<TokensPage/, region: 'main' },
 
-  // NOT asked for — what you read or invoke while watching, which is what the rail is
-  // for. Listed so an over-broad move fails here.
-  { name: 'Workflows', marker: /<WorkflowPanel/, region: 'aside' },
+  // V3: Workflows left the Agents rail for its own screen, because the Agents screen is now
+  // the scene and takes the whole space. It is a working surface, so it renders in <main>.
+  // Still registered, so a later reshuffle cannot copy it back into the rail.
+  { name: 'Workflows', marker: /<WorkflowPanel/, region: 'main' },
+  // The scene itself, and the plain list it can be swapped for — both working surfaces.
+  { name: 'Agents scene', marker: /<WorldScene/, region: 'main' },
+  { name: 'Agents list (plain view)', marker: /<CartridgeGrid/, region: 'main' },
 
   // Master–detail Goals: "the list of goals on the 1/3 section with the 2/3 the place
   // where we work". The 1/3 IS the aside and the 2/3 IS the main — a nested split inside
@@ -115,7 +122,7 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
  * anything that looks like a layout bug.
  */
 const RAIL_OCCUPANTS: { name: string; marker: RegExp; view: string }[] = [
-  { name: 'Workflows', marker: /<WorkflowPanel/, view: 'agents' },
+  // V3: the rail has one occupant. Workflows moved to its own view (see CONTROLS).
   { name: 'Projects list', marker: /<ProjectsRail/, view: 'projects' },
 ];
 
@@ -315,8 +322,10 @@ describe('dashboard chrome placement', () => {
 
 
   function initialViewDeclaration(): string {
-    const at = SRC.search(/useState<(?:'\w+'\s*\|\s*)*'\w+'>\(/);
-    expect(at, 'App.tsx no longer declares the active view with a useState union').toBeGreaterThan(-1);
+    // V3: the union moved into the view registry (lib/views.ts → `View`), so the declaration
+    // is `useState<View>(`. The older inline union is still accepted.
+    const at = SRC.search(/useState<(?:View|(?:'\w+'\s*\|\s*)*'\w+')>\(/);
+    expect(at, 'App.tsx no longer declares the active view with useState<View>').toBeGreaterThan(-1);
     return SRC.slice(at, at + 240);
   }
 
@@ -393,12 +402,20 @@ describe('dashboard chrome placement', () => {
   it('the type filter sits beside the Cartridges heading, not below the grid', () => {
     // "Beside the title" is the ask. If it renders after <CartridgeGrid it has been
     // appended to the section rather than placed in its header row.
-    const heading = R.main.indexOf('Cartridges');
-    const filter = R.main.search(/setTypeFilter\(/);
+    // V3: the filters are built ONCE (`filters`) because the scene floats the same controls
+    // as its HUD. So the property is now about where that element is PLACED in the list
+    // layout — in the heading row, before the grid — and that it really holds the type filter.
+    const heading = R.main.indexOf('>Cartridges<');
+    const placed = R.main.indexOf('{filters}', heading);
     const grid = R.main.indexOf('<CartridgeGrid');
+    const built = R.main.indexOf('const filters = (');
     expect(heading).toBeGreaterThan(-1);
-    expect(filter).toBeGreaterThan(heading);
-    expect(filter).toBeLessThan(grid);
+    expect(built, 'the filters element is gone').toBeGreaterThan(-1);
+    expect(R.main.slice(built, heading)).toMatch(/setTypeFilter\(/);
+    expect(placed, 'the filters are not placed after the Cartridges heading').toBeGreaterThan(heading);
+    expect(placed).toBeLessThan(grid);
+    // And the scene gets the very same controls, not a second copy.
+    expect(R.main).toMatch(/hud=\{filters\}/);
   });
 
   it('workflow templates stay open — there is no collapse to fall into', () => {

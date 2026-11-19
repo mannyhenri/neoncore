@@ -1,31 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import type { SendOutcome } from '../lib/deliveryNotice';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput, ConferSession, Workflow } from '../types';
-import { api } from '../lib/api';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput } from '../types';
+import { effectiveAgentStatus } from '../lib/agentStatus';
+import { useLiveWork } from '../hooks/useLiveWork';
 import { cartridgeProgress } from '../lib/cartridgeProgress';
 import { CartridgeCard } from './CartridgeCard';
 import { VirtualCartridgeCard } from './VirtualCartridgeCard';
-
-const ACTIVE_WINDOW_MS = 120_000; // 2 minutes
-
-/** Compute effective status from activity feed timestamps (mirrors CartridgeCard logic). */
-function effectiveAgentStatus(
-  agent: Agent,
-  activities: Activity[],
-  now: number,
-): Agent['status'] {
-  if (agent.status === 'waiting') return 'waiting';
-  if (agent.status === 'offline') {
-    const hasRecent = activities.some(
-      (a) => now - new Date(a.timestamp).getTime() < ACTIVE_WINDOW_MS,
-    );
-    return hasRecent ? 'working' : 'offline';
-  }
-  const hasRecent = activities.some(
-    (a) => now - new Date(a.timestamp).getTime() < ACTIVE_WINDOW_MS,
-  );
-  return hasRecent ? 'working' : agent.status;
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -126,18 +106,7 @@ export function CartridgeGrid({
   // Group agents by machine:repoName → one cartridge per group.
   // The work each cartridge is part of — confers and live runs — so its meter shows real progress
   // (lib/cartridgeProgress). Polled: both change on the server's clock, not on agent events.
-  const [confers, setConfers] = useState<ConferSession[]>([]);
-  const [runs, setRuns] = useState<Workflow[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      api.getConfers().then((c) => { if (alive) setConfers(c); }).catch(() => {});
-      api.getWorkflows().then((w) => { if (alive) setRuns(w); }).catch(() => {});
-    };
-    load();
-    const t = setInterval(load, 15_000);
-    return () => { alive = false; clearInterval(t); };
-  }, []);
+  const { confers, runs } = useLiveWork();
 
   // Pick the agent with the best status as the primary; the rest are siblings.
   const { dedupedSorted, siblingMap } = useMemo(() => {

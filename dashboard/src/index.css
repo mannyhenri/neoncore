@@ -236,3 +236,15 @@ select.glass-input optgroup {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(90, 174, 255, 0.5);
 }
+
+/* ── The World view (docs/DESIGN.md "The World view") ─────────────────────────────────
+   Motion for the scene. An avatar's frames sit side by side in one strip; `world-strip`
+   steps the strip sideways (duration and step count are set per cycle by Avatar.tsx). */
+@keyframes world-strip { to { transform: translateX(-100%); } }
+.world-strip { animation-name: world-strip; animation-iteration-count: infinite; }
+@keyframes world-alert { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.world-alert { animation: world-alert 1.1s ease-in-out infinite; }
+.world-member:hover, .world-member:focus-within { z-index: 5000 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .world-strip, .world-alert { animation: none; }
+}

@@ -19,8 +19,11 @@ import { api } from './lib/api';
 import type { AgentType, Activity, VirtualCartridge } from './types';
 import { IS_DEMO } from './lib/api';
 import { setDemoEnabled, resetDemoData } from './lib/demoMode';
+import { WorldScene } from './world/WorldScene';
+import { VIEW_TITLE, AGENTS_LAYOUTS, readAgentsLayout, writeAgentsLayout } from './lib/views';
+import type { View, AgentsLayout } from './lib/views';
 
-/** One entry of the left view bar (Agents · Projects · Tasks · Tokens). */
+/** One entry of the left view bar (Projects · Agents · Workflows · Tasks · Tokens). */
 function NavItem({ active, onClick, label, badge, children }: { active: boolean; onClick: () => void; label: string; badge?: number; children: React.ReactNode }) {
   return (
     <button
@@ -42,7 +45,6 @@ function NavItem({ active, onClick, label, badge, children }: { active: boolean;
 }
 
 const ICON = 'w-[22px] h-[22px]';
-const VIEW_TITLE = { agents: 'Agents', projects: 'Projects', tasks: 'Tasks', tokens: 'Tokens' } as const;
 
 export default function App() {
   // Virtual cartridges
@@ -105,7 +107,7 @@ export default function App() {
   /* Agents is the default. A project or feature deep link (`#project/…`, or the older `#goal/<id>`) overrides it, because addressing a goal without
      addressing the view that renders it is only half a link: `#goal/<id>` in a fresh tab
      otherwise opens Agents with the goal selected in a pane nobody is showing. */
-  const [activeView, setActiveView] = useState<'agents' | 'projects' | 'tasks' | 'tokens'>(
+  const [activeView, setActiveView] = useState<View>(
     () => (typeof window !== 'undefined' && isProjectsHash(window.location.hash) ? 'projects' : 'agents'),
   );
 
@@ -118,6 +120,15 @@ export default function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+  // V3: the Agents screen is a scene by default. The list of cartridge cards is still one
+  // click away (and remembered), because a scene is the wrong tool when you need to read
+  // twelve logs at once — and hidden and virtual cartridges only exist in the list.
+  const [agentsLayout, setAgentsLayoutState] = useState<AgentsLayout>(readAgentsLayout);
+  const setAgentsLayout = useCallback((layout: AgentsLayout) => {
+    setAgentsLayoutState(layout);
+    writeAgentsLayout(layout);
+  }, []);
+  const sceneOpen = activeView === 'agents' && agentsLayout === 'scene';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [newRepoOpen, setNewRepoOpen] = useState(false);
@@ -174,6 +185,9 @@ export default function App() {
         </NavItem>
         <NavItem active={activeView === 'agents'} onClick={() => setActiveView('agents')} label="Agents">
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+        </NavItem>
+        <NavItem active={activeView === 'workflows'} onClick={() => setActiveView('workflows')} label="Flows">
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1.2" /><rect x="15" y="4" width="6" height="5" rx="1.2" /><rect x="9" y="15" width="6" height="5" rx="1.2" /><path d="M6 9v2.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V9M12 13v2" /></svg>
         </NavItem>
         <NavItem active={activeView === 'tasks'} onClick={() => setActiveView('tasks')} label="Tasks" badge={activeTaskCount}>
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
@@ -243,17 +257,12 @@ export default function App() {
         />
       </header>
 
-      {/* Work area — a persistent rail on the left (Workflows on Agents, the goals list on
-          Projects), the working surface on the right. The rail is sticky and scrolls on its
-          own; below lg it stacks above the main column. Tokens has no rail. */}
+      {/* Work area. Projects keeps its master–detail rail (the goals list beside the working
+          surface). Every other view is full width — and the Agents scene is full BLEED: no
+          padding, edge to edge, from the top bar to the bottom of the window. */}
       <ProjectsProvider active={activeView === 'projects'} agents={agents}>
-      <div className={`p-4 md:p-6 grid grid-cols-1 gap-6 items-start ${activeView === 'tokens' || activeView === 'tasks' ? '' : 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]'}`}>
-        <aside className={`${activeView === 'tokens' || activeView === 'tasks' ? 'hidden' : ''} ${activeView === 'agents' ? 'order-last lg:order-none' : ''} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
-          {activeView === 'agents' && (
-            <section>
-              <WorkflowPanel agents={agents} />
-            </section>
-          )}
+      <div className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]' : ''}`}>
+        <aside className={`${activeView === 'projects' ? '' : 'hidden'} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
           {activeView === 'projects' && <ProjectsRail />}
         </aside>
 
@@ -264,55 +273,79 @@ export default function App() {
             <TokensPage servers={servers} />
           ) : activeView === 'tasks' ? (
               <TasksPage tasks={tasks} agents={agents} createTask={createTask} cancelTask={cancelTask} updateTask={updateTask} dispatchTask={dispatchTask} completeTask={completeTask} />
-          ) : (
-            <section>
-              <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
-                <h2 className="font-display text-xl font-semibold text-gray-100">Cartridges</h2>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                <div role="group" aria-label="Status" className="flex items-center gap-1 p-1 rounded-xl bg-gl-surface/70 border border-white/[0.08]">
+          ) : activeView === 'workflows' ? (
+            /* V3: the workflow templates and runs, on their own screen. */
+            <section className="max-w-[1180px]">
+              <WorkflowPanel agents={agents} />
+            </section>
+          ) : (() => {
+            // The same controls drive both layouts, so they are built once: over the scene
+            // they float as its HUD, above the list they sit in its header.
+            const groupCls = `flex items-center gap-1 p-1 rounded-xl border border-white/[0.1] ${sceneOpen ? 'bg-[rgba(10,16,32,0.92)]' : 'bg-gl-surface/70'}`;
+            const chipCls = (on: boolean) => `h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
+              on ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'
+            }`;
+            const filters = (
+              <>
+                <div role="group" aria-label="Status" className={groupCls}>
                   {([
                     { key: 'all', label: 'All' },
                     { key: 'working', label: 'Working' },
                     { key: 'waiting', label: 'Waiting' },
                     { key: 'idle', label: 'Idle' },
                   ] as { key: StatusFilter; label: string }[]).map(({ key, label }) => (
-                    <button
-                      key={key}
-                      onClick={() => setStatusFilter(key)}
-                      aria-pressed={statusFilter === key}
-                      className={`h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
-                        statusFilter === key
-                          ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]'
-                          : 'text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
+                    <button key={key} onClick={() => setStatusFilter(key)} aria-pressed={statusFilter === key} className={chipCls(statusFilter === key)}>
                       {label}
                       {statusCounts[key] > 0 && <span className="ml-1 opacity-80">· {statusCounts[key]}</span>}
                     </button>
                   ))}
                 </div>
-                <div role="group" aria-label="Engine" className="flex items-center gap-1 p-1 rounded-xl bg-gl-surface/70 border border-white/[0.08]">
+                <div role="group" aria-label="Engine" className={groupCls}>
                   {visibleTypeFilters.map((t) => {
                     const LABELS: Partial<Record<AgentType | 'all', string>> = {
                       all: 'All', gridlight: 'Gridlight', claude: 'Claude', codex: 'Codex',
                     };
                     return (
-                      <button
-                        key={t}
-                        onClick={() => setTypeFilter(t)}
-                        aria-pressed={typeFilter === t}
-                        className={`h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
-                          typeFilter === t
-                            ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]'
-                            : 'text-gray-400 hover:text-gray-200'
-                        }`}
-                      >
+                      <button key={t} onClick={() => setTypeFilter(t)} aria-pressed={typeFilter === t} className={chipCls(typeFilter === t)}>
                         {LABELS[t] ?? t}
                       </button>
                     );
                   })}
                 </div>
+                <div role="group" aria-label="Layout" className={`${groupCls} ${sceneOpen ? 'ml-auto' : ''}`}>
+                  {AGENTS_LAYOUTS.map((l) => (
+                    <button key={l} onClick={() => setAgentsLayout(l)} aria-pressed={agentsLayout === l} className={chipCls(agentsLayout === l)}>
+                      {l === 'scene' ? 'Scene' : 'List'}
+                    </button>
+                  ))}
                 </div>
+              </>
+            );
+            return sceneOpen ? (
+              <WorldScene
+                agents={filteredAgents}
+                statusFilter={statusFilter}
+                onStatusCounts={handleStatusCounts}
+                activitiesByAgent={activitiesByAgent}
+                pendingPermissions={pendingPermissions}
+                stuckAlerts={stuckAlertsArray}
+                onDecidePermission={decidePermission}
+                onSetMode={setMode}
+                onSendCommand={sendCommand}
+                onDelete={deleteAgent}
+                onDismiss={dismissAgent}
+                onRestore={restoreAgent}
+                onDismissStuck={dismissStuckAlert}
+                onActivityClick={setSelectedActivity}
+                hud={filters}
+                offSceneCount={filteredAgents.filter((a) => a.dismissedAt).length + virtualCartridges.length}
+                onOpenList={() => setAgentsLayout('list')}
+              />
+            ) : (
+            <section>
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                <h2 className="font-display text-xl font-semibold text-gray-100">Cartridges</h2>
+                <div className="flex items-center gap-2.5 flex-wrap">{filters}</div>
               </div>
             <CartridgeGrid
               agents={filteredAgents}
@@ -338,7 +371,8 @@ export default function App() {
               }}
             />
             </section>
-          )}
+            );
+          })()}
         </main>
       </div>
       </ProjectsProvider>

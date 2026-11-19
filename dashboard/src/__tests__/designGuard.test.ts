@@ -59,6 +59,37 @@ describe('Night Glass design guard', () => {
     expect(hits, `retired look found — use ${instead} (docs/DESIGN.md)`).toEqual([]);
   });
 
+  /**
+   * THE ONE EXCEPTION: the World view (V3, docs/DESIGN.md "The World view").
+   *
+   * The Agents screen is a pixel-art scene, so pixel avatars exist again — but only there.
+   * Everything drawn OVER the scene (overhead panels, filters, the cartridge drawer) is still
+   * Night Glass. This is set-based over every source file: pixel art may live in src/world/
+   * and be mounted by App, and nowhere else.
+   */
+  it('pixel avatars and scene art stay inside the World view', () => {
+    const design = readFileSync(resolve(DASH, '../docs/DESIGN.md'), 'utf8');
+    expect(design, 'the exception must be written down where the rule is').toMatch(/## The World view/);
+    const hits: string[] = [];
+    for (const f of FILES) {
+      const rel = relative(DASH, f).split('\\').join('/');
+      if (rel.startsWith('src/world/') || rel === 'src/App.tsx') continue;
+      readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+        if (/world\/(Avatar|WorldScene|sites)|\/world\/[a-z-]+\.(jpg|png)|shapeRendering="crispEdges"/.test(line)) hits.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(hits, 'scene art used outside the World view — panels and pages stay Night Glass').toEqual([]);
+  });
+
+  it('the World view itself brings back none of the retired look', () => {
+    const world = FILES.filter((f) => relative(DASH, f).split('\\').join('/').startsWith('src/world/'));
+    expect(world.length, 'src/world/ is empty — the scene is gone').toBeGreaterThan(2);
+    for (const f of world) {
+      const src = readFileSync(f, 'utf8');
+      for (const { name, pattern } of RULES) expect(pattern.test(src), `${name} in ${relative(DASH, f)}`).toBe(false);
+    }
+  });
+
   it('the palette keeps the old class names pointed at Night Glass', () => {
     // Re-pointing is what makes an old-look drop render in the new colours before it is
     // restyled. If someone restores the stock violet scale, every unconverted class goes purple.
