@@ -13,7 +13,7 @@ import { setDesktopStatus } from '../lib/osNotify';
 import type { DesktopNotificationStatus } from '../types';
 
 const MODES: { value: DesktopNotificationStatus['mode']; label: string; hint: string }[] = [
-  { value: 'action', label: 'When something needs me', hint: 'Permissions, questions, decisions, held steps, stuck agents, a Goal Pilot waiting on you.' },
+  { value: 'action', label: 'When something needs me', hint: 'Permissions, questions, decisions, held steps, stuck agents, a feature pipeline waiting on you.' },
   { value: 'all', label: 'Everything', hint: 'Also finished runs, completed pipelines and gates released without you.' },
   { value: 'off', label: 'Off', hint: 'Nothing on this computer\'s notification centre.' },
 ];

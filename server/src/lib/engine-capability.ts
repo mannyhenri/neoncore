@@ -259,6 +259,10 @@ export const FUNCTIONS: AgentFunction[] = [
   // invent. The text lands in every prompt dispatched under the goal, so a weaker engine
   // confabulating an acceptance criterion here becomes an instruction other agents act on.
   f('neoncore_submit_goal_draft', 'T5', 'batch', 'mcpTool'),
+  // "Generate with AI" for a codebase new to NeonCore: the architecture, the existing features with
+  // specs of how they behave today, the changelog from git and the backlog. Same judgement class as
+  // a goal draft — it writes what every later feature is planned against — so the same tier.
+  f('neoncore_submit_project_import', 'T5', 'batch', 'mcpTool'),
   // Decomposition is planning under constraint: reading a codebase well enough to name work
   // that actually exists, scoping each task to something independently verifiable, and getting
   // the dependency order right. Every accepted task is dispatched to a cartridge, so a plausible

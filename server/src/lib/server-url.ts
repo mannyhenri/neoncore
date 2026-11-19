@@ -10,7 +10,7 @@
  * Precedence:
  *   1. NEONCORE_URL   — full explicit URL, wins outright (trailing slash trimmed).
  *   2. NEONCORE_HOST  — explicit host/IP; combined with the resolved port.
- *   3. os.hostname()  — the machine's network name (e.g. "Mannys-Mac-Pro.local" on
+ *   3. os.hostname()  — the machine's network name (e.g. "Studio-Mac.local" on
  *                       macOS). Bare names with no dot get ".local" appended so mDNS
  *                       can resolve them across the LAN.
  *   4. first non-internal IPv4 address.
@@ -20,41 +20,8 @@ import os from 'os';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
 
-/** The port the HTTP server listens on. PORT wins; NEONCORE_PORT is the legacy alias. */
-export function getServerPort(): string {
-  return process.env.PORT || process.env.NEONCORE_PORT || '4040';
-}
-
-function firstLanIP(): string | null {
-  const interfaces = os.networkInterfaces();
-  for (const devName of Object.keys(interfaces)) {
-    for (const iface of interfaces[devName] || []) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return null;
-}
-
-/** A host reachable from other machines on the LAN — never a bare "localhost" unless nothing better exists. */
-export function getServerHost(): string {
-  const override = process.env.NEONCORE_HOST?.trim();
-  if (override) return override;
-
-  const hostname = os.hostname()?.trim();
-  if (hostname && hostname.toLowerCase() !== 'localhost') {
-    // macOS reports "Foo.local" already; append ".local" to bare names so mDNS resolves them.
-    return hostname.includes('.') ? hostname : `${hostname}.local`;
-  }
-
-  return firstLanIP() || 'localhost';
-}
-
-/** The base URL other machines should use to reach this NeonCore server (no trailing slash). */
-export function getServerBaseUrl(): string {
-  const explicit = process.env.NEONCORE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, '');
-  return `http://${getServerHost()}:${getServerPort()}`;
-}
+export { getServerPort, getServerHost, getServerBaseUrl } from './server-address.js';
+import { getServerBaseUrl } from './server-address.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Federation identity — WHO this server is, as distinct from how to reach it.

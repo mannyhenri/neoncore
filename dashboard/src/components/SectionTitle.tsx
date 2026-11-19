@@ -31,6 +31,23 @@ export function SectionTitle({ children, count, actions }: {
 }
 
 /** The small uppercase label over a group ("ACTIVE RUNS · 2", "TEMPLATES · 21"). */
+/**
+ * The big name at the top of a working surface — a project, a feature (Night Glass hero, 28px
+ * display). Shared so a screen never hand-rolls its own heading typography.
+ */
+export function PageTitle({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <h2 className={`font-display text-[28px] leading-tight font-semibold text-gray-100 flex items-center gap-3 ${className}`}>
+      {children}
+    </h2>
+  );
+}
+
+/** A dialog's title (22px display). */
+export function DialogTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="font-display text-[22px] font-semibold text-gray-100">{children}</h2>;
+}
+
 export function Eyebrow({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
     <div className={`text-[12px] uppercase tracking-[0.12em] text-gray-400 ${className}`}>{children}</div>

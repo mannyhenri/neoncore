@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Eyebrow, SegMeter } from './SectionTitle';
+import { Eyebrow, SegMeter, DialogTitle, SectionTitle } from './SectionTitle';
 import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
@@ -281,25 +281,21 @@ export function WorkflowPanel({ agents }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="font-display text-xl font-semibold text-gray-100 flex items-center gap-2">
-          Workflows
-          {totalActive > 0 && (
-            <span className="font-sans text-[12px] font-semibold px-2 py-0.5 rounded-full bg-neon-500/15 text-neon-300">
-              {totalActive} active
-            </span>
-          )}
-        </h2>
+      <SectionTitle actions={
         <button
           onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
           className="text-sm font-semibold text-neon-400 hover:text-neon-200 transition-colors"
         >
           + New Workflow
         </button>
-        {/* Confer used to sit here. It moved to the header alongside Launch and New Repo:
-            this panel renders only on the Agents view, which silently made starting a
-            confer impossible from Goals and Tasks. */}
-      </div>
+      }>
+          Workflows
+          {totalActive > 0 && (
+            <span className="font-sans text-[12px] font-semibold px-2 py-0.5 rounded-full bg-neon-500/15 text-neon-300">
+              {totalActive} active
+            </span>
+          )}
+      </SectionTitle>
 
         <div className="space-y-4">
           {/* Active runs */}
@@ -1080,7 +1076,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[640px] max-w-[calc(100vw-32px)] max-h-[85vh] flex flex-col">
         <div className="flex items-start justify-between px-[26px] pt-[26px] pb-2">
           <div>
-            <h2 className="font-display text-[22px] font-semibold text-gray-100">Configure &amp; Run — {wf.name}</h2>
+            <DialogTitle>Configure &amp; Run — {wf.name}</DialogTitle>
             <p className="text-[13px] text-gray-400 mt-1">Fill in the required fields before running.</p>
           </div>
           <button onClick={() => setDeferredPopup(null)} aria-label="Close" className="w-10 h-10 rounded-[10px] btn-ghost text-lg leading-none">&times;</button>

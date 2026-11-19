@@ -100,6 +100,10 @@ const AUTHORED_FIELDS: { column: string; label: string; sample: string; set: (v:
 const AUTHORED_NOT_DISPATCHED: { column: string; why: string }[] = [
   { column: 'owner', why: 'accountability metadata — an agent does not work differently because of who owns the goal' },
   { column: 'investment_category', why: 'a finance and reporting attribute; it does not change how the work is done' },
+  // V6 (projects → features). A feature is a goal row filed under a project.
+  { column: 'project_id', why: 'the project reaches the planner through goal-pilot-prompts projectContext (its repos, notes and sibling features), not through the per-goal brief' },
+  { column: 'position', why: 'the feature\'s order on its project\'s list — what to pick up next, not how to do this one' },
+  { column: 'roadmap_lane', why: 'Now / Next / Later on the roadmap — planning metadata for people, not an instruction' },
 ];
 
 test('the registry covers every authored column on the goals table', () => {
@@ -112,6 +116,9 @@ test('the registry covers every authored column on the goals table', () => {
   const DERIVED = [
     'id', 'created_at', 'updated_at', 'status', 'token_budget', 'success_metric',
     'budget_alert_state',
+    // V6: set by the system — when the feature was marked done, and whether it was imported
+    // from an existing codebase ("Generate with AI") rather than written by a person.
+    'done_at', 'origin',
   ];
   const excluded = new Set([...DERIVED, ...AUTHORED_NOT_DISPATCHED.map((f) => f.column)]);
   const authored = cols.filter((c) => !excluded.has(c));

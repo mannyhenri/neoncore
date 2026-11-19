@@ -109,10 +109,11 @@ test('the promptless shells are retired AND deprecated, not merely unlisted', ()
   // names, so an unlisted template lingers in every EXISTING database forever. That is what
   // `deprecatedNames` is for, and forgetting it is invisible on a fresh database.
   const src = read('server/src/lib/templates/index.ts');
-  const dep = src.slice(src.indexOf('const deprecatedNames'), src.indexOf(']', src.indexOf('const deprecatedNames')));
+  const depAt = src.indexOf('RETIRED_TEMPLATE_NAMES: readonly string[] = [');
+  const dep = src.slice(depAt, src.indexOf('];', depAt));
   for (const name of RETIRED_TEMPLATES) {
     assert.ok(dep.includes(name),
-      `"${name}" is unlisted but not in deprecatedNames — it will survive in existing databases`);
+      `"${name}" is unlisted but not in RETIRED_TEMPLATE_NAMES — it will survive in existing databases`);
   }
 });
 

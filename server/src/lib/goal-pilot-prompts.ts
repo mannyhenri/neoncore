@@ -33,6 +33,40 @@ function goalRow(goalId: string): Record<string, unknown> {
   return (db.prepare('SELECT * FROM goals WHERE id = ?').get(goalId) as Record<string, unknown> | undefined) ?? {};
 }
 
+/**
+ * The project the feature belongs to: what it is, which repos its work happens in, and the OTHER
+ * features on its list. The siblings matter most — a project lists many features and each is scoped
+ * on its own, so without them a planner happily folds the next three features into this one.
+ */
+/** How much of the project's architecture notes reaches a planner prompt. */
+export const ARCHITECTURE_IN_PROMPT_MAX = 3000;
+
+export function projectContext(goalId: string): { lines: string[]; data: Record<string, unknown> | null } {
+  const g = goalRow(goalId);
+  const pid = String(g.project_id || '');
+  if (!pid) return { lines: [], data: null };
+  const p = db.prepare('SELECT id, name, description, primary_repo, architecture FROM projects WHERE id = ?').get(pid) as
+    { id: string; name: string; description: string; primary_repo: string; architecture: string } | undefined;
+  if (!p) return { lines: [], data: null };
+  const repos = [...new Set([p.primary_repo, ...((db.prepare('SELECT repo_path FROM project_cartridges WHERE project_id = ? ORDER BY repo_path').all(pid) as { repo_path: string }[]).map((r) => r.repo_path))].filter(Boolean))];
+  const siblings = (db.prepare('SELECT id, name, status FROM goals WHERE project_id = ? AND id != ? ORDER BY position, created_at').all(pid, goalId) as { id: string; name: string; status: string }[]);
+  const archFull = (p.architecture || '').trim();
+  const arch = archFull.length > ARCHITECTURE_IN_PROMPT_MAX ? `${archFull.slice(0, ARCHITECTURE_IN_PROMPT_MAX)}\n…(clipped)` : archFull;
+  const lines = [
+    `PROJECT: ${p.name}${p.description ? ` — ${p.description.replace(/\s+/g, ' ')}` : ''}`,
+    ...(repos.length ? [`Repos in this project: ${repos.join(', ')}`] : []),
+    ...(siblings.length
+      ? ['Other features on this project\'s list — each is scoped and built SEPARATELY, so they are OUT OF SCOPE here',
+        '(do not plan them into this feature; note a dependency on one as an assumption):',
+        ...siblings.slice(0, 20).map((f) => `  · ${f.name}${f.status === 'achieved' ? ' (done)' : ''}`)]
+      : []),
+    // How the product is built — written when the project was taken on (lib/project-import.ts) or by a
+    // person. Clipped: it grounds the questions; the repo itself is still the authority.
+    ...(arch ? ['HOW THE PRODUCT IS BUILT (the project\'s architecture notes — check the code where it matters):', arch] : []),
+  ];
+  return { lines, data: { id: p.id, name: p.name, description: p.description, repos, otherFeatures: siblings.map((f) => f.name), architecture: arch } };
+}
+
 function intakeLines(pilot: GoalPilot): string[] {
   return INTAKE_QUESTIONS
     .filter((q) => pilot.intake[q.key])
@@ -71,6 +105,7 @@ function dataBlock(data: unknown): string[] {
 
 export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
   const goal = goalRow(pilot.goalId);
+  const project = projectContext(pilot.goalId);
   const round = pilot.rounds.length + 1;
   const last = round >= MAX_SCOPE_ROUNDS;
   const asked = decisions(pilot);
@@ -78,14 +113,15 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
 
   return [
     requestHeader('scope', requestId),
-    'You are the PLANNER for a NeonCore goal. You are not building anything: do not write code, do not',
+    'You are the PLANNER for one FEATURE of a NeonCore project (NeonCore calls it a goal). You are not building anything: do not write code, do not',
     'edit files, do not create tasks or workflows.',
     '',
     'YOUR JOB: make the scope of this goal specific enough that the agents who execute it will NOT NEED TO',
     'ASK ANYTHING once work starts. Either ask the questions that are still open, or — when nothing that',
     'would change what gets built is still open — write the scope brief.',
     '',
-    `GOAL: ${goal.name ?? pilot.intake.goal ?? ''}`,
+    `FEATURE: ${goal.name ?? pilot.intake.goal ?? ''}`,
+    ...(project.lines.length ? ['', ...project.lines] : []),
     '',
     'WHAT THE PERSON TOLD US:',
     ...intakeLines(pilot),
@@ -135,6 +171,7 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
     ...dataBlock({
       requestId, kind: 'scope', round, maxRounds: MAX_SCOPE_ROUNDS, maxQuestions: MAX_QUESTIONS_PER_ROUND,
       goal: { id: pilot.goalId, name: goal.name ?? '' },
+      project: project.data,
       intake: pilot.intake,
       involvement: involvement.value,
       rounds: pilot.rounds.map((r) => ({
@@ -167,11 +204,12 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
 
   return [
     requestHeader('pipeline', requestId),
-    'You are the PLANNER for a NeonCore goal whose scope is now settled. Propose the WORKFLOWS that will',
+    'You are the PLANNER for a NeonCore feature (goal) whose scope is now settled. Propose the WORKFLOWS that will',
     'deliver it, in the order they should run. You are not building anything: do not write code, do not',
     'edit files, do not start workflows.',
     '',
-    `GOAL: ${goal.name ?? ''}`,
+    `FEATURE: ${goal.name ?? ''}`,
+    ...projectContext(pilot.goalId).lines,
     `WORK TYPE: ${pilot.intake.workType ?? 'unspecified'}`,
     `INVOLVEMENT: ${involvement.label} — ${involvement.hint}`,
     '',
@@ -336,12 +374,12 @@ export function buildReviewPrompt(pilot: GoalPilot, contract: AcceptanceContract
   const items = checklistCriteria(contract);
   return [
     requestHeader('review', requestId),
-    'You are an INDEPENDENT REVIEWER for a NeonCore goal. Other agents did the work; you did not. Judge',
+    'You are an INDEPENDENT REVIEWER for a NeonCore feature. Other agents did the work; you did not. Judge',
     'each criterion below against what ACTUALLY exists — read the files, run what you need to — and say',
     'whether it is met. Do NOT fix, edit or create anything: a reviewer who repairs the work is no longer',
     'independent.',
     '',
-    `GOAL: ${goal.name ?? ''}`,
+    `FEATURE: ${goal.name ?? ''}`,
     ...(brief ? [`SCOPE: ${brief.summary}`] : []),
     '',
     // The reviewer may be a cartridge in ANOTHER repo of the pipeline (it must not have done the

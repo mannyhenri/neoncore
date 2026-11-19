@@ -65,7 +65,7 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // designed"): navigation moves to the slim left view bar, with Guide and Settings at its
   // foot. The views and the chrome move TOGETHER — the partial move this file guards against.
   { name: 'Agents view switch', marker: /setActiveView\('agents'\)/, region: 'nav' },
-  { name: 'Goals view switch', marker: /setActiveView\('goals'\)/, region: 'nav' },
+  { name: 'Projects view switch', marker: /setActiveView\('projects'\)/, region: 'nav' },
   { name: 'Tasks view switch', marker: /setActiveView\('tasks'\)/, region: 'nav' },
   { name: 'Guide', marker: /setGuideOpen\(true\)/, region: 'nav' },
   { name: 'Settings', marker: /setSettingsOpen\(true\)/, region: 'nav' },
@@ -102,8 +102,8 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // where we work". The 1/3 IS the aside and the 2/3 IS the main — a nested split inside
   // <main> would produce the same proportions in the wrong place and pass any test that
   // only checked for a grid, so the assertion has to be regional.
-  { name: 'Goals list', marker: /<GoalsRail/, region: 'aside' },
-  { name: 'Goals working surface', marker: /<GoalsWorkspace/, region: 'main' },
+  { name: 'Projects list', marker: /<ProjectsRail/, region: 'aside' },
+  { name: 'Projects working surface', marker: /<ProjectsWorkspace/, region: 'main' },
 ];
 
 /**
@@ -116,7 +116,7 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
  */
 const RAIL_OCCUPANTS: { name: string; marker: RegExp; view: string }[] = [
   { name: 'Workflows', marker: /<WorkflowPanel/, view: 'agents' },
-  { name: 'Goals list', marker: /<GoalsRail/, view: 'goals' },
+  { name: 'Projects list', marker: /<ProjectsRail/, view: 'projects' },
 ];
 
 describe('dashboard chrome placement', () => {
@@ -174,11 +174,11 @@ describe('dashboard chrome placement', () => {
   it.each(RAIL_OCCUPANTS)('$name does not declare its own rail clearance', ({ name }) => {
     // One source of truth for the gutter. A second one here would double the padding on one
     // view and diverge from the other the moment either is tuned.
-    const file = name === 'Workflows' ? '../components/WorkflowPanel.tsx' : '../components/GoalsPage.tsx';
+    const file = name === 'Workflows' ? '../components/WorkflowPanel.tsx' : '../components/ProjectsPage.tsx';
     const src = readFileSync(resolve(HERE, file), 'utf8');
     const start = name === 'Workflows'
       ? src.indexOf('export function WorkflowPanel')
-      : src.indexOf('export function GoalsRail');
+      : src.indexOf('export function ProjectsRail');
     expect(start, `${name} is gone`).toBeGreaterThan(-1);
     // The component's ROOT element only — inner cards legitimately have their own padding.
     const root = src.slice(src.indexOf('return (', start), src.indexOf('return (', start) + 220);
@@ -198,21 +198,12 @@ describe('dashboard chrome placement', () => {
     expect(asideTag).toMatch(/max-h-/);
   });
 
-  it('the Goals rail offers Goal before Project — containment order', () => {
-    // They shipped Project-then-Goal, which inverts the hierarchy the page is built on: a
-    // project lives UNDER a goal. This is the one place a user meets both controls at once, so
-    // the order is the only thing teaching which contains which.
-    //
-    // Worth noting because it comes up: Goal > Project is Linear's model (Initiative > Project
-    // > Issue), not an invention here. It reads backwards only against Jira, where Project is
-    // the top-level container.
-    const src = readFileSync(resolve(HERE, '../components/GoalsPage.tsx'), 'utf8');
-    const rail = src.slice(src.indexOf('export function GoalsRail'));
-    const goal = rail.indexOf("setModal({ type: 'new-goal' })");
-    const project = rail.indexOf("setModal({ type: 'new-project', goalId: null })");
-    expect(goal, '+ Goal is missing from the rail').toBeGreaterThan(-1);
-    expect(project, '+ Project is missing from the rail').toBeGreaterThan(-1);
-    expect(goal, '+ Project renders before + Goal, inverting the hierarchy').toBeLessThan(project);
+  it('the Projects rail starts a project — the top of the Project → Features hierarchy', () => {
+    // V6: projects are the top level and features live inside a project's page, so the rail's
+    // one create action is "+ Project" (features are added from the project's own list).
+    const src = readFileSync(resolve(HERE, '../components/ProjectsPage.tsx'), 'utf8');
+    const rail = src.slice(src.indexOf('export function ProjectsRail'));
+    expect(rail.indexOf("setModal({ type: 'new-project' })"), '+ Project is missing from the rail').toBeGreaterThan(-1);
   });
 
   it('a modal scrolls inside itself instead of growing past the viewport', () => {
@@ -220,7 +211,7 @@ describe('dashboard chrome placement', () => {
     // the window loses its title off the top and its Save button off the bottom with no way to
     // reach either. Found when the Phase 7 planning fields pushed the goal form over the line;
     // asserted on the shared Modal because the next long form would hit it again.
-    const src = readFileSync(resolve(HERE, '../components/GoalsPage.tsx'), 'utf8');
+    const src = readFileSync(resolve(HERE, '../components/ProjectParts.tsx'), 'utf8');
     const at = src.indexOf('function Modal(');
     expect(at, 'the shared Modal is gone').toBeGreaterThan(-1);
     const body = src.slice(at, at + 1600);
@@ -295,7 +286,7 @@ describe('dashboard chrome placement', () => {
    * is second and stays the default view; Tasks and Tokens follow. Pinned as adjacent pairs so a
    * reshuffle fails on the pair it broke.
    */
-  const VIEW_ORDER = ['goals', 'agents', 'tasks', 'tokens'] as const;
+  const VIEW_ORDER = ['projects', 'agents', 'tasks', 'tokens'] as const;
 
   it.each(
     VIEW_ORDER.slice(0, -1).map((left, i) => ({ left, right: VIEW_ORDER[i + 1] })),
@@ -333,16 +324,16 @@ describe('dashboard chrome placement', () => {
     expect(initialViewDeclaration()).toMatch(/'agents'/);
   });
 
-  it('a goal deep link opens the Goals view, not the default one', () => {
+  it('a project or feature deep link opens the Projects view, not the default one', () => {
     const init = initialViewDeclaration();
     expect(
       init,
-      'the initial view ignores the URL — #goal/<id> would land on Agents with the goal ' +
-      'selected in a pane that is not rendered',
-    ).toMatch(/parseGoalHash/);
+      'the initial view ignores the URL — #project/<id> (or an old #goal/<id>) would land on ' +
+      'Agents with the selection in a pane that is not rendered',
+    ).toMatch(/isProjectsHash/);
   });
 
-  it('a goal link arriving while the app is open also switches view', () => {
+  it('a projects link arriving while the app is open also switches view', () => {
     // Same defect, live rather than on load: clicking a notification link fires hashchange
     // without a reload, so selection would move while the view stayed put.
     const at = SRC.indexOf("addEventListener('hashchange'");
@@ -350,8 +341,8 @@ describe('dashboard chrome placement', () => {
     // The handler is normally declared just ABOVE the subscribe call, so look both ways
     // rather than assuming an order this test has no reason to constrain.
     const around = SRC.slice(Math.max(0, at - 500), at + 300);
-    expect(around, 'hashchange does not bring the Goals view with it')
-      .toMatch(/setActiveView\('goals'\)/);
+    expect(around, 'hashchange does not bring the Projects view with it')
+      .toMatch(/setActiveView\('projects'\)/);
   });
 
   /**

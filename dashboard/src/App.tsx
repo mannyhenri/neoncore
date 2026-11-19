@@ -8,8 +8,8 @@ import { MachineLauncher } from './components/MachineLauncher';
 import { NewRepoModal } from './components/NewRepoModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
-import { GoalsProvider, GoalsRail, GoalsWorkspace } from './components/GoalsPage';
-import { parseGoalHash } from './lib/goalSelection';
+import { ProjectsProvider, ProjectsRail, ProjectsWorkspace } from './components/ProjectsPage';
+import { isProjectsHash } from './lib/projectSelection';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
 import { ServerPicker } from './components/ServerPicker';
@@ -42,7 +42,7 @@ function NavItem({ active, onClick, label, badge, children }: { active: boolean;
 }
 
 const ICON = 'w-[22px] h-[22px]';
-const VIEW_TITLE = { agents: 'Agents', goals: 'Projects', tasks: 'Tasks', tokens: 'Tokens' } as const;
+const VIEW_TITLE = { agents: 'Agents', projects: 'Projects', tasks: 'Tasks', tokens: 'Tokens' } as const;
 
 export default function App() {
   // Virtual cartridges
@@ -102,18 +102,18 @@ export default function App() {
       prev.all === c.all && prev.working === c.working && prev.waiting === c.waiting && prev.idle === c.idle ? prev : c
     );
   }, []);
-  /* Agents is the default. A goal deep link overrides it, because addressing a goal without
+  /* Agents is the default. A project or feature deep link (`#project/…`, or the older `#goal/<id>`) overrides it, because addressing a goal without
      addressing the view that renders it is only half a link: `#goal/<id>` in a fresh tab
      otherwise opens Agents with the goal selected in a pane nobody is showing. */
-  const [activeView, setActiveView] = useState<'agents' | 'goals' | 'tasks' | 'tokens'>(
-    () => (typeof window !== 'undefined' && parseGoalHash(window.location.hash) ? 'goals' : 'agents'),
+  const [activeView, setActiveView] = useState<'agents' | 'projects' | 'tasks' | 'tokens'>(
+    () => (typeof window !== 'undefined' && isProjectsHash(window.location.hash) ? 'projects' : 'agents'),
   );
 
   // The same link, followed while the app is already open, arrives as hashchange instead of
   // a load — so the view has to move here too, or a notification click silently does nothing.
   useEffect(() => {
     const onHash = () => {
-      if (parseGoalHash(window.location.hash)) setActiveView('goals');
+      if (isProjectsHash(window.location.hash)) setActiveView('projects');
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -169,7 +169,7 @@ export default function App() {
         aria-label="Views"
         className="order-last md:order-first fixed md:sticky bottom-0 md:top-0 inset-x-0 md:inset-x-auto z-30 md:h-screen md:w-[76px] flex-shrink-0 flex md:flex-col items-center justify-around md:justify-start gap-2 px-2 py-2 md:py-[18px] border-t md:border-t-0 md:border-r border-white/[0.08] bg-gray-950"
       >
-        <NavItem active={activeView === 'goals'} onClick={() => setActiveView('goals')} label="Projects">
+        <NavItem active={activeView === 'projects'} onClick={() => setActiveView('projects')} label="Projects">
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
         </NavItem>
         <NavItem active={activeView === 'agents'} onClick={() => setActiveView('agents')} label="Agents">
@@ -201,6 +201,10 @@ export default function App() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
           </svg>
         </button>
+        {/* The release this dashboard is — read from the root package.json at build time. */}
+        <span className="hidden md:block text-[11px] font-mono font-semibold text-gray-500 tracking-wide" title={`NeonCore ${__APP_VERSION__}`}>
+          V{__APP_VERSION__.split('.').slice(0, 2).join('.')}
+        </span>
       </nav>
 
       <div className="flex-1 min-w-0 flex flex-col pb-20 md:pb-0">
@@ -242,7 +246,7 @@ export default function App() {
       {/* Work area — a persistent rail on the left (Workflows on Agents, the goals list on
           Projects), the working surface on the right. The rail is sticky and scrolls on its
           own; below lg it stacks above the main column. Tokens has no rail. */}
-      <GoalsProvider active={activeView === 'goals'} agents={agents}>
+      <ProjectsProvider active={activeView === 'projects'} agents={agents}>
       <div className={`p-4 md:p-6 grid grid-cols-1 gap-6 items-start ${activeView === 'tokens' || activeView === 'tasks' ? '' : 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]'}`}>
         <aside className={`${activeView === 'tokens' || activeView === 'tasks' ? 'hidden' : ''} ${activeView === 'agents' ? 'order-last lg:order-none' : ''} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
           {activeView === 'agents' && (
@@ -250,12 +254,12 @@ export default function App() {
               <WorkflowPanel agents={agents} />
             </section>
           )}
-          {activeView === 'goals' && <GoalsRail />}
+          {activeView === 'projects' && <ProjectsRail />}
         </aside>
 
         <main className="space-y-5 min-w-0">
-          {activeView === 'goals' ? (
-            <GoalsWorkspace />
+          {activeView === 'projects' ? (
+            <ProjectsWorkspace />
           ) : activeView === 'tokens' ? (
             <TokensPage servers={servers} />
           ) : activeView === 'tasks' ? (
@@ -337,7 +341,7 @@ export default function App() {
           )}
         </main>
       </div>
-      </GoalsProvider>
+      </ProjectsProvider>
       </div>
 
       {/* Guide Modal */}

@@ -18,15 +18,36 @@
  * other rather than against hand-written numbers.
  *
  * ── TWO SCOPES, NOT ONE ────────────────────────────────────────────────────────────────
- * Cost and reach resolve goal → projects → CARTRIDGES, because spend is attributed to whoever
- * did the work. Progress and health resolve goal → projects → RUNS, because completion is a
- * property of the workflow, not of the machine that executed it. Both start from the same
- * `goalProjectIds`, which is the part that must never fork again.
+ * Reach resolves goal → projects → CARTRIDGES. Progress and health resolve goal → RUNS, because
+ * completion is a property of the workflow, not of the machine that executed it. Cost is
+ * attributed to a feature through its runs (goal-cost.ts) — a project's cartridges are shared by
+ * all of its features, so "everything those cartridges spent" would bill every feature for all
+ * the others.
  */
 import db from '../db.js';
 import { agentIdsForRepo } from './resolve-agent.js';
 
-/** Projects under this goal. The root every other scope in this file builds on. */
+/**
+ * ── PROJECT → FEATURES ─────────────────────────────────────────────────────────────────
+ * A goal row is now a FEATURE of a project (goals.project_id). Two ownership routes therefore
+ * exist side by side, and every function below honours both:
+ *
+ *   new     feature → its project (goals.project_id); its runs are tagged workflows.goal_id
+ *   legacy  goal → the projects that point at it (projects.goal_id); their untagged runs
+ *
+ * A project now holds many features, so a run in a project is NOT automatically a run of every
+ * feature in it — only the one it was launched for (workflows.goal_id). A legacy project's runs
+ * count for its goal only while untagged, so a feature added to that project later never has its
+ * runs counted twice.
+ */
+
+/** The project a feature belongs to, or '' for an old-style goal not filed under one. */
+export function featureProjectId(goalId: string): string {
+  if (!goalId) return '';
+  return ((db.prepare('SELECT project_id FROM goals WHERE id = ?').get(goalId) as { project_id?: string } | undefined)?.project_id) || '';
+}
+
+/** Projects under this goal the OLD way (projects.goal_id). */
 export function goalProjectIds(goalId: string): string[] {
   if (!goalId) return [];
   const rows = db.prepare('SELECT id FROM projects WHERE goal_id = ?').all(goalId) as { id: string }[];
@@ -34,7 +55,8 @@ export function goalProjectIds(goalId: string): string[] {
 }
 
 /**
- * Repos owned by this goal's projects, by BOTH ownership routes.
+ * Repos this goal's work happens in: the feature's project's repos, plus the repos of any
+ * projects that point at it the old way — by BOTH ownership routes of a project.
  *
  * `project_cartridges` is the explicit multi-repo set; `primary_repo` is the older single-repo
  * link. A project can use either, and dropping one silently zeroes every metric for the goals
@@ -44,12 +66,12 @@ export function goalRepos(goalId: string): string[] {
   if (!goalId) return [];
   const rows = db.prepare(`
     SELECT p.primary_repo AS repo FROM projects p
-     WHERE p.goal_id = ? AND p.primary_repo != ''
+     WHERE (p.goal_id = ? OR p.id = (SELECT project_id FROM goals WHERE id = ?)) AND p.primary_repo != ''
     UNION
     SELECT pc.repo_path AS repo FROM project_cartridges pc
       JOIN projects p ON p.id = pc.project_id
-     WHERE p.goal_id = ?
-  `).all(goalId, goalId) as { repo: string }[];
+     WHERE p.goal_id = ? OR p.id = (SELECT project_id FROM goals WHERE id = ?)
+  `).all(goalId, goalId, goalId, goalId) as { repo: string }[];
   return rows.map((r) => r.repo).filter(Boolean);
 }
 
@@ -65,7 +87,8 @@ export function goalAgentIds(goalId: string): string[] {
 }
 
 /**
- * Workflow RUNS belonging to this goal, newest first.
+ * Workflow RUNS belonging to this goal, newest first: every run launched for it (goal_id), plus
+ * the untagged runs of projects that point at it the old way.
  *
  * Templates are excluded. They are definitions, not work: the live database holds 165 pending
  * steps belonging to templates alone, so counting them would peg every goal at a permanent low
@@ -81,14 +104,16 @@ export function goalAgentIds(goalId: string): string[] {
  * wrong.
  */
 export function goalRunIds(goalId: string): string[] {
+  if (!goalId) return [];
   const projectIds = goalProjectIds(goalId);
-  if (projectIds.length === 0) return [];
-  const placeholders = projectIds.map(() => '?').join(',');
+  const legacy = projectIds.length
+    ? ` OR (goal_id = '' AND project_id IN (${projectIds.map(() => '?').join(',')}))`
+    : '';
   const rows = db.prepare(
     `SELECT id FROM workflows
       WHERE template_id IS NOT NULL AND template_id != ''
-        AND project_id IN (${placeholders})
+        AND (goal_id = ?${legacy})
       ORDER BY created_at DESC`,
-  ).all(...projectIds) as { id: string }[];
+  ).all(goalId, ...projectIds) as { id: string }[];
   return rows.map((r) => r.id);
 }

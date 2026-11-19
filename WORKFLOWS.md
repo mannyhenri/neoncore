@@ -15,10 +15,10 @@ Many templates follow a **TDD-first** approach (tests after design, before imple
 **quality-gate** steps or **routing rules** that send the run back to an earlier step when a check
 fails, up to a cycle limit.
 
-> **Workflows vs. tasks vs. goals.** A *workflow* is a multi-step recipe run on a cartridge or
+> **Workflows vs. tasks vs. features.** A *workflow* is a multi-step recipe run on a cartridge or
 > project. A *task* (see [docs/TASKS.md](docs/TASKS.md)) is a single queued unit of work for an
-> agent. Both run against a project, and their cost rolls up to that project's *goal* (see
-> [docs/GOALS.md](docs/GOALS.md)). For the gstack session *template* (not a NeonCore workflow) see
+> agent. Both run against a project; a workflow can also run as a stage of one of the project's
+> *features* (see [docs/GOALS.md](docs/GOALS.md)). For the gstack session *template* (not a NeonCore workflow) see
 > [docs/gstack-feature-delivery-workflow.md](docs/gstack-feature-delivery-workflow.md).
 
 ---

@@ -41,6 +41,17 @@ export const NO_STANDARD_GATE_TEMPLATES = [
   'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 7 — Compound', 'Super QA',
 ] as const;
 
+/**
+ * Templates that used to be standard and were removed or renamed. Every boot deletes them from
+ * existing databases (runStandardTemplateSeed, below). Exported so the sandbox's template import
+ * (sandbox/lib/templates-import.mjs) does not copy a retired one back in from an older database.
+ * Why each one went is recorded where they are deleted.
+ */
+export const RETIRED_TEMPLATE_NAMES: readonly string[] = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline',
+  'Gridlight Local QA', 'Gridlight Full Release QA', 'Gridlight Performance Improvement',
+  'CE: Full Delivery', 'Spec Intake → Dev Spec', 'Epic: Confer Across Repos', 'Full QA Review', 'Code Review & Audit',
+  'Daily AI Research Digest', 'Daily AI Filmmaking Digest'];
+
 export function runStandardTemplateSeed(db: DatabaseType): void {
   const standardNames = STANDARD_TEMPLATE_NAMES;
 
@@ -76,11 +87,7 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   //   Epic: Confer Across Repos — merged into Confer (give it a Jira epic).
   //   Full QA Review, Code Review & Audit — merged into Super QA.
   //   Daily AI Research Digest, Daily AI Filmmaking Digest — no longer wanted.
-  const deprecatedNames = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline',
-    'Gridlight Local QA', 'Gridlight Full Release QA', 'Gridlight Performance Improvement',
-    'CE: Full Delivery', 'Spec Intake → Dev Spec', 'Epic: Confer Across Repos', 'Full QA Review', 'Code Review & Audit',
-    'Daily AI Research Digest', 'Daily AI Filmmaking Digest'];
-  for (const name of deprecatedNames) {
+  for (const name of RETIRED_TEMPLATE_NAMES) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {
       db.prepare("DELETE FROM workflow_steps WHERE workflow_id = ?").run(row.id);
