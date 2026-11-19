@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import type { SendOutcome } from '../lib/deliveryNotice';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput, ConferSession, Workflow } from '../types';
 import { api } from '../lib/api';
 import { cartridgeProgress } from '../lib/cartridgeProgress';
@@ -39,7 +40,7 @@ interface CartridgeGridProps {
   stuckAlerts: StuckAlert[];
   onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
-  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void | Promise<SendOutcome | null | void>;
   onDelete: (agentId: string) => void;
   onDismiss: (agentId: string) => void;
   onRestore: (agentId: string) => void;

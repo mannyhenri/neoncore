@@ -441,10 +441,12 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     try {
       const { client, origin } = clientForAgent(agentId);
       console.log('[NeonCore] Sending command:', { agentId, origin: origin || 'local', includeMemory });
-      await client.sendCommand(agentId, text, includeMemory, attachments);
+      // Returned, not dropped: the card shows "not delivered" when no session was listening.
+      return await client.sendCommand(agentId, text, includeMemory, attachments);
     } catch (err) {
       console.error('[NeonCore] Failed to send command:', err);
       alert(`Failed to send command: ${err instanceof Error ? err.message : err}`);
+      return null;
     }
   }, [clientForAgent]);
 

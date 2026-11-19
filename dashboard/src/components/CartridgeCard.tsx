@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { undeliveredNotice, type SendOutcome, type UndeliveredNotice } from '../lib/deliveryNotice';
 import type { CartridgeProgress } from '../lib/cartridgeProgress';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, CommandAttachmentInput } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
@@ -23,7 +24,7 @@ interface CartridgeCardProps {
   stuckAlert?: StuckAlert;
   onDecidePermission: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onSetMode: (agentId: string, mode: AgentMode) => void;
-  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void;
+  onSendCommand: (agentId: string, text: string, includeMemory?: boolean, attachments?: CommandAttachmentInput[]) => void | Promise<SendOutcome | null | void>;
   onDelete: (agentId: string) => void;
   onDismiss: (agentId: string) => void;
   onDismissStuck: (agentId: string) => void;
@@ -436,6 +437,8 @@ export function CartridgeCard({
   onDismissStuck,
   onActivityClick,
 }: CartridgeCardProps) {
+  // Prompts the server stored with no session listening (transport "no-channel") — shown, not swallowed.
+  const [undelivered, setUndelivered] = useState<UndeliveredNotice[]>([]);
   // Only label cartridges from OTHER servers. Badging every card with "this machine"
   // would be noise on the single-server setup that most sessions still are.
   const originName = agent.origin ? agent.originName || agent.origin : '';
@@ -1006,10 +1009,31 @@ export function CartridgeCard({
                 const planSuffix = t.mode === 'plan'
                   ? '\n\nIMPORTANT: Enter plan mode first. Use the EnterPlanMode tool to create an implementation plan and get my approval before writing any code.'
                   : '';
-                onSendCommand(t.id, text + planSuffix, true, attachments);
+                // The server's answer says whether any session took it; "no-channel" means
+                // none did, and the card says so instead of looking sent.
+                Promise.resolve(onSendCommand(t.id, text + planSuffix, true, attachments)).then((o) => {
+                  const n = undeliveredNotice(t, o || null);
+                  setUndelivered((prev) => n ? [...prev.filter((x) => x.agentId !== n.agentId), n] : prev.filter((x) => x.agentId !== t.id));
+                }).catch(() => {});
               }
             }}
           />
+          {undelivered.map((n) => (
+            <div key={n.agentId} role="alert" className="mt-2 rounded-[12px] border border-ember-500/50 bg-ember-500/[0.08] px-3 py-2.5 text-[12px] text-ember-300">
+              <div className="flex items-start justify-between gap-2">
+                <p>
+                  <span className="font-semibold">Not delivered</span> — {n.who} isn&rsquo;t listening for prompts. It was started
+                  without the NeonCore relay, so the prompt is stored and nothing reads it.
+                  {n.relaunch ? ' Quit that session and relaunch it from its terminal:' : ' Relaunch it under the relay to receive prompts.'}
+                </p>
+                <button type="button" onClick={() => setUndelivered((prev) => prev.filter((x) => x.agentId !== n.agentId))}
+                  className="text-gray-400 hover:text-gray-200 font-semibold">Dismiss</button>
+              </div>
+              {n.relaunch && (
+                <code className="mt-1.5 block select-all break-all rounded-[8px] bg-ink/80 border border-white/[0.08] px-2 py-1.5 font-mono text-[11px] text-gray-200">{n.relaunch}</code>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* ── Mode selector + Plans toggle — apply to EVERY selected engine, not just the
