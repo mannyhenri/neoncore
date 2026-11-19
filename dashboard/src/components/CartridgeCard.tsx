@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import type { CartridgeProgress } from '../lib/cartridgeProgress';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, CommandAttachmentInput } from '../types';
 import { AgentModeSelector } from './AgentModeSelector';
 import { CommandInput } from './CommandInput';
@@ -13,6 +14,8 @@ import { api } from '../lib/api';
 
 interface CartridgeCardProps {
   agent: Agent;
+  /** The confer or run this cartridge is part of, as a real done/total — null draws no meter. */
+  progress?: CartridgeProgress | null;
   siblingAgents?: Agent[];
   allAgents?: Agent[];
   activities: Activity[];
@@ -48,7 +51,6 @@ const CARD_FRAME = {
 } as const;
 
 const SEG_CELLS = 24;
-const SEG_WINDOW_MS = 30 * 60_000;
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -420,6 +422,7 @@ function InlinePermission({ permission, onAllow, onDeny }: {
 
 export function CartridgeCard({
   agent,
+  progress = null,
   siblingAgents,
   allAgents,
   activities,
@@ -610,12 +613,11 @@ export function CartridgeCard({
       || resumeAfterRelaunchId === selectedAgent.id
     );
 
-  // The segmented activity bar: one lit cell per tool call in the last 30 minutes, capped at
-  // the bar's width. A busy cartridge reads full, a quiet one empty — a real measure, not decor.
-  const litCells = useMemo(
-    () => Math.min(SEG_CELLS, activities.filter((a) => tick - new Date(a.timestamp).getTime() < SEG_WINDOW_MS).length),
-    [activities, tick],
-  );
+  // The meter shows the PROGRESS of the work this cartridge is part of (a confer's milestones, a
+  // run's steps) — never activity. No work with a done/total, no meter.
+  const litCells = progress && progress.total > 0
+    ? Math.round((SEG_CELLS * Math.min(progress.done, progress.total)) / progress.total)
+    : 0;
   const segColor = effectiveStatus === 'waiting' || stuckAlert ? '#FF8A3D' : effectiveStatus === 'working' ? '#5AAEFF' : '#8A97B8';
 
   const iconBtn = 'w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] transition-colors';
@@ -766,18 +768,32 @@ export function CartridgeCard({
           <p className="text-[14px] leading-relaxed text-gray-300 line-clamp-2">{selectedAgent.activeObjective}</p>
         )}
 
-        {/* ── Segmented activity bar ── */}
-        <div className="flex gap-[3px]" aria-hidden="true" title={`${litCells} tool call${litCells === 1 ? '' : 's'} in the last 30 minutes`}>
-          {Array.from({ length: SEG_CELLS }).map((_, i) => (
-            <span
-              key={i}
-              className="flex-1 h-[5px] rounded-[2px]"
-              style={i < litCells
-                ? { background: segColor, boxShadow: `0 0 5px ${segColor}` }
-                : { background: 'rgba(120,150,255,0.12)' }}
-            />
-          ))}
-        </div>
+        {/* ── Progress of the work it is part of ── */}
+        {progress && progress.total > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-2 text-[12px]">
+              <span className="text-gray-400 truncate">
+                {progress.label}{progress.waitingOnOthers ? ' · done, waiting on the others' : ''}
+              </span>
+              <span className="font-mono text-gray-300 flex-shrink-0">{Math.min(progress.done, progress.total)}/{progress.total}</span>
+            </div>
+            <div
+              className="flex gap-[3px]"
+              role="img"
+              aria-label={`${progress.label}: ${Math.min(progress.done, progress.total)} of ${progress.total} ${progress.kind === 'confer' ? 'milestones' : 'steps'} done`}
+            >
+              {Array.from({ length: SEG_CELLS }).map((_, i) => (
+                <span
+                  key={i}
+                  className="flex-1 h-[5px] rounded-[2px]"
+                  style={i < litCells
+                    ? { background: segColor, boxShadow: `0 0 5px ${segColor}` }
+                    : { background: 'rgba(120,150,255,0.12)' }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* A question the agent asked and is waiting on. Previously the web showed nothing
             at all for this — only mobile did — so a cartridge could sit blocked on a

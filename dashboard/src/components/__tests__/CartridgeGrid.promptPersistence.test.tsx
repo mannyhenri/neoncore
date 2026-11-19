@@ -13,6 +13,9 @@ vi.mock('../../lib/api', () => ({
     openRepo: vi.fn().mockResolvedValue({}),
     recoverAgentSession: vi.fn().mockResolvedValue({}),
     dismissAgentRecovery: vi.fn().mockResolvedValue({}),
+    // The grid reads confers and runs for each card's progress meter.
+    getConfers: vi.fn().mockResolvedValue([]),
+    getWorkflows: vi.fn().mockResolvedValue([]),
   },
 }));
 

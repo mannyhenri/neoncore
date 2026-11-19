@@ -564,7 +564,16 @@ function ProjectDetail({ project }: { project: Project }) {
 
       {/* Repos & cartridges */}
       <div>
-        <h3 className="text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-2">Repos &amp; cartridges</h3>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <h3 className="text-[12px] text-gray-500 uppercase tracking-[0.12em]">Repos &amp; cartridges</h3>
+          {/* Asked for: "edit the repos/cartridges loaded into a project". The project form already
+              edits them; this puts the way in beside the list it changes, not only in the header. */}
+          {repos.length > 0 && (
+            <button onClick={() => setModal({ type: 'edit-project', project })} className="text-[12px] font-semibold text-neon-400 hover:text-neon-200 transition-colors">
+              Edit repos
+            </button>
+          )}
+        </div>
         {repos.length === 0 ? (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-ember-500/45 bg-ember-500/[0.08] shadow-[0_0_22px_rgba(255,138,61,0.12)] px-3 py-2.5">
             <p className="text-[13px] text-ember-300">Add the repos this project works in — every feature is built in them.</p>

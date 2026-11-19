@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput } from '../types';
+import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput, ConferSession, Workflow } from '../types';
+import { api } from '../lib/api';
+import { cartridgeProgress } from '../lib/cartridgeProgress';
 import { CartridgeCard } from './CartridgeCard';
 import { VirtualCartridgeCard } from './VirtualCartridgeCard';
 
@@ -121,6 +123,21 @@ export function CartridgeGrid({
   );
 
   // Group agents by machine:repoName → one cartridge per group.
+  // The work each cartridge is part of — confers and live runs — so its meter shows real progress
+  // (lib/cartridgeProgress). Polled: both change on the server's clock, not on agent events.
+  const [confers, setConfers] = useState<ConferSession[]>([]);
+  const [runs, setRuns] = useState<Workflow[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      api.getConfers().then((c) => { if (alive) setConfers(c); }).catch(() => {});
+      api.getWorkflows().then((w) => { if (alive) setRuns(w); }).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 15_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
   // Pick the agent with the best status as the primary; the rest are siblings.
   const { dedupedSorted, siblingMap } = useMemo(() => {
     // Group visible agents by machine:repoName
@@ -284,6 +301,7 @@ export function CartridgeGrid({
                 siblingAgents={siblingIds.map((id) => agents.find((a) => a.id === id)!).filter(Boolean)}
                 allAgents={agents}
                 activities={mergedActivities}
+                progress={cartridgeProgress(agent, siblingIds, confers, runs)}
                 permissions={mergedPermissions}
                 stuckAlert={mergedStuck}
                 onDecidePermission={onDecidePermission}

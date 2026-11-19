@@ -708,7 +708,7 @@ function AiGenerate({ project, agents, version, onChanged, parts, choose = false
 
   return (
     <div className="space-y-3">
-      <div className="rounded-[18px] border border-[#7C6CFF]/45 bg-[#7C6CFF]/[0.07] shadow-[0_0_26px_rgba(124,108,255,0.14)]">
+      <div className="rounded-[18px] border border-[#7C6CFF]/45 bg-[#7C6CFF]/[0.07] shadow-[0_0_26px_rgba(124,108,255,0.14)] p-5 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="max-w-xl min-w-0">
             <h4 className="text-[13px] text-gray-100 font-medium">{title}</h4>
