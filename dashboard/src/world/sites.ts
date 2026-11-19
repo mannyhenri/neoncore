@@ -131,10 +131,8 @@ export const OUTPOST: WorldPlate = {
     { id: 'heater', district: 'commons', sprite: 'heater', ...px(690, 350), w: 0.024 },
     { id: 'banner', district: 'commons', sprite: 'banner', ...px(528, 330), w: 0.024 },
     { id: 'pad-north', district: 'field', sprite: 'pad', ...px(1235, 300), w: 0.115, flat: true, door: px(1180, 300) },
-    { id: 'pad-south', district: 'field', sprite: 'pad', ...px(1235, 480), w: 0.115, flat: true, door: px(1180, 480) },
     // One shuttle per pad: it lands to bring a new agent or collect a leaving one, then goes.
     { id: 'shuttle-north', district: 'field', sprite: 'shuttle-0', ...px(1235, 285), w: 0.1, when: 'in-service', on: 'pad-north' },
-    { id: 'shuttle-south', district: 'field', sprite: 'shuttle-0', ...px(1235, 465), w: 0.1, when: 'in-service', on: 'pad-south' },
   ],
   // Fourteen work spots beside the structures, far enough apart that figures and their panels
   // do not overlap (sites.test.ts checks every pair). Listed in the order they fill, so the

@@ -125,7 +125,7 @@ describe('world plates and placement', () => {
       expect(plate.structures.filter((s) => s.district === d).length, `${d} buildings`).toBeGreaterThanOrEqual(1);
     }
     expect(plate.rest.every((r) => r.district === 'commons'), 'idle agents rest in the commons').toBe(true);
-    expect(plate.structures.filter((s) => s.sprite === 'pad').length, 'landing pads').toBeGreaterThanOrEqual(2);
+    expect(plate.structures.filter((s) => s.sprite === 'pad').length, 'one landing pad — this machine (servers are not linked)').toBe(1);
     expect(plate.figureScale).toBeGreaterThan(0.3);
   });
 });

@@ -354,13 +354,14 @@ describe('WorldScene', () => {
     extras.machines = [{ hostname: 'studio', status: 'offline' }, { hostname: 'laptop', status: 'online' }];
     const viaRunner = render(<WorldScene agents={[]} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
     const names = () => [...document.querySelectorAll<HTMLElement>('[data-pad-label]')].map((e) => `${e.dataset.padLabel}:${e.textContent}`);
-    expect(names()).toEqual(['pad-north:laptop', 'pad-south:studio · offline']);
+    // One dock (servers are not linked): the machine online holds it; an offline one gets none.
+    expect(names()).toEqual(['pad-north:laptop']);
     expect(shuttles(), 'the shuttle flies for a launch, not for a machine').toHaveLength(0);
     viaRunner.unmount();
 
     extras.machines = [{ hostname: 'studio', status: 'online' }];
     render(<WorldScene agents={[agent({ id: 'live', status: 'idle', machine: 'laptop.local' })]} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
-    expect(names().sort()).toEqual(['pad-north:laptop', 'pad-south:studio']);
+    expect(names()).toEqual(['pad-north:laptop']);
     expect(shuttles()).toHaveLength(0);
   });
 
@@ -674,14 +675,15 @@ describe('WorldScene', () => {
       const stay = agent({ id: 'stay', status: 'working', machine: 'alpha' });
       const { rerender } = render(scene([stay]));
       rerender(scene([stay, agent({ id: 'late', status: 'working', machine: 'beta.local' })]));
-      expect(ships(), 'beta holds the south pad').toEqual(['pad-south']);
+      // One dock: a second machine's agents land on it too.
+      expect(ships(), 'beta lands on the one dock').toEqual(['pad-north']);
       step(4600);
       const late = figure('late');
       expect(late.dataset.anim).toBe('walk');
       step(15000);
       expect(ships()).toEqual([]);
       const at = [figure('late').style.left, figure('late').style.top];
-      expect(at).not.toEqual([pct(door('pad-south').x), pct(door('pad-south').y)]);
+      expect(at).not.toEqual([pct(door('pad-north').x), pct(door('pad-north').y)]);
 
       // Its session ends: the figure is replaced by one walking back to the pad; the shuttle comes for it.
       rerender(scene([stay]));
@@ -689,9 +691,9 @@ describe('WorldScene', () => {
       const ghost = () => document.querySelector<HTMLElement>('[data-departing]');
       expect(ghost()!.dataset.departing).toBe('beta.local:late');
       expect([ghost()!.style.left, ghost()!.style.top], 'starts where the agent stood').toEqual(at);
-      expect(ships()).toEqual(['pad-south']);
+      expect(ships()).toEqual(['pad-north']);
       act(() => { vi.advanceTimersByTime(50); });
-      expect([ghost()!.style.left, ghost()!.style.top], 'heads for its machine\'s pad').toEqual([pct(door('pad-south').x), pct(door('pad-south').y)]);
+      expect([ghost()!.style.left, ghost()!.style.top], 'heads for the dock').toEqual([pct(door('pad-north').x), pct(door('pad-north').y)]);
       step(20000);
       expect(ghost()).toBeNull();
       expect(ships()).toEqual([]);

@@ -126,7 +126,8 @@ describe('zones', () => {
 });
 
 describe('fleet', () => {
-  const pads = OUTPOST.structures.filter((s) => s.sprite === 'pad').map((s) => s.id);
+  // The assignment logic over any number of pads (the map has one — oneDock.test.ts).
+  const pads = ['pad-a', 'pad-b'];
   it('gives each online machine a pad, matches agents to runner machines by host name, and keeps pads sticky', () => {
     expect(hostKey('Mannys-Mac-Pro.local')).toBe(hostKey('mannys-mac-pro'));
     const machines = [{ hostname: 'DESKTOP', status: 'offline' as const }, { hostname: 'Laptop.local', status: 'offline' as const }, { hostname: 'Mac-Pro', status: 'online' as const }];
