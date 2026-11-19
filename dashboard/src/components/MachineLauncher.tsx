@@ -1,3 +1,4 @@
+import { SELECTABLE_ENGINES, ENGINE_NAME } from '@neoncore/client';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { api, apiFor } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
@@ -20,12 +21,15 @@ interface Props {
   servers?: ServerEntry[];
 }
 
-// Agent types the remote runner can launch (it spawns the relay, which defaults to claude).
-const AGENT_TYPES: { key: string; label: string; color: string }[] = [
-  { key: 'claude', label: 'Claude', color: 'border border-[#7CC4FF] bg-[#7CC4FF]/[0.14] text-[#DCEFFF]' },
-  { key: 'gridlight', label: 'Gridlight', color: 'border border-gl-pink bg-gl-pink/[0.12] text-[#FFD6EC]' },
-  { key: 'codex', label: 'Codex', color: 'border border-gl-teal bg-gl-teal/[0.12] text-[#C9FBF6]' },
-];
+// Agent types the remote runner can launch (it spawns the relay, which defaults to claude):
+// the selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+const ENGINE_COLOR: Record<string, string> = {
+  claude: 'border border-[#7CC4FF] bg-[#7CC4FF]/[0.14] text-[#DCEFFF]',
+  codex: 'border border-gl-teal bg-gl-teal/[0.12] text-[#C9FBF6]',
+};
+const AGENT_TYPES: { key: string; label: string; color: string }[] = SELECTABLE_ENGINES.map((key) => ({
+  key, label: ENGINE_NAME[key], color: ENGINE_COLOR[key],
+}));
 
 const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
 

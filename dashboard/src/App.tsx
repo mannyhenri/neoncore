@@ -138,13 +138,12 @@ export default function App() {
 
   const filteredAgents = typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter);
 
-  // Gridlight always shown; other types only when at least one online agent uses them
-  const TYPE_ORDER: AgentType[] = ['gridlight', 'claude', 'codex'];
+  // A type's chip shows only when at least one online agent uses it (Gridlight is no longer
+  // offered, but a cartridge that still runs it keeps its chip).
+  const TYPE_ORDER: AgentType[] = ['claude', 'codex', 'gridlight'];
   const visibleTypeFilters: (AgentType | 'all')[] = [
     'all',
-    ...TYPE_ORDER.filter((t) =>
-      t === 'gridlight' || onlineAgents.some((a) => (a.agentType || 'claude') === t)
-    ),
+    ...TYPE_ORDER.filter((t) => onlineAgents.some((a) => (a.agentType || 'claude') === t)),
   ];
 
   // Demo mode is visible at all times. A person walking past a screen showing invented

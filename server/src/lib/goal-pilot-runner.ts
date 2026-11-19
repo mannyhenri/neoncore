@@ -60,9 +60,12 @@ import {
 import { generateGoalReport } from './goal-pilot-report.js';
 import { docsChangedForGoal } from './project-docs.js';
 
-/** The engines that can carry a stage — the three NeonCore supports (see the engine-removal test). */
-export const PILOT_ENGINES = ['claude', 'codex', 'gridlight'] as const;
-const ENGINE_LABEL: Record<string, string> = {
+/**
+ * The engines a stage can be staffed with. Gridlight is no longer offered (it stays in ENGINE_LABEL,
+ * so a stage that already ran on it still reads correctly).
+ */
+export const PILOT_ENGINES = ['claude', 'codex'] as const;
+export const ENGINE_LABEL: Record<string, string> = {
   claude: 'Claude Code', codex: 'Codex', gridlight: 'Gridlight',
 };
 

@@ -1,3 +1,4 @@
+import { SELECTABLE_ENGINES, ENGINE_NAME } from '@neoncore/client';
 import React, { useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator, Linking,
@@ -8,11 +9,8 @@ import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 
 // Tool to launch in the new folder → the relay-terminal launcher for each engine (server side).
-const TOOLS: { value: string; label: string }[] = [
-  { value: 'claude-cli', label: 'Claude' },
-  { value: 'gridlight-cli', label: 'Gridlight' },
-  { value: 'codex-cli', label: 'Codex' },
-];
+// The selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+const TOOLS: { value: string; label: string }[] = SELECTABLE_ENGINES.map((e) => ({ value: `${e}-cli`, label: ENGINE_NAME[e] }));
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
 

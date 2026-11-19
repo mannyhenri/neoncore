@@ -1,3 +1,4 @@
+import { SELECTABLE_ENGINES, ENGINE_NAME } from '@neoncore/client';
 import {
   useState,
   useEffect,
@@ -3580,9 +3581,7 @@ function SidePanel({
                   className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
                 >
                   <option value="">Default (project's tool)</option>
-                  <option value="claude">Claude</option>
-                  <option value="codex">Codex</option>
-                  <option value="gridlight">Gridlight</option>
+                  {SELECTABLE_ENGINES.map((e) => <option key={e} value={e}>{ENGINE_NAME[e]}</option>)}
                 </select>
               </div>
               <div>

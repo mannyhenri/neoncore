@@ -1,14 +1,12 @@
+import { SELECTABLE_ENGINES, ENGINE_NAME } from '@neoncore/client';
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // The tool to launch in the new folder. Values map to open-directory.ts relay-terminal
 // launchers, which self-register a cartridge so it shows up in the grid immediately.
-const TOOLS: { value: string; label: string }[] = [
-  { value: 'claude-cli', label: 'Claude' },
-  { value: 'gridlight-cli', label: 'Gridlight' },
-  { value: 'codex-cli', label: 'Codex' },
-];
+// The selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+const TOOLS: { value: string; label: string }[] = SELECTABLE_ENGINES.map((e) => ({ value: `${e}-cli`, label: ENGINE_NAME[e] }));
 
 interface Props {
   onClose: () => void;

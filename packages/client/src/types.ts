@@ -1,5 +1,12 @@
 export type AgentMode = 'manual' | 'trust' | 'plan';
 export type AgentType = 'claude' | 'gridlight' | 'codex';
+/**
+ * The engines a person can CHOOSE — every engine picker in the web and phone apps offers these.
+ * Gridlight is still a known AgentType (cartridges and history that carry it keep rendering), but
+ * it is no longer offered.
+ */
+export const SELECTABLE_ENGINES = ['claude', 'codex'] as const satisfies readonly AgentType[];
+export const ENGINE_NAME: Record<AgentType, string> = { claude: 'Claude', codex: 'Codex', gridlight: 'Gridlight' };
 
 /** A directory a machine runner is allowed to launch a cartridge in. */
 export interface MachineRepo {

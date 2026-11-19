@@ -55,7 +55,7 @@ export const DEMO_PILOT_META: GoalPilotMeta = {
     { key: 'rabbitHoles', label: 'Rabbit holes', guidance: '', onGoal: true },
     { key: 'assumptions', label: 'Assumptions', guidance: '', onGoal: false },
   ],
-  engines: ['claude', 'codex', 'gridlight'],
+  engines: ['claude', 'codex'],
   limits: { maxScopeRounds: 4, maxQuestionsPerRound: 10, maxStages: 8, maxCriteria: 12 },
   verifyMethods: [
     { value: 'test', label: 'Automated test', hint: 'A test written before the work, locked once you approve it, run by NeonCore after every stage.' },

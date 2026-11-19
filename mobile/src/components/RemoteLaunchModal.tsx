@@ -1,3 +1,4 @@
+import { SELECTABLE_ENGINES } from '@neoncore/client';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, TextInput,
@@ -8,8 +9,9 @@ import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 import type { Machine } from '../types';
 
-// Agent types the runner can launch (it spawns the relay, which defaults to claude).
-const AGENT_TYPES = ['claude', 'gridlight', 'codex'];
+// Agent types the runner can launch (it spawns the relay, which defaults to claude): the
+// selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+const AGENT_TYPES: string[] = [...SELECTABLE_ENGINES];
 const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
 
 /**
