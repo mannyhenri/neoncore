@@ -11,7 +11,7 @@ vi.mock('../../components/CartridgeGrid', () => ({
 const live = vi.hoisted(() => ({ confers: [] as unknown[], runs: [] as unknown[] }));
 vi.mock('../../hooks/useLiveWork', () => ({ useLiveWork: () => live }));
 // Queue and token burn are polled from the server; here they are whatever the test sets.
-const extras = vi.hoisted(() => ({ queue: { items: [], lanes: [] } as { items: unknown[]; lanes: unknown[] }, burn: new Map<string, number>(), machines: [] as { hostname: string; status: 'online' | 'offline' }[], projects: [] as Record<string, unknown>[], ready: true }));
+const extras = vi.hoisted(() => ({ queue: { items: [], lanes: [] } as { items: unknown[]; lanes: unknown[] }, burn: new Map<string, number>(), machines: [] as { hostname: string; status: 'online' | 'offline' }[], projects: [] as Record<string, unknown>[], goals: [] as Record<string, unknown>[], ready: true }));
 vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 
 import { WorldScene } from '../WorldScene';
@@ -19,6 +19,7 @@ import { api } from '../../lib/api';
 import { CREW_STATUSES } from '../crew';
 import { WORK_CYCLE } from '../anim';
 import { OUTPOST } from '../sites';
+import { rewardsFor } from '../milestones';
 import { KIT } from '../kit';
 import { AMBIENT_GROUND, AMBIENT_PROPS } from '../ambient.generated';
 import { existsSync } from 'node:fs';
@@ -42,7 +43,7 @@ const handlers = {
   onDismiss: noop, onRestore: noop, onDismissStuck: noop,
 };
 
-afterEach(() => { cleanup(); extras.queue = { items: [], lanes: [] }; extras.burn = new Map(); extras.machines = []; extras.projects = []; extras.ready = true; live.confers = []; });
+afterEach(() => { cleanup(); extras.queue = { items: [], lanes: [] }; extras.burn = new Map(); extras.machines = []; extras.projects = []; extras.goals = []; extras.ready = true; live.confers = []; });
 
 describe('WorldScene', () => {
   const agents = [
@@ -703,5 +704,84 @@ describe('WorldScene', () => {
     }
   });
 
+
+  // ── Deadlines, delivery and rewards (milestones.ts) ────────────────────────────────────
+
+  const DAY = 24 * 60 * 60 * 1000;
+  const dated = (left: number, total = 100) => ({
+    id: `g${left}`, projectId: 'p1', status: 'active', origin: '',
+    createdAt: new Date(Date.now() - (total - left) * DAY).toISOString(), targetDate: new Date(Date.now() + left * DAY + 60_000).toISOString(),
+  });
+
+  it.each([[90, 'ok', '0'], [60, 'ok', '1'], [30, 'ok', '2'], [15, 'tight', '3'], [5, 'tight', '4'], [-2, 'overdue', '6']] as const)(
+    'with %i days left of 100 the pod\'s oxygen gauge reads %s (frame %s)', (left, state, frame) => {
+      extras.projects = [gridlight];
+      extras.goals = [dated(left)];
+      render(scene([]));
+      const gauges = [...document.querySelectorAll<HTMLElement>('[data-deadline]')];
+      expect(gauges, 'one gauge, in the project\'s own district').toHaveLength(1);
+      expect(gauges[0].dataset.deadline).toBe('nw');
+      expect(gauges[0].dataset.deadlineState).toBe(state);
+      expect(gauges[0].dataset.frame).toBe(frame);
+      expect(gauges[0].getAttribute('src')).toContain(`gauge-${frame}`);
+    });
+
+  it('a project with no dated open feature has no gauge, and the red light of a tight one blinks', () => {
+    vi.useFakeTimers();
+    try {
+      extras.projects = [gridlight];
+      const { rerender } = render(scene([]));
+      expect(document.querySelector('[data-deadline]')).toBeNull();
+      extras.goals = [dated(5)];
+      rerender(scene([]));
+      const frames = new Set<string>();
+      for (let t = 0; t < 2400; t += 100) { frames.add(document.querySelector<HTMLElement>('[data-deadline]')!.dataset.frame!); act(() => { vi.advanceTimersByTime(100); }); }
+      expect([...frames].sort()).toEqual(['4', '5']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the pennant shows how much of the plan is delivered, a flare goes up for each new delivery, and a finished project wears its medal', () => {
+    vi.useFakeTimers();
+    try {
+      const plan = (done: number) => [{ ...gridlight, featureCount: 4, featuresDone: done }];
+      const pennant = () => document.querySelector<HTMLElement>('[data-pennant]');
+      const flares = () => document.querySelectorAll('[data-burst]').length;
+      const settle = () => { for (let t = 0; t < 2500; t += 100) act(() => { vi.advanceTimersByTime(100); }); };
+      extras.projects = [{ ...gridlight, featureCount: 0, featuresDone: 0 }];
+      const { rerender } = render(scene([]));
+      expect(pennant(), 'nothing planned: no pole').toBeNull();
+      // What is already delivered when the scene opens is simply shown: no flare for old news.
+      extras.projects = plan(1);
+      rerender(scene([]));
+      settle();
+      expect(flares()).toBe(0);
+      const seen: string[] = [];
+      for (const done of [1, 2, 3, 4]) {
+        extras.projects = plan(done);
+        rerender(scene([]));
+        if (done > 1) expect(flares(), `delivery ${done} sends up a flare`).toBe(1);
+        settle();
+        expect(flares(), 'the flare burns out').toBe(0);
+        seen.push(pennant()!.dataset.frame!);
+        expect(document.querySelectorAll('[data-medal]').length).toBe(done === 4 ? 1 : 0);
+      }
+      expect(seen).toEqual(['1', '2', '2', '3']);
+      // Fewer delivered (a feature reopened) is not a celebration.
+      extras.projects = plan(3);
+      rerender(scene([]));
+      expect(flares()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([0, 1, 2, 3, 6, 10, 15, 25, 40, 99])('with %i features delivered across all projects, the commons shows exactly the fixtures earned', (n) => {
+    extras.projects = [{ ...gridlight, featureCount: 200, featuresDone: Math.floor(n / 2) }, { ...gridlight, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x', featureCount: 200, featuresDone: n - Math.floor(n / 2) }];
+    render(scene([]));
+    const shown = [...document.querySelectorAll<HTMLElement>('[data-reward]')].map((e) => e.dataset.reward).sort();
+    expect(shown).toEqual(rewardsFor(n).sort());
+  });
 });
 

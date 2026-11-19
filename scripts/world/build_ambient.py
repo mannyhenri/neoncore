@@ -20,7 +20,7 @@ from PIL import Image, ImageFilter
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from build_world_kit import TERRAIN, TERRAIN_SCALE
+from build_world_kit import terrain_image, MAP_W, MAP_H
 
 FRAMES = 8
 # The pond on the terrain, in the map's own pixels (1344 x 752): left, top, right, bottom.
@@ -40,10 +40,10 @@ def sample(img, xs, ys):
 
 
 def pond(designs, out):
-    src = Image.open(os.path.join(designs, TERRAIN)).convert('RGB')
-    s = TERRAIN_SCALE
-    box = tuple(v * s for v in POND)
-    big = src.resize((src.width * s, src.height * s), Image.LANCZOS).crop(box)
+    full, _ = terrain_image(designs)
+    s = full.width / MAP_W   # how many served pixels one map pixel is
+    box = tuple(round(v * s) for v in POND)
+    big = full.crop(box)
     rgb = np.asarray(big).astype(np.float32)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     # WHERE THE WATER IS. An ellipse over the pond (POND_OVAL, read off the map), minus
@@ -75,7 +75,7 @@ def pond(designs, out):
         rgba = np.dstack([frame, alpha * 255]).astype(np.uint8)
         strip.paste(Image.fromarray(rgba, 'RGBA'), (k * w, 0))
     strip.save(os.path.join(out, 'pond.png'), optimize=True)
-    W, H = src.width, src.height
+    W, H = MAP_W, MAP_H
     print(f'pond            {FRAMES} frames of {w}x{h}, water covers {alpha.mean() * 100:.0f}% of the box')
     return f"{{ src: '/world/ambient/pond.png', frames: {FRAMES}, fps: 6, x: {POND[0] / W:.5f}, y: {POND[1] / H:.5f}, w: {(POND[2] - POND[0]) / W:.5f}, h: {(POND[3] - POND[1]) / H:.5f} }}"
 

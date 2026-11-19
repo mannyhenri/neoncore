@@ -69,6 +69,8 @@ export interface WorldPlate {
   districts: { id: string; label: string; x?: number; y?: number }[];
   /** Around the commons table: where the participants of a confer gather. */
   meet: WorldSite[];
+  /** Where each fixture the base can earn stands once it has been earned (milestones.ts REWARD_STEPS). */
+  rewards: { id: string; sprite: KitName; x: number; y: number; w: number }[];
   structures: WorldStructure[];
   sites: WorldSite[];
   /** Where idle agents go and sit. They stay there — idle agents do not wander. */
@@ -161,6 +163,16 @@ export const OUTPOST: WorldPlate = {
     { id: 'rest-table-south', district: 'commons', label: 'Commons', ...px(602, 432), work: 'stand', faces: 1 },
     { id: 'rest-bench-west', district: 'commons', label: 'West bench', ...px(432, 345), work: 'stand', faces: 1 },
     { id: 'rest-bench-east', district: 'commons', label: 'East bench', ...px(790, 356), work: 'stand', faces: -1 },
+  ],
+  // What the base earns as features are delivered, each in its own place around the commons.
+  rewards: [
+    { id: 'reward-banners', sprite: 'crew-banners', ...px(600, 312), w: 0.04 },
+    { id: 'reward-garden', sprite: 'garden', ...px(740, 322), w: 0.05 },
+    { id: 'reward-arch', sprite: 'light-arch', ...px(900, 366), w: 0.06 },
+    { id: 'reward-fountain', sprite: 'fountain', ...px(602, 492), w: 0.055 },
+    { id: 'reward-tower', sprite: 'signal-tower', ...px(1090, 262), w: 0.035 },
+    { id: 'reward-statue', sprite: 'statue', ...px(470, 392), w: 0.04 },
+    { id: 'reward-trophy', sprite: 'trophy', ...px(660, 300), w: 0.035 },
   ],
   // Confer participants stand around the holo table, facing it.
   meet: [

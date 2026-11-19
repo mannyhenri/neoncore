@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Agent, Machine, Project, QueueItem, QueueLane } from '../types';
+import type { Agent, Goal, Machine, Project, QueueItem, QueueLane } from '../types';
 import { api } from '../lib/api';
 import type { CrewMember } from './crew';
 
@@ -21,6 +21,8 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
   machines: Pick<Machine, 'hostname' | 'status'>[];
   /** Projects: which repos each owns, and how far its features are. */
   projects: Project[];
+  /** Every feature (goal): the scene reads their target dates for the deadline gauges. */
+  goals: Goal[];
   /**
    * False until machines and projects have answered once (or failed). The scene draws nobody
    * before that: placing the crew first and then moving it when the projects arrive would make
@@ -32,6 +34,7 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
   const [burn, setBurn] = useState<Map<string, number>>(new Map());
   const [machines, setMachines] = useState<Pick<Machine, 'hostname' | 'status'>[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [ready, setReady] = useState(false);
   const crewRef = useRef(crew);
   crewRef.current = crew;
@@ -45,6 +48,7 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
       api.getQueue().then((v) => { if (alive) setQueue({ items: v.items ?? [], lanes: v.lanes ?? [] }); }).catch(() => {});
       const fleet = api.getMachines().then((m) => { if (alive) setMachines(Array.isArray(m) ? m : []); }).catch(() => {});
       const owned = api.getGoalProjects().then((p) => { if (alive) setProjects(Array.isArray(p) ? p : []); }).catch(() => {});
+      api.getGoals().then((g) => { if (alive) setGoals(Array.isArray(g) ? g : []); }).catch(() => {});
       Promise.all([fleet, owned]).then(() => { if (alive) setReady(true); });
     };
     load();
@@ -71,5 +75,5 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
     return () => { alive = false; clearInterval(t); };
   }, [crewKeys]);
 
-  return { queue, burn, machines, projects, ready };
+  return { queue, burn, machines, projects, goals, ready };
 }

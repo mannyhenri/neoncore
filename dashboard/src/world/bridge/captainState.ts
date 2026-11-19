@@ -2,26 +2,37 @@
  * THE CAPTAIN'S STATE, and what the gauges read. Pure, so it is tested without a screen.
  *
  * ONE LOOK PER STATE (the same rule as the crew on the map, world/anim.ts):
- *   call   the project in front of you needs you (a feature waits on an answer, a plan, a review)
- *   brief  you just selected a project: he taps his board for a moment
- *   idle   nothing to say: he stands with the board
+ * (the looks and their order are on captainAnim below)
  */
 import type { Project } from '../../types';
 
-export const CAPTAIN_ANIMS = ['idle', 'brief', 'call'] as const;
+export const CAPTAIN_ANIMS = ['idle', 'brief', 'call', 'log', 'celebrate', 'worry'] as const;
 export type CaptainAnim = (typeof CAPTAIN_ANIMS)[number];
 /** Frames per second of each cycle. */
-export const CAPTAIN_FPS: Record<CaptainAnim, number> = { idle: 3, brief: 6, call: 6 };
-/** How long he briefs a newly selected project, in milliseconds. */
+export const CAPTAIN_FPS: Record<CaptainAnim, number> = { idle: 3, brief: 6, call: 6, log: 5, celebrate: 6, worry: 3 };
+/** How long he briefs a newly selected project, and how long he celebrates a delivery, in milliseconds. */
 export const BRIEF_MS = 2400;
+export const CELEBRATE_MS = 3200;
 
-export function captainAnim(s: { needsYou: boolean; justSelected: boolean }): CaptainAnim {
+/**
+ * Most urgent first, one look each:
+ *   call       the project in front of you needs you
+ *   celebrate  it just had one more feature delivered (for a moment)
+ *   brief      you just selected it (for a moment)
+ *   worry      its nearest feature date is close or past (world/milestones.ts: tight, overdue)
+ *   log        a feature is under way: he keeps the log
+ *   idle       nothing to say
+ */
+export function captainAnim(s: { needsYou: boolean; justDelivered?: boolean; justSelected: boolean; deadline?: 'ok' | 'tight' | 'overdue' | null; underWay?: boolean }): CaptainAnim {
   if (s.needsYou) return 'call';
+  if (s.justDelivered) return 'celebrate';
   if (s.justSelected) return 'brief';
+  if (s.deadline === 'tight' || s.deadline === 'overdue') return 'worry';
+  if (s.underWay) return 'log';
   return 'idle';
 }
 
-export type BridgeProject = Pick<Project, 'id' | 'name' | 'primaryRepo' | 'cartridges' | 'costUsd' | 'featureCount' | 'featuresDone' | 'featuresNeedYou'>;
+export type BridgeProject = Pick<Project, 'id' | 'name' | 'primaryRepo' | 'cartridges' | 'costUsd' | 'featureCount' | 'featuresDone' | 'featuresNeedYou' | 'featuresActive'>;
 
 export interface Gauges { scope: string; repos: number; spentUsd: number; features: number; done: number }
 

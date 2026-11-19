@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-const data = vi.hoisted(() => ({ projects: [] as Record<string, unknown>[] }));
-vi.mock('../../../lib/api', () => ({ api: { getGoalProjects: () => Promise.resolve(data.projects) } }));
+const data = vi.hoisted(() => ({ projects: [] as Record<string, unknown>[], goals: [] as Record<string, unknown>[] }));
+vi.mock('../../../lib/api', () => ({ api: { getGoalProjects: () => Promise.resolve(data.projects), getGoals: () => Promise.resolve(data.goals) } }));
 
-import { captainAnim, CAPTAIN_ANIMS, BRIEF_MS, gaugesFor } from '../captainState';
+import { captainAnim, CAPTAIN_ANIMS, BRIEF_MS, CELEBRATE_MS, gaugesFor } from '../captainState';
 import { BridgeCaptain, BridgeGauges } from '../Bridge';
 import { BRIDGE } from '../bridge.generated';
 
@@ -18,7 +18,7 @@ const project = (id: string, over: Record<string, unknown> = {}) => ({
 });
 const flush = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
 
-afterEach(() => { cleanup(); data.projects = []; window.location.hash = ''; });
+afterEach(() => { cleanup(); data.projects = []; data.goals = []; window.location.hash = ''; });
 
 /**
  * THE PROJECTS BRIDGE. The Projects screen dressed as a ship's operations deck: a drawn
@@ -26,13 +26,20 @@ afterEach(() => { cleanup(); data.projects = []; window.location.hash = ''; });
  * The captain is a drawn sprite sheet with ONE LOOK PER STATE, like the crew on the map.
  */
 describe('the captain', () => {
-  it('has one look per state — for every mix of "needs you" and "just selected"', () => {
-    expect([...CAPTAIN_ANIMS]).toEqual(['idle', 'brief', 'call']);
-    for (const needsYou of [false, true]) for (const justSelected of [false, true]) {
-      const anim = captainAnim({ needsYou, justSelected });
-      // Needing you outranks everything; otherwise a fresh selection is briefed; otherwise he waits.
-      expect(anim, `${needsYou}/${justSelected}`).toBe(needsYou ? 'call' : justSelected ? 'brief' : 'idle');
-    }
+  it('has one look per state — for every mix of needs-you, just-delivered, just-selected, deadline and work under way', () => {
+    expect([...CAPTAIN_ANIMS]).toEqual(['idle', 'brief', 'call', 'log', 'celebrate', 'worry']);
+    const used = new Set<string>();
+    for (const needsYou of [false, true]) for (const justDelivered of [false, true]) for (const justSelected of [false, true])
+      for (const deadline of [null, 'ok', 'tight', 'overdue'] as const) for (const underWay of [false, true]) {
+        const anim = captainAnim({ needsYou, justDelivered, justSelected, deadline, underWay });
+        // Most urgent first: you are needed; a delivery just landed; a project was just picked;
+        // a date is close or past; work is under way (he keeps the log); nothing to say.
+        const want = needsYou ? 'call' : justDelivered ? 'celebrate' : justSelected ? 'brief'
+          : deadline === 'tight' || deadline === 'overdue' ? 'worry' : underWay ? 'log' : 'idle';
+        expect(anim, JSON.stringify({ needsYou, justDelivered, justSelected, deadline, underWay })).toBe(want);
+        used.add(anim);
+      }
+    expect([...used].sort(), 'every drawn cycle is reachable').toEqual([...CAPTAIN_ANIMS].sort());
   });
 
   it('is a drawn sheet or nothing — never a figure made in code', async () => {
@@ -105,3 +112,46 @@ describe('the console look', () => {
     for (const sel of selectors) for (const part of sel.split(',')) expect(part.trim(), `"${part.trim()}" would restyle the rest of the app`).toMatch(/^\.bridge/);
   });
 });
+
+describe('the captain and the records', () => {
+  const state = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-captain-state]')!.dataset.captainState;
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('keeps the log while a feature is under way, and worries when the nearest date is tight or past', async () => {
+    window.location.hash = '#project/a';
+    data.projects = [project('a', { featuresActive: 1 })];
+    const working = render(<BridgeCaptain />);
+    await flush();
+    expect(state(working.container)).toBe('log');
+    working.unmount();
+
+    for (const [left, want] of [[60, 'log'], [5, 'worry'], [-3, 'worry']] as const) {
+      data.goals = [{ projectId: 'a', status: 'active', origin: '', createdAt: new Date(Date.now() - (100 - left) * DAY).toISOString(), targetDate: new Date(Date.now() + left * DAY + 60_000).toISOString() }];
+      const view = render(<BridgeCaptain />);
+      await flush();
+      expect(state(view.container), `${left} days left`).toBe(want);
+      view.unmount();
+    }
+  });
+
+  it('celebrates for a moment when the selected project has one more feature delivered — not on opening, not when the count falls', async () => {
+    vi.useFakeTimers();
+    try {
+      window.location.hash = '#project/a';
+      data.projects = [project('a', { featuresDone: 1 })];
+      const view = render(<BridgeCaptain />);
+      await flush();
+      expect(state(view.container), 'old news on opening').toBe('idle');
+      const poll = async (done: number) => { data.projects = [project('a', { featuresDone: done })]; await act(async () => { vi.advanceTimersByTime(15_000); await Promise.resolve(); await Promise.resolve(); }); };
+      await poll(2);
+      expect(state(view.container)).toBe('celebrate');
+      act(() => { vi.advanceTimersByTime(CELEBRATE_MS + 50); });
+      expect(state(view.container)).toBe('idle');
+      await poll(1);
+      expect(state(view.container)).toBe('idle');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

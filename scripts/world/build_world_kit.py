@@ -17,6 +17,27 @@ TERRAIN = 'A-much-larger-pixel-art-terrain-map-for.png'
 # The map is drawn at 1344 px wide and the scene zooms to 4x, so it is enlarged here (2x,
 # Lanczos + a light unsharp mask) rather than left to the browser to blur.
 TERRAIN_SCALE = 2
+# A sharper copy of the same map, when there is one: an AI upscale of TERRAIN saved under this
+# name is used as it is, in place of the plain 2x enlargement. Same picture, more pixels.
+TERRAIN_HD = 'terrain-4k.png'
+# The map's own size: every position in sites.ts is written in these pixels.
+MAP_W, MAP_H = 1344, 752
+
+
+def terrain_image(designs):
+    """The terrain at the size it is served: the HD copy if present, else TERRAIN enlarged."""
+    from PIL import ImageFilter
+    hd = os.path.join(designs, TERRAIN_HD)
+    if os.path.exists(hd):
+        img = Image.open(hd).convert('RGB')
+        # An upscale can come back a few pixels off the map's shape: hold it to exactly 16:9-of-the-map.
+        want_h = round(img.width * MAP_H / MAP_W)
+        if abs(img.height - want_h) > 2:
+            img = img.resize((img.width, want_h), Image.LANCZOS)
+        return img, True
+    src = Image.open(os.path.join(designs, TERRAIN)).convert('RGB')
+    big = src.resize((src.width * TERRAIN_SCALE, src.height * TERRAIN_SCALE), Image.LANCZOS)
+    return big.filter(ImageFilter.UnsharpMask(radius=1.4, percent=60, threshold=2)), False
 # sheet file → (columns, rows, names in reading order)
 SHEETS = {
     'Pixel-art-game-building-sheet-showing-th.png': (2, 2, ['greenhouse', 'habitat', 'generator', 'gate']),
@@ -88,10 +109,9 @@ def main(designs, dashboard):
     world = os.path.join(dashboard, 'public', 'world')
     kitdir = os.path.join(world, 'kit')
     os.makedirs(kitdir, exist_ok=True)
-    terrain = Image.open(os.path.join(designs, TERRAIN)).convert('RGB')
-    big = terrain.resize((terrain.width * TERRAIN_SCALE, terrain.height * TERRAIN_SCALE), Image.LANCZOS)
-    big.filter(ImageFilter.UnsharpMask(radius=1.4, percent=60, threshold=2)).save(os.path.join(world, 'terrain.jpg'), quality=88)
-    print('terrain', terrain.size, '->', big.size)
+    big, hd = terrain_image(designs)
+    big.save(os.path.join(world, 'terrain.jpg'), quality=88)
+    print('terrain', (MAP_W, MAP_H), '->', big.size, f'(from {TERRAIN_HD})' if hd else '(2x enlargement - save an upscale as designs/terrain-4k.png for a sharper map)')
 
     sizes = {}
     for sheet, (cols, rows, names) in SHEETS.items():

@@ -11,7 +11,7 @@
  * panel drawn over them is Night Glass.
  */
 import { FinalAnswerModal } from '../components/FinalAnswerModal';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SendOutcome } from '../lib/deliveryNotice';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, CommandAttachmentInput } from '../types';
@@ -26,6 +26,8 @@ import { planZones, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
 import type { PoolSlots } from './zones';
 import { padsFor, padOf } from './fleet';
 import { meetingKeys } from './meeting';
+import { deadlineFor, pennantFrame, rewardsFor } from './milestones';
+import type { Deadline } from './milestones';
 import type { WorldPlate, WorldSite, WorldStructure } from './sites';
 import type { KitName } from './kit';
 import { Avatar } from './Avatar';
@@ -188,6 +190,24 @@ export function WorldScene({
   // filtering never makes the remaining agents jump, and (sticky slots) neither does anyone
   // else arriving or leaving.
   const crewKeys = crew.map((m) => m.key).join('|');
+  // DELIVERY → a flare over the pod each time a project has one more feature delivered than it
+  // had. What was already delivered when the scene opened is not news.
+  const doneSig = (extras.projects ?? []).map((p) => `${p.id}=${p.featuresDone ?? 0}`).join('|');
+  const doneSeenRef = useRef<Map<string, number> | null>(null);
+  const [bursts, setBursts] = useState<{ key: string; district: string }[]>([]);
+  useEffect(() => {
+    if (!ready) return;
+    const now = new Map((extras.projects ?? []).map((p) => [p.id, p.featuresDone ?? 0]));
+    const before = doneSeenRef.current;
+    doneSeenRef.current = now;
+    if (!before) return;
+    const fresh = zones.filter((z) => before.has(z.projectId) && (now.get(z.projectId) ?? 0) > before.get(z.projectId)!);
+    if (fresh.length > 0) setBursts((b) => [...b, ...fresh.map((z) => ({ key: `${z.projectId}-${now.get(z.projectId)}-${Date.now()}`, district: z.districts[0] }))]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneSig, ready]);
+  /** REWARDS: what the base has earned from every feature delivered, in any project. */
+  const earned = rewardsFor((extras.projects ?? []).reduce((n, p) => n + (p.featuresDone ?? 0), 0));
+
   // An agent works at its repo's building; one whose repo no project owns uses unclaimed land.
   const wants = crew.map((m) => {
     const paths = m.agentIds.map((id) => agents.find((a) => a.id === id)?.repoPath ?? '');
@@ -462,6 +482,8 @@ export function WorldScene({
                 <span className="font-semibold text-gray-100">{z.name}</span>
                 {z.features.total > 0 && <span className="text-gray-400"> · {z.features.done}/{z.features.total} features</span>}
                 {z.features.active > 0 && <span className="text-emerald-300"> · {z.features.active} under way</span>}
+                {/* Everything it planned is delivered: the project wears its medal. */}
+                {z.features.total > 0 && z.features.done >= z.features.total && <img data-medal src={KIT.medal.src} alt="All features delivered" className="inline-block h-4 ml-1.5 align-[-3px]" />}
               </div>
             );
           }))}
@@ -479,6 +501,37 @@ export function WorldScene({
               </div>
             );
           }))}
+          {/* DEADLINE, DELIVERY, REWARDS (milestones.ts): the pod's oxygen gauge and pennant stand
+              just above its name plate; the flare goes up over the pod; rewards stand in the commons. */}
+          {ready && zones.map((z) => {
+            const at = plate.districts.find((x) => x.id === z.districts[0]);
+            if (at?.x === undefined || at.y === undefined) return null;
+            const deadline = deadlineFor(extras.goals ?? [], z.projectId, tick);
+            const pennant = pennantFrame(z.features.done, z.features.total);
+            const prop = (dx: number) => ({ left: `${(at.x! + dx) * 100}%`, top: `${(at.y! - 0.016) * 100}%`, width: '1.7%', transform: 'translate(-50%, -100%)', zIndex: Math.round(at.y! * 1000) });
+            return (
+              <Fragment key={`m-${z.projectId}`}>
+                {deadline && <DeadlineGauge district={z.districts[0]} deadline={deadline} style={prop(-0.012)} />}
+                {pennant !== null && <Pennant district={z.districts[0]} frame={pennant} style={prop(0.012)} />}
+              </Fragment>
+            );
+          })}
+          {bursts.map((b) => {
+            const at = plate.districts.find((x) => x.id === b.district);
+            if (at?.x === undefined || at.y === undefined) return null;
+            return <Burst key={b.key} style={{ left: `${at.x * 100}%`, top: `${(at.y - 0.1) * 100}%`, width: '9%', transform: 'translate(-50%, -100%)', zIndex: 6500 }} onDone={() => setBursts((all) => all.filter((x) => x.key !== b.key))} />;
+          })}
+          {plate.rewards.filter((r) => earned.includes(r.sprite)).map((r) => (
+            <img
+              key={r.id}
+              data-reward={r.sprite}
+              src={KIT[r.sprite].src}
+              alt=""
+              draggable={false}
+              className="absolute select-none pointer-events-none max-w-none"
+              style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, transform: 'translate(-50%, -100%)', zIndex: Math.round(r.y * 1000) }}
+            />
+          ))}
           {pads.map((pd) => {
             const st = plate.structures.find((x) => x.id === pd.pad);
             if (!st || pd.host === null) return null;
@@ -648,6 +701,67 @@ export function WorldScene({
         </aside>
       )}
     </div>
+  );
+}
+
+// ── Deadlines and delivery ─────────────────────────────────────────────────────────────
+
+/** DEADLINE → the oxygen gauge. One frame per level; the two red frames alternate (a blinking light). */
+function DeadlineGauge({ district, deadline, style }: { district: string; deadline: Deadline; style: React.CSSProperties }) {
+  const [blink, setBlink] = useState(0);
+  const pair = deadline.frames.length > 1;
+  useEffect(() => {
+    if (!pair) return;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const t = setInterval(() => setBlink((n) => n + 1), 600);
+    return () => clearInterval(t);
+  }, [pair]);
+  const frame = deadline.frames[pair ? blink % deadline.frames.length : 0];
+  const when = deadline.daysLeft < 0 ? `${-deadline.daysLeft} day(s) past its date` : `${deadline.daysLeft} day(s) to its date`;
+  return (
+    <img
+      data-deadline={district}
+      data-deadline-state={deadline.state}
+      data-frame={frame}
+      src={KIT[`gauge-${frame}` as KitName].src}
+      alt={`Nearest feature: ${when}`}
+      title={`Nearest feature: ${when} (${new Date(deadline.targetDate).toLocaleDateString()})`}
+      draggable={false}
+      className="absolute select-none max-w-none"
+      style={style}
+    />
+  );
+}
+
+/** DELIVERY → the pennant. It climbs (or comes down) one drawn frame at a time when the count changes. */
+function Pennant({ district, frame, style }: { district: string; frame: number; style: React.CSSProperties }) {
+  const [shown, setShown] = useState(frame);
+  useEffect(() => {
+    if (shown === frame) return;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setShown(frame); return; }
+    const t = setTimeout(() => setShown((f) => f + (frame > f ? 1 : -1)), 260);
+    return () => clearTimeout(t);
+  }, [frame, shown]);
+  return (
+    <img data-pennant={district} data-frame={shown} src={KIT[`pennant-${shown}` as KitName].src} alt="" draggable={false}
+      className="absolute select-none pointer-events-none max-w-none" style={style} />
+  );
+}
+
+/** A FEATURE WAS JUST DELIVERED → one flare: rise, burst, fade, gone. */
+function Burst({ style, onDone }: { style: React.CSSProperties; onDone: () => void }) {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { onDone(); return; }
+    if (frame > 3) { onDone(); return; }
+    const t = setTimeout(() => setFrame((f) => f + 1), 320);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame]);
+  if (frame > 3) return null;
+  return (
+    <img data-burst data-frame={frame} src={KIT[`burst-${frame}` as KitName].src} alt="" draggable={false}
+      className="absolute select-none pointer-events-none max-w-none" style={style} />
   );
 }
 

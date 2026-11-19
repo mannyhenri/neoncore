@@ -14,16 +14,22 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { parseProjectHash } from '../../lib/projectSelection';
 import { BRIDGE } from './bridge.generated';
-import { BRIEF_MS, CAPTAIN_FPS, captainAnim, formatSpent, gaugesFor, needsYou } from './captainState';
+import { BRIEF_MS, CELEBRATE_MS, CAPTAIN_FPS, captainAnim, formatSpent, gaugesFor, needsYou } from './captainState';
+import { deadlineFor } from '../milestones';
+import type { DatedFeature } from '../milestones';
 import type { BridgeProject } from './captainState';
 
 /** The projects (polled like the rest of the dashboard) and which one the address names. */
-function useBridge(): { projects: BridgeProject[]; selectedId: string | null } {
+function useBridge(): { projects: BridgeProject[]; goals: DatedFeature[]; selectedId: string | null } {
   const [projects, setProjects] = useState<BridgeProject[]>([]);
+  const [goals, setGoals] = useState<DatedFeature[]>([]);
   const [asked, setAsked] = useState<string | null>(() => parseProjectHash(window.location.hash)?.projectId ?? null);
   useEffect(() => {
     let alive = true;
-    const load = () => { api.getGoalProjects().then((p) => { if (alive && Array.isArray(p)) setProjects(p); }).catch(() => {}); };
+    const load = () => {
+      api.getGoalProjects().then((p) => { if (alive && Array.isArray(p)) setProjects(p); }).catch(() => {});
+      api.getGoals().then((g) => { if (alive && Array.isArray(g)) setGoals(g); }).catch(() => {});
+    };
     load();
     const t = setInterval(load, 15_000);
     const onHash = () => setAsked(parseProjectHash(window.location.hash)?.projectId ?? null);
@@ -33,12 +39,12 @@ function useBridge(): { projects: BridgeProject[]; selectedId: string | null } {
   // The same never-blank rule as the workspace (lib/projectSelection.ts): the project the
   // address names, else the first one — so the gauges and the captain read what is on screen.
   const selectedId = asked && projects.some((p) => p.id === asked) ? asked : projects[0]?.id ?? null;
-  return { projects, selectedId };
+  return { projects, goals, selectedId };
 }
 
 /** The captain, above the project list. His cycle is his state (captainState.ts). */
 export function BridgeCaptain({ height = 190 }: { height?: number }) {
-  const { projects, selectedId } = useBridge();
+  const { projects, goals, selectedId } = useBridge();
   // "Just selected" starts on a CHANGE of selection, never on opening the screen.
   const [seen, setSeen] = useState(selectedId);
   const [briefing, setBriefing] = useState(false);
@@ -49,13 +55,40 @@ export function BridgeCaptain({ height = 190 }: { height?: number }) {
     return () => clearTimeout(t);
   }, [briefing, selectedId]);
 
-  const anim = captainAnim({ needsYou: needsYou(projects, selectedId), justSelected: briefing });
+  // "Just delivered": the SAME project has one more feature delivered than at the last look.
+  const selectedNow = projects.find((p) => p.id === selectedId);
+  const doneNow = selectedNow?.featuresDone ?? 0;
+  const [doneSeen, setDoneSeen] = useState<{ id: string | null; done: number } | null>(null);
+  const [celebrating, setCelebrating] = useState(false);
+  if (selectedNow && (doneSeen === null || doneSeen.id !== selectedId || doneSeen.done !== doneNow)) {
+    setCelebrating(doneSeen !== null && doneSeen.id === selectedId && doneNow > doneSeen.done);
+    setDoneSeen({ id: selectedId, done: doneNow });
+  }
+  useEffect(() => {
+    if (!celebrating) return;
+    const t = setTimeout(() => setCelebrating(false), CELEBRATE_MS);
+    return () => clearTimeout(t);
+  }, [celebrating, doneNow]);
+
+  const deadline = selectedId ? deadlineFor(goals, selectedId, Date.now()) : null;
+  const anim = captainAnim({
+    needsYou: needsYou(projects, selectedId), justDelivered: celebrating, justSelected: briefing,
+    deadline: deadline?.state ?? null, underWay: (selectedNow?.featuresActive ?? 0) > 0,
+  });
   const sheet = BRIDGE.captain;
   const selected = projects.find((p) => p.id === selectedId);
-  const line = anim === 'call' ? `${selected?.name ?? 'A project'} needs you` : anim === 'brief' ? `${selected?.name ?? ''} on the board` : 'Standing by';
+  const name = selected?.name ?? 'A project';
+  const line = {
+    call: `${name} needs you`,
+    celebrate: `${name}: feature delivered`,
+    brief: `${name} on the board`,
+    worry: deadline && deadline.daysLeft < 0 ? `${name}: ${-deadline.daysLeft}d past its date` : `${name}: ${deadline?.daysLeft ?? 0}d to its date`,
+    log: `${name}: work under way`,
+    idle: 'Standing by',
+  }[anim];
 
   return (
-    <div className="bridge-captain" data-captain-state={anim}>
+    <div className="bridge-captain" data-captain-state={anim} data-alert={anim === 'worry' || undefined}>
       {sheet && (() => {
         const { row, frames } = sheet.rows[anim];
         const width = (height * sheet.frameW) / sheet.frameH;
