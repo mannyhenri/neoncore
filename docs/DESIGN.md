@@ -120,3 +120,9 @@ workflows.
 3. List the components the drop added or changed, screenshot them, and restyle only those
    against the reference canvas using the patterns above.
 4. `npm run build` (writes `server/public`, which is what `:4040` serves).
+
+## The Projects bridge
+
+The Projects screen is dressed as a ship's operations deck (`dashboard/src/world/bridge/`): a drawn captain stands over the project list, the workspace sits in a console frame, and a strip of gauges (repos, spent, features) reads the selected project. What the screen does is unchanged — the list and workspace are the ordinary Projects components; the console look is CSS scoped to `.bridge` (index.css), so no other screen is affected.
+
+The captain is a drawn sprite sheet with one look per state, like the crew: **calling** = the project in front of you needs you; **briefing** (tapping his board) = you just selected a project; **standing by** = nothing to say. No art, no figure: `scripts/world/build_bridge.py` builds him and the deck backdrop from `designs/captain-sheet.png` and `designs/bridge-deck.png`.

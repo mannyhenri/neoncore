@@ -81,9 +81,9 @@ describe('the gauges', () => {
     expect(gaugesFor([], null)).toEqual({ scope: 'All projects', repos: 0, spentUsd: 0, features: 0, done: 0 });
   });
 
-  it('show the three readings for whichever project the address names', async () => {
+  it('show the three readings for the project on screen: the one the address names, else the first', async () => {
     data.projects = all;
-    for (const [hash, want] of [['#project/a', ['2', '$17.5K', '0']], ['#project/b', ['4', '$17.0K', '20/80']], ['', ['6', '$34.5K', '20/80']]] as const) {
+    for (const [hash, want] of [['#project/a', ['2', '$17.5K', '0']], ['#project/b', ['4', '$17.0K', '20/80']], ['', ['2', '$17.5K', '0']], ['#project/gone', ['2', '$17.5K', '0']]] as const) {
       window.location.hash = hash;
       const view = render(<BridgeGauges />);
       await flush();

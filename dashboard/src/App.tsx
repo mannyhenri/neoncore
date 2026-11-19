@@ -9,6 +9,7 @@ import { NewRepoModal } from './components/NewRepoModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
 import { ProjectsProvider, ProjectsRail, ProjectsWorkspace } from './components/ProjectsPage';
+import { BridgeCaptain, BridgeGauges, bridgeDeckProps } from './world/bridge/Bridge';
 import { isProjectsHash } from './lib/projectSelection';
 import { TasksPage } from './components/TasksPage';
 import { GuideModal } from './components/GuideModal';
@@ -261,14 +262,18 @@ export default function App() {
           surface). Every other view is full width — and the Agents scene is full BLEED: no
           padding, edge to edge, from the top bar to the bottom of the window. */}
       <ProjectsProvider active={activeView === 'projects'} agents={agents}>
-      <div className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]' : ''}`}>
+      <div
+        className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? `lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)] ${bridgeDeckProps().className}` : ''}`}
+        style={activeView === 'projects' ? bridgeDeckProps().style : undefined}
+      >
         <aside className={`${activeView === 'projects' ? '' : 'hidden'} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
-          {activeView === 'projects' && <ProjectsRail />}
+          {/* The Projects bridge: the captain over the project list (world/bridge). */}
+          {activeView === 'projects' && <><BridgeCaptain /><div className="bridge-panel"><ProjectsRail /></div></>}
         </aside>
 
         <main className="space-y-5 min-w-0">
           {activeView === 'projects' ? (
-            <ProjectsWorkspace />
+            <><div className="bridge-panel bridge-console"><ProjectsWorkspace /></div><BridgeGauges /></>
           ) : activeView === 'tokens' ? (
             <TokensPage servers={servers} />
           ) : activeView === 'tasks' ? (

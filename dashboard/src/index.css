@@ -248,3 +248,36 @@ select.glass-input optgroup {
 @media (prefers-reduced-motion: reduce) {
   .world-strip, .world-alert { animation: none; }
 }
+
+/* ── The Projects bridge (docs/DESIGN.md "The Projects bridge") ───────────────────────
+   The Projects screen as a ship's operations deck. Everything here is scoped to .bridge, so
+   no other screen changes; the components inside are the ordinary Projects ones, restyled. */
+.bridge { min-height: calc(100vh - 72px); background-color: #050914; background-size: cover; background-position: center top; background-attachment: fixed; }
+.bridge .bridge-panel { position: relative; padding: 14px; border: 1px solid rgba(46, 230, 214, 0.38); border-radius: 6px; background: rgba(7, 14, 28, 0.86); box-shadow: inset 0 0 0 1px rgba(8, 20, 40, 0.9), inset 0 0 28px rgba(46, 230, 214, 0.07), 0 10px 30px rgba(0, 0, 0, 0.5); clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px); }
+.bridge .bridge-panel::before { content: ""; position: absolute; top: 6px; right: 16px; width: 44px; height: 7px; background: repeating-linear-gradient(-55deg, #F5A524 0 6px, transparent 6px 11px); opacity: 0.9; pointer-events: none; }
+.bridge .bridge-console { padding: 18px; }
+.bridge h1, .bridge h2, .bridge h3 { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.bridge button, .bridge [role="tab"], .bridge summary { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; text-transform: uppercase; letter-spacing: 0.06em; border-radius: 5px; }
+.bridge .btn-ghost { border: 1px solid rgba(124, 196, 255, 0.45); background: linear-gradient(180deg, rgba(30, 48, 78, 0.9), rgba(12, 22, 40, 0.95)); box-shadow: inset 0 1px 0 rgba(160, 210, 255, 0.22), inset 0 -2px 0 rgba(0, 0, 0, 0.45); }
+.bridge .btn-ghost:hover { border-color: rgba(46, 230, 214, 0.8); box-shadow: inset 0 1px 0 rgba(160, 210, 255, 0.22), inset 0 -2px 0 rgba(0, 0, 0, 0.45), 0 0 14px rgba(46, 230, 214, 0.35); }
+.bridge .btn-primary { border: 1px solid #FFC14D; color: #1A1203; font-weight: 700; background: linear-gradient(180deg, #FFB938, #F08A12); box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.7), inset 0 -3px 0 rgba(120, 60, 0, 0.5), 0 0 18px rgba(245, 165, 36, 0.45); }
+.bridge .btn-primary:hover { background: linear-gradient(180deg, #FFC85A, #F59A22); }
+.bridge .btn-primary:disabled { filter: grayscale(0.7); opacity: 0.55; box-shadow: none; }
+.bridge .glass-input, .bridge input[type="text"], .bridge textarea { border-radius: 5px; border: 1px solid rgba(124, 196, 255, 0.3); background: rgba(3, 8, 18, 0.85); box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6); font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+.bridge .glass-input:focus, .bridge input[type="text"]:focus, .bridge textarea:focus { border-color: rgba(46, 230, 214, 0.85); box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(46, 230, 214, 0.35); }
+.bridge .glass-input::placeholder, .bridge input::placeholder, .bridge textarea::placeholder { text-transform: uppercase; letter-spacing: 0.08em; }
+.bridge .bridge-captain { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.bridge .bridge-readout { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #8FE9E0; padding: 3px 10px; border: 1px solid rgba(46, 230, 214, 0.35); border-radius: 4px; background: rgba(4, 12, 22, 0.8); }
+.bridge .bridge-captain[data-captain-state="call"] .bridge-readout { color: #FFC14D; border-color: rgba(245, 165, 36, 0.7); }
+.bridge .bridge-gauges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; padding: 8px 34px; position: relative; border: 1px solid rgba(124, 196, 255, 0.3); border-radius: 6px; background: rgba(7, 14, 28, 0.9); }
+.bridge .bridge-gauges::before, .bridge .bridge-gauges::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 18px; background: repeating-linear-gradient(-45deg, #F5A524 0 7px, #10151F 7px 14px); border-radius: 3px; }
+.bridge .bridge-gauges::before { left: 7px; }
+.bridge .bridge-gauges::after { right: 7px; }
+.bridge .bridge-gauge { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border: 1px solid rgba(124, 196, 255, 0.22); border-radius: 5px; background: rgba(3, 8, 18, 0.8); }
+.bridge .bridge-gauge-label { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #8FA3C4; }
+.bridge .bridge-gauge-value { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 22px; font-weight: 700; color: #F2F6FF; line-height: 1.15; }
+.bridge .bridge-bars { display: flex; align-items: flex-end; gap: 3px; height: 30px; }
+.bridge .bridge-bars span { width: 5px; background: rgba(124, 196, 255, 0.16); border-radius: 1px; }
+.bridge .bridge-bars span[data-on] { background: #2EE6D6; box-shadow: 0 0 6px rgba(46, 230, 214, 0.6); }
+.bridge .bridge-gauge[data-gauge="spent"] .bridge-bars span[data-on] { background: #F5A524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.6); }
+/* ── end of the Projects bridge ── */
