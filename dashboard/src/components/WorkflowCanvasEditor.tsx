@@ -453,7 +453,7 @@ function DeletableEdge({
         markerEnd={markerEnd}
         style={{
           ...style,
-          stroke: selected ? '#c084fc' : '#a855f7',
+          stroke: selected ? '#9FD0FF' : '#5AAEFF',
           strokeWidth: selected || hovered ? 3 : 2,
         }}
       />

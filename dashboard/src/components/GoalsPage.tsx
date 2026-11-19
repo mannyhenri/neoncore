@@ -470,7 +470,7 @@ function ProjectForm({ goals, initial, onSave, onCancel }: ProjectFormProps) {
   const [description, setDescription] = useState(initial?.description || '');
   const [goalId, setGoalId] = useState<string | null>(initial?.goalId || null);
   const [primaryRepo, setPrimaryRepo] = useState(initial?.primaryRepo || '');
-  const [color, setColor] = useState(initial?.color || '#a855f7');
+  const [color, setColor] = useState(initial?.color || '#5AAEFF');
   // The cartridges this project owns. Seeded from primaryRepo for a project created before
   // projects had a set, so editing an old project does not silently unlink it.
   const [cartridges, setCartridges] = useState<string[]>(

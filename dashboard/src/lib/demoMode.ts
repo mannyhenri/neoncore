@@ -123,7 +123,7 @@ function seed() {
        * every goal rendered "0 projects · reaches nothing" and the page warned that no project
        * had a goal, which is a demo showing the empty state of its own headline feature.
        */
-      { id: 'demo-p1', name: 'Atlas', description: 'Customer-facing API and web app.', primaryRepo: '/demo/atlas-api', color: '#a855f7', goalId: 'demo-g2', cartridges: ['/demo/atlas-api', '/demo/atlas-web'], createdAt: ago(9000), updatedAt: ago(30) },
+      { id: 'demo-p1', name: 'Atlas', description: 'Customer-facing API and web app.', primaryRepo: '/demo/atlas-api', color: '#5AAEFF', goalId: 'demo-g2', cartridges: ['/demo/atlas-api', '/demo/atlas-web'], createdAt: ago(9000), updatedAt: ago(30) },
       { id: 'demo-p2', name: 'Ledger', description: 'Billing and reconciliation.', primaryRepo: '/demo/ledger-svc', color: '#38bdf8', goalId: 'demo-g1', cartridges: ['/demo/ledger-svc'], createdAt: ago(9000), updatedAt: ago(60) },
       { id: 'demo-p3', name: 'Pulse', description: 'Field mobile app — visits, offline capture.', primaryRepo: '/demo/pulse-mobile', color: '#34d399', goalId: 'demo-g3', cartridges: ['/demo/pulse-mobile'], createdAt: ago(7000), updatedAt: ago(90) },
     ],

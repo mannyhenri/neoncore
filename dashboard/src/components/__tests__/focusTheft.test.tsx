@@ -19,9 +19,6 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-vi.mock('../../lib/sprites', () => ({
-  generatePixelSprites: () => [],
-}));
 
 import { CartridgeGrid } from '../CartridgeGrid';
 import { NotificationCenter } from '../NotificationCenter';

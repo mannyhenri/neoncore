@@ -3,7 +3,7 @@ import { render, fireEvent } from '@testing-library/react';
 import type { Agent, Activity } from '../../types';
 
 // ---------------------------------------------------------------------------
-// Mocks — CartridgeCard reaches for the API on mount and draws canvas sprites.
+// Mocks — CartridgeCard reaches for the API on mount.
 // Neither is under test here.
 // ---------------------------------------------------------------------------
 
@@ -16,9 +16,6 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-vi.mock('../../lib/sprites', () => ({
-  generatePixelSprites: () => [],
-}));
 
 import { CartridgeGrid } from '../CartridgeGrid';
 
