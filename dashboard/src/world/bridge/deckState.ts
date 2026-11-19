@@ -42,6 +42,18 @@ export function flowGauges(runs: readonly Run[], now: number): { running: number
   };
 }
 
+/**
+ * The engineer at the workflow canvas, from the one run that is open in it: the same three
+ * looks as on the Flows page. `call` = the run is paused, or a step of the live run failed.
+ */
+export function canvasEngineerAnim(workflowStatus: string, stepStatuses: readonly string[]): EngineerAnim {
+  const liveRun = workflowStatus === 'running' || workflowStatus === 'paused';
+  if (!liveRun) return 'idle';
+  if (workflowStatus === 'paused' || stepStatuses.includes('failed')) return 'call';
+  if (stepStatuses.includes('running')) return 'work';
+  return 'idle';
+}
+
 export const QUARTERMASTER_ANIMS = ['idle', 'work', 'call'] as const;
 export type QuartermasterAnim = (typeof QUARTERMASTER_ANIMS)[number];
 /** How long a failed task keeps calling for you. After that it is history in the list. */

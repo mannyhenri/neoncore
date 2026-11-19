@@ -289,4 +289,40 @@ select.glass-input optgroup {
 .bridge .bridge-tank-glass > div { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #7FF3EA, #1CB5A8); box-shadow: 0 0 10px rgba(46, 230, 214, 0.7); }
 .bridge .bridge-tank[data-alert] .bridge-tank-glass > div { background: linear-gradient(180deg, #FFC85A, #F08A12); box-shadow: 0 0 10px rgba(245, 165, 36, 0.7); }
 .bridge .bridge-gauge[data-tone="amber"] .bridge-bars span[data-on] { background: #F5A524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.6); }
+.bridge.flow-canvas { background-color: #050914; background-image: linear-gradient(rgba(5, 9, 20, 0.35), rgba(5, 9, 20, 0.97) 120px), var(--flow-deck, none); background-size: 100% auto; background-position: top center; background-repeat: no-repeat; border-color: rgba(46, 230, 214, 0.4); }
+.bridge.flow-canvas .flow-toolbar { background: rgba(5, 10, 22, 0.72); border-bottom: 1px solid rgba(46, 230, 214, 0.35); box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.6); }
+.bridge.flow-canvas .flow-readout { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; border-top: 1px solid rgba(46, 230, 214, 0.35); }
+.bridge.flow-canvas .react-flow { background: transparent; }
+.bridge.flow-canvas .flow-node { --flow-kind: #7CC4FF; --flow-lamp: #6B7C99; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--flow-kind) 55%, transparent); background: linear-gradient(180deg, rgba(14, 26, 46, 0.96), rgba(7, 14, 28, 0.97)); box-shadow: inset 0 1px 0 rgba(160, 210, 255, 0.16), inset 0 0 0 1px rgba(4, 10, 22, 0.9), inset 0 0 22px color-mix(in srgb, var(--flow-kind) 10%, transparent), 0 8px 22px rgba(0, 0, 0, 0.5); }
+.bridge.flow-canvas .flow-node::before { content: ""; position: absolute; top: -1px; left: -1px; width: 14px; height: 14px; border-top: 2px solid var(--flow-kind); border-left: 2px solid var(--flow-kind); border-top-left-radius: 6px; pointer-events: none; }
+.bridge.flow-canvas .flow-node::after { content: ""; position: absolute; bottom: -1px; right: -1px; width: 14px; height: 14px; border-bottom: 2px solid var(--flow-kind); border-right: 2px solid var(--flow-kind); border-bottom-right-radius: 6px; pointer-events: none; }
+.bridge.flow-canvas .flow-node span[class*="w-2 h-2"] { width: 11px; height: 11px; background: var(--flow-lamp); box-shadow: 0 0 0 2px rgba(3, 8, 18, 0.9), 0 0 9px var(--flow-lamp); }
+.bridge.flow-canvas .flow-node span.cursor-text { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+.bridge.flow-canvas .flow-node [class*="rounded-full"]:not([class*="w-2"]) { border-radius: 3px; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.bridge.flow-canvas .flow-node[data-status="pending"] { --flow-lamp: #6B7C99; }
+.bridge.flow-canvas .flow-node[data-status="running"] { --flow-lamp: #2EE6D6; border-color: #2EE6D6; animation: flow-active 1.6s ease-in-out infinite; }
+.bridge.flow-canvas .flow-node[data-status="completed"] { --flow-lamp: #4ADE80; border-color: rgba(74, 222, 128, 0.65); }
+.bridge.flow-canvas .flow-node[data-status="failed"] { --flow-lamp: #FF5A5A; border-color: rgba(255, 90, 90, 0.8); box-shadow: inset 0 0 22px rgba(255, 90, 90, 0.14), 0 0 18px rgba(255, 90, 90, 0.3); }
+.bridge.flow-canvas .flow-node[data-status="skipped"] { --flow-lamp: #3A465C; opacity: 0.6; }
+.bridge.flow-canvas .flow-node[data-kind="decision"] { --flow-kind: #F5C24B; }
+.bridge.flow-canvas .flow-node[data-kind="confer"] { --flow-kind: #9C8CFF; }
+.bridge.flow-canvas .flow-node[data-kind="deliberation"] { --flow-kind: #9C8CFF; }
+.bridge.flow-canvas .flow-node[data-kind="connector"] { --flow-kind: #2EE6D6; }
+.bridge.flow-canvas .flow-node[data-kind="quality-gate"] { --flow-kind: #7CC4FF; }
+.bridge.flow-canvas .flow-node[data-kind="review-gate"] { --flow-kind: #FF8FA3; }
+.bridge.flow-canvas .flow-node[data-kind="command"] { --flow-kind: #7CC4FF; }
+.bridge.flow-canvas .flow-node[data-kind="confer"], .bridge.flow-canvas .flow-node[data-kind="deliberation"] { outline: 1px solid color-mix(in srgb, var(--flow-kind) 45%, transparent); outline-offset: 4px; }
+.bridge.flow-canvas .react-flow__handle { width: 13px !important; height: 13px !important; background: #0A1424 !important; border: 2px solid #2EE6D6 !important; box-shadow: 0 0 8px rgba(46, 230, 214, 0.7); }
+.bridge.flow-canvas .react-flow__edge-path { stroke: #2EE6D6 !important; stroke-width: 4px !important; stroke-linecap: round; filter: drop-shadow(0 0 5px rgba(46, 230, 214, 0.75)); }
+.bridge.flow-canvas .react-flow__edge.selected .react-flow__edge-path { stroke: #BFF7F1 !important; }
+.bridge.flow-canvas .react-flow__edge.animated .react-flow__edge-path { stroke-dasharray: 14 18 !important; stroke: #BFF7F1 !important; animation: dashdraw 0.6s linear infinite; }
+.bridge.flow-canvas .react-flow__controls { border: 1px solid rgba(46, 230, 214, 0.4) !important; border-radius: 6px !important; background: rgba(7, 14, 28, 0.95) !important; overflow: hidden; }
+.bridge.flow-canvas .react-flow__controls button { background: linear-gradient(180deg, rgba(30, 48, 78, 0.9), rgba(12, 22, 40, 0.95)) !important; border-bottom: 1px solid rgba(124, 196, 255, 0.25) !important; color: #BFF7F1 !important; fill: #BFF7F1; }
+.bridge.flow-canvas .react-flow__minimap { width: 150px; height: 150px; border-radius: 50% !important; overflow: hidden; border: 2px solid rgba(46, 230, 214, 0.55); background: radial-gradient(circle, rgba(10, 40, 46, 0.95) 0 28%, rgba(6, 20, 28, 0.97) 29% 58%, rgba(4, 12, 20, 0.98) 59%) !important; box-shadow: 0 0 18px rgba(46, 230, 214, 0.3), inset 0 0 0 6px rgba(4, 12, 22, 0.9); }
+.bridge.flow-canvas .react-flow__minimap::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, rgba(46, 230, 214, 0.42), rgba(46, 230, 214, 0) 22%, rgba(46, 230, 214, 0) 100%); animation: flow-sweep 4s linear infinite; pointer-events: none; }
+.bridge.flow-canvas .flow-engineer { position: absolute; left: 62px; bottom: 6px; pointer-events: none; z-index: 4; }
+.bridge.flow-canvas .flow-engineer .mx-auto { margin: 0; }
 /* ── end of the Projects bridge ── */
+@keyframes flow-active { 0%, 100% { box-shadow: inset 0 0 22px rgba(46, 230, 214, 0.12), 0 0 14px rgba(46, 230, 214, 0.35); } 50% { box-shadow: inset 0 0 26px rgba(46, 230, 214, 0.2), 0 0 26px rgba(46, 230, 214, 0.7); } }
+@keyframes flow-sweep { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bridge.flow-canvas .flow-node, .bridge.flow-canvas .react-flow__minimap::after { animation: none !important; } }

@@ -35,10 +35,14 @@ import {
   type OnEdgesChange,
   type NodeChange,
   type EdgeChange,
+  BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 import { api } from '../lib/api';
+import { DeckSprite } from '../world/bridge/Decks';
+import { DECK_ART } from '../world/bridge/bridge.generated';
+import { canvasEngineerAnim } from '../world/bridge/deckState';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowExecutionLog } from './WorkflowExecutionLog';
 import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
@@ -208,7 +212,11 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
 
   return (
     <div
-      className={`
+      // What the console theme styles (index.css, .flow-node): the step's status is its lamp
+      // and frame, its kind is the sort of module it is.
+      data-status={data.status}
+      data-kind={data.executorType || 'step'}
+      className={`flow-node
         relative rounded-[14px] border transition-all duration-200 w-[300px] bg-[rgba(12,18,34,0.92)]
         ${statusStyle.ring || TYPE_FRAME[data.executorType ?? ''] || 'border-white/[0.18] hover:border-white/30'}
         ${selected ? 'outline outline-2 outline-offset-2 outline-neon-500/70' : ''}
@@ -1467,6 +1475,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
   // the page" and starts meaning "over the rail", which paints before <main>. The whole
   // editor rendered underneath the cartridge grid — present, interactive, invisible.
   // No z-index fixes this; only leaving the subtree does.
+  const engineerState = canvasEngineerAnim(workflowStatus, nodes.map((n) => String((n.data as { status?: string }).status ?? 'pending')));
+
   return createPortal(
     <div
       ref={backdropRef}
@@ -1475,12 +1485,15 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     >
       {/* Main container — stop propagation so clicks inside don't trigger backdrop close */}
       <div
-        className="flex-1 flex flex-col m-2 md:m-4 rounded-[22px] overflow-hidden bg-ink border border-white/[0.16] shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+        // `bridge flow-canvas`: the console look of the other decks (index.css). The editor is
+        // portalled out of the page, so it has to name the scope itself.
+        className="bridge flow-canvas flex-1 flex flex-col m-2 md:m-4 rounded-[22px] overflow-hidden bg-ink border border-white/[0.16] shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+        style={DECK_ART.backdrops.workflows ? ({ '--flow-deck': `url(${DECK_ART.backdrops.workflows})` } as React.CSSProperties) : undefined}
         onClick={(e) => e.stopPropagation()}
       >
 
         {/* ── Toolbar ─────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-2.5 px-5 py-3.5 border-b border-white/[0.12] bg-gray-950 shrink-0">
+        <div className="flow-toolbar flex flex-wrap items-center gap-2.5 px-5 py-3.5 border-b border-white/[0.12] bg-gray-950 shrink-0">
           {/* Name — stop key propagation so React Flow / parent handlers don't intercept typing */}
           {isRunView ? (
             <>
@@ -1675,7 +1688,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         <div className="flex-1 flex overflow-hidden relative">
 
           {/* React Flow Canvas */}
-          <div className="flex-1">
+          <div className="flex-1 relative">
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -1696,7 +1709,8 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 style: { stroke: '#5AAEFF', strokeWidth: 2 },
               }}
             >
-              <Background color="rgba(120,150,255,0.18)" gap={22} size={1.2} />
+              {/* A blueprint grid: the schematic table of the engine deck. */}
+              <Background variant={BackgroundVariant.Lines} color="rgba(46,230,214,0.07)" gap={32} lineWidth={1} />
               <Controls
                 showInteractive={false}
                 className="!bg-gray-900 !border-white/[0.2] !rounded-lg !shadow-xl [&>button]:!bg-gray-900 [&>button]:!border-white/[0.12] [&>button]:!text-gray-300 [&>button:hover]:!text-white [&>button:hover]:!bg-white/10"
@@ -1708,6 +1722,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 className="!border-white/10"
               />
             </ReactFlow>
+            {/* The engineer at the table: wrenching while a step runs, waving when the run is
+                paused or a step has failed, standing by otherwise (deckState.ts). */}
+            <div className="flow-engineer" data-deck-state={engineerState} aria-hidden="true">
+              <DeckSprite sheet={DECK_ART.sheets.engineer} cycle={engineerState} fps={engineerState === 'idle' ? 3 : 6} height={118} />
+            </div>
           </div>
 
           {/* ── Side Panel ─────────────────────── */}
@@ -1747,7 +1766,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         )}
 
         {/* ── Status bar ──────────────────────── */}
-        <div className="flex items-center gap-4 px-5 py-2 border-t border-white/[0.12] bg-[rgba(5,9,19,0.96)] text-[12px] text-gray-400 shrink-0">
+        <div className="flow-readout flex items-center gap-4 px-5 py-2 border-t border-white/[0.12] bg-[rgba(5,9,19,0.96)] text-[12px] text-gray-400 shrink-0">
           <span>{steps.length} step{steps.length !== 1 ? 's' : ''}</span>
           <span>{edges.length} connection{edges.length !== 1 ? 's' : ''}</span>
           {savedWorkflowId && (
