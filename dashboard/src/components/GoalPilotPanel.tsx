@@ -33,6 +33,7 @@ import {
 
 import { ENGINE_LABEL, input, primaryBtn, quietBtn, dangerBtn, errorText } from './pilotStyles';
 import { CriteriaEditor, ContractCard } from './AcceptanceContractPanel';
+import { AiWorkingBar } from './SectionTitle';
 
 let metaCache: Promise<GoalPilotMeta> | null = null;
 /** The registries barely change; one fetch per page load is enough. */
@@ -276,8 +277,8 @@ function PlannerWait({ pilot, agents, onChanged }: { pilot: GoalPilot; agents: A
           <p className="text-[13px] text-amber-200/70 mt-0.5">{req?.error}</p>
         </>
       ) : (
-        <div className="flex items-start gap-2.5">
-          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
+        <div className="space-y-2.5">
+          <AiWorkingBar label={`${pilot.plannerName || 'The planner'} is ${what}`} />
           <div className="min-w-0">
             <p className="text-[14px] text-violet-100">
               {pilot.plannerName || 'The planner'} is {what}…

@@ -20,9 +20,10 @@ import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
 import type { Agent, Project, ProjectSpec, SpecFeature, SpecAlignment, SpecStatus, ChangelogEntry, ChangeKind, ProjectImport, ImportPart } from '../types';
 import { plannerCandidates } from '../lib/goalPilot';
+import { AiWorkingBar } from './SectionTitle';
 
-const primaryBtn = 'h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
-const quietBtn = 'h-10 px-4 btn-ghost rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40';
+const primaryBtn = 'inline-flex items-center justify-center whitespace-nowrap h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+const quietBtn = 'inline-flex items-center justify-center whitespace-nowrap h-10 px-4 btn-ghost rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40';
 const input = 'w-full glass-input rounded-[10px] px-3 py-2.5 text-[13px] text-gray-200 placeholder-gray-500 focus:outline-none';
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const day = (iso: string | null | undefined) => (iso ? String(iso).slice(0, 10) : '');
@@ -97,7 +98,7 @@ export function DocsBar({ project, onChanged }: { project: Project; onChanged: (
     try { await api.updateProject(project.id, { docsAutoPublish: !project.docsAutoPublish }); onChanged(); } catch (e) { setErr(errText(e)); }
   };
   return (
-    <div className="flex items-center justify-between gap-3 flex-wrap rounded-[14px] border border-white/[0.1] bg-gl-surface/60 px-3 py-2">
+    <div className="flex items-center justify-between gap-3 flex-wrap rounded-[14px] border border-white/[0.1] bg-gl-surface/60 px-4 py-3">
       <div className="min-w-0 text-[13px] text-gray-400">
         <span className="text-gray-300">docs/product/</span>
         {repo ? <span> in <span className="text-gray-300">{repo.split(/[\\/]/).pop()}</span></span> : <span className="text-ember-300"> — add a repo to the project first</span>}
@@ -333,9 +334,9 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
                 setDragging(null); setOver(null);
                 if (f) move(f, lane.key);
               }}
-              className={`rounded-[18px] p-3 border bg-gl-code/70 transition-colors ${over === lane.key ? 'border-neon-500/70 shadow-[0_0_20px_rgba(90,174,255,0.25)]' : 'border-white/[0.08]'}`}
+              className={`rounded-[18px] p-4 border bg-gl-code/70 transition-colors ${over === lane.key ? 'border-neon-500/70 shadow-[0_0_20px_rgba(90,174,255,0.25)]' : 'border-white/[0.08]'}`}
             >
-              <h4 className="text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-2" title={lane.hint}>{lane.title} <span className="text-gray-500">{items.length}</span></h4>
+              <h4 className="text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-3" title={lane.hint}>{lane.title} <span className="text-gray-500">{items.length}</span></h4>
               <div className="space-y-2 min-h-[48px]">
                 {items.length === 0 ? <p className="text-[13px] text-gray-500 italic">{dragging ? 'Drop here' : lane.empty}</p> : items.map((f) => (
                   <div
@@ -343,7 +344,7 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
                     draggable
                     onDragStart={(e) => { e.dataTransfer.setData('text/plain', f.id); e.dataTransfer.effectAllowed = 'move'; setDragging(f.id); }}
                     onDragEnd={() => { setDragging(null); setOver(null); }}
-                    className={`rounded-[14px] border border-white/[0.1] bg-gl-surface/60 hover:border-white/[0.2] px-3 py-2 cursor-grab active:cursor-grabbing ${dragging === f.id ? 'opacity-40' : ''}`}
+                    className={`rounded-[14px] border border-white/[0.1] bg-gl-surface/60 hover:border-white/[0.2] px-3.5 py-3 cursor-grab active:cursor-grabbing ${dragging === f.id ? 'opacity-40' : ''}`}
                   >
                     <div className="flex items-start gap-2">
                       <button onClick={() => onOpenFeature(f.id)} className="flex-1 min-w-0 text-left text-[14px] font-semibold text-gray-100 hover:text-white">{f.name}</button>
@@ -738,9 +739,9 @@ function AiGenerate({ project, agents, version, onChanged, parts, choose = false
           </div>
         )}
         {repos.length === 0 && <p className="text-[13px] text-ember-300">Add the project's repos first — the cartridge reads them.</p>}
+        {(starting || waiting) && <AiWorkingBar label={`A cartridge is writing the ${partsText(waiting ? latest!.parts : asking)}`} />}
         {waiting && (
           <div className="flex items-center gap-2 text-[13px] text-violet-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
             <span>A cartridge is writing the {partsText(latest!.parts)} (asked {ago(latest!.createdAt)}). You can leave this page — the proposal waits here for your review. If the cartridge went offline, ask again.</span>
           </div>
         )}

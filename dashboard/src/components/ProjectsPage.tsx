@@ -31,7 +31,7 @@ import { UNFILED, parseProjectHash, projectHash, resolveProjectSelection, type P
 import { featureStatus, nextUp, anyInFlight, TONE_PILL, TONE_DOT, type FeatureStatus } from '../lib/featureStatus';
 import { progressView, healthView } from '../lib/goalRollup';
 import { DocsBar, SpecTab, RoadmapTab, ChangelogTab, ArchitectureTab } from './ProjectHub';
-import { SegMeter, SectionTitle, PageTitle } from './SectionTitle';
+import { SegMeter, SectionTitle, PageTitle, AiWorkingBar } from './SectionTitle';
 
 const primaryBtn = 'h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const quietBtn = 'h-10 px-4 btn-ghost rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40';
@@ -411,6 +411,7 @@ function FeatureRow({ feature, index, count, highlight }: { feature: Goal; index
         {st.progress !== null && st.key !== 'done' && (
           <SegMeter pct={st.progress * 100} cells={16} height={8} className="mt-2 max-w-[240px]" />
         )}
+        {st.key === 'thinking' && <AiWorkingBar label={st.label} cells={16} className="mt-2 max-w-[240px]" />}
       </button>
       <StatusPill status={st} className="hidden sm:inline-flex" />
       <button

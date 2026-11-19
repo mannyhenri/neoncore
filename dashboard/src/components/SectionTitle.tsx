@@ -85,3 +85,30 @@ export function SegMeter({ pct, cells = 30, height = 20, label, className = '' }
     </div>
   );
 }
+
+/**
+ * AI at work, length unknown — a lit band sweeping the segmented track while a cartridge writes
+ * (generate with AI, scoping, choosing workflows). It shows activity, never an amount: no cell
+ * stays lit, so it cannot be read as a fraction (docs/DESIGN.md: meters never invent progress).
+ */
+export function AiWorkingBar({ label = 'AI is working', cells = 30, height = 6, className = '' }: {
+  label?: string;
+  cells?: number;
+  height?: number;
+  className?: string;
+}) {
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-busy="true"
+      className={`ai-working relative flex gap-[3px] p-[4px] rounded-md overflow-hidden shadow-[0_0_14px_rgba(124,108,255,0.25)] ${className}`}
+      style={{ background: 'rgba(4,8,20,0.9)' }}
+    >
+      {Array.from({ length: cells }, (_, i) => (
+        <span key={i} className="flex-1 rounded-[2px] seg-off" style={{ height }} />
+      ))}
+      <span aria-hidden="true" className="ai-working-sweep" />
+    </div>
+  );
+}

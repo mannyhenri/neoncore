@@ -73,6 +73,26 @@
     border: 1px solid rgba(90, 174, 255, 0.35);
   }
 
+  /* AiWorkingBar: a lit band sweeping the track while AI writes — activity, not an amount. */
+  .ai-working-sweep {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 0;
+    width: 28%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, rgba(124, 108, 255, 0.85) 30%, #5AAEFF 50%, rgba(124, 108, 255, 0.85) 70%, transparent);
+    box-shadow: 0 0 12px rgba(90, 174, 255, 0.7);
+    animation: ai-sweep 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes ai-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(360%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ai-working-sweep { animation-duration: 4s; }
+  }
+
   .btn-primary {
     border: 1px solid rgba(77, 163, 255, 0.7);
     background: rgba(59, 139, 255, 0.2);
