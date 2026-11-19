@@ -6,7 +6,6 @@ import { GitPanel } from './GitPanel';
 import ProjectMemoryPanel from './ProjectMemoryPanel';
 import SendContextModal from './SendContextModal';
 import { api } from '../lib/api';
-import { generatePixelSprites } from '../lib/sprites';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -32,12 +31,24 @@ interface CartridgeCardProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Night Glass status colours: blue = working, ember = needs you, grey = idle, red = offline.
 const STATUS_CONFIG = {
-  working: { color: 'bg-green-500', label: 'Working' },
-  idle: { color: 'bg-gray-500', label: 'Idle' },
-  waiting: { color: 'bg-yellow-500', label: 'Waiting' },
-  offline: { color: 'bg-red-500', label: 'Offline' },
+  working: { dot: '#5AAEFF', pill: 'bg-neon-500/[0.18] text-neon-200', label: 'Working' },
+  idle: { dot: '#8A97B8', pill: 'bg-white/[0.07] text-gray-300', label: 'Idle' },
+  waiting: { dot: '#FF8A3D', pill: 'bg-[#FF8A3D]/[0.14] text-ember-300', label: 'Waiting' },
+  offline: { dot: '#FF6B6B', pill: 'bg-red-500/[0.12] text-red-300', label: 'Offline' },
 } as const;
+
+// The card's frame per state: working glows blue, waiting glows ember, everything else is quiet.
+const CARD_FRAME = {
+  working: 'border-[#5AAEFF]/[0.34] shadow-[0_0_26px_rgba(90,174,255,0.13)]',
+  waiting: 'border-[#FF8A3D]/[0.55] shadow-[0_0_26px_rgba(255,138,61,0.16)]',
+  idle: 'border-[rgba(120,150,255,0.14)]',
+  offline: 'border-[rgba(120,150,255,0.10)]',
+} as const;
+
+const SEG_CELLS = 24;
+const SEG_WINDOW_MS = 30 * 60_000;
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -55,12 +66,14 @@ function shortMachine(machine: string): string {
 
 // Presentation for each tool (agentType). `label` is the full badge/selector text,
 // `short` the compact form used to tag Live Log lines, `badge` the Tailwind classes.
-type ToolMeta = { label: string; short: string; badge: string };
+// `color` is the engine colour (Claude blue, Codex teal, Gridlight pink): an outlined pill on the
+// card and the [engine] tag colour in the live log.
+type ToolMeta = { label: string; short: string; badge: string; color: string };
 function toolMeta(agentType: string): ToolMeta {
   switch (agentType) {
-    case 'gridlight': return { label: 'Gridlight', short: 'Gridlight', badge: 'bg-pink-900/60 text-pink-300' };
-    case 'codex':     return { label: 'Codex CLI', short: 'Codex', badge: 'bg-green-900/60 text-green-300' };
-    default:          return { label: 'Claude CC', short: 'Claude', badge: 'bg-blue-900/60 text-blue-300' };
+    case 'gridlight': return { label: 'Gridlight', short: 'Gridlight', badge: 'border border-[#FF7AC0]/60 text-[#FF7AC0]', color: '#FF7AC0' };
+    case 'codex':     return { label: 'Codex CLI', short: 'Codex', badge: 'border border-[#2EE6D6]/60 text-[#2EE6D6]', color: '#2EE6D6' };
+    default:          return { label: 'Claude CC', short: 'Claude', badge: 'border border-[#7CC4FF]/60 text-[#7CC4FF]', color: '#7CC4FF' };
   }
 }
 
@@ -198,31 +211,31 @@ function QuestionAnswerCard({ permission, onDecide }: {
 
   if (questions.length === 0) {
     return (
-      <div className="bg-yellow-950/40 border border-yellow-700 rounded px-3 py-2">
+      <div className="rounded-xl border border-[#FF8A3D]/[0.35] bg-[#FF8A3D]/[0.08] px-3.5 py-3">
         <div className="flex items-center gap-2 mb-1">
-          <div className="w-2 h-2 bg-yellow-400 animate-pulse" style={{ imageRendering: 'pixelated' }} />
-          <span className="text-yellow-300 text-xs font-semibold">Question from Agent</span>
+          <span className="w-2 h-2 rounded-full bg-[#FF8A3D] shadow-[0_0_8px_#FF8A3D] animate-pulse" />
+          <span className="text-ember-300 text-[12px] font-semibold uppercase tracking-[0.12em]">Question from Agent</span>
         </div>
-        <p className="text-xs text-gray-400">{permission.description}</p>
+        <p className="text-[14px] text-gray-200">{permission.description}</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-yellow-950/40 border border-yellow-700 rounded px-3 py-2 space-y-2">
+    <div className="rounded-xl border border-[#FF8A3D]/[0.35] bg-[#FF8A3D]/[0.08] px-3.5 py-3 space-y-2.5">
       <div className="flex items-center gap-2">
-        <div className="w-2 h-2 bg-yellow-400 animate-pulse" style={{ imageRendering: 'pixelated' }} />
-        <span className="text-yellow-300 text-xs font-semibold">Question from Agent</span>
+        <span className="w-2 h-2 rounded-full bg-[#FF8A3D] shadow-[0_0_8px_#FF8A3D] animate-pulse" />
+        <span className="text-ember-300 text-[12px] font-semibold uppercase tracking-[0.12em]">Question from Agent</span>
       </div>
       {questions.map((q, qi) => {
         const key = questionKey(q, qi);
         const sel = selections[key];
         return (
           <div key={qi}>
-            {q.header && <div className="text-[13px] text-gray-500 uppercase mb-0.5">{q.header}</div>}
-            <p className="text-xs text-gray-300 mb-1.5">{q.question}</p>
+            {q.header && <div className="text-[11px] text-gray-500 uppercase tracking-[0.12em] mb-0.5">{q.header}</div>}
+            <p className="text-[14px] font-semibold text-gray-100 mb-2">{q.question}</p>
             {q.options && q.options.length > 0 && !showCustom[key] && (
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-col gap-1.5">
                 {q.options.map((rawOpt, oi) => {
                   const opt = normalizeOption(rawOpt);
                   if (!opt.label) return null;
@@ -233,10 +246,10 @@ function QuestionAnswerCard({ permission, onDecide }: {
                     <button
                       key={oi}
                       onClick={() => handleSelect(qi, opt.label)}
-                      className={`px-2 py-1 text-xs rounded transition-colors border ${
+                      className={`min-h-[40px] px-3 text-left text-[14px] rounded-[10px] transition-colors border bg-[#04081A]/80 ${
                         isSelected
-                          ? 'bg-yellow-700/80 text-yellow-100 border-yellow-600'
-                          : 'bg-yellow-900/60 hover:bg-yellow-800/80 text-yellow-200 border-yellow-700/50'
+                          ? 'text-gray-50 border-[#FF8A3D]/70 shadow-[0_0_12px_rgba(255,138,61,0.2)]'
+                          : 'text-gray-200 border-white/[0.14] hover:border-[#FF8A3D]/50'
                       }`}
                       title={opt.description || ''}
                     >
@@ -246,7 +259,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
                 })}
                 <button
                   onClick={() => setShowCustom((prev) => ({ ...prev, [key]: true }))}
-                  className="px-2 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50"
+                  className="min-h-[40px] px-3 text-left text-[14px] rounded-[10px] transition-colors border border-dashed border-white/[0.18] text-gray-400 hover:text-gray-200"
                 >
                   Other...
                 </button>
@@ -259,7 +272,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
                   value={customTexts[key] || ''}
                   onChange={(e) => setCustomTexts((prev) => ({ ...prev, [key]: e.target.value }))}
                   placeholder="Type your answer..."
-                  className="flex-1 glass-input text-gray-300 text-xs rounded px-2 py-1 focus:outline-none"
+                  className="flex-1 glass-input text-gray-100 text-[14px] rounded-[10px] h-10 px-3 focus:outline-none"
                   onKeyDown={(e) => { if (e.key === 'Enter' && !isMulti) handleSubmit(); }}
                   autoFocus
                 />
@@ -277,7 +290,7 @@ function QuestionAnswerCard({ permission, onDecide }: {
       {isMulti && (
         <button
           onClick={handleSubmit}
-          className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 text-white text-xs rounded transition-colors font-medium"
+          className="w-full h-10 rounded-[10px] border border-[#FF8A3D]/70 bg-[#FF8A3D]/[0.18] hover:bg-[#FF8A3D]/[0.26] text-[#FFE2CC] text-[14px] font-semibold transition-colors"
         >
           Submit Answers
         </button>
@@ -304,16 +317,16 @@ function PlanApprovalCard({ permission, onDecide }: {
   } catch { /* ignore */ }
 
   return (
-    <div className="bg-violet-950/40 border border-violet-700 rounded px-3 py-2">
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className="w-2 h-2 bg-violet-400 animate-pulse" style={{ imageRendering: 'pixelated' }} />
-        <span className="text-violet-300 text-xs font-semibold">Plan Ready for Review</span>
+    <div className="rounded-xl border border-[#FFC44D]/50 bg-[#FFC44D]/[0.06] px-3.5 py-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-2 h-2 rounded-full bg-[#FFC44D] shadow-[0_0_8px_#FFC44D] animate-pulse" />
+        <span className="text-[#FFD27A] text-[12px] font-semibold uppercase tracking-[0.12em]">Plan Ready for Review</span>
       </div>
       {allowedPrompts.length > 0 && (
         <div className="mb-2 space-y-0.5">
-          <span className="text-[13px] text-gray-500 uppercase tracking-wide">Requested permissions:</span>
+          <span className="text-[13px] text-gray-400">Requested permissions:</span>
           {allowedPrompts.map((p, i) => (
-            <div key={i} className="text-xs text-gray-400 font-mono pl-2 border-l border-violet-800">
+            <div key={i} className="text-[12px] text-gray-300 font-mono pl-2 border-l border-[#FFC44D]/40">
               {p.tool}: {p.prompt}
             </div>
           ))}
@@ -325,7 +338,7 @@ function PlanApprovalCard({ permission, onDecide }: {
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
             placeholder="What should be changed? (optional)"
-            className="w-full glass-input text-gray-300 text-xs rounded px-2 py-1.5 resize-none h-14 focus:outline-none"
+            className="w-full glass-input text-gray-100 text-[14px] rounded-[10px] px-3 py-2 resize-none h-16 focus:outline-none"
             autoFocus
           />
           <div className="flex gap-1.5">
@@ -333,29 +346,29 @@ function PlanApprovalCard({ permission, onDecide }: {
               onClick={() => {
                 onDecide(permission.id, 'denied', feedback.trim() ? { feedback: feedback.trim() } : undefined);
               }}
-              className="px-2.5 py-1 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-xs rounded transition-colors font-medium"
+              className="h-10 px-4 rounded-[10px] border border-red-400/50 bg-red-500/10 hover:bg-red-500/20 text-red-200 text-[13px] font-semibold transition-colors"
             >
               Confirm Reject
             </button>
             <button
               onClick={() => setShowReject(false)}
-              className="px-2.5 py-1 text-gray-500 hover:text-gray-300 text-xs"
+              className="h-10 px-3 text-gray-400 hover:text-gray-200 text-[13px]"
             >
               Cancel
             </button>
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => onDecide(permission.id, 'allowed')}
-            className="px-2.5 py-1 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-xs rounded transition-colors font-medium"
+            className="flex-1 h-10 rounded-[10px] border border-green-400/60 bg-green-400/[0.14] hover:bg-green-400/[0.22] text-[#C8F7D8] text-[13px] font-semibold transition-colors"
           >
             Approve Plan
           </button>
           <button
             onClick={() => setShowReject(true)}
-            className="px-2.5 py-1 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-xs rounded transition-colors font-medium"
+            className="flex-1 h-10 rounded-[10px] border border-red-400/45 hover:bg-red-500/10 text-red-200 text-[13px] font-semibold transition-colors"
           >
             Reject Plan
           </button>
@@ -375,23 +388,23 @@ function InlinePermission({ permission, onAllow, onDeny }: {
   onDeny: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between bg-gray-800 rounded px-3 py-1.5 gap-2">
+    <div className="flex items-center justify-between rounded-xl bg-[#050913] border border-white/[0.14] px-3.5 py-2.5 gap-2">
       <div className="flex-1 min-w-0">
-        <span className="text-yellow-400 text-xs font-mono">{permission.toolName}</span>
-        <p className="text-gray-400 text-xs font-mono truncate" title={permission.description}>
+        <span className="text-[#FF9ACB] text-[13px] font-mono">{permission.toolName}</span>
+        <p className="text-gray-300 text-[13px] truncate" title={permission.description}>
           {permission.description}
         </p>
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={onAllow}
-          className="px-2.5 py-1 bg-green-700 hover:bg-green-600 active:bg-green-500 text-white text-xs rounded transition-colors font-medium"
+          className="h-9 px-3 rounded-[9px] border border-green-400/60 bg-green-400/[0.12] hover:bg-green-400/[0.2] text-[#C8F7D8] text-[13px] font-semibold transition-colors"
         >
           Allow
         </button>
         <button
           onClick={onDeny}
-          className="px-2.5 py-1 bg-red-800 hover:bg-red-700 active:bg-red-600 text-white text-xs rounded transition-colors font-medium"
+          className="h-9 px-3 rounded-[9px] border border-red-400/45 hover:bg-red-500/10 text-red-200 text-[13px] font-semibold transition-colors"
         >
           Deny
         </button>
@@ -517,16 +530,6 @@ export function CartridgeCard({
   const [recoveryNotice, setRecoveryNotice] = useState('');
   const [resumeAfterRelaunchId, setResumeAfterRelaunchId] = useState('');
 
-  const [frame1, frame2, animSpeed] = useMemo(() => generatePixelSprites(agent.id), [agent.id]);
-  const [spriteFrame, setSpriteFrame] = useState(0);
-
-  // 2-frame retro sprite animation (like Space Invaders)
-  useEffect(() => {
-    const id = setInterval(() => setSpriteFrame((f) => (f === 0 ? 1 : 0)), animSpeed);
-    return () => clearInterval(id);
-  }, [animSpeed]);
-
-  const pixelBg = spriteFrame === 0 ? frame1 : frame2;
   const [gitOpen, setGitOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -593,12 +596,8 @@ export function CartridgeCard({
     }
   }, [activities]);
 
-  // Cartridge border highlight for special states
-  const borderHighlight = stuckAlert
-    ? 'border-amber-600/70'
-    : effectiveStatus === 'waiting'
-      ? 'border-yellow-700/60'
-      : 'border-white/[0.08]';
+  // The card's frame: a stuck cartridge reads as needing you, like a waiting one.
+  const frame = stuckAlert ? CARD_FRAME.waiting : CARD_FRAME[effectiveStatus];
   // 'dismissed' is the user saying "don't offer to resume this one" — it suppresses every
   // trigger below, including the plain offline-with-a-session case. A new command or a fresh
   // interruption resets recovery_status server-side, so the offer comes back when it matters.
@@ -611,313 +610,281 @@ export function CartridgeCard({
       || resumeAfterRelaunchId === selectedAgent.id
     );
 
+  // The segmented activity bar: one lit cell per tool call in the last 30 minutes, capped at
+  // the bar's width. A busy cartridge reads full, a quiet one empty — a real measure, not decor.
+  const litCells = useMemo(
+    () => Math.min(SEG_CELLS, activities.filter((a) => tick - new Date(a.timestamp).getTime() < SEG_WINDOW_MS).length),
+    [activities, tick],
+  );
+  const segColor = effectiveStatus === 'waiting' || stuckAlert ? '#FF8A3D' : effectiveStatus === 'working' ? '#5AAEFF' : '#8A97B8';
+
+  const iconBtn = 'w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] transition-colors';
+  const costLabel = costUsd !== null && costUsd > 0 ? (costUsd >= 1 ? `$${costUsd.toFixed(2)}` : `$${costUsd.toFixed(3)}`) : '';
+  const tokLabel = tokenTotal !== null && tokenTotal > 0 ? `~${tokenTotal >= 1000 ? `${(tokenTotal / 1000).toFixed(1)}k` : tokenTotal} tok` : '';
+
   return (
     <div className="relative flex flex-col">
-      {/* ── Contact strip (top connector) ── */}
       <div
-        className="mx-auto w-[60%] h-4 rounded-t-sm relative"
-        style={{
-          background: 'linear-gradient(180deg, #2a2a3e 0%, #1a1a2e 100%)',
-          borderLeft: '1px solid rgba(255,255,255,0.06)',
-          borderRight: '1px solid rgba(255,255,255,0.06)',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-        }}
+        className={`rounded-[18px] border bg-[rgba(12,18,34,0.72)] p-[18px] flex flex-col gap-3 transition-colors ${frame}`}
       >
-        {/* Contact lines */}
-        <div className="absolute inset-x-2 top-1 bottom-0 flex justify-between">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
+        {/* ── Header: repo, branch · machine, and the card's tools ── */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex flex-col gap-1">
+            <h3 className="font-mono text-base font-semibold text-gray-100 truncate">
+              {agent.repoName || 'UNKNOWN'}
+            </h3>
+            <span className="text-[12px] text-gray-500 truncate" title={`Branch: ${agent.branch || 'n/a'}`}>
+              {agent.branch || 'n/a'} · {shortMachine(agent.machine)}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={() => setJournalOpen(true)}
+              className={iconBtn}
+              title="Project journal & session memory"
+              aria-label="Project memory"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z" /><path d="M5 17a3 3 0 0 1 3-3h11" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setGitOpen(true)}
+              className={iconBtn}
+              title="Git worktrees & status"
+              aria-label="Git"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="6" cy="6" r="2" /><circle cx="6" cy="18" r="2" /><circle cx="18" cy="9" r="2" /><path d="M6 8v8M18 11c0 4-6 3-10 6" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setContextOpen(true)}
+              className={iconBtn}
+              title="Send project context to agent"
+              aria-label="Send context"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 12l16-8-6 16-2-7z" />
+              </svg>
+            </button>
+            {/* Delete — destructive, cascades. Given its own icon and a confirm so it can
+                never be mistaken for the ✕ beside it, which merely puts the card away. */}
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete the "${agent.repoName || agent.name}" cartridge and all its history?\n\n` +
+                      `This cannot be undone. To just hide it, use ✕ — it comes back on its own the next time the agent does anything.`,
+                  )
+                ) {
+                  onDelete(agent.id);
+                }
+              }}
+              className={`${iconBtn} hover:!text-red-300`}
+              title="Delete cartridge and all its history (permanent)"
+              aria-label="Delete cartridge"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+            </button>
+            {/* Dismiss — "I'm done with this one for now." Does NOT stop the agent or end the
+                session; it just puts the card away. It reappears the moment the agent does
+                anything, or you send it a command / launch a workflow. */}
+            <button
+              onClick={() => onDismiss(agent.id)}
+              className={`${iconBtn} text-base`}
+              title="Put away — reappears as soon as this agent is used again"
+              aria-label="Put away"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* ── Pills: status, engine(s), origin; then age · cost ── */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full ${status.pill}`}>
+            <span
+              className={`w-[7px] h-[7px] rounded-full ${effectiveStatus === 'working' || effectiveStatus === 'waiting' ? 'animate-pulse' : ''}`}
+              style={{ background: status.dot, boxShadow: `0 0 8px ${status.dot}` }}
+            />
+            {status.label}
+          </span>
+          {/* Tool badges — Gridlight first, then others. When more than one tool is running in
+              this repo, the badges are a multi-select send target: all start selected, so a
+              prompt fans out to every engine; tap one to exclude it (tap again to re-include).
+              With a single tool they're plain labels. */}
+          {tools.map((a) => {
+            const meta = toolMeta(a.agentType);
+            const isSelected = selectedToolIds.has(a.id);
+            if (!multiTool) {
+              return (
+                <span key={a.id} className={`text-[12px] px-2.5 py-[3px] rounded-full font-semibold ${meta.badge}`}>
+                  {meta.label}
+                </span>
+              );
+            }
+            return (
+              <button
+                key={a.id}
+                onClick={() => toggleTool(a.id)}
+                aria-pressed={isSelected}
+                title={isSelected ? `Sending to ${meta.label} — click to exclude` : `Excluded — click to also send to ${meta.label}`}
+                className={`text-[12px] px-2.5 py-[3px] rounded-full font-semibold transition-all ${meta.badge} ${
+                  isSelected ? 'opacity-100' : 'opacity-35 hover:opacity-70'
+                }`}
+                style={isSelected ? { background: `${meta.color}24` } : undefined}
+              >
+                {isSelected ? '✓ ' : ''}{meta.label}
+              </button>
+            );
+          })}
+          {/*
+            Which SERVER this cartridge came from — shown only when it is not the local
+            one. In a merged grid two machines can run the same repo on the same branch,
+            and without this the two cards are indistinguishable.
+          */}
+          {originName && (
+            <span
+              className="text-[11px] text-neon-300 border border-neon-400/30 bg-neon-500/10 px-2 py-0.5 rounded-full truncate max-w-[10rem]"
+              title={`Served by ${originName}`}
+            >
+              {originName}
+            </span>
+          )}
+          <span className="text-[12px] text-gray-500 truncate" title="Total tokens consumed (input + output); cost includes cache">
+            {timeAgo(agent.lastSeen)}
+            {costLabel && <> · <span className="text-gray-400">{costLabel}</span></>}
+            {tokLabel && <> · {tokLabel}</>}
+          </span>
+        </div>
+
+        {/* What it is working on — the objective, when the cartridge has one. */}
+        {selectedAgent.activeObjective && !shouldOfferSessionRecovery && selectedAgent.standardState !== 'needs_review' && (
+          <p className="text-[14px] leading-relaxed text-gray-300 line-clamp-2">{selectedAgent.activeObjective}</p>
+        )}
+
+        {/* ── Segmented activity bar ── */}
+        <div className="flex gap-[3px]" aria-hidden="true" title={`${litCells} tool call${litCells === 1 ? '' : 's'} in the last 30 minutes`}>
+          {Array.from({ length: SEG_CELLS }).map((_, i) => (
+            <span
               key={i}
-              className="w-[2px] h-full"
-              style={{ background: 'rgba(168,85,247,0.25)' }}
+              className="flex-1 h-[5px] rounded-[2px]"
+              style={i < litCells
+                ? { background: segColor, boxShadow: `0 0 5px ${segColor}` }
+                : { background: 'rgba(120,150,255,0.12)' }}
             />
           ))}
         </div>
-      </div>
 
-      {/* ── Main cartridge body ── */}
-      <div
-        className={`glass rounded-lg border ${borderHighlight} flex flex-col transition-colors`}
-        style={{
-          borderTopLeftRadius: '2px',
-          borderTopRightRadius: '2px',
-        }}
-      >
-        {/* ── Sticker area ── */}
-        <div
-          className="mx-3 mt-3 mb-2 rounded p-3 relative overflow-hidden"
-          style={{
-            background: 'linear-gradient(135deg, rgba(168,85,247,0.25) 0%, rgba(236,72,153,0.2) 50%, rgba(59,130,246,0.15) 100%)',
-            boxShadow: '0 0 0 2px #a855f7, 4px 4px 0 0 rgba(0,0,0,0.3)',
-            imageRendering: 'pixelated',
-          }}
-        >
-          {/* Pixel art background */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: `url("${pixelBg}")`,
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              imageRendering: 'pixelated',
-              opacity: 0.12,
-            }}
-          />
-          {/* Top row: repo name + controls */}
-          <div className="flex items-start justify-between mb-1.5">
-            <h3 className="font-pixel text-xs text-white leading-relaxed tracking-wide truncate flex-1 mr-2">
-              {agent.repoName || 'UNKNOWN'}
-            </h3>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={() => setJournalOpen(true)}
-                className="text-gray-400 hover:text-cyan-400 transition-colors"
-                title="Project journal & session memory"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setGitOpen(true)}
-                className="text-gray-400 hover:text-gl-purple transition-colors"
-                title="Git worktrees & status"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M6 21V9a9 9 0 0 0 9 9h6" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setContextOpen(true)}
-                className="text-gray-400 hover:text-gl-purple transition-colors"
-                title="Send project context to agent"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                </svg>
-              </button>
-              {/* Delete — destructive, cascades. Given its own icon and a confirm so it can
-                  never be mistaken for the ✕ beside it, which merely puts the card away. */}
-              <button
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete the "${agent.repoName || agent.name}" cartridge and all its history?\n\n` +
-                        `This cannot be undone. To just hide it, use ✕ — it comes back on its own the next time the agent does anything.`,
-                    )
-                  ) {
-                    onDelete(agent.id);
-                  }
-                }}
-                className="text-gray-400 hover:text-red-400 transition-colors"
-                title="Delete cartridge and all its history (permanent)"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                </svg>
-              </button>
-              {/* Dismiss — "I'm done with this one for now." Does NOT stop the agent or end the
-                  session; it just puts the card away. It reappears the moment the agent does
-                  anything, or you send it a command / launch a workflow. */}
-              <button
-                onClick={() => onDismiss(agent.id)}
-                className="text-gray-400 hover:text-white transition-colors"
-                title="Put away — reappears as soon as this agent is used again"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-              </button>
+        {/* A question the agent asked and is waiting on. Previously the web showed nothing
+            at all for this — only mobile did — so a cartridge could sit blocked on a
+            question you would never see unless you opened its terminal. */}
+        {selectedAgent.status === 'waiting' && selectedAgent.pendingQuestion && (
+          <div className="rounded-xl border border-[#FF8A3D]/[0.35] bg-[#FF8A3D]/[0.08] px-3.5 py-3">
+            <div className="text-[14px] text-ember-300 font-semibold">Waiting on your answer</div>
+            <div className="text-[13px] text-gray-200 mt-1 whitespace-pre-wrap break-words leading-relaxed">
+              {selectedAgent.pendingQuestion.slice(0, 400)}
             </div>
+            <div className="text-[12px] text-gray-400 mt-1.5">Reply in the prompt box below.</div>
           </div>
+        )}
 
-          {/* Branch */}
-          <div className="text-[13px] text-gray-300 mb-1 font-mono">
-            Branch: {agent.branch || 'n/a'}
+        {selectedAgent.standardState === 'needs_review' && (
+          <div className="rounded-xl border border-red-400/[0.35] bg-red-500/[0.08] px-3.5 py-3 flex flex-col gap-2">
+            <div className="text-[14px] text-[#FFC9C9] font-semibold">
+              Stopped without a completion report
+            </div>
+            <div className="text-[13px] text-gray-300 leading-relaxed">
+              {selectedAgent.activeObjective || 'The task may be only partially done — check before trusting it.'}
+            </div>
+            <button
+              onClick={handleClearStandardReview}
+              className="self-start h-10 px-4 rounded-[10px] border border-red-400/55 hover:bg-red-500/10 text-[#FFC9C9] text-[13px] font-semibold transition-colors"
+              title="Mark as reviewed — clears the flag"
+            >
+              Reviewed
+            </button>
           </div>
+        )}
 
-          {/* Status row */}
-          <div className="flex items-center gap-2 mb-1">
-            {/* Pixel status dot (square) */}
-            <div
-              className={`w-2 h-2 ${status.color} ${effectiveStatus === 'working' || effectiveStatus === 'waiting' ? 'animate-pulse' : ''}`}
-              style={{ imageRendering: 'pixelated' }}
-            />
-            <span className="text-[13px] text-gray-200">{status.label}</span>
-            <span className="text-[13px] text-gray-500">{timeAgo(agent.lastSeen)}</span>
-            {tokenTotal !== null && tokenTotal > 0 && (
-              <span className="text-[11px] text-gray-600 font-mono ml-auto flex items-center gap-1.5" title="Total tokens consumed (input + output); cost includes cache">
-                {costUsd !== null && costUsd > 0 && (
-                  <span className="text-emerald-500/80">{costUsd >= 1 ? `$${costUsd.toFixed(2)}` : `$${costUsd.toFixed(3)}`}</span>
+        {shouldOfferSessionRecovery && (
+          <div className="rounded-xl border border-neon-500/[0.35] bg-neon-600/[0.08] px-3.5 py-3 flex flex-col gap-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[14px] text-gray-100 font-semibold">
+                  {selectedAgent.recoveryStatus === 'interrupted' || selectedAgent.recoveryStatus === 'recovery_failed'
+                    ? 'Session interrupted'
+                    : 'Last session available'}
+                </div>
+                {selectedAgent.activeObjective && (
+                  <div className="text-[13px] text-gray-300 truncate mt-0.5">
+                    {selectedAgent.activeObjective}
+                  </div>
                 )}
-                <span>~{tokenTotal >= 1000 ? `${(tokenTotal / 1000).toFixed(1)}k` : tokenTotal} tok</span>
-              </span>
-            )}
-          </div>
-
-          {/* Tool badges + machine — Gridlight first, then others. When more than one tool is
-              running in this repo, the badges are a multi-select send target: all start
-              selected, so a prompt fans out to every engine; tap one to exclude it (tap again
-              to re-include). With a single tool they're plain labels. */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {tools.map((a) => {
-              const meta = toolMeta(a.agentType);
-              const isSelected = selectedToolIds.has(a.id);
-              if (!multiTool) {
-                return (
-                  <span key={a.id} className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${meta.badge}`}>
-                    {meta.label}
-                  </span>
-                );
-              }
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => toggleTool(a.id)}
-                  aria-pressed={isSelected}
-                  title={isSelected ? `Sending to ${meta.label} — click to exclude` : `Excluded — click to also send to ${meta.label}`}
-                  className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide transition-all ${meta.badge} ${
-                    isSelected ? 'opacity-100' : 'opacity-30 hover:opacity-70'
-                  }`}
-                >
-                  {meta.label}
-                </button>
-              );
-            })}
-            <span className="text-[13px] text-gray-500 font-mono truncate">
-              {shortMachine(agent.machine)}
-            </span>
-            {/*
-              Which SERVER this cartridge came from — shown only when it is not the local
-              one. In a merged grid two machines can run the same repo on the same branch,
-              and without this the two cards are indistinguishable.
-            */}
-            {originName && (
-              <span
-                className="text-[11px] text-violet-300/80 border border-violet-400/25 bg-violet-500/10 px-1.5 py-px rounded-full truncate max-w-[10rem]"
-                title={`Served by ${originName}`}
+              </div>
+              <button
+                onClick={handleDismissRecovery}
+                disabled={recoveringSession}
+                className="w-8 h-8 shrink-0 rounded-lg text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] disabled:opacity-50 text-base leading-none transition-colors"
+                title="Dismiss — this session doesn't need resuming"
+                aria-label="Dismiss resume offer"
               >
-                {originName}
-              </span>
+                ×
+              </button>
+            </div>
+            <button
+              onClick={handleRecoverSession}
+              disabled={recoveringSession || !selectedAgent.repoPath}
+              className="btn-primary h-10 rounded-[10px] text-[14px] font-semibold disabled:opacity-50 transition-colors"
+              title={selectedAgent.status === 'offline' ? 'Relaunch this cartridge first' : 'Replay the stored transcript into this cartridge'}
+            >
+              {recoveringSession
+                ? 'Working...'
+                : selectedAgent.status === 'offline'
+                  ? 'Relaunch'
+                  : selectedAgent.recoveryStatus === 'recovery_failed'
+                    ? 'Retry resume'
+                    : 'Resume session'}
+            </button>
+            {recoveryNotice && (
+              <div className="text-[12px] text-gray-300">{recoveryNotice}</div>
             )}
           </div>
-
-          {/* A question the agent asked and is waiting on. Previously the web showed nothing
-              at all for this — only mobile did — so a cartridge could sit blocked on a
-              question you would never see unless you opened its terminal. */}
-          {selectedAgent.status === 'waiting' && selectedAgent.pendingQuestion && (
-            <div className="mt-2 rounded border border-amber-400/30 bg-amber-500/10 px-2 py-2">
-              <div className="text-[12px] text-amber-200 font-medium">Waiting on your answer</div>
-              <div className="text-[11px] text-amber-100/70 mt-0.5 whitespace-pre-wrap break-words">
-                {selectedAgent.pendingQuestion.slice(0, 400)}
-              </div>
-              <div className="text-[11px] text-amber-200/50 mt-1">Reply in the prompt box below.</div>
-            </div>
-          )}
-
-          {selectedAgent.standardState === 'needs_review' && (
-            <div className="mt-2 rounded border border-amber-500/30 bg-amber-950/30 px-2 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[12px] text-amber-200 font-medium">
-                    Stopped without a completion report
-                  </div>
-                  <div className="text-[11px] text-amber-200/60 truncate">
-                    {selectedAgent.activeObjective || 'The task may be only partially done — check before trusting it.'}
-                  </div>
-                </div>
-                <button
-                  onClick={handleClearStandardReview}
-                  className="px-2 py-1 rounded bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 text-[12px] font-medium transition-colors shrink-0"
-                  title="Mark as reviewed — clears the flag"
-                >
-                  Reviewed
-                </button>
-              </div>
-            </div>
-          )}
-
-          {shouldOfferSessionRecovery && (
-            <div className="mt-2 rounded border border-red-500/30 bg-red-950/30 px-2 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[12px] text-red-200 font-medium">
-                    {selectedAgent.recoveryStatus === 'interrupted' || selectedAgent.recoveryStatus === 'recovery_failed'
-                      ? 'Session interrupted'
-                      : 'Last session available'}
-                  </div>
-                  {selectedAgent.activeObjective && (
-                    <div className="text-[11px] text-red-200/60 truncate">
-                      {selectedAgent.activeObjective}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={handleRecoverSession}
-                    disabled={recoveringSession || !selectedAgent.repoPath}
-                    className="px-2 py-1 rounded bg-red-500/20 text-red-200 hover:bg-red-500/30 disabled:opacity-50 text-[12px] font-medium transition-colors"
-                    title={selectedAgent.status === 'offline' ? 'Relaunch this cartridge first' : 'Replay the stored transcript into this cartridge'}
-                  >
-                    {recoveringSession
-                      ? 'Working...'
-                      : selectedAgent.status === 'offline'
-                        ? 'Relaunch'
-                        : selectedAgent.recoveryStatus === 'recovery_failed'
-                          ? 'Retry resume'
-                          : 'Resume session'}
-                  </button>
-                  <button
-                    onClick={handleDismissRecovery}
-                    disabled={recoveringSession}
-                    className="px-1.5 py-1 rounded text-red-200/60 hover:text-red-100 hover:bg-red-500/20 disabled:opacity-50 text-[13px] leading-none transition-colors"
-                    title="Dismiss — this session doesn't need resuming"
-                    aria-label="Dismiss resume offer"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-              {recoveryNotice && (
-                <div className="mt-1 text-[11px] text-red-100/70">{recoveryNotice}</div>
-              )}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* ── Stuck alert ── */}
         {stuckAlert && (
-          <div className="mx-3 mb-2 bg-amber-950/40 border border-amber-800 rounded px-3 py-2">
-            <div className="flex items-start justify-between gap-2 mb-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-amber-400 text-xs font-bold">!</span>
-                <span className="text-amber-300 text-xs font-semibold">
-                  {stuckAlert.severity === 'high' ? 'Stuck' : 'Possibly stuck'}
-                </span>
-              </div>
+          <div className="rounded-xl border border-[#FFC44D]/[0.35] bg-[#FFC44D]/[0.08] px-3.5 py-3 flex items-center justify-between gap-2.5">
+            <div className="min-w-0 flex flex-col gap-0.5">
+              <span className="text-[14px] text-gray-100 font-semibold">
+                {stuckAlert.severity === 'high' ? 'Stuck' : 'Possibly stuck'}
+              </span>
+              <p className="text-[13px] text-gray-300">{stuckAlert.pattern}</p>
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <button
+                onClick={() => onSendCommand(agent.id, stuckAlert.suggestion)}
+                className="h-9 px-3 rounded-[10px] border border-[#FFC44D]/55 hover:bg-[#FFC44D]/10 text-[#FFE7B0] text-[13px] font-semibold transition-colors"
+              >
+                Send Hint
+              </button>
               <button
                 onClick={() => onDismissStuck(agent.id)}
-                className="text-gray-500 hover:text-gray-300 text-[13px]"
+                className="text-gray-500 hover:text-gray-300 text-[12px]"
               >
                 dismiss
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-1.5">{stuckAlert.pattern}</p>
-            <button
-              onClick={() => onSendCommand(agent.id, stuckAlert.suggestion)}
-              className="px-2 py-0.5 bg-amber-800 hover:bg-amber-700 text-white text-[13px] rounded transition-colors"
-            >
-              Send Hint
-            </button>
           </div>
         )}
 
         {/* ── Permission cards ── */}
         {permissions.length > 0 && (
-          <div className="mx-3 mb-2 space-y-1.5">
-            <div className="flex items-center gap-1.5 text-xs text-yellow-400">
-              <div className="w-1.5 h-1.5 bg-yellow-500 animate-pulse" />
+          <div className="space-y-2">
+            <div className="text-[12px] uppercase tracking-[0.12em] text-gray-400">
               Pending ({permissions.length})
             </div>
             {permissions.map((perm) => {
@@ -939,16 +906,65 @@ export function CartridgeCard({
           </div>
         )}
 
+        {/* ── Live log ── */}
+        <div className="cartridge-terminal overflow-hidden">
+          <div className="px-3 pt-2 pb-1 flex items-center gap-2">
+            <span className="text-[11px] font-sans uppercase tracking-[0.14em] text-neon-300">Live Log</span>
+            {effectiveStatus === 'working' && (
+              <span className="inline-block w-[7px] h-[7px] rounded-full bg-neon-500 shadow-[0_0_8px_#5AAEFF] animate-pulse" />
+            )}
+            <span className="text-[11px] text-gray-500 ml-auto">{activities.length}</span>
+          </div>
+          <div
+            ref={logScrollRef}
+            className="overflow-y-auto pb-1.5"
+            style={{ maxHeight: '132px' }}
+            onMouseEnter={() => { logHoveredRef.current = true; }}
+            onMouseLeave={() => {
+              logHoveredRef.current = false;
+              if (logScrollRef.current) logScrollRef.current.scrollTop = 0;
+            }}
+          >
+            {activities.length === 0 ? (
+              <div className="px-3 py-2.5 text-gray-500 text-[12px]">No activity yet</div>
+            ) : (
+              activities.map((act) => {
+                // Every line is tagged with the engine that produced it (matched by agentId),
+                // in that engine's colour — the merged feed of a multi-tool cartridge reads
+                // the same way as a single one.
+                const lineMeta = toolMeta((tools.find((t) => t.id === act.agentId) || agent).agentType);
+                return (
+                  <div
+                    key={act.id}
+                    onClick={() => onActivityClick?.(act)}
+                    className="px-3 py-px hover:bg-white/[0.04] cursor-pointer truncate transition-colors text-gray-300"
+                    title={`[${lineMeta.short}] ${act.toolName || act.eventType}: ${act.toolInput || ''}`}
+                  >
+                    <span className="text-gray-500 select-none">
+                      {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}{' '}
+                    </span>
+                    <span style={{ color: lineMeta.color }}>[{lineMeta.short.toLowerCase()}]</span>
+                    {' '}
+                    <span className="text-gray-100">{act.toolName || act.eventType}</span>
+                    {' '}
+                    <span className="text-gray-400">{briefSummary(act)}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         {/* ── Command input ── */}
-        <div className="mx-3 mb-2">
+        <div>
           {multiTool && (
-            <div className="mb-1 text-[11px] text-gray-500 flex items-center gap-1 flex-wrap">
+            <div className="mb-1.5 text-[12px] text-gray-500 flex items-center gap-1 flex-wrap">
               <span>Sending to</span>
               {sendTargets.map((t) => {
                 const m = toolMeta(t.agentType);
-                return <span key={t.id} className={`px-1 py-0.5 rounded font-medium ${m.badge}`}>{m.label}</span>;
+                return <span key={t.id} className={`px-1.5 py-px rounded-full font-semibold ${m.badge}`}>{m.label}</span>;
               })}
-              <span className="text-gray-600">— tap a tool above to include or exclude</span>
+              <span>— tap a tool above to include or exclude</span>
             </div>
           )}
           <CommandInput
@@ -980,11 +996,10 @@ export function CartridgeCard({
           />
         </div>
 
-
         {/* ── Mode selector + Plans toggle — apply to EVERY selected engine, not just the
              focused one, so you can flip Plan/Manual/Trust across a multi-engine selection in
              one click. The buttons reflect the focused engine's current mode. ── */}
-        <div className="mx-3 mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <AgentModeSelector
             mode={selectedAgent.mode}
             onSetMode={(mode) => {
@@ -1000,10 +1015,11 @@ export function CartridgeCard({
                 for (const t of targets) api.setPlansIncluded(t.id, next);
               }}
               title={selectedAgent.plansIncluded ? 'Plans auto-approved (click to require review)' : 'Plans require review (click to auto-approve)'}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+              aria-pressed={!!selectedAgent.plansIncluded}
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-[9px] text-[12px] font-semibold border transition-colors ${
                 selectedAgent.plansIncluded
-                  ? 'bg-violet-900/60 border-violet-600/60 text-violet-300 hover:bg-violet-800/60'
-                  : 'bg-gray-800/60 border-gray-600/40 text-gray-500 hover:bg-gray-700/60'
+                  ? 'border-neon-500/60 bg-neon-500/15 text-neon-200'
+                  : 'border-white/[0.14] text-gray-400 hover:text-gray-200'
               }`}
             >
               <span>{selectedAgent.plansIncluded ? '✓' : '○'}</span>
@@ -1012,69 +1028,10 @@ export function CartridgeCard({
           )}
         </div>
         {multiTool && sendTargets.length > 1 && (
-          <div className="mx-3 -mt-1 mb-2 text-[11px] text-gray-600">
+          <div className="-mt-1.5 text-[12px] text-gray-500">
             Mode applies to all {sendTargets.length} selected engines.
           </div>
         )}
-
-        {/* ── Terminal: recent activity + live log ── */}
-        <div
-          className="mx-3 mb-3 rounded overflow-hidden"
-          style={{
-            backgroundColor: '#0d0d14',
-            border: '1px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          {/* Header */}
-          <div className="px-2 py-1 flex items-center" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <span className="text-[13px] font-mono text-green-400">Live Log</span>
-            {effectiveStatus === 'working' && (
-              <span className="ml-2 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            )}
-            <span className="text-[13px] text-gray-700 font-mono ml-auto">{activities.length}</span>
-          </div>
-
-          <div
-            ref={logScrollRef}
-            className="overflow-y-auto font-mono text-[13px] leading-relaxed"
-            style={{ maxHeight: '160px' }}
-            onMouseEnter={() => { logHoveredRef.current = true; }}
-            onMouseLeave={() => {
-              logHoveredRef.current = false;
-              if (logScrollRef.current) logScrollRef.current.scrollTop = 0;
-            }}
-          >
-            {activities.length === 0 ? (
-              <div className="px-2 py-3 text-gray-600 text-center text-[13px]">No activity yet</div>
-            ) : (
-              activities.map((act) => {
-                // In a multi-tool cartridge the feed merges every tool's activity, so tag each
-                // line with the tool that produced it (matched by agentId).
-                const lineMeta = multiTool
-                  ? toolMeta((tools.find((t) => t.id === act.agentId) || agent).agentType)
-                  : null;
-                return (
-                  <div
-                    key={act.id}
-                    onClick={() => onActivityClick?.(act)}
-                    className="px-2 py-0.5 hover:bg-white/[0.04] cursor-pointer truncate transition-colors"
-                    title={`${lineMeta ? `[${lineMeta.short}] ` : ''}${act.toolName || act.eventType}: ${act.toolInput || ''}`}
-                  >
-                    <span className="text-gray-600 select-none text-[11px]">
-                      {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{' '}
-                    </span>
-                    {lineMeta && (
-                      <span className={`mr-1 px-1 rounded text-[10px] ${lineMeta.badge}`}>{lineMeta.short}</span>
-                    )}
-                    <span className="text-green-500">{act.toolName || act.eventType}</span>
-                    {' '}
-                    <span className="text-green-400/60">{briefSummary(act)}</span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Git Panel Modal */}

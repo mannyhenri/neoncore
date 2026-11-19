@@ -27,29 +27,29 @@ export function VirtualCartridgeConfig({ cartridge, onClose, onSave }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="glass-dark rounded-xl border border-white/10 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
-          <h3 className="text-sm font-medium text-gray-200">Configure Virtual Cartridge</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">&times;</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+          <h3 className="font-display text-xl font-semibold text-gray-100">Configure Virtual Cartridge</h3>
+          <button onClick={onClose} aria-label="Close" className="w-10 h-10 rounded-[10px] border border-white/[0.14] text-gray-300 hover:text-white text-lg">&times;</button>
         </div>
 
-        <div className="px-4 py-4">
-          <label className="text-xs text-gray-400 block mb-1">Name</label>
+        <div className="px-6 py-3">
+          <label className="text-[13px] text-gray-400 block mb-1.5">Name</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full glass-input text-sm text-gray-200 rounded-md px-3 py-2 focus:outline-none"
+            className="w-full glass-input text-sm text-gray-100 rounded-[10px] h-11 px-3 focus:outline-none"
           />
         </div>
 
-        <div className="px-4 py-3 border-t border-white/[0.06] flex justify-end gap-2">
-          <button onClick={onClose} className="text-xs px-3 py-1.5 text-gray-400 hover:text-white">Cancel</button>
+        <div className="px-6 pt-2 pb-5 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-ghost h-11 px-4 rounded-[10px] text-sm font-semibold">Cancel</button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="text-xs px-4 py-1.5 rounded-md bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 border border-teal-500/30 disabled:opacity-40"
+            className="btn-primary h-11 px-5 rounded-[10px] text-sm font-semibold disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>

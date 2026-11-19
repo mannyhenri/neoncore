@@ -11,23 +11,19 @@ const MODE_OPTIONS: { value: AgentMode; label: string }[] = [
   { value: 'trust', label: 'Trust' },
 ];
 
-const ACTIVE_STYLES: Record<AgentMode, string> = {
-  plan: 'bg-indigo-600/80 text-indigo-200',
-  manual: 'bg-white/10 text-gray-200',
-  trust: 'gl-gradient text-white',
-};
-
 export function AgentModeSelector({ mode, onSetMode }: Props) {
   return (
-    <div className="flex rounded-lg overflow-hidden border border-white/10">
+    <div role="radiogroup" aria-label="Mode" className="flex gap-1 p-1 rounded-[10px] bg-[#050913]/80 border border-white/[0.1]">
       {MODE_OPTIONS.map((opt) => (
         <button
           key={opt.value}
+          role="radio"
+          aria-checked={mode === opt.value}
           onClick={() => onSetMode(opt.value)}
-          className={`px-3.5 py-1.5 text-sm font-medium transition-colors ${
+          className={`h-8 px-3.5 rounded-[7px] text-[13px] font-semibold transition-colors ${
             mode === opt.value
-              ? ACTIVE_STYLES[opt.value]
-              : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+              ? 'bg-neon-500/25 text-gray-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.55)]'
+              : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           {opt.label}

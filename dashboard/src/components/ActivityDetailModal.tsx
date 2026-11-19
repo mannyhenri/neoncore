@@ -7,11 +7,11 @@ import SendToCartridgeModal from './SendToCartridgeModal';
 const proseClass = `prose prose-invert prose-sm max-w-none
   prose-p:my-1 prose-p:text-gray-300 prose-p:leading-relaxed
   prose-headings:text-gray-200 prose-headings:mt-2 prose-headings:mb-1
-  prose-code:text-gl-pink prose-code:bg-gray-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+  prose-code:text-neon-200 prose-code:bg-gl-code prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
   prose-pre:bg-gray-800 prose-pre:border prose-pre:border-gray-700 prose-pre:rounded-lg prose-pre:text-xs
   prose-li:text-gray-300 prose-li:my-0.5
   prose-strong:text-gray-200
-  prose-a:text-gl-purple
+  prose-a:text-neon-400
   prose-table:border-collapse
   prose-th:border prose-th:border-gray-700 prose-th:bg-gray-800/60 prose-th:px-3 prose-th:py-1.5 prose-th:text-gray-300 prose-th:text-left prose-th:text-xs prose-th:font-semibold
   prose-td:border prose-td:border-gray-700 prose-td:px-3 prose-td:py-1.5 prose-td:text-gray-400 prose-td:text-xs`;
@@ -37,7 +37,7 @@ const TOOL_COLORS: Record<string, string> = {
   Write: 'bg-green-900/50 text-green-400',
   Bash: 'bg-red-900/50 text-red-400',
   Grep: 'bg-cyan-900/50 text-cyan-400',
-  Glob: 'bg-purple-900/50 text-purple-400',
+  Glob: 'bg-purple-900/50 text-neon-300',
   Task: 'bg-pink-900/50 text-pink-400',
   WebFetch: 'bg-orange-900/50 text-orange-400',
   AskUserQuestion: 'bg-yellow-900/50 text-yellow-300',
@@ -118,7 +118,7 @@ function isFilePath(value: string): boolean {
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-[13px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
+    <h3 className="text-xs uppercase tracking-[1.2px] text-gray-400 font-semibold mb-2">
       {children}
     </h3>
   );
@@ -126,7 +126,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 function CodeBlock({ content }: { content: string }) {
   return (
-    <pre className="text-xs text-gray-300 bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono leading-relaxed max-h-[50vh] overflow-y-auto">
+    <pre className="text-xs text-gray-300 bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono leading-relaxed max-h-[50vh] overflow-y-auto">
       {content}
     </pre>
   );
@@ -202,7 +202,7 @@ function ToolInputSection({ toolName, rawInput }: { toolName: string; rawInput: 
         {toolName === 'Edit' && typeof obj.old_string === 'string' && typeof obj.new_string === 'string' && (
           <div className="space-y-1">
             <div className="text-[13px] text-gray-500 uppercase tracking-wide">Diff Preview</div>
-            <div className="bg-black/40 rounded-lg p-3 overflow-x-auto text-xs font-mono leading-relaxed space-y-2">
+            <div className="bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto text-xs font-mono leading-relaxed space-y-2">
               <div>
                 <span className="text-red-400 select-none">- </span>
                 <span className="text-red-300/80 whitespace-pre-wrap">{String(obj.old_string)}</span>
@@ -227,7 +227,7 @@ function ToolInputSection({ toolName, rawInput }: { toolName: string; rawInput: 
         {/* Collapsible raw JSON */}
         <button
           onClick={() => setShowRaw(!showRaw)}
-          className="text-[13px] text-gray-600 hover:text-gray-400 transition-colors"
+          className="text-[13px] text-gray-500 hover:text-gray-400 transition-colors"
         >
           {showRaw ? 'Hide raw' : 'Show raw'}
         </button>
@@ -261,7 +261,7 @@ function ToolResultSection({ rawResult, renderMarkdown }: { rawResult: string; r
     return (
       <div className="space-y-2">
         <SectionHeading>Tool Result</SectionHeading>
-        <p className="text-xs text-gray-600 italic">(no result)</p>
+        <p className="text-xs text-gray-500 italic">(no result)</p>
       </div>
     );
   }
@@ -278,11 +278,11 @@ function ToolResultSection({ rawResult, renderMarkdown }: { rawResult: string; r
     <div className="space-y-2">
       <SectionHeading>Tool Result</SectionHeading>
       {renderMarkdown ? (
-        <div className={`bg-black/40 rounded-lg p-3 overflow-x-auto max-h-[50vh] overflow-y-auto ${proseClass}`}>
+        <div className={`bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto max-h-[50vh] overflow-y-auto ${proseClass}`}>
           <Markdown remarkPlugins={[remarkGfm]}>{visibleContent}</Markdown>
         </div>
       ) : isPlainText ? (
-        <div className="text-sm text-gray-300 bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed max-h-[50vh] overflow-y-auto">
+        <div className="text-sm text-gray-300 bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed max-h-[50vh] overflow-y-auto">
           {visibleContent}
         </div>
       ) : (
@@ -291,7 +291,7 @@ function ToolResultSection({ rawResult, renderMarkdown }: { rawResult: string; r
       {isTruncated && (
         <button
           onClick={() => setExpanded(true)}
-          className="text-xs text-gl-purple hover:text-gl-pink transition-colors font-medium"
+          className="text-xs text-neon-400 hover:text-neon-200 transition-colors font-medium"
         >
           Show more ({(displayContent.length - TRUNCATE_LIMIT).toLocaleString()} chars remaining)
         </button>
@@ -308,7 +308,7 @@ function ToolResultSection({ rawResult, renderMarkdown }: { rawResult: string; r
         <>
           <button
             onClick={() => setShowRaw(!showRaw)}
-            className="text-[13px] text-gray-600 hover:text-gray-400 transition-colors"
+            className="text-[13px] text-gray-500 hover:text-gray-400 transition-colors"
           >
             {showRaw ? 'Hide raw' : 'Show raw'}
           </button>
@@ -342,11 +342,11 @@ export function ActivityDetailModal({ activity, agent, agents, onClose }: Activi
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
     >
-      <div className="glass rounded-xl md:rounded-2xl w-full max-w-2xl mx-2 md:mx-0 max-h-[90vh] flex flex-col shadow-2xl">
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-2xl mx-2 md:mx-0 max-h-[90vh] flex flex-col shadow-2xl">
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.08]">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             {/* Tool name badge */}
             <span className={`text-sm font-semibold px-2.5 py-1 rounded-md shrink-0 ${toolColor}`}>
@@ -407,7 +407,7 @@ export function ActivityDetailModal({ activity, agent, agents, onClose }: Activi
           {activity.eventType === 'assistant_message' ? (
             <div className="space-y-2">
               <SectionHeading>Message</SectionHeading>
-              <div className={`bg-black/40 rounded-lg p-3 overflow-x-auto max-h-[50vh] overflow-y-auto ${proseClass}`}>
+              <div className={`bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto max-h-[50vh] overflow-y-auto ${proseClass}`}>
                 <Markdown remarkPlugins={[remarkGfm]}>{activity.toolInput}</Markdown>
               </div>
             </div>
@@ -423,15 +423,15 @@ export function ActivityDetailModal({ activity, agent, agents, onClose }: Activi
         </div>
 
         {/* ── Footer ── */}
-        <div className="px-4 py-3 md:px-6 md:py-3 border-t border-white/[0.06] flex items-center justify-between">
-          <span className="text-[13px] text-gray-600 font-mono">
+        <div className="px-6 py-4 border-t border-white/[0.08] flex items-center justify-between">
+          <span className="text-[13px] text-gray-500 font-mono">
             ID: {activity.id}
           </span>
           <div className="flex items-center gap-2">
             {agents && agents.length > 0 && (
               <button
                 onClick={() => setSendModalOpen(true)}
-                className="text-xs px-3 py-1.5 text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md transition-colors flex items-center gap-1.5"
+                className="text-xs px-3 py-1.5 btn-primary font-semibold rounded-[10px] transition-colors flex items-center gap-1.5"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />

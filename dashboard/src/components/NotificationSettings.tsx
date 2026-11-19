@@ -46,14 +46,14 @@ export function NotificationSettings() {
   }, []);
 
   return (
-    <div className="px-4 py-4 md:px-6 space-y-5">
+    <div className="px-7 py-3 space-y-6">
       <section className="space-y-2">
-        <h3 className="text-sm font-medium text-gray-200">Desktop notifications</h3>
-        <p className="text-[12px] text-gray-500">
+        <h3 className="text-lg font-semibold text-gray-100">Desktop notifications</h3>
+        <p className="text-[13px] text-gray-400">
           Shown by NeonCore itself in the notification centre of the computer it runs on — even with no dashboard open.
         </p>
         {status === null ? (
-          <p className="text-[12px] text-gray-600">{error || 'Checking…'}</p>
+          <p className="text-[13px] text-gray-400">{error || 'Checking…'}</p>
         ) : (
           <>
             <p className={`text-[12px] ${status.available ? 'text-emerald-400' : 'text-amber-300'}`}>
@@ -62,13 +62,13 @@ export function NotificationSettings() {
             {status.envOverride && (
               <p className="text-[12px] text-amber-300/90">NEONCORE_DESKTOP_NOTIFY is set on the server; it wins over the choice below.</p>
             )}
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               {MODES.map((m) => (
-                <label key={m.value} className="flex items-start gap-2.5 cursor-pointer">
-                  <input type="radio" name="desktop-mode" className="accent-violet-500 mt-1" checked={status.mode === m.value} onChange={() => choose(m.value)} />
+                <label key={m.value} className={`flex items-start gap-3 cursor-pointer p-3.5 rounded-xl border ${status.mode === m.value ? 'bg-neon-500/10 border-neon-500/55' : 'bg-gl-code border-white/[0.1]'}`}>
+                  <input type="radio" name="desktop-mode" className="accent-[#5AAEFF] mt-1" checked={status.mode === m.value} onChange={() => choose(m.value)} />
                   <span>
-                    <span className="text-[13px] text-gray-200">{m.label}</span>
-                    <span className="block text-[12px] text-gray-500">{m.hint}</span>
+                    <span className="text-sm font-semibold text-gray-100">{m.label}</span>
+                    <span className="block text-[13px] text-gray-400 mt-0.5">{m.hint}</span>
                   </span>
                 </label>
               ))}
@@ -76,22 +76,22 @@ export function NotificationSettings() {
           </>
         )}
         <div className="flex items-center gap-3 pt-1">
-          <button onClick={test} className="px-3 py-1.5 text-xs text-gray-300 border border-white/10 hover:border-white/20 rounded-md">
+          <button onClick={test} className="btn-primary h-[42px] px-4 text-[13px] font-semibold rounded-[10px]">
             Send a test notification
           </button>
-          {testResult && <span className="text-[12px] text-gray-500">{testResult}</span>}
+          {testResult && <span className="text-[13px] text-gray-400">{testResult}</span>}
         </div>
         {error && status && <p className="text-[12px] text-amber-300">{error}</p>}
       </section>
 
-      <section className="space-y-2 border-t border-white/[0.06] pt-4">
-        <h3 className="text-sm font-medium text-gray-200">Browser notifications</h3>
-        <p className="text-[12px] text-gray-500">
+      <section className="space-y-3 pt-2">
+        <h3 className="text-lg font-semibold text-gray-100">Browser notifications</h3>
+        <p className="text-[13px] text-gray-400">
           Raised by this dashboard tab — only while it is open. Useful when NeonCore runs on another machine; when it runs
           on this one and shows desktop notifications, the tab does not repeat them.
         </p>
         {browserPerm === 'unsupported' ? (
-          <p className="text-[12px] text-gray-600">This browser does not support notifications.</p>
+          <p className="text-[13px] text-gray-400">This browser does not support notifications.</p>
         ) : browserPerm === 'granted' ? (
           <p className="text-[12px] text-emerald-400">Allowed.</p>
         ) : browserPerm === 'denied' ? (
@@ -99,7 +99,7 @@ export function NotificationSettings() {
         ) : (
           <button
             onClick={() => Notification.requestPermission().then(setBrowserPerm)}
-            className="px-3 py-1.5 text-xs text-gray-300 border border-white/10 hover:border-white/20 rounded-md"
+            className="btn-ghost h-[42px] px-4 text-[13px] font-semibold rounded-[10px]"
           >
             Allow browser notifications
           </button>

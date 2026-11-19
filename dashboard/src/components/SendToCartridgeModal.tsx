@@ -113,19 +113,19 @@ export default function SendToCartridgeModal({
   return createPortal(
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
-      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[560px] max-h-[80vh] flex flex-col">
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[560px] max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.08]">
           <div>
-            <h2 className="text-sm font-semibold text-white">Send to Cartridge</h2>
+            <h2 className="font-display text-xl font-semibold text-gray-100">Send to Cartridge</h2>
             {sourceLabel && (
               <p className="text-[13px] text-gray-500 mt-0.5">From: {sourceLabel}</p>
             )}
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="w-10 h-10 rounded-[10px] border border-white/[0.16] text-gray-300 hover:text-white text-lg leading-none">&times;</button>
         </div>
 
         {/* Body */}
@@ -139,7 +139,7 @@ export default function SendToCartridgeModal({
               <select
                 value={targetAgentId}
                 onChange={(e) => setTargetAgentId(e.target.value)}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none"
               >
                 {onlineAgents.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -172,10 +172,10 @@ export default function SendToCartridgeModal({
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={10}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y font-mono"
               placeholder="Enter content to send..."
             />
-            <p className="text-[13px] text-gray-600">{text.length} chars — edit to add extra context before sending</p>
+            <p className="text-[13px] text-gray-500">{text.length} chars — edit to add extra context before sending</p>
           </div>
 
           {/* Include memory toggle */}
@@ -184,21 +184,21 @@ export default function SendToCartridgeModal({
               type="checkbox"
               checked={includeMemory}
               onChange={() => setIncludeMemory(!includeMemory)}
-              className="accent-purple-500 w-3 h-3"
+              className="accent-[#5AAEFF] w-3 h-3"
             />
             Include agent memory
           </label>
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
+        <div className="px-6 py-4 border-t border-white/[0.08] flex items-center gap-3">
           {sent ? (
             <span className={`text-sm font-medium ${outcomeTone(outcome)}`}>{outcomeLabel(outcome)}</span>
           ) : (
             <button
               onClick={handleSend}
               disabled={sending || !targetAgentId || !text.trim()}
-              className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
+              className="text-sm px-4 py-2 btn-primary font-semibold rounded-[10px] disabled:opacity-30 transition-colors"
             >
               {sending ? 'Sending...' : 'Send'}
             </button>

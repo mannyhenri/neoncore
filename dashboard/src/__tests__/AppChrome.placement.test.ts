@@ -29,6 +29,8 @@ const SRC = readFileSync(resolve(HERE, '../App.tsx'), 'utf8');
 
 /** Slice the source into the three chrome regions by their JSX landmarks. */
 function regions(src: string) {
+  const navStart = src.indexOf('<nav');
+  const navEnd = src.indexOf('</nav>');
   const headerStart = src.indexOf('<header');
   const headerEnd = src.indexOf('</header>');
   const asideStart = src.indexOf('<aside');
@@ -37,18 +39,19 @@ function regions(src: string) {
   const mainEnd = src.lastIndexOf('</main>');
 
   for (const [name, i] of Object.entries({
-    headerStart, headerEnd, asideStart, asideEnd, mainStart, mainEnd,
+    navStart, navEnd, headerStart, headerEnd, asideStart, asideEnd, mainStart, mainEnd,
   })) {
     if (i < 0) throw new Error(`App.tsx has no ${name} — the layout changed shape`);
   }
   return {
+    nav: src.slice(navStart, navEnd),
     header: src.slice(headerStart, headerEnd),
     aside: src.slice(asideStart, asideEnd),
     main: src.slice(mainStart, mainEnd),
   };
 }
 
-type Region = 'header' | 'aside' | 'main';
+type Region = 'nav' | 'header' | 'aside' | 'main';
 
 /**
  * THE SET. Every control in the chrome, and the region it must render in.
@@ -58,13 +61,14 @@ type Region = 'header' | 'aside' | 'main';
  * layout the rail commit was written to escape.
  */
 const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
-  // Asked for: navigation returns to the top menu.
-  { name: 'Agents view switch', marker: /setActiveView\('agents'\)/, region: 'header' },
-  { name: 'Goals view switch', marker: /setActiveView\('goals'\)/, region: 'header' },
-  { name: 'Tasks view switch', marker: /setActiveView\('tasks'\)/, region: 'header' },
-  // Asked for: chrome returns to the top menu.
-  { name: 'Guide', marker: /setGuideOpen\(true\)/, region: 'header' },
-  { name: 'Settings', marker: /setSettingsOpen\(true\)/, region: 'header' },
+  // Night Glass (2026-11-18, asked for: "update the entire live UI … EXACTLY like the UI
+  // designed"): navigation moves to the slim left view bar, with Guide and Settings at its
+  // foot. The views and the chrome move TOGETHER — the partial move this file guards against.
+  { name: 'Agents view switch', marker: /setActiveView\('agents'\)/, region: 'nav' },
+  { name: 'Goals view switch', marker: /setActiveView\('goals'\)/, region: 'nav' },
+  { name: 'Tasks view switch', marker: /setActiveView\('tasks'\)/, region: 'nav' },
+  { name: 'Guide', marker: /setGuideOpen\(true\)/, region: 'nav' },
+  { name: 'Settings', marker: /setSettingsOpen\(true\)/, region: 'nav' },
   // Asked for: the whole "Show" section sits with the cartridges. Both filters ask
   // "which of these am I looking at", which is a question about the grid — my first
   // pass split them, keeping status in the rail, and that was wrong.
@@ -83,7 +87,8 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // after the wordmark (the "Orchestrator" label it used to follow is gone). Registered here so it cannot drift into the rail with
   // the next chrome move — the same partial-relocation failure this file exists to catch.
   { name: 'Burn rate readout', marker: /<BurnRate/, region: 'header' },
-  { name: 'Tokens view switch', marker: /setActiveView\('tokens'\)/, region: 'header' },
+  // The burn-rate pill also opens Tokens (onOpen), so the marker is the view bar's own onClick.
+  { name: 'Tokens view switch', marker: /onClick=\{\(\) => setActiveView\('tokens'\)\}/, region: 'nav' },
   // The report itself is a working surface, not chrome — same region as the goals workspace
   // and the task list. Registered so a chrome reshuffle cannot drag it into the rail, where
   // a full-width chart has nowhere to go.
@@ -122,7 +127,7 @@ describe('dashboard chrome placement', () => {
   });
 
   it.each(CONTROLS)('$name is not duplicated into another region', ({ marker, region }) => {
-    const others = (['header', 'aside', 'main'] as Region[]).filter((r) => r !== region);
+    const others = (['nav', 'header', 'aside', 'main'] as Region[]).filter((r) => r !== region);
     for (const other of others) {
       expect(
         marker.test(R[other]),
@@ -248,10 +253,7 @@ describe('dashboard chrome placement', () => {
     // (Confer used to lead them. It is a workflow template now — see the Confer test below.)
     { name: 'Machine launcher', marker: /<MachineLauncher/ },
     { name: 'New repo', marker: /setNewRepoOpen\(true\)/ },
-    // Chrome. Settings is not named in the ask; it sits left of Guide so that GUIDE is the
-    // one adjacent to the status group, which is what was actually specified.
-    { name: 'Settings', marker: /setSettingsOpen\(true\)/ },
-    { name: 'Guide', marker: /setGuideOpen\(true\)/ },
+    // Guide and Settings left the header for the view bar's foot (Night Glass).
     // Status, pinned to the far right. These three were previously unpositioned — the ask
     // gives them an explicit place, so they join the registry rather than floating.
     { name: 'Online count', marker: /onlineAgents\.length/ },
@@ -285,214 +287,42 @@ describe('dashboard chrome placement', () => {
     // layout being replaced. The wrapper must claim the free space.
     const cluster = R.header.slice(0, R.header.search(/<NotificationCenter/));
     const lastDiv = cluster.lastIndexOf('<div');
-    expect(cluster.slice(lastDiv)).toMatch(/ml-auto|justify-end/);
+    expect(cluster.slice(lastDiv)).toMatch(/ml-auto|justify-end|flex-1/);
   });
 
   /**
-   * The view switcher: right-aligned against the chrome cluster, ordered Goals → Agents → Tasks.
-   * Alignment is asserted above; this pins the ORDER, which is what was actually asked for and
-   * which any layout change could quietly permute.
+   * NIGHT GLASS: the view bar. Projects (the goals view) leads, asked for 2026-11-18; Agents
+   * is second and stays the default view; Tasks and Tokens follow. Pinned as adjacent pairs so a
+   * reshuffle fails on the pair it broke.
    */
-  const VIEW_ORDER = ['goals', 'agents', 'tasks'] as const;
+  const VIEW_ORDER = ['goals', 'agents', 'tasks', 'tokens'] as const;
 
   it.each(
     VIEW_ORDER.slice(0, -1).map((left, i) => ({ left, right: VIEW_ORDER[i + 1] })),
-  )('the $left switch comes before the $right switch', ({ left, right }) => {
-    const a = R.header.indexOf(`setActiveView('${left}')`);
-    const b = R.header.indexOf(`setActiveView('${right}')`);
+  )('the $left switch comes before the $right switch in the view bar', ({ left, right }) => {
+    const a = R.nav.indexOf(`setActiveView('${left}')`);
+    const b = R.nav.indexOf(`setActiveView('${right}')`);
     expect(a, `${left} switch is missing`).toBeGreaterThan(-1);
     expect(b, `${right} switch is missing`).toBeGreaterThan(-1);
     expect(a).toBeLessThan(b);
   });
 
-  /**
-   * THE THREE HEADER REGIONS MUST NOT BE ABLE TO OVERLAP.
-   *
-   * Centring the switcher with `md:absolute left-1/2 -translate-x-1/2` took it OUT OF FLOW, so
-   * nothing reserved space for it. The right-hand cluster is in flow with `ml-auto`, and as its
-   * width changes — the online count going from one digit to two, the server pill changing
-   * text, a notification badge appearing — it grows leftward until it sits on top of the
-   * centred switcher. Reported as "+ Launch bleeds into the 3 sections on and off"; the
-   * "on and off" is the giveaway that it tracks a changing width.
-   *
-   * Padding cannot fix this. It moves the width at which the collision starts and leaves the
-   * collision possible. A three-track grid makes it impossible: each region owns a column, and
-   * columns do not overlap.
-   *
-   * THE SECOND ROUND. `1fr auto 1fr` centred the switcher on the bar, and that held until
-   * Confer joined the right cluster in Phase 2. The columns still could not overlap — but with
-   * the switcher pinned to the bar's centre, the gap before the cluster is whatever is LEFT
-   * OVER, so widening the cluster closed it until the two touched. Reported again, and it is
-   * the same class of bug: a spacing that is a residue of someone else's width.
-   *
-   * `1fr auto auto` makes it a constant. The identity track absorbs all free space; the
-   * switcher and the cluster sit together at the right, separated by the cluster's own padding.
-   * Nothing added to the right cluster can squeeze that gap, because it is no longer computed
-   * from the cluster's width.
-   */
-  const HEADER_REGIONS: { name: string; marker: RegExp }[] = [
-    { name: 'identity (logo + wordmark)', marker: /alt="Gridlight"/ },
-    { name: 'view switcher', marker: /setActiveView\('goals'\)/ },
-    { name: 'chrome + status cluster', marker: /<NotificationCenter/ },
-  ];
-
-  it('the header lays its regions out in a grid, so they cannot collide', () => {
-    // The ROW is the first element inside <header> — the grid that owns the three tracks.
-    // (Taking the last <div> before the logo would find the identity block itself.)
-    const firstDiv = R.header.indexOf('<div');
-    const container = R.header.slice(firstDiv, R.header.indexOf('>', firstDiv));
-    expect(
-      container,
-      'the header row is not a grid — regions are in flow and can overlap as widths change',
-    ).toMatch(/grid/);
-    // Exactly ONE flexible track, and it is the first. A second `1fr` after the switcher would
-    // re-centre it and bring back a gap that shrinks as the right cluster grows.
-    const tracks = container.match(/grid-cols-\[([^\]]+)\]/)?.[1] ?? '';
-    expect(tracks, 'the header grid declares no explicit tracks').toBeTruthy();
-    expect(
-      (tracks.match(/1fr/g) || []).length,
-      'more than one flexible track — the switcher is centred again, so its clearance from the ' +
-      'chrome cluster is whatever is left over and shrinks as that cluster grows',
-    ).toBe(1);
-    // Split on the Tailwind track separator rather than searching the raw string: `1fr` lives
-    // INSIDE `minmax(0,1fr)`, so a naive index check never points at the start.
-    const columns = tracks.split('_');
-    expect(
-      columns[0],
-      'the flexible track is not first — the identity block must absorb the free space so the ' +
-      'switcher sits against the chrome cluster',
-    ).toMatch(/1fr/);
-    expect(
-      columns.slice(1).join(' '),
-      'a flexible track after the switcher re-centres it on the bar',
-    ).not.toMatch(/1fr/);
+  it('Guide and Settings sit at the foot of the view bar, after every view', () => {
+    const lastView = R.nav.indexOf("setActiveView('tokens')");
+    expect(R.nav.indexOf('setGuideOpen(true)')).toBeGreaterThan(lastView);
+    expect(R.nav.indexOf('setSettingsOpen(true)')).toBeGreaterThan(lastView);
   });
 
-  it('the view switcher is right-aligned, not centred on the bar', () => {
-    // Asked for directly: "instead of making the later centered on the navigation menu, just
-    // make sure it aligns right with the proper padding after the confer".
-    const i = R.header.indexOf("setActiveView('goals')");
-    const track = R.header.slice(R.header.lastIndexOf('<div', i), i);
-    expect(track, 'the switcher is still centring itself').not.toMatch(/justify-self-center/);
+  it('the chrome carries no Gridlight logo or wordmark — asked to be removed', () => {
+    expect(SRC).not.toMatch(/logo\.png|alt="Gridlight"/);
+    expect(SRC).not.toMatch(/font-pixel/);
   });
 
-  /**
-   * SPACING, which is a separate question from overlap.
-   *
-   * The grid stopped the regions colliding, but it was introduced with a symmetric `md:gap-4`
-   * and `flex-wrap` on the chrome cluster. That spread every region apart rather than only
-   * separating the switcher from what follows it, and let the seven right-hand controls break
-   * onto a second line — which is the "looks horrible" part. The ask is narrower than the fix
-   * that was applied: clear space on ONE side of the switcher, nothing else moved.
-   */
-  const SPACING_RULES: { name: string; check: (header: string) => string | null }[] = [
-    {
-      name: 'the row does not impose a symmetric gap between all three tracks',
-      check: (h) => {
-        const firstDiv = h.indexOf('<div');
-        const row = h.slice(firstDiv, h.indexOf('>', firstDiv));
-        return /md:gap-[1-9]/.test(row)
-          ? 'the row applies a symmetric md gap, spacing every region apart instead of one side'
-          : null;
-      },
-    },
-    {
-      name: 'there is guaranteed clear space between the switcher and the chrome cluster',
-      check: (h) => {
-        // Carried by whichever side declares it — a right margin on the switcher or a left
-        // pad on the cluster are the same pixels. What must not happen is neither.
-        const sw = h.slice(h.lastIndexOf('<div', h.indexOf("setActiveView('goals')")), h.indexOf("setActiveView('goals')"));
-        const clusterStart = h.lastIndexOf('<div', h.indexOf('<NotificationCenter'));
-        const cluster = h.slice(clusterStart, h.indexOf('>', clusterStart));
-        const spaced = /\bmd:mr-[2-9]|\bmd:me-[2-9]/.test(sw) || /\bmd:pl-[2-9]|\bmd:ml-[2-9]/.test(cluster);
-        return spaced ? null : 'nothing guarantees a gap to the right of Goals/Agents/Tasks';
-      },
-    },
-    {
-      name: 'the chrome controls never break their own labels across lines',
-      check: (h) => {
-        // Removing flex-wrap stopped the CLUSTER wrapping, but `min-w-0` still let it squeeze
-        // below its content width — so each button compressed and broke its label instead
-        // ("+ / Launch", "+ New / Repo", "4 / online"). The cluster must keep its natural
-        // width and let the flexible side tracks absorb the difference.
-        const start = h.lastIndexOf('<div', h.indexOf('<NotificationCenter'));
-        const cluster = h.slice(start, h.indexOf('>', start));
-        if (/min-w-0/.test(cluster)) return 'the cluster may shrink below its content, forcing labels to wrap';
-        if (!/whitespace-nowrap/.test(cluster)) return 'nothing prevents the control labels from wrapping';
-        return null;
-      },
-    },
-    {
-      name: 'the chrome cluster never wraps to a second line',
-      check: (h) => {
-        const start = h.lastIndexOf('<div', h.indexOf('<NotificationCenter'));
-        const cluster = h.slice(start, h.indexOf('>', start));
-        return /flex-wrap/.test(cluster)
-          ? 'the chrome cluster can wrap, doubling the header height at some widths'
-          : null;
-      },
-    },
-  ];
-
-  it.each(SPACING_RULES)('$name', ({ check }) => {
-    expect(check(R.header)).toBeNull();
-  });
-
-  it.each(HEADER_REGIONS)('$name is a single grid child, not overlaid', ({ marker, name }) => {
-    // Each region must reach the grid as one child. A region that is still absolutely
-    // positioned is painted over its neighbours no matter what the grid says.
-    const upTo = R.header.slice(0, R.header.search(marker));
-    const own = upTo.slice(upTo.lastIndexOf('<div'));
-    expect(own, `${name} is still absolutely positioned — grid tracks cannot contain it`)
-      .not.toMatch(/\babsolute\b/);
-  });
-
-  it('the flexible identity track clips what does not fit instead of painting under the switcher', () => {
-    // `minmax(0,1fr)` lets the track shrink to nothing; its contents did not, so the burn-rate
-    // readout drew underneath Goals/Agents/Tasks at 1024-1440px. The block must clip, and the
-    // readout must be allowed to shrink and only appear where the bar has room for it.
-    const firstDiv = R.header.indexOf('<div');
-    const identityStart = R.header.indexOf('<div', firstDiv + 1);
-    const identity = R.header.slice(identityStart, R.header.indexOf('>', identityStart));
-    expect(identity).toMatch(/min-w-0/);
-    expect(identity).toMatch(/overflow-hidden/);
-    const burn = readFileSync(resolve(HERE, '../components/BurnRate.tsx'), 'utf8');
-    const cls = burn.slice(burn.indexOf('className="', burn.indexOf('<button')), burn.indexOf('"', burn.indexOf('className="', burn.indexOf('<button')) + 11));
-    expect(cls, 'the readout cannot shrink').toMatch(/min-w-0/);
-    expect(cls, 'the readout shows at widths where it collides with the switcher').toMatch(/hidden xl:inline-flex/);
-  });
-
-  it('the header carries no "Orchestrator" label — the space goes to the navigation', () => {
+  it('the header carries no "Orchestrator" label', () => {
     expect(R.header).not.toMatch(/>\s*Orchestrator\s*</);
   });
 
-  it('the switcher no longer relies on absolute centring anywhere in the header', () => {
-    // Belt and braces: the old technique must be gone, not merely supplemented.
-    const switcher = R.header.slice(
-      R.header.lastIndexOf('<div', R.header.indexOf("setActiveView('goals')")),
-      R.header.indexOf("setActiveView('goals')"),
-    );
-    expect(switcher).not.toMatch(/left-1\/2/);
-    expect(switcher).not.toMatch(/-translate-x-1\/2/);
-  });
 
-  /**
-   * THE DEFAULT VIEW, AND THE ONE THING THAT OVERRIDES IT.
-   *
-   * Agents stays the default. But a goal deep link has to address the goal AND the view
-   * that shows it: caught live by opening `#goal/<id>` in a fresh tab and landing on
-   * Agents, with the goal selected in a pane nothing was rendering. The hash was doing
-   * exactly half its job, and the half it skipped is the half a notification link needs.
-   */
-  /**
-   * The anchor is a PATTERN, not the literal union.
-   *
-   * It used to be `indexOf("useState<'agents' | 'goals' | 'tasks'>")`. Adding a fourth view
-   * made that return -1, and `slice(-1)` then scanned the last character of the file — so the
-   * guard failed with "expected '\n' to match /'agents'/" instead of saying its anchor had
-   * moved, and would just as easily have PASSED had the last character happened to match.
-   * A missing anchor must be a loud failure, never a silently relocated search.
-   */
   function initialViewDeclaration(): string {
     const at = SRC.search(/useState<(?:'\w+'\s*\|\s*)*'\w+'>\(/);
     expect(at, 'App.tsx no longer declares the active view with a useState union').toBeGreaterThan(-1);

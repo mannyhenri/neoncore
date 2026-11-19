@@ -145,12 +145,27 @@ const EXPERT_ROLES: ExpertRole[] = [
 const ROLE_MAP = new Map(EXPERT_ROLES.map((r) => [r.id, r]));
 const DEFAULT_ROLE = EXPERT_ROLES[0]; // general
 
-const STATUS_STYLES: Record<StepStatus, { dot: string; ring: string; node: string }> = {
-  pending: { dot: 'bg-gray-500', ring: '', node: '' },
-  running: { dot: 'bg-blue-500 animate-pulse', ring: 'ring-2 ring-blue-500/50', node: 'animate-glow-pulse' },
-  completed: { dot: 'bg-emerald-500', ring: '', node: '' },
-  failed: { dot: 'bg-red-500', ring: 'ring-2 ring-red-500/30', node: '' },
-  skipped: { dot: 'bg-gray-600', ring: '', node: '' },
+/**
+ * Night Glass node frames. Status wins (running glows neon, done is green, failed red); a
+ * pending or skipped node takes its TYPE colour instead, so the graph reads by kind at rest:
+ * decisions amber, confers violet, connectors/learnings teal, gates neon.
+ */
+const STATUS_STYLES: Record<StepStatus, { dot: string; ring: string; node: string; label: string; text: string }> = {
+  pending: { dot: 'bg-gray-500', ring: '', node: '', label: 'pending', text: 'text-gray-400' },
+  running: { dot: 'bg-neon-500 animate-pulse', ring: 'border-neon-500/80 shadow-[0_0_22px_rgba(90,174,255,0.4)]', node: '', label: 'running', text: 'text-neon-300' },
+  completed: { dot: 'bg-emerald-400', ring: 'border-emerald-400/60 shadow-[0_0_18px_rgba(74,222,128,0.2)]', node: '', label: '✓', text: 'text-emerald-300' },
+  failed: { dot: 'bg-red-400', ring: 'border-red-400/60', node: '', label: 'failed', text: 'text-red-300' },
+  skipped: { dot: 'bg-gray-600', ring: '', node: 'opacity-70', label: 'skipped', text: 'text-gray-500' },
+};
+
+const TYPE_FRAME: Record<string, string> = {
+  decision: 'border-amber-300/60',
+  confer: 'border-[#7C6CFF]/60',
+  deliberation: 'border-[#7C6CFF]/60',
+  connector: 'border-gl-teal/50',
+  'quality-gate': 'border-neon-500/50',
+  'review-gate': 'border-rose-400/50',
+  command: 'border-white/[0.25]',
 };
 
 /** Resolve expert role from executorConfig */
@@ -194,10 +209,10 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
   return (
     <div
       className={`
-        relative rounded-xl border transition-all duration-200 w-[300px]
-        ${selected ? 'border-gl-purple/60 shadow-lg shadow-purple-900/30' : 'border-white/10 hover:border-white/20'}
-        ${statusStyle.ring} ${statusStyle.node}
-        glass
+        relative rounded-[14px] border transition-all duration-200 w-[300px] bg-[rgba(12,18,34,0.92)]
+        ${statusStyle.ring || TYPE_FRAME[data.executorType ?? ''] || 'border-white/[0.18] hover:border-white/30'}
+        ${selected ? 'outline outline-2 outline-offset-2 outline-neon-500/70' : ''}
+        ${statusStyle.node}
       `}
       onClick={() => data.onSelect(data.stepId)}
     >
@@ -205,12 +220,12 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!w-3 !h-3 !bg-gl-purple !border-2 !border-gl-surface !-top-1.5"
+        className="!w-3 !h-3 !bg-neon-500 !border-2 !border-gl-bg !-top-1.5"
       />
 
       {/* Header bar: status dot + name */}
-      <div className="flex items-center gap-2 px-3 pt-3 pb-1.5">
-        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusStyle.dot}`} />
+      <div className="flex items-center gap-2 px-3.5 pt-3.5 pb-1.5">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${statusStyle.dot}`} />
 
         {editing ? (
           <input
@@ -222,61 +237,64 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
               if (e.key === 'Enter') commitName();
               if (e.key === 'Escape') { setLocalName(data.name); setEditing(false); }
             }}
-            className="text-sm text-white bg-transparent border-b border-gl-purple/50 outline-none w-full font-medium"
+            className="text-sm text-gray-100 bg-transparent border-b border-neon-500/60 outline-none w-full font-semibold"
           />
         ) : (
           <span
-            className="text-sm text-white font-semibold truncate cursor-text flex-1"
+            className="text-sm text-gray-100 font-semibold truncate cursor-text flex-1"
             onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
             title="Double-click to edit"
           >
             {data.name}
           </span>
         )}
+        {data.status !== 'pending' && (
+          <span className={`text-[12px] font-semibold shrink-0 ${statusStyle.text}`}>{statusStyle.label}</span>
+        )}
       </div>
 
       {/* Meta row: role + agent type + agent name + webhook */}
-      <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
-        <span className={`inline-block text-[13px] font-semibold px-2 py-0.5 rounded-full ${badge.bg} ${badge.color} uppercase tracking-wider`}>
+      <div className="flex items-center gap-1.5 px-3.5 pb-2 flex-wrap">
+        <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${badge.bg} ${badge.color} uppercase tracking-wider`}>
           {badge.name}
         </span>
         {data.agentType === 'claude' && (
-          <span className="text-[13px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 uppercase tracking-wider">
+          <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-[#7CC4FF]/15 text-[#7CC4FF] uppercase tracking-wider">
             CC
           </span>
         )}
         {data.agentType === 'gridlight' && (
-          <span className="text-[13px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 uppercase tracking-wider">
+          <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-gl-pink/15 text-gl-pink uppercase tracking-wider">
             GL
           </span>
         )}
         {data.agentName ? (
-          <span className="text-[13px] text-cyan-400/80 font-medium px-1.5 py-0.5 rounded-full bg-cyan-500/10 truncate max-w-[140px]" title={data.agentName}>
+          <span className="text-[12px] text-gray-300 font-mono px-1.5 py-0.5 rounded-full bg-white/[0.07] truncate max-w-[150px]" title={data.agentName}>
             {data.agentName}
           </span>
         ) : (
-          <span className="text-[13px] text-gray-600 italic">no cartridge</span>
+          <span className="text-[12px] text-gray-500 italic">no cartridge</span>
         )}
         {data.waitForWebhook && (
-          <span className="text-[13px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10" title="Waits for external webhook to complete">
+          <span className="text-[11px] text-amber-200 font-semibold px-2 py-0.5 rounded-full bg-amber-300/15" title="Waits for external webhook to complete">
             webhook
           </span>
         )}
         {data.useIntent && (
-          <span className="text-[13px] text-emerald-400/70 font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10">
+          <span className="text-[11px] text-emerald-200 font-semibold px-2 py-0.5 rounded-full bg-emerald-400/15">
             intent
           </span>
         )}
         {data.executorType === 'decision' && (
-          <span className="text-[9px] font-bold uppercase tracking-wider text-violet-400 bg-violet-900/40 px-1.5 py-0.5 rounded">Decision</span>
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-300/15 text-amber-200">Decision</span>
         )}
         {data.executorType === 'review-gate' && (
-          <span className="text-[13px] text-rose-400/70 font-medium px-1.5 py-0.5 rounded-full bg-rose-500/10 uppercase">
+          <span className="text-[11px] text-rose-200 font-semibold px-2 py-0.5 rounded-full bg-rose-500/15">
             critic
           </span>
         )}
         {data.executorType === 'deliberation' && (
-          <span className="text-[13px] text-violet-400/70 font-medium px-1.5 py-0.5 rounded-full bg-violet-500/10 uppercase">
+          <span className="text-[11px] text-[#CFC8FF] font-semibold px-2 py-0.5 rounded-full bg-[#7C6CFF]/20">
             deliberation
           </span>
         )}
@@ -284,17 +302,17 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
             as a step. Distinct badge from deliberation: a panel gives N opinions on one
             question, a confer splits one job between N cartridges. */}
         {data.executorType === 'confer' && (
-          <span className="text-[13px] text-amber-400/70 font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 uppercase">
+          <span className="text-[11px] text-[#CFC8FF] font-semibold px-2 py-0.5 rounded-full bg-[#7C6CFF]/20">
             confer
           </span>
         )}
         {data.executorType === 'quality-gate' && (
-          <span className="text-[13px] text-teal-400/70 font-medium px-1.5 py-0.5 rounded-full bg-teal-500/10 uppercase">
+          <span className="text-[11px] text-neon-200 font-semibold px-2 py-0.5 rounded-full bg-neon-500/15">
             {data.gateType || 'quality'}
           </span>
         )}
         {data.executorType === 'command' && (
-          <span className="text-[13px] text-sky-400/70 font-medium px-1.5 py-0.5 rounded-full bg-sky-500/10 uppercase">
+          <span className="text-[11px] text-gray-200 font-semibold px-2 py-0.5 rounded-full bg-white/[0.08]">
             command
           </span>
         )}
@@ -302,27 +320,34 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
 
       {/* Prompt body */}
       {data.prompt ? (
-        <div className="px-3 pb-2">
-          <p className="text-[13px] text-gray-400 leading-relaxed line-clamp-4 whitespace-pre-wrap">{data.prompt}</p>
+        <div className="px-3.5 pb-2">
+          <p className="text-[12px] text-gray-400 leading-relaxed line-clamp-3 whitespace-pre-wrap">{data.prompt}</p>
         </div>
       ) : (
-        <div className="px-3 pb-2">
-          <p className="text-[13px] text-gray-600 italic">No prompt configured</p>
+        <div className="px-3.5 pb-2">
+          <p className="text-[12px] text-gray-500 italic">No prompt configured</p>
         </div>
       )}
 
       {/* Footer: controls */}
-      <div className="px-3 pb-3 space-y-1.5">
+      <div className="px-3.5 pb-3.5 space-y-1.5">
+        {data.status === 'running' && (
+          <div aria-hidden="true" className="flex gap-[2px] pb-1">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <span key={i} className={`flex-1 h-[5px] ${i < 3 ? 'seg-on' : 'seg-off'}`} />
+            ))}
+          </div>
+        )}
         {/* Auto-advance toggle */}
         <label
-          className="flex items-center gap-1.5 text-[13px] text-gray-500 cursor-pointer select-none"
+          className="flex items-center gap-1.5 text-[12px] text-gray-400 cursor-pointer select-none"
           onClick={(e) => e.stopPropagation()}
         >
           <input
             type="checkbox"
             checked={data.autoAdvance}
             onChange={() => data.onAutoAdvanceToggle(data.stepId)}
-            className="accent-purple-500 w-3 h-3"
+            className="accent-neon-500 w-3 h-3"
           />
           auto-advance
         </label>
@@ -331,7 +356,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         {data.status === 'completed' && !data.autoAdvance && (
           <button
             onClick={(e) => { e.stopPropagation(); data.onAdvance(data.stepId); }}
-            className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+            className="w-full h-9 text-[12px] font-semibold rounded-lg border border-ember-500/50 bg-ember-500/15 text-ember-300 hover:bg-ember-500/25 transition-colors"
           >
             Advance to next step
           </button>
@@ -341,7 +366,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         {data.status === 'running' && data.recoveryStatus !== 'interrupted' && data.recoveryStatus !== 'recovery_failed' && data.recoveryStatus !== 'recovering' && (
           <button
             onClick={(e) => { e.stopPropagation(); data.onForceComplete(data.stepId); }}
-            className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+            className="w-full h-9 text-[12px] font-semibold rounded-lg border border-emerald-400/50 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20 transition-colors"
           >
             Mark complete
           </button>
@@ -351,7 +376,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
         {(data.recoveryStatus === 'interrupted' || data.recoveryStatus === 'recovery_failed') && (
           <button
             onClick={(e) => { e.stopPropagation(); data.onRecover(data.stepId); }}
-            className="w-full text-[13px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+            className="w-full h-9 text-[12px] font-semibold rounded-lg border border-red-400/50 bg-red-500/15 text-red-200 hover:bg-red-500/25 transition-colors"
           >
             {data.recoveryStatus === 'recovery_failed' ? 'Retry recovery' : 'Resume interrupted step'}
           </button>
@@ -365,7 +390,7 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!w-3 !h-3 !bg-gl-blue !border-2 !border-gl-surface !-bottom-1.5"
+        className="!w-3 !h-3 !bg-neon-500 !border-2 !border-gl-bg !-bottom-1.5"
       />
     </div>
   );
@@ -1007,7 +1032,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           source: depId,
           target: step.id,
           animated: isExecuting,
-          style: { stroke: '#a855f7', strokeWidth: 2 },
+          style: { stroke: '#5AAEFF', strokeWidth: 2 },
         });
       }
       // Routing rule edges (dashed amber)
@@ -1111,7 +1136,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           {
             ...connection,
             animated: isExecuting,
-            style: { stroke: '#a855f7', strokeWidth: 2 },
+            style: { stroke: '#5AAEFF', strokeWidth: 2 },
           },
           eds,
         ),
@@ -1446,25 +1471,25 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col"
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col"
     >
       {/* Main container — stop propagation so clicks inside don't trigger backdrop close */}
       <div
-        className="flex-1 flex flex-col m-2 md:m-4 rounded-2xl overflow-hidden glass border border-white/10 shadow-2xl"
+        className="flex-1 flex flex-col m-2 md:m-4 rounded-[22px] overflow-hidden bg-ink border border-white/[0.16] shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
         onClick={(e) => e.stopPropagation()}
       >
 
         {/* ── Toolbar ─────────────────────────── */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 px-5 py-3.5 border-b border-white/[0.12] bg-gray-950 shrink-0">
           {/* Name — stop key propagation so React Flow / parent handlers don't intercept typing */}
           {isRunView ? (
             <>
-              <span className="text-sm font-semibold text-white px-1">{workflowName}</span>
-              <span className="text-xs text-gl-purple font-medium px-2 py-0.5 rounded-full bg-gl-purple/15">
+              <span className="font-display text-[15px] font-semibold text-gray-100 px-1">{workflowName}</span>
+              <span className="text-xs text-neon-200 font-semibold px-2 py-0.5 rounded-full bg-neon-500/15">
                 Run #{runNumber}
               </span>
               {assignedProjects.length > 0 && assignedProjects.map((p) => (
-                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.06]">
+                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.1]">
                   {p}
                 </span>
               ))}
@@ -1481,7 +1506,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 onKeyDown={(e) => e.stopPropagation()}
                 onFocus={(e) => e.stopPropagation()}
                 placeholder="Workflow name"
-                className="text-sm font-semibold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 w-48 transition-colors"
+                className="h-10 w-[240px] font-display text-[15px] font-semibold text-gray-100 glass-input rounded-[10px] px-3 outline-none transition-colors"
               />
               <input
                 type="text"
@@ -1490,11 +1515,11 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 onKeyDown={(e) => e.stopPropagation()}
                 onFocus={(e) => e.stopPropagation()}
                 placeholder="Description (optional)"
-                className="text-xs text-gray-400 bg-transparent border-b border-transparent hover:border-white/20 focus:border-gl-purple outline-none px-1 py-0.5 flex-1 max-w-sm transition-colors"
+                className="h-10 text-sm text-gray-100 glass-input rounded-[10px] px-3 outline-none flex-1 max-w-[200px] min-w-[120px] transition-colors"
               />
               {/* One cartridge for the whole workflow — every step runs on it */}
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[11px] text-gray-500">Cartridge</span>
+                <span className="text-[12px] text-gray-400">Cartridge</span>
                 <select
                   value={workflowCartridge}
                   onChange={(e) => {
@@ -1504,7 +1529,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                   onKeyDown={(e) => e.stopPropagation()}
                   disabled={isExecuting}
                   title="Every step in this workflow runs on this cartridge"
-                  className="text-xs glass-input text-gray-300 rounded-md px-2 py-1 max-w-[180px] focus:outline-none focus:border-gl-purple disabled:opacity-50"
+                  className="h-10 text-sm glass-input text-gray-100 rounded-[10px] px-2.5 max-w-[200px] focus:outline-none disabled:opacity-50"
                 >
                   <option value="">-- Select cartridge --</option>
                   {onlineAgents.map((a) => (
@@ -1527,7 +1552,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           <button
             onClick={autoLayout}
             disabled={steps.length === 0}
-            className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="h-10 text-[13px] font-semibold px-3 rounded-[10px] btn-ghost transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title="Spread steps evenly (280px apart)"
           >
             Auto-layout
@@ -1539,7 +1564,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               <button
                 onClick={addStep}
                 disabled={isExecuting}
-                className="text-xs px-3 py-1.5 rounded-md glass-light border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="h-10 text-[13px] font-semibold px-3 rounded-[10px] btn-ghost transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 + Add Step
               </button>
@@ -1566,7 +1591,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                   setSelectedStepId(id);
                 }}
                 disabled={isExecuting}
-                className="text-xs px-3 py-1.5 rounded-md border border-violet-700/40 text-violet-400 hover:text-violet-300 hover:border-violet-600/60 bg-violet-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="h-10 text-[13px] font-semibold px-3 rounded-[10px] border border-amber-300/45 text-amber-100 hover:bg-amber-300/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 + Decision
               </button>
@@ -1593,7 +1618,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                   setSelectedStepId(id);
                 }}
                 disabled={isExecuting}
-                className="text-xs px-3 py-1.5 rounded-md border border-emerald-700/40 text-emerald-400 hover:text-emerald-300 hover:border-emerald-600/60 bg-emerald-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="h-10 text-[13px] font-semibold px-3 rounded-[10px] border border-gl-teal/45 text-[#BFFAF4] hover:bg-gl-teal/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 + Learnings
               </button>
@@ -1605,7 +1630,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             <button
               onClick={handleSave}
               disabled={saving || isExecuting}
-              className="text-xs px-4 py-1.5 rounded-md gl-gradient text-white font-medium hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+              className="h-10 text-[13px] font-semibold px-3.5 rounded-[10px] border border-white/[0.3] bg-white/[0.08] text-gray-100 hover:bg-white/[0.14] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
@@ -1616,7 +1641,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             <button
               onClick={handleRun}
               disabled={running || steps.length === 0 || !savedWorkflowId || isExecuting}
-              className="text-xs px-4 py-1.5 rounded-md font-medium text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-500"
+              className="h-10 text-[13px] font-semibold px-4 rounded-[10px] btn-primary transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {running ? 'Starting...' : 'Run'}
             </button>
@@ -1628,7 +1653,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               <div className="w-px h-5 bg-white/10" />
               <button
                 onClick={handleCompleteWorkflow}
-                className="text-xs px-3 py-1.5 rounded-md font-medium text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/20 transition-colors"
+                className="h-10 text-[13px] font-semibold px-3 rounded-[10px] text-emerald-200 bg-emerald-400/10 hover:bg-emerald-400/20 border border-emerald-400/45 transition-colors"
                 title="Mark workflow as done — complete running steps and skip pending ones"
               >
                 Complete
@@ -1639,7 +1664,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           {/* Close */}
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-white text-xl leading-none px-1 transition-colors"
+            className="w-10 h-10 rounded-[10px] btn-ghost text-lg leading-none transition-colors"
             title="Close"
           >
             &times;
@@ -1668,17 +1693,17 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               defaultEdgeOptions={{
                 type: 'deletable',
                 animated: isExecuting,
-                style: { stroke: '#a855f7', strokeWidth: 2 },
+                style: { stroke: '#5AAEFF', strokeWidth: 2 },
               }}
             >
-              <Background color="#ffffff08" gap={20} />
+              <Background color="rgba(120,150,255,0.18)" gap={22} size={1.2} />
               <Controls
                 showInteractive={false}
-                className="!bg-gl-surface !border-white/10 !rounded-lg !shadow-xl [&>button]:!bg-gl-surface [&>button]:!border-white/10 [&>button]:!text-gray-400 [&>button:hover]:!text-white [&>button:hover]:!bg-white/10"
+                className="!bg-gray-900 !border-white/[0.2] !rounded-lg !shadow-xl [&>button]:!bg-gray-900 [&>button]:!border-white/[0.12] [&>button]:!text-gray-300 [&>button:hover]:!text-white [&>button:hover]:!bg-white/10"
               />
               <MiniMap
-                style={{ background: 'rgba(15, 15, 35, 0.8)', borderRadius: 8 }}
-                nodeColor={() => '#a855f7'}
+                style={{ background: 'rgba(7, 11, 22, 0.95)', borderRadius: 10 }}
+                nodeColor={() => '#5AAEFF'}
                 maskColor="rgba(0, 0, 0, 0.4)"
                 className="!border-white/10"
               />
@@ -1688,7 +1713,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
           {/* ── Side Panel ─────────────────────── */}
           <div
             className={`
-              absolute top-0 right-0 h-full w-80 glass-dark border-l border-white/[0.06]
+              absolute top-0 right-0 h-full w-[380px] bg-gray-950 border-l border-white/[0.12]
               transition-transform duration-300 ease-in-out z-10
               ${selectedStep ? 'translate-x-0' : 'translate-x-full'}
             `}
@@ -1722,25 +1747,25 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
         )}
 
         {/* ── Status bar ──────────────────────── */}
-        <div className="flex items-center gap-4 px-4 py-1.5 border-t border-white/[0.06] text-[13px] text-gray-600 shrink-0">
+        <div className="flex items-center gap-4 px-5 py-2 border-t border-white/[0.12] bg-[rgba(5,9,19,0.96)] text-[12px] text-gray-400 shrink-0">
           <span>{steps.length} step{steps.length !== 1 ? 's' : ''}</span>
           <span>{edges.length} connection{edges.length !== 1 ? 's' : ''}</span>
           {savedWorkflowId && (
             <span className="font-mono">{savedWorkflowId.slice(0, 8)}</span>
           )}
           {isExecuting && runningStepNames.length > 0 ? (
-            <span className="text-blue-400 animate-pulse">
+            <span className="text-neon-300 animate-pulse">
               Running: {runningStepNames.join(', ')}
             </span>
           ) : isExecuting ? (
-            <span className="text-blue-400 animate-pulse">Executing</span>
+            <span className="text-neon-300 animate-pulse">Executing</span>
           ) : null}
           <span className="ml-auto">Drag to connect nodes. Double-click name to rename.</span>
         </div>
 
         {/* ── Toast notification ──────────────── */}
         {toast && (
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-emerald-600/90 text-white text-xs font-medium shadow-lg animate-fade-in">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-[10px] bg-emerald-400/15 border border-emerald-400/50 text-emerald-100 text-[13px] font-semibold shadow-lg animate-fade-in">
             {toast}
           </div>
         )}
@@ -1749,10 +1774,10 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
       {/* Deferred assignment popup (cartridges + prompts) */}
       {deferredPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+          <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[640px] max-w-[calc(100vw-32px)] max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.1]">
               <div>
-                <h2 className="text-sm font-semibold text-white">Configure & Run</h2>
+                <h2 className="font-display text-[22px] font-semibold text-gray-100">Configure &amp; Run</h2>
                 <p className="text-[13px] text-gray-500 mt-0.5">Fill in the required fields before running</p>
               </div>
               <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
@@ -1761,7 +1786,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               {/* One cartridge for every deferred step — all steps run on the same one */}
               {deferredPopup.agentSteps.length > 0 && (
                 <div className="space-y-2">
-                  <span className="text-[13px] text-gray-500 uppercase tracking-wider">Cartridge</span>
+                  <span className="text-[12px] text-gray-400 uppercase tracking-[0.1em]">Cartridge</span>
                   <select
                     value={deferredAssignments[deferredPopup.agentSteps[0].stepId] || ''}
                     onChange={(e) => {
@@ -1771,7 +1796,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                         Object.fromEntries(deferredPopup.agentSteps.map((s) => [s.stepId, agentId])),
                       );
                     }}
-                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                    className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none"
                   >
                     <option value="">Select cartridge...</option>
                     {onlineAgents.map((a) => (
@@ -1779,7 +1804,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     ))}
                     <OfflineOption count={hiddenOfflineAgents} />
                   </select>
-                  <p className="text-[13px] text-gray-600">
+                  <p className="text-[13px] text-gray-500">
                     {conferAgents.length >= 2
                       ? 'Ignored while conferring — the participants below own every step.'
                       : <>Runs all {deferredPopup.agentSteps.length} step{deferredPopup.agentSteps.length > 1 ? 's' : ''} on this cartridge
@@ -1791,7 +1816,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                       above — no single cartridge owns a step when the run confers. */}
                   {onlineAgents.length >= 2 && (
                     <div className="pt-2">
-                      <span className="text-[13px] text-gray-500 uppercase tracking-wider">Or confer across repos</span>
+                      <span className="text-[12px] text-gray-400 uppercase tracking-[0.1em]">Or confer across repos</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {onlineAgents.map((a) => {
                           const on = conferAgents.includes(a.id);
@@ -1829,7 +1854,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
               {/* Deferred prompt inputs */}
               {deferredPopup.promptSteps.length > 0 && (
                 <div className="space-y-3">
-                  <span className="text-[13px] text-gray-500 uppercase tracking-wider">Prompt Inputs</span>
+                  <span className="text-[12px] text-gray-400 uppercase tracking-[0.1em]">Prompt Inputs</span>
                   {deferredPopup.promptSteps.map((s) => (
                     <div key={`${s.stepId}-${s.field}`}>
                       <label className="block text-sm text-gray-400 mb-1">
@@ -1842,7 +1867,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                           [s.stepId]: { ...prev[s.stepId], [s.field]: e.target.value },
                         }))}
                         rows={3}
-                        className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                        className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y font-mono"
                         placeholder={`Enter ${s.label.toLowerCase()}...`}
                       />
                     </div>
@@ -1853,7 +1878,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
             <div className="px-4 pb-1">
               <LaunchSchedule value={launchSchedule} onChange={setLaunchSchedule} />
             </div>
-            <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
+            <div className="px-4 py-3 border-t border-white/[0.1] flex items-center gap-3">
               <button
                 onClick={handleDeferredRun}
                 disabled={
@@ -1864,7 +1889,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                     || deferredPopup.agentSteps.every((s) => deferredAssignments[s.stepId])) ||
                   !deferredPopup.promptSteps.every((s) => deferredPrompts[s.stepId]?.[s.field]?.trim())
                 }
-                className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
+                className="h-11 px-[22px] rounded-[10px] btn-primary text-sm font-semibold disabled:opacity-35 disabled:shadow-none transition-colors"
               >
                 {launchButtonLabel(launchSchedule, running)}
               </button>
@@ -1910,23 +1935,23 @@ function IntentEditor({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Objective <span className="text-red-400">*</span></label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Objective <span className="text-red-400">*</span></label>
         <textarea
           value={intent.objective || ''}
           onKeyDown={(e) => e.stopPropagation()}
           onChange={(e) => updateIntent({ objective: e.target.value })}
           disabled={isExecuting}
           rows={3}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none resize-none disabled:opacity-50"
           placeholder="What should be accomplished?"
         />
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Acceptance Criteria</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Acceptance Criteria</label>
         {(intent.acceptanceCriteria || []).map((criterion, i) => (
           <div key={i} className="flex items-center gap-1 mb-1">
-            <span className="text-[13px] text-gray-600 w-4">{i + 1}.</span>
+            <span className="text-[13px] text-gray-500 w-4">{i + 1}.</span>
             <input
               type="text"
               value={criterion}
@@ -1937,7 +1962,7 @@ function IntentEditor({
                 updateIntent({ acceptanceCriteria: updated });
               }}
               disabled={isExecuting}
-              className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              className="flex-1 text-xs glass-input text-gray-100 rounded-lg px-2 py-1 placeholder-gray-500 focus:outline-none disabled:opacity-50"
               placeholder="Criterion..."
             />
             <button
@@ -1946,7 +1971,7 @@ function IntentEditor({
                 updateIntent({ acceptanceCriteria: updated });
               }}
               disabled={isExecuting}
-              className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+              className="text-gray-500 hover:text-red-400 text-xs disabled:opacity-30"
             >&times;</button>
           </div>
         ))}
@@ -1960,10 +1985,10 @@ function IntentEditor({
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Constraints</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Constraints</label>
         {(intent.constraints || []).map((constraint, i) => (
           <div key={i} className="flex items-center gap-1 mb-1">
-            <span className="text-[13px] text-gray-600 w-4">-</span>
+            <span className="text-[13px] text-gray-500 w-4">-</span>
             <input
               type="text"
               value={constraint}
@@ -1974,7 +1999,7 @@ function IntentEditor({
                 updateIntent({ constraints: updated });
               }}
               disabled={isExecuting}
-              className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              className="flex-1 text-xs glass-input text-gray-100 rounded-lg px-2 py-1 placeholder-gray-500 focus:outline-none disabled:opacity-50"
               placeholder="Constraint..."
             />
             <button
@@ -1983,7 +2008,7 @@ function IntentEditor({
                 updateIntent({ constraints: updated });
               }}
               disabled={isExecuting}
-              className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+              className="text-gray-500 hover:text-red-400 text-xs disabled:opacity-30"
             >&times;</button>
           </div>
         ))}
@@ -1997,14 +2022,14 @@ function IntentEditor({
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Context</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Context</label>
         <textarea
           value={intent.context || ''}
           onKeyDown={(e) => e.stopPropagation()}
           onChange={(e) => updateIntent({ context: e.target.value })}
           disabled={isExecuting}
           rows={2}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none resize-none disabled:opacity-50"
           placeholder="Additional context, relevant files, etc."
         />
       </div>
@@ -2032,7 +2057,7 @@ function ReviewGateConfig({
   return (
     <>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Review Cartridge</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Review Cartridge</label>
         <select
           value={reviewAgentId}
           onChange={(e) =>
@@ -2042,18 +2067,18 @@ function ReviewGateConfig({
             })
           }
           disabled={isExecuting}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
         >
           <option value="">-- Select critic cartridge --</option>
           {agentOptions.map((opt) => (
             <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        <p className="text-[13px] text-gray-600 mt-1">This cartridge evaluates the output from dependency steps</p>
+        <p className="text-[13px] text-gray-500 mt-1">This cartridge evaluates the output from dependency steps</p>
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Review Criteria</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Review Criteria</label>
         <textarea
           value={criteria}
           onKeyDown={(e) => e.stopPropagation()}
@@ -2064,13 +2089,13 @@ function ReviewGateConfig({
           }
           disabled={isExecuting}
           rows={4}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none resize-none disabled:opacity-50"
           placeholder="What should the critic evaluate? e.g. code quality, acceptance criteria, security..."
         />
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Max Retries</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Max Retries</label>
         <input
           type="number"
           min={1}
@@ -2083,9 +2108,9 @@ function ReviewGateConfig({
             })
           }
           disabled={isExecuting}
-          className="w-20 text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+          className="w-20 text-sm glass-input text-gray-100 rounded-lg px-3 py-2 focus:outline-none disabled:opacity-50"
         />
-        <p className="text-[13px] text-gray-600 mt-1">
+        <p className="text-[13px] text-gray-500 mt-1">
           If FAIL, resets dependency steps and re-runs up to {maxRetries} time(s)
         </p>
       </div>
@@ -2116,7 +2141,7 @@ function DeliberationConfig({
   return (
     <>
       {/* Mode toggle */}
-      <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+      <label className="flex items-center gap-2.5 text-sm text-gray-200 cursor-pointer select-none">
         <input
           type="checkbox"
           checked={autoLaunch}
@@ -2126,7 +2151,7 @@ function DeliberationConfig({
             })
           }
           disabled={isExecuting}
-          className="accent-violet-500"
+          className="accent-neon-500"
         />
         Auto-launch VS Code windows
       </label>
@@ -2135,7 +2160,7 @@ function DeliberationConfig({
         <>
           {/* Auto-launch config */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Repo Path</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Repo Path</label>
             <input
               value={repoPath}
               onKeyDown={(e) => e.stopPropagation()}
@@ -2143,21 +2168,21 @@ function DeliberationConfig({
                 onUpdate({ executorConfig: { ...step.executorConfig, repoPath: e.target.value } })
               }
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
               placeholder="/path/to/project"
             />
-            <p className="text-[13px] text-gray-600 mt-1">Each window opens this repo with its own Claude Code session</p>
+            <p className="text-[13px] text-gray-500 mt-1">Each window opens this repo with its own Claude Code session</p>
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Panel Size</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Panel Size</label>
             <select
               value={panelSize}
               onChange={(e) =>
                 onUpdate({ executorConfig: { ...step.executorConfig, panelSize: Number(e.target.value) } })
               }
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             >
               {[2, 3, 4].map((n) => (
                 <option key={n} value={n}>{n} cartridges</option>
@@ -2169,8 +2194,8 @@ function DeliberationConfig({
         <>
           {/* Manual agent selection */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Panel Cartridges (2-4)</label>
-            <p className="text-[13px] text-gray-600 mb-1.5">Each cartridge receives the same prompt independently</p>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Panel Cartridges (2-4)</label>
+            <p className="text-[13px] text-gray-500 mb-1.5">Each cartridge receives the same prompt independently</p>
             {panelAgentIds.map((agentId, i) => (
               <div key={i} className="flex items-center gap-1 mb-1">
                 <select
@@ -2181,7 +2206,7 @@ function DeliberationConfig({
                     onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
                   }}
                   disabled={isExecuting}
-                  className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 focus:outline-none disabled:opacity-50"
+                  className="flex-1 text-xs glass-input text-gray-100 rounded-lg px-2 py-1.5 focus:outline-none disabled:opacity-50"
                 >
                   <option value="">-- Select --</option>
                   {agentOptions.map((opt) => (
@@ -2194,7 +2219,7 @@ function DeliberationConfig({
                     onUpdate({ executorConfig: { ...step.executorConfig, panelAgentIds: updated } });
                   }}
                   disabled={isExecuting}
-                  className="text-gray-600 hover:text-red-400 text-xs disabled:opacity-30"
+                  className="text-gray-500 hover:text-red-400 text-xs disabled:opacity-30"
                 >&times;</button>
               </div>
             ))}
@@ -2214,7 +2239,7 @@ function DeliberationConfig({
       )}
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Synthesis Cartridge</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Synthesis Cartridge</label>
         <select
           value={synthesisAgentId}
           onChange={(e) =>
@@ -2224,18 +2249,18 @@ function DeliberationConfig({
             })
           }
           disabled={isExecuting}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
         >
           <option value="">-- Select synthesis cartridge --</option>
           {agentOptions.map((opt) => (
             <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        <p className="text-[13px] text-gray-600 mt-1">Combines all panel responses into a unified consensus</p>
+        <p className="text-[13px] text-gray-500 mt-1">Combines all panel responses into a unified consensus</p>
       </div>
 
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Shared Prompt</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Shared Prompt</label>
         <textarea
           value={prompt}
           onKeyDown={(e) => e.stopPropagation()}
@@ -2247,7 +2272,7 @@ function DeliberationConfig({
           }
           disabled={isExecuting}
           rows={5}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none resize-none disabled:opacity-50"
           placeholder="The prompt all panel cartridges will analyze..."
         />
       </div>
@@ -2296,12 +2321,12 @@ function CommandStepConfig({
 
       {/* Command template selector */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Command Template</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Command Template</label>
         <select
           value={selectedId}
           onChange={(e) => onUpdate({ executorConfig: { ...step.executorConfig, commandTemplateId: e.target.value } })}
           disabled={isExecuting}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
         >
           <option value="">Select template...</option>
           {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([category, items]) => (
@@ -2317,8 +2342,8 @@ function CommandStepConfig({
       {/* Preview */}
       {selectedTemplate && (
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Preview</label>
-          <pre className="text-[13px] text-gray-400 bg-white/[0.02] border border-white/[0.06] rounded-lg p-2.5 max-h-[120px] overflow-y-auto whitespace-pre-wrap font-mono">
+          <label className="block text-[13px] text-gray-400 mb-1.5">Preview</label>
+          <pre className="text-[13px] text-gray-400 bg-white/[0.02] border border-white/[0.1] rounded-lg p-2.5 max-h-[120px] overflow-y-auto whitespace-pre-wrap font-mono">
             {selectedTemplate.content.slice(0, 500)}
           </pre>
         </div>
@@ -2348,7 +2373,7 @@ function QualityGateConfig({
     <>
       {/* Gate type preset selector */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1.5">Quality Check</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Quality Check</label>
         <div className="grid grid-cols-2 gap-1.5">
           {QUALITY_GATE_PRESETS.map((preset) => {
             const isActive = gateType === preset.id;
@@ -2364,7 +2389,7 @@ function QualityGateConfig({
                 className={`text-left rounded-lg px-2.5 py-2 border transition-colors disabled:opacity-50 ${
                   isActive
                     ? `${preset.bg} ${preset.color} border-current/30`
-                    : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+                    : 'bg-white/[0.02] border-white/[0.1] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
                 }`}
               >
                 <div className="text-[13px] font-medium leading-tight">{preset.label}</div>
@@ -2380,7 +2405,7 @@ function QualityGateConfig({
       {/* Custom prompt (only for 'custom' gate type) */}
       {gateType === 'custom' && (
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Custom Quality Check Prompt</label>
+          <label className="block text-[13px] text-gray-400 mb-1.5">Custom Quality Check Prompt</label>
           <textarea
             value={customPrompt}
             onKeyDown={(e) => e.stopPropagation()}
@@ -2391,7 +2416,7 @@ function QualityGateConfig({
             }
             disabled={isExecuting}
             rows={6}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+            className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none resize-none disabled:opacity-50"
             placeholder="Describe your quality check. The cartridge must respond with PASS or FAIL on the first line..."
           />
         </div>
@@ -2399,7 +2424,7 @@ function QualityGateConfig({
 
       {/* Max retries */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Max Retries</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Max Retries</label>
         <input
           type="number"
           min={0}
@@ -2412,9 +2437,9 @@ function QualityGateConfig({
             })
           }
           disabled={isExecuting}
-          className="w-20 text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+          className="w-20 text-sm glass-input text-gray-100 rounded-lg px-3 py-2 focus:outline-none disabled:opacity-50"
         />
-        <p className="text-[13px] text-gray-600 mt-1">
+        <p className="text-[13px] text-gray-500 mt-1">
           If FAIL, resets upstream steps with feedback and re-runs (up to {maxRetries} time(s))
         </p>
       </div>
@@ -2477,7 +2502,7 @@ function RoutingRulesEditor({
       </div>
 
       {rules.length === 0 && !addingRule && (
-        <p className="text-[13px] text-gray-600 italic">No routing rules — step always advances normally.</p>
+        <p className="text-[13px] text-gray-500 italic">No routing rules — step always advances normally.</p>
       )}
 
       {rules.map((rule) => {
@@ -2495,7 +2520,7 @@ function RoutingRulesEditor({
             <button
               onClick={() => deleteRule(rule.id)}
               disabled={isExecuting}
-              className="text-gray-600 hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+              className="text-gray-500 hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
             >
               ✕
             </button>
@@ -2508,7 +2533,7 @@ function RoutingRulesEditor({
           <select
             value={newCondition}
             onChange={(e) => setNewCondition(e.target.value as RoutingRule['condition'])}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-2 py-1.5 focus:outline-none"
+            className="w-full text-sm glass-input text-gray-100 rounded-lg px-2 py-1.5 focus:outline-none"
           >
             {Object.entries(CONDITION_LABELS).map(([v, l]) => (
               <option key={v} value={v}>{l}</option>
@@ -2520,12 +2545,12 @@ function RoutingRulesEditor({
             onChange={(e) => setNewValue(e.target.value)}
             onKeyDown={(e) => e.stopPropagation()}
             placeholder='e.g. STATUS: FAIL'
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-2 py-1.5 focus:outline-none"
+            className="w-full text-sm glass-input text-gray-100 rounded-lg px-2 py-1.5 focus:outline-none"
           />
           <select
             value={newTarget}
             onChange={(e) => setNewTarget(e.target.value)}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-2 py-1.5 focus:outline-none"
+            className="w-full text-sm glass-input text-gray-100 rounded-lg px-2 py-1.5 focus:outline-none"
           >
             <option value="">→ Reset step to pending…</option>
             {otherSteps.map((s) => (
@@ -2572,9 +2597,9 @@ function RoutingRulesEditor({
               onUpdate({ executorConfig: { ...step.executorConfig, maxCycles: parseInt(e.target.value) || 5 } })
             }
             disabled={isExecuting}
-            className="w-16 text-sm glass-input text-gray-300 rounded-md px-2 py-1 focus:outline-none disabled:opacity-50"
+            className="w-16 text-sm glass-input text-gray-100 rounded-lg px-2 py-1 focus:outline-none disabled:opacity-50"
           />
-          <span className="text-[13px] text-gray-600">before normal flow resumes</span>
+          <span className="text-[13px] text-gray-500">before normal flow resumes</span>
         </div>
       )}
     </div>
@@ -2603,12 +2628,12 @@ function ConnectorStepConfig({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Connector Type</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Connector Type</label>
         <select
           value={connectorType}
           onChange={(e) => update({ connectorType: e.target.value })}
           disabled={isExecuting}
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
         >
           <option value="slack">Slack</option>
           <option value="github">GitHub</option>
@@ -2621,14 +2646,14 @@ function ConnectorStepConfig({
         </select>
       </div>
 
-      <div className="text-[11px] text-gray-600">
+      <div className="text-[11px] text-gray-500">
         Available: <span className="font-mono text-gray-500">{CONNECTOR_TEMPLATE_VARS}</span>
       </div>
 
       {connectorType === 'slack' && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Incoming Webhook URL</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Incoming Webhook URL</label>
             <input
               type="text"
               value={(cfg.webhookUrl as string) || ''}
@@ -2636,18 +2661,18 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="https://hooks.slack.com/..."
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Message Template</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Message Template</label>
             <textarea
               value={(cfg.messageTemplate as string) || '{{workflowName}} — {{stepName}} completed:\n{{result}}'}
               onChange={(e) => update({ messageTemplate: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               rows={3}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y disabled:opacity-50"
             />
           </div>
         </>
@@ -2656,7 +2681,7 @@ function ConnectorStepConfig({
       {connectorType === 'github' && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">GitHub Token</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">GitHub Token</label>
             <input
               type="password"
               value={(cfg.githubToken as string) || ''}
@@ -2664,11 +2689,11 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="ghp_..."
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Repository (owner/repo)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Repository (owner/repo)</label>
             <input
               type="text"
               value={(cfg.githubRepo as string) || ''}
@@ -2676,16 +2701,16 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="owner/repo"
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Action</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Action</label>
             <select
               value={(cfg.githubAction as string) || 'create_issue'}
               onChange={(e) => update({ githubAction: e.target.value })}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             >
               <option value="create_issue">Create Issue</option>
               <option value="comment_pr">Comment on PR</option>
@@ -2693,30 +2718,30 @@ function ConnectorStepConfig({
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Title Template</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Title Template</label>
             <input
               type="text"
               value={(cfg.githubTitle as string) || '{{workflowName}}: {{stepName}}'}
               onChange={(e) => update({ githubTitle: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Body Template</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Body Template</label>
             <textarea
               value={(cfg.githubBody as string) || '{{result}}'}
               onChange={(e) => update({ githubBody: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               rows={3}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y disabled:opacity-50"
             />
           </div>
           {(cfg.githubAction as string) === 'comment_pr' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">PR Number</label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">PR Number</label>
               <input
                 type="text"
                 value={(cfg.githubPrNumber as string) || ''}
@@ -2724,13 +2749,13 @@ function ConnectorStepConfig({
                 onKeyDown={(e) => e.stopPropagation()}
                 placeholder="123"
                 disabled={isExecuting}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+                className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
               />
             </div>
           )}
           {(cfg.githubAction as string) === 'trigger_workflow' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Workflow ID / filename</label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">Workflow ID / filename</label>
               <input
                 type="text"
                 value={(cfg.githubWorkflowId as string) || ''}
@@ -2738,7 +2763,7 @@ function ConnectorStepConfig({
                 onKeyDown={(e) => e.stopPropagation()}
                 placeholder="ci.yml"
                 disabled={isExecuting}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+                className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
               />
             </div>
           )}
@@ -2748,7 +2773,7 @@ function ConnectorStepConfig({
       {connectorType === 'linear' && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Linear API Key</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Linear API Key</label>
             <input
               type="password"
               value={(cfg.linearApiKey as string) || ''}
@@ -2756,11 +2781,11 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="lin_api_..."
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Team ID</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Team ID</label>
             <input
               type="text"
               value={(cfg.linearTeamId as string) || ''}
@@ -2768,46 +2793,46 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="TEAM-ID"
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Action</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Action</label>
             <select
               value={(cfg.linearAction as string) || 'create_issue'}
               onChange={(e) => update({ linearAction: e.target.value })}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             >
               <option value="create_issue">Create Issue</option>
               <option value="update_issue">Update Issue</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Title Template</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Title Template</label>
             <input
               type="text"
               value={(cfg.linearTitle as string) || '{{workflowName}}: {{stepName}}'}
               onChange={(e) => update({ linearTitle: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Description Template</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Description Template</label>
             <textarea
               value={(cfg.linearDescription as string) || '{{result}}'}
               onChange={(e) => update({ linearDescription: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               rows={3}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y disabled:opacity-50"
             />
           </div>
           {(cfg.linearAction as string) === 'update_issue' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Issue ID</label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">Issue ID</label>
               <input
                 type="text"
                 value={(cfg.linearIssueId as string) || ''}
@@ -2815,7 +2840,7 @@ function ConnectorStepConfig({
                 onKeyDown={(e) => e.stopPropagation()}
                 placeholder="TEAM-123"
                 disabled={isExecuting}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+                className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
               />
             </div>
           )}
@@ -2825,7 +2850,7 @@ function ConnectorStepConfig({
       {connectorType === 'http' && (
         <>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">URL</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">URL</label>
             <input
               type="text"
               value={(cfg.httpUrl as string) || ''}
@@ -2833,16 +2858,16 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="https://api.example.com/webhook"
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Method</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Method</label>
             <select
               value={(cfg.httpMethod as string) || 'POST'}
               onChange={(e) => update({ httpMethod: e.target.value })}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             >
               <option value="POST">POST</option>
               <option value="PUT">PUT</option>
@@ -2851,14 +2876,14 @@ function ConnectorStepConfig({
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Body Template (JSON)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Body Template (JSON)</label>
             <textarea
               value={(cfg.httpBodyTemplate as string) || '{"message": "{{result}}"}'}
               onChange={(e) => update({ httpBodyTemplate: e.target.value })}
               onKeyDown={(e) => e.stopPropagation()}
               rows={4}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono text-[13px] disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y font-mono text-[13px] disabled:opacity-50"
             />
           </div>
         </>
@@ -2870,7 +2895,7 @@ function ConnectorStepConfig({
             Captures all completed step results from this workflow run and stores them as a project learning entry. No config required — it works automatically when the workflow is assigned to a project.
           </p>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Content Override (optional)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Content Override (optional)</label>
             <textarea
               value={(cfg.content as string) || ''}
               onChange={(e) => update({ content: e.target.value })}
@@ -2878,11 +2903,11 @@ function ConnectorStepConfig({
               rows={4}
               placeholder="Leave blank to auto-synthesize from step results. Supports {{workflowName}}, {{result}}, {{stepName}}."
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tags (JSON array, optional)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Tags (JSON array, optional)</label>
             <input
               type="text"
               value={(cfg.tags as string) || ''}
@@ -2890,7 +2915,7 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder='["review", "backend"]'
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono text-[13px] disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none font-mono text-[13px] disabled:opacity-50"
             />
           </div>
         </>
@@ -2903,7 +2928,7 @@ function ConnectorStepConfig({
             run&apos;s launch context.
           </p>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Workflow to start (template name)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Workflow to start (template name)</label>
             <input
               type="text"
               value={(cfg.templateName as string) || ''}
@@ -2911,11 +2936,11 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="CE: Phase 4 — Review"
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Only if this step&apos;s result (optional)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Only if this step&apos;s result (optional)</label>
             <input
               type="text"
               value={(cfg.continueIfStep as string) || ''}
@@ -2923,11 +2948,11 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="Build Summary"
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">…contains this text</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">…contains this text</label>
             <input
               type="text"
               value={(cfg.continueIfContains as string) || ''}
@@ -2935,7 +2960,7 @@ function ConnectorStepConfig({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="STATUS: PASS"
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono text-[13px] disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none font-mono text-[13px] disabled:opacity-50"
             />
           </div>
         </>
@@ -3007,7 +3032,7 @@ function parseCodeReview(result: string): CodeReviewData | null {
 
 function TypedResultPanel({ result, schema }: { result: string; schema: OutputSchema }) {
   if (!result?.trim()) {
-    return <p className="text-[12px] text-gray-600 italic">No result yet.</p>;
+    return <p className="text-[12px] text-gray-500 italic">No result yet.</p>;
   }
 
   if (schema === 'test_results') {
@@ -3036,7 +3061,7 @@ function TypedResultPanel({ result, schema }: { result: string; schema: OutputSc
             </div>
           )}
           <details className="text-[11px]">
-            <summary className="text-gray-600 cursor-pointer hover:text-gray-400">Full output</summary>
+            <summary className="text-gray-500 cursor-pointer hover:text-gray-400">Full output</summary>
             <pre className="mt-2 text-gray-500 bg-black/30 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{result}</pre>
           </details>
         </div>
@@ -3081,7 +3106,7 @@ function TypedResultPanel({ result, schema }: { result: string; schema: OutputSc
             </div>
           )}
           <details className="text-[11px]">
-            <summary className="text-gray-600 cursor-pointer hover:text-gray-400">Full output</summary>
+            <summary className="text-gray-500 cursor-pointer hover:text-gray-400">Full output</summary>
             <pre className="mt-2 text-gray-500 bg-black/30 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{result}</pre>
           </details>
         </div>
@@ -3150,7 +3175,7 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Decision question</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Decision question</label>
         <input
           type="text"
           value={(cfg.question as string) || ''}
@@ -3158,11 +3183,11 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
           onKeyDown={(e) => e.stopPropagation()}
           disabled={isExecuting}
           placeholder="Which approach should we take?"
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">ELI10 — plain English context (optional)</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">ELI10 — plain English context (optional)</label>
         <textarea
           value={(cfg.eli10 as string) || ''}
           onChange={(e) => updateCfg({ eli10: e.target.value })}
@@ -3170,11 +3195,11 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
           disabled={isExecuting}
           rows={2}
           placeholder="Explain the trade-off in plain English…"
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50 resize-none"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none disabled:opacity-50 resize-none"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Stakes — what breaks if we pick wrong? (optional)</label>
+        <label className="block text-[13px] text-gray-400 mb-1.5">Stakes — what breaks if we pick wrong? (optional)</label>
         <input
           type="text"
           value={(cfg.stakes as string) || ''}
@@ -3182,7 +3207,7 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
           onKeyDown={(e) => e.stopPropagation()}
           disabled={isExecuting}
           placeholder="e.g. Performance degrades under load"
-          className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+          className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
         />
       </div>
 
@@ -3208,7 +3233,7 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
                   onKeyDown={(e) => e.stopPropagation()}
                   disabled={isExecuting}
                   placeholder={`Option ${String.fromCharCode(65 + idx)} label`}
-                  className="flex-1 text-xs glass-input text-gray-300 rounded px-2 py-1.5 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+                  className="flex-1 text-xs glass-input text-gray-100 rounded-lg px-2 py-1.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
                 />
                 <button
                   onClick={() => {
@@ -3221,7 +3246,7 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
                   className={`text-[11px] px-2 py-1.5 rounded border transition-colors disabled:opacity-40 ${
                     (cfg.recommendation as string) === opt.id
                       ? 'bg-violet-900/40 text-violet-300 border-violet-700/50'
-                      : 'text-gray-600 border-white/[0.07] hover:text-gray-300'
+                      : 'text-gray-500 border-white/[0.07] hover:text-gray-300'
                   }`}
                 >
                   ★
@@ -3229,7 +3254,7 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
                 <button
                   onClick={() => removeOption(idx)}
                   disabled={isExecuting}
-                  className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-40"
+                  className="text-gray-500 hover:text-red-400 transition-colors p-1 disabled:opacity-40"
                 >
                   ×
                 </button>
@@ -3241,12 +3266,12 @@ function DecisionStepConfig({ step, onUpdate, isExecuting }: {
                 onKeyDown={(e) => e.stopPropagation()}
                 disabled={isExecuting}
                 placeholder="Brief description of this option"
-                className="w-full text-xs glass-input text-gray-400 rounded px-2 py-1.5 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+                className="w-full text-xs glass-input text-gray-400 rounded px-2 py-1.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
               />
             </div>
           ))}
           {options.length === 0 && (
-            <p className="text-[11px] text-gray-600">No options yet — add at least 2 before running.</p>
+            <p className="text-[11px] text-gray-500">No options yet — add at least 2 before running.</p>
           )}
         </div>
       </div>
@@ -3329,7 +3354,7 @@ function DecisionBrief({ step, workflowId }: { step: LocalStep; workflowId: stri
           );
         })}
         {options.length === 0 && (
-          <p className="text-[12px] text-gray-600">No options configured for this decision step.</p>
+          <p className="text-[12px] text-gray-500">No options configured for this decision step.</p>
         )}
       </div>
     </div>
@@ -3352,11 +3377,11 @@ function DispatchedPromptSection({ prompt }: { prompt: string }) {
         <span className="text-gray-700 ml-auto">{prompt.length} chars</span>
       </button>
       {expanded ? (
-        <pre className="text-[11px] text-gray-400 bg-black/30 rounded-md p-2 overflow-auto max-h-64 whitespace-pre-wrap break-words font-mono leading-relaxed">
+        <pre className="text-[12px] text-gray-300 bg-gl-code border border-white/[0.08] rounded-[10px] p-2.5 overflow-auto max-h-64 whitespace-pre-wrap break-words font-mono leading-relaxed">
           {prompt}
         </pre>
       ) : (
-        <p className="text-[11px] text-gray-600 font-mono truncate">{preview}{prompt.length > 120 ? '…' : ''}</p>
+        <p className="text-[11px] text-gray-500 font-mono truncate">{preview}{prompt.length > 120 ? '…' : ''}</p>
       )}
     </div>
   );
@@ -3403,11 +3428,11 @@ function SidePanel({
   return (
     <div className="flex flex-col h-full">
       {/* Panel header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
-        <h3 className="text-sm font-semibold text-white">Edit Step</h3>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.1] shrink-0">
+        <h3 className="font-display text-lg font-semibold text-gray-100">Edit Step</h3>
         <button
           onClick={onClose}
-          className="text-gray-500 hover:text-white text-lg leading-none transition-colors"
+          className="w-9 h-9 rounded-[9px] btn-ghost text-lg leading-none transition-colors"
         >
           &times;
         </button>
@@ -3417,21 +3442,21 @@ function SidePanel({
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
         {/* Step name */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Name</label>
+          <label className="block text-[13px] text-gray-400 mb-1.5">Name</label>
           <input
             type="text"
             value={step.name}
             onChange={(e) => onUpdate({ name: e.target.value })}
             onKeyDown={(e) => e.stopPropagation()}
             disabled={isExecuting}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+            className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
             placeholder="Step name"
           />
         </div>
 
         {/* Step type selector */}
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Step Type</label>
+          <label className="block text-[13px] text-gray-400 mb-1.5">Step Type</label>
           <select
             value={step.executorType}
             onChange={(e) => {
@@ -3439,7 +3464,7 @@ function SidePanel({
               onUpdate({ executorType: newType, executorConfig: { ...step.executorConfig } });
             }}
             disabled={isExecuting}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+            className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
           >
             <option value="claude-code">Standard (Cartridge Step)</option>
             <option value="command">Command Template</option>
@@ -3459,7 +3484,7 @@ function SidePanel({
         {/* ── Output Schema — typed result rendering ── */}
         {(step.executorType === 'claude-code' || !step.executorType) && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Output format (optional)</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Output format (optional)</label>
             <select
               value={(step.executorConfig.outputSchema as string) || 'free_text'}
               onChange={(e) => {
@@ -3467,7 +3492,7 @@ function SidePanel({
                 onUpdate({ executorConfig: { ...step.executorConfig, outputSchema: schema } });
               }}
               disabled={isExecuting}
-              className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+              className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
             >
               <option value="free_text">Free text (default)</option>
               <option value="test_results">Test Results (pass/fail + counts)</option>
@@ -3475,7 +3500,7 @@ function SidePanel({
               <option value="design_doc">Design Doc (rendered markdown)</option>
             </select>
             {(step.executorConfig.outputSchema as string | undefined) && (
-              <p className="text-[11px] text-gray-600 mt-1">Format instructions will be appended to the agent prompt.</p>
+              <p className="text-[11px] text-gray-500 mt-1">Format instructions will be appended to the agent prompt.</p>
             )}
           </div>
         )}
@@ -3490,7 +3515,7 @@ function SidePanel({
           <>
             {/* Expert role selector */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Expert Role</label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">Expert Role</label>
               <div className="grid grid-cols-2 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
                 {EXPERT_ROLES.map((role) => {
                   const isActive = currentRole.id === role.id;
@@ -3507,7 +3532,7 @@ function SidePanel({
                       className={`text-left rounded-lg px-2.5 py-2 border transition-colors disabled:opacity-50 ${
                         isActive
                           ? `${role.bg} ${role.color} border-current/30`
-                          : 'bg-white/[0.02] border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+                          : 'bg-white/[0.02] border-white/[0.1] text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
                       }`}
                     >
                       <div className="text-[13px] font-medium leading-tight">{role.name}</div>
@@ -3524,7 +3549,7 @@ function SidePanel({
                 spins up a git worktree the step works in so parallel steps don't collide. */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Tool</label>
+                <label className="block text-[13px] text-gray-400 mb-1.5">Tool</label>
                 <select
                   value={(step.executorConfig.agentType as string) || ''}
                   onChange={(e) =>
@@ -3533,7 +3558,7 @@ function SidePanel({
                     })
                   }
                   disabled={isExecuting}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none disabled:opacity-50"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none disabled:opacity-50"
                 >
                   <option value="">Default (project's tool)</option>
                   <option value="claude">Claude</option>
@@ -3542,7 +3567,7 @@ function SidePanel({
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Branch (optional)</label>
+                <label className="block text-[13px] text-gray-400 mb-1.5">Branch (optional)</label>
                 <input
                   type="text"
                   value={(step.executorConfig.branch as string) || ''}
@@ -3553,13 +3578,13 @@ function SidePanel({
                     })
                   }
                   disabled={isExecuting}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none disabled:opacity-50"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none disabled:opacity-50"
                   placeholder="feature/step-a"
                 />
               </div>
             </div>
             {(step.executorConfig.agentType || step.executorConfig.branch) ? (
-              <p className="text-[11px] text-gray-600 -mt-1">
+              <p className="text-[11px] text-gray-500 -mt-1">
                 {step.executorConfig.agentType
                   ? `Runs on a ${String(step.executorConfig.agentType)} cartridge in the repo`
                   : 'Runs on the run cartridge'}
@@ -3568,7 +3593,7 @@ function SidePanel({
             ) : null}
 
             {/* Intent toggle */}
-            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+            <label className="flex items-center gap-2.5 text-sm text-gray-200 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={!!step.executorConfig.useIntent}
@@ -3578,7 +3603,7 @@ function SidePanel({
                   })
                 }
                 disabled={isExecuting}
-                className="accent-emerald-500"
+                className="accent-neon-500"
               />
               Use structured intent
             </label>
@@ -3588,7 +3613,7 @@ function SidePanel({
               <IntentEditor step={step} onUpdate={onUpdate} isExecuting={isExecuting} />
             ) : (
               <div>
-                <label className="block text-xs text-gray-500 mb-1">What should this cartridge do?</label>
+                <label className="block text-[13px] text-gray-400 mb-1.5">What should this cartridge do?</label>
                 <textarea
                   value={currentPrompt}
                   onKeyDown={(e) => e.stopPropagation()}
@@ -3600,7 +3625,7 @@ function SidePanel({
                   }}
                   disabled={isExecuting}
                   rows={6}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 placeholder-gray-600 focus:outline-none resize-none disabled:opacity-50"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 placeholder-gray-500 focus:outline-none resize-none disabled:opacity-50"
                   placeholder="Describe the task in natural language..."
                 />
               </div>
@@ -3625,7 +3650,7 @@ function SidePanel({
 
         {/* Loop */}
         <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+          <label className="flex items-center gap-2.5 text-sm text-gray-200 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={!!step.executorConfig.loopCount && (step.executorConfig.loopCount as number) > 1}
@@ -3656,7 +3681,7 @@ function SidePanel({
                   })
                 }
                 disabled={isExecuting}
-                className="w-16 text-sm glass-input text-gray-300 rounded-md px-2 py-1 focus:outline-none disabled:opacity-50"
+                className="w-16 text-sm glass-input text-gray-100 rounded-lg px-2 py-1 focus:outline-none disabled:opacity-50"
               />
             </div>
           )}
@@ -3664,7 +3689,7 @@ function SidePanel({
 
         {/* Include output from previous step */}
         {step.dependsOn.length > 0 && (
-          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+          <label className="flex items-center gap-2.5 text-sm text-gray-200 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={!!step.executorConfig.includeDepOutput}
@@ -3681,13 +3706,13 @@ function SidePanel({
         )}
 
         {/* Auto-advance */}
-        <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+        <label className="flex items-center gap-2.5 text-sm text-gray-200 cursor-pointer select-none">
           <input
             type="checkbox"
             checked={step.autoAdvance}
             onChange={() => onUpdate({ autoAdvance: !step.autoAdvance })}
             disabled={isExecuting}
-            className="accent-purple-500"
+            className="accent-neon-500"
           />
           Auto-advance to next step
         </label>
@@ -3695,7 +3720,7 @@ function SidePanel({
         {/* Wait for webhook */}
         {(
           <>
-            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+            <label className="flex items-center gap-2.5 text-sm text-gray-200 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={!!step.executorConfig.waitForWebhook}
@@ -3710,7 +3735,7 @@ function SidePanel({
               Wait for external webhook
             </label>
             {!!step.executorConfig.waitForWebhook && (
-              <div className="text-[13px] text-gray-500 bg-black/20 rounded-md px-3 py-2 font-mono break-all select-all">
+              <div className="text-[13px] text-gray-300 bg-gl-code border border-white/[0.08] rounded-[10px] px-3 py-2 font-mono break-all select-all">
                 <div className="text-amber-400/70 mb-1 font-sans">
                   Step won't auto-complete. Call this when done:
                 </div>
@@ -3733,7 +3758,7 @@ function SidePanel({
         {/* Dependencies display */}
         {step.dependsOn.length > 0 && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Depends on</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Depends on</label>
             <div className="flex flex-wrap gap-1">
               {/* The whole point of a dependency chip is to say WHICH step must land first.
                   An id fragment cannot answer that without opening another panel, and the step
@@ -3770,10 +3795,10 @@ function SidePanel({
           <div>
             {/* The confer executor also parks a waiting step here ("Waiting since …") so a run
                 blocked on a busy cartridge does not look dead. */}
-            <label className="block text-xs text-gray-500 mb-1.5">
+            <label className="block text-[13px] text-gray-400 mb-1.5">
               {step.routingNote.startsWith('Waiting since') ? 'Waiting' : 'Routing'}
             </label>
-            <div className="text-[13px] text-cyan-300/90 bg-cyan-500/10 border border-cyan-500/20 rounded px-2.5 py-1.5 whitespace-pre-wrap font-mono">
+            <div className="text-[13px] text-neon-200 bg-neon-500/10 border border-neon-500/30 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap font-mono">
               {step.routingNote}
             </div>
           </div>
@@ -3782,7 +3807,7 @@ function SidePanel({
         {/* Step result — shown when completed or failed */}
         {(step.status === 'completed' || step.status === 'failed') && step.result && step.executorType !== 'decision' && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1.5">
+            <label className="block text-[13px] text-gray-400 mb-1.5">
               Result
               {step.status === 'failed' && <span className="ml-1.5 text-red-400">— {step.error}</span>}
             </label>
@@ -3796,7 +3821,7 @@ function SidePanel({
         {/* Status (during execution) */}
         {isExecuting && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Status</label>
+            <label className="block text-[13px] text-gray-400 mb-1.5">Status</label>
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${STATUS_STYLES[step.status].dot}`} />
               <span className="text-xs text-gray-300 capitalize">{step.status}</span>
@@ -3814,7 +3839,7 @@ function SidePanel({
             {step.status === 'completed' && !step.autoAdvance && (
               <button
                 onClick={onAdvance}
-                className="mt-2 w-full text-xs font-medium px-3 py-2 rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/20 transition-colors"
+                className="mt-2 w-full h-10 text-[13px] font-semibold rounded-[10px] bg-ember-500/15 text-ember-300 hover:bg-ember-500/25 border border-ember-500/50 transition-colors"
               >
                 Advance to next step
               </button>
@@ -3829,7 +3854,7 @@ function SidePanel({
                 {/* Mid-task steering — only for running claude-code steps with an assigned agent */}
                 {step.executorType !== 'decision' && step.executorType === 'claude-code' && step.executorId && step.executorId !== '__deferred__' && workflowId && (
                   <div className="mt-3">
-                    <label className="block text-xs text-gray-500 mb-1">Steer agent</label>
+                    <label className="block text-[13px] text-gray-400 mb-1.5">Steer agent</label>
                     <div className="flex gap-1.5">
                       <input
                         type="text"
@@ -3849,7 +3874,7 @@ function SidePanel({
                           }
                         }}
                         placeholder="Send a hint or correction…"
-                        className="flex-1 text-xs glass-input text-gray-200 rounded px-2 py-1.5 focus:outline-none placeholder-gray-600"
+                        className="flex-1 h-10 text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none placeholder-gray-500"
                         disabled={steering}
                       />
                       <button
@@ -3866,7 +3891,7 @@ function SidePanel({
                           finally { setSteering(false); }
                         }}
                         disabled={!steerMsg.trim() || steering}
-                        className="text-xs px-2.5 py-1.5 rounded bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 border border-teal-500/20 disabled:opacity-40 transition-colors"
+                        className="h-10 text-[13px] font-semibold px-3 rounded-[10px] bg-neon-500/15 text-neon-100 hover:bg-neon-500/25 border border-neon-500/50 disabled:opacity-40 transition-colors"
                       >
                         {steering ? '…' : '↵'}
                       </button>
@@ -3897,7 +3922,7 @@ function SidePanel({
             {step.status === 'pending' && (
               <button
                 onClick={onSkip}
-                className="mt-2 w-full text-xs font-medium px-3 py-2 rounded-md bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 border border-gray-500/20 transition-colors"
+                className="mt-2 w-full h-10 text-[13px] font-semibold rounded-[10px] btn-ghost transition-colors"
               >
                 Skip step
               </button>
@@ -3907,19 +3932,19 @@ function SidePanel({
       </div>
 
       {/* Panel footer */}
-      <div className="px-4 py-3 border-t border-white/[0.06] shrink-0">
+      <div className="px-4 py-3 border-t border-white/[0.1] shrink-0">
         {confirmDelete ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-red-400">Delete this step?</span>
             <button
               onClick={onDelete}
-              className="text-xs px-3 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+              className="h-9 text-[13px] font-semibold px-3 rounded-[9px] bg-red-500/15 border border-red-400/50 text-red-200 hover:bg-red-500/25 transition-colors"
             >
               Confirm
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="text-xs px-3 py-1 rounded text-gray-500 hover:text-gray-300 transition-colors"
+              className="h-9 text-[13px] font-semibold px-3 rounded-[9px] btn-ghost transition-colors"
             >
               Cancel
             </button>
@@ -3928,7 +3953,7 @@ function SidePanel({
           <button
             onClick={() => setConfirmDelete(true)}
             disabled={isExecuting}
-            className="text-xs text-red-400/70 hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="h-10 px-3.5 rounded-[10px] text-[13px] font-semibold border border-red-400/45 text-red-200 hover:bg-red-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Delete step
           </button>

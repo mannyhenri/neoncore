@@ -22,9 +22,9 @@ interface Props {
 
 // Agent types the remote runner can launch (it spawns the relay, which defaults to claude).
 const AGENT_TYPES: { key: string; label: string; color: string }[] = [
-  { key: 'claude', label: 'Claude', color: 'text-blue-400 hover:text-blue-300' },
-  { key: 'gridlight', label: 'Gridlight', color: 'text-gl-purple hover:text-purple-300' },
-  { key: 'codex', label: 'Codex', color: 'text-green-400 hover:text-green-300' },
+  { key: 'claude', label: 'Claude', color: 'border border-[#7CC4FF] bg-[#7CC4FF]/[0.14] text-[#DCEFFF]' },
+  { key: 'gridlight', label: 'Gridlight', color: 'border border-gl-pink bg-gl-pink/[0.12] text-[#FFD6EC]' },
+  { key: 'codex', label: 'Codex', color: 'border border-gl-teal bg-gl-teal/[0.12] text-[#C9FBF6]' },
 ];
 
 const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
@@ -220,12 +220,12 @@ export function MachineLauncher({ servers = [] }: Props) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => { setOpen(!open); setExpandedRepo(null); setQuery(''); }}
-        className="text-sm text-gray-400 hover:text-white border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+        className="btn-primary h-10 px-4 rounded-[10px] text-sm font-semibold transition-colors flex items-center gap-2 whitespace-nowrap"
         title="Launch a cartridge on a registered machine"
       >
         + Launch
         {onlineCount > 0 && (
-          <span className="text-[10px] px-1.5 rounded-full bg-emerald-500/25 text-emerald-300">{onlineCount}</span>
+          <span className="text-[11px] px-1.5 rounded-full bg-neon-500 text-ink">{onlineCount}</span>
         )}
       </button>
 
@@ -249,7 +249,7 @@ export function MachineLauncher({ servers = [] }: Props) {
       )}
 
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 glass rounded-xl shadow-2xl py-1.5 min-w-[260px] max-h-[440px] overflow-y-auto">
+        <div className="absolute right-0 top-full mt-2 z-50 glass-dark border-neon-500/35 rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.55)] py-3 w-[380px] max-h-[520px] overflow-y-auto">
           {/* Only when there is nothing to show. A refresh must never replace live content
               with a spinner — TokensPage's `loading && !points.length` is the same rule. */}
           {loading && machines.length === 0 ? (
@@ -264,7 +264,7 @@ export function MachineLauncher({ servers = [] }: Props) {
               {/* Search stays above the list and out of the scroll, so it is still reachable
                   after scrolling a long fleet. It narrows folders, never machines-as-headings:
                   a hit is only useful with the box it is on attached. */}
-              <div className="px-2.5 pb-1.5 pt-0.5 sticky top-0 z-10 bg-black/40 backdrop-blur-sm">
+              <div className="px-4 pb-2.5 pt-1 sticky top-0 z-10 bg-[#0A1020]">
                 <div className="flex items-center gap-1.5">
                   <input
                     data-testid="repo-search"
@@ -278,7 +278,7 @@ export function MachineLauncher({ servers = [] }: Props) {
                       if (e.key === 'Escape') setQuery('');
                     }}
                     placeholder="Search repos or machines…"
-                    className="flex-1 text-[11px] glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none"
+                    className="flex-1 h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 placeholder-gray-500 focus:outline-none"
                   />
                   {query && (
                     <button
@@ -289,7 +289,7 @@ export function MachineLauncher({ servers = [] }: Props) {
                   )}
                 </div>
                 {query && (
-                  <div className="text-[10px] text-gray-600 pt-1">
+                  <div className="text-xs text-gray-500 pt-1.5">
                     {shownRepos} of {totalRepos} folder{totalRepos === 1 ? '' : 's'}
                   </div>
                 )}
@@ -312,10 +312,10 @@ export function MachineLauncher({ servers = [] }: Props) {
               // count has to be what is REGISTERED, not what happens to match.
               const full = machines.find((x) => x.origin === m.origin && x.id === m.id) || m;
               return (
-              <div key={`${m.origin}:${m.id}`} className="border-b border-white/5 last:border-0 pb-1 mb-1 last:mb-0 last:pb-0">
-                <div className="flex items-center gap-2 px-3 py-1.5">
+              <div key={`${m.origin}:${m.id}`} className="px-1 pb-2 mb-1 last:mb-0 last:pb-0">
+                <div className="flex items-center gap-2 px-3 py-2">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-600'}`} />
-                  <span className="text-xs text-gray-200 font-medium flex-1 truncate">{m.hostname || m.id.slice(0, 8)}</span>
+                  <span className="text-xs uppercase tracking-[1.2px] text-gray-400 font-medium flex-1 truncate">{m.hostname || m.id.slice(0, 8)}</span>
                   {m.status === 'online' && (
                     <button
                       onClick={() => { setEditingId(editing ? null : m.id); setExpandedRepo(null); setNewPath(''); }}
@@ -381,16 +381,16 @@ export function MachineLauncher({ servers = [] }: Props) {
                         onChange={(e) => setNewPath(e.target.value)}
                         onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') addRepo(m); }}
                         placeholder={m.platform === 'win32' ? 'C:\\code\\project' : '/path/to/project'}
-                        className="flex-1 text-[11px] glass-input text-gray-300 rounded px-2 py-1 placeholder-gray-600 focus:outline-none"
+                        className="flex-1 h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 placeholder-gray-500 focus:outline-none"
                       />
                       <button
                         onClick={() => addRepo(m)}
-                        className="text-[11px] px-2 py-1 rounded bg-violet-900/40 text-violet-300 hover:bg-violet-900/70 transition-colors"
+                        className="btn-primary text-xs px-3 h-9 rounded-[9px] font-semibold transition-colors"
                         title="Add this exact folder"
                       >Add</button>
                       <button
                         onClick={() => scanFolder(m)}
-                        className="text-[11px] px-2 py-1 rounded bg-white/[0.06] text-gray-300 hover:bg-white/[0.12] transition-colors"
+                        className="btn-ghost text-xs px-3 h-9 rounded-[9px] font-semibold transition-colors"
                         title="Add every git repo under this folder"
                       >Scan</button>
                     </div>
@@ -407,30 +407,30 @@ export function MachineLauncher({ servers = [] }: Props) {
                       <div key={rid}>
                         <button
                           onClick={() => setExpandedRepo(expandedRepo === rid ? null : rid)}
-                          className="w-full text-left text-xs text-gray-300 hover:bg-white/5 hover:text-white px-3 py-1.5 pl-7 transition-colors flex items-center gap-2"
+                          className="w-full text-left text-sm font-mono text-gray-300 hover:bg-white/[0.04] hover:text-white px-3 py-2.5 rounded-[10px] transition-colors flex items-center gap-2"
                         >
                           <span className="flex-1 truncate">{repo.name}</span>
                           <span className={`text-gray-600 text-[13px] transition-transform ${expandedRepo === rid ? 'rotate-90' : ''}`}>▶</span>
                         </button>
                         {expandedRepo === rid && (
-                          <div className="px-3 pb-1.5 pl-9">
-                            <div className="flex flex-wrap gap-1">
+                          <div className="mx-1 mb-2 p-3 rounded-xl bg-neon-500/[0.08] border border-neon-500/35">
+                            <div className="flex gap-1.5">
                               {AGENT_TYPES.map((t) => (
                                 <button
                                   key={t.key}
                                   onClick={() => launch(m, repo.path, repo.name, t.key, freshRepo === rid)}
-                                  className={`text-[13px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors ${t.color}`}
+                                  className={`flex-1 h-10 text-[13px] font-semibold px-2 rounded-[9px] hover:brightness-125 transition ${t.color}`}
                                 >
                                   {t.label}
                                 </button>
                               ))}
                             </div>
-                            <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+                            <label className="mt-2.5 flex items-center gap-2 text-[13px] text-gray-300 hover:text-gray-100 cursor-pointer select-none">
                               <input
                                 type="checkbox"
                                 checked={freshRepo === rid}
                                 onChange={(e) => setFreshRepo(e.target.checked ? rid : null)}
-                                className="accent-cyan-500"
+                                className="accent-[#5AAEFF]"
                               />
                               Start fresh session (don&apos;t resume)
                             </label>

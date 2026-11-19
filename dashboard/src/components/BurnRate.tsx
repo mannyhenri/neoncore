@@ -84,7 +84,11 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
   // A reading of the provider's own meter outranks anything inferred locally.
   const anchor = rate.usageAnchor?.find((a) => a.provider === 'claude' && a.window === 'weekly')
     ?? rate.usageAnchor?.[0];
-  const anchorTone = anchor?.pace === 'hold' ? 'text-red-400/90' : anchor?.pace === 'watch' ? 'text-amber-400/90' : 'text-emerald-400/80';
+  const anchorTone = anchor?.pace === 'hold'
+    ? 'bg-red-500/15 text-red-300'
+    : anchor?.pace === 'watch'
+      ? 'bg-amber-400/15 text-amber-200'
+      : 'bg-emerald-400/15 text-emerald-300';
 
   return (
     <button
@@ -92,7 +96,7 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       onClick={onOpen}
       // xl+ only, and allowed to shrink (min-w-0 + overflow-hidden): below that the header has no
       // room for it beside the view switcher, and the full figure is one click away on Tokens.
-      className="hidden xl:inline-flex items-center gap-2 min-w-0 overflow-hidden text-[13px] font-mono text-gray-500 border border-white/10 px-3 py-1 rounded-full whitespace-nowrap hover:text-gray-300 hover:border-white/25 transition-colors"
+      className="hidden xl:inline-flex items-center gap-2 h-9 min-w-0 overflow-hidden text-[13px] font-mono text-gray-300 bg-gl-surface/70 border border-white/[0.12] px-3 rounded-[10px] whitespace-nowrap hover:border-neon-500/50 transition-colors"
       title={
         `Fleet burn rate, trailing ${rate.days} days — ${rate.activeCartridges} cartridge(s) active, ` +
         `${rate.samples.toLocaleString()} turns across ` +
@@ -116,26 +120,24 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
         '\nClick for the full report.'
       }
     >
-      <span className="text-gl-blue/80">{compact(rate.tokensPerDay)}</span>
-      <span className="text-gray-600">tok/day</span>
-      <span className="text-white/10">·</span>
-      <span className="text-gl-pink/80">{compact(rate.tokensPerHour)}</span>
-      <span className="text-gray-600">tok/hr</span>
+      <span className="text-gray-100">{compact(rate.tokensPerDay)}</span>
+      <span className="text-gray-400">tok/day</span>
+      <span className="text-gray-600">·</span>
+      <span className="text-gray-100">{compact(rate.tokensPerHour)}</span>
+      <span className="text-gray-400">tok/hr</span>
       {anchor && (
         <>
-          <span className="text-white/10">·</span>
-          <span className={anchorTone} title={anchor.recommendation}>{usageAnchorLabel(anchor)}</span>
+          <span className={`font-sans text-xs font-semibold px-2 py-0.5 rounded-full ${anchorTone}`} title={anchor.recommendation}>{usageAnchorLabel(anchor)}</span>
         </>
       )}
       {!anchor && subscription && (
         <>
-          <span className="text-white/10">·</span>
-          <span className="text-amber-400/90">{subscriptionPillLabel(subscription)}</span>
+          <span className="font-sans text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-200">{subscriptionPillLabel(subscription)}</span>
         </>
       )}
       {!anchor && !subscription && slot?.kind === 'projection' && (
         <>
-          <span className="text-white/10">·</span>
+          <span className="text-gray-600">·</span>
           {/* Split only for colour: the label is one string, and the basis travels with it. */}
           <span className="text-amber-400/80">{slot.text.split(' · ')[0]}</span>
           <span className="text-gray-600">· {slot.text.split(' · ')[1]}</span>
@@ -143,7 +145,7 @@ export function BurnRate({ servers, onOpen }: { servers: ServerEntry[]; onOpen?:
       )}
       {!anchor && !subscription && slot?.kind === 'prompt' && (
         <>
-          <span className="text-white/10">·</span>
+          <span className="text-gray-600">·</span>
           <span className="text-gray-600 italic">{slot.text}</span>
         </>
       )}

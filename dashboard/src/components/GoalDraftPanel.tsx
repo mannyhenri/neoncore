@@ -19,7 +19,7 @@ type KeyResultish = { metric: string; baseline?: string; target?: string; measur
 
 /** Render a proposed value, whichever shape it is. */
 function ValueBlock({ value, muted }: { value: unknown; muted?: boolean }) {
-  const cls = `text-[12px] whitespace-pre-wrap leading-relaxed ${muted ? 'text-gray-500' : 'text-gray-200'}`;
+  const cls = `text-[13px] whitespace-pre-wrap leading-relaxed ${muted ? 'text-gray-500' : 'text-gray-200'}`;
   if (Array.isArray(value)) {
     return (
       <div className="space-y-1">
@@ -35,7 +35,7 @@ function ValueBlock({ value, muted }: { value: unknown; muted?: boolean }) {
     );
   }
   const s = typeof value === 'string' ? value : '';
-  if (!s) return <p className="text-[12px] text-gray-600 italic">empty</p>;
+  if (!s) return <p className="text-[13px] text-gray-500 italic">empty</p>;
   return <p className={cls}>{s}</p>;
 }
 
@@ -126,13 +126,13 @@ export function GoalDraftPanel({
       {/* Ask */}
       {(!draft || draft.status === 'failed') && (
         <>
-          <p className="text-[12px] text-gray-500 leading-relaxed">
+          <p className="text-[13px] text-gray-500 leading-relaxed">
             A cartridge drafts the intent — outcome, acceptance criteria, no-gos, invariants,
             key results — from a sentence or two of context. It produces a <em>proposal</em>:
             nothing reaches this goal until you accept it field by field.
           </p>
           <div>
-            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+            <label className="block text-[12px] text-gray-500 uppercase tracking-wider mb-1">
               What is this goal about?
             </label>
             <textarea
@@ -140,17 +140,17 @@ export function GoalDraftPanel({
               onChange={(e) => setSeed(e.target.value)}
               rows={4}
               placeholder="A sentence or two. What outcome do you want, and why now? The more concrete you are, the less the assistant has to guess — and it is told to leave fields blank rather than invent them."
-              className="w-full bg-black/30 border border-white/10 rounded-md px-3 py-2 text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50"
+              className="w-full bg-gl-code border border-white/10 rounded-md px-3 py-2 text-[14px] text-gray-200 placeholder:text-gray-500 focus:outline-none focus:border-violet-500/50"
             />
           </div>
           <div>
-            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+            <label className="block text-[12px] text-gray-500 uppercase tracking-wider mb-1">
               Which cartridge
             </label>
             <select
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
-              className="w-full bg-black/30 border border-white/10 rounded-md px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-violet-500/50"
+              className="w-full bg-gl-code border border-white/10 rounded-md px-3 py-2 text-[14px] text-gray-200 focus:outline-none focus:border-violet-500/50"
             >
               {idle.length === 0 && <option value="">No cartridge is online</option>}
               {idle.map((a) => (
@@ -159,7 +159,7 @@ export function GoalDraftPanel({
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-gray-600 mt-1">
+            <p className="text-[12px] text-gray-500 mt-1">
               Drafting runs on a cartridge, so its cost is attributed to this goal like any other
               work. If the cartridge is busy the request queues behind what it is doing.
             </p>
@@ -170,27 +170,27 @@ export function GoalDraftPanel({
       {draft?.status === 'pending' && (
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-violet-900/20 border border-violet-700/40">
           <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
-          <p className="text-[12px] text-violet-200">
+          <p className="text-[13px] text-violet-200">
             Drafting… the cartridge submits when it is done. You can close this and come back.
           </p>
         </div>
       )}
 
       {draft?.status === 'failed' && draft.error && (
-        <p className="text-[12px] text-red-400">Draft failed: {draft.error}</p>
+        <p className="text-[13px] text-red-400">Draft failed: {draft.error}</p>
       )}
 
       {/* Review */}
       {draft?.status === 'ready' && (
         <>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[12px] text-gray-500">
+            <p className="text-[13px] text-gray-500">
               {proposed.length} {proposed.length === 1 ? 'field' : 'fields'} proposed. Tick what
               you want to keep — nothing is applied by default.
             </p>
             <button
               onClick={() => setChosen(new Set(chosen.size === proposed.length ? [] : proposed.map((f) => f.key)))}
-              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+              className="text-[12px] text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
             >
               {chosen.size === proposed.length ? 'Clear all' : 'Select all'}
             </button>
@@ -221,14 +221,14 @@ export function GoalDraftPanel({
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[12px] font-medium text-gray-200">{f.label}</span>
+                        <span className="text-[13px] font-medium text-gray-200">{f.label}</span>
                         {hasCurrent && (
-                          <span className="text-[10px] text-amber-300/80" title="Accepting replaces what is there now">
+                          <span className="text-[11px] text-amber-300/80" title="Accepting replaces what is there now">
                             replaces existing
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-gray-600 mt-0.5">{f.guidance}</p>
+                      <p className="text-[12px] text-gray-500 mt-0.5">{f.guidance}</p>
 
                       <div className="mt-2">
                         <ValueBlock value={draft.fields[f.key]} />
@@ -238,7 +238,7 @@ export function GoalDraftPanel({
                           rather than a warning you have to trust. */}
                       {hasCurrent && (
                         <details className="mt-2">
-                          <summary className="text-[11px] text-gray-600 cursor-pointer hover:text-gray-400">
+                          <summary className="text-[12px] text-gray-500 cursor-pointer hover:text-gray-400">
                             Currently
                           </summary>
                           <div className="mt-1 pl-2 border-l border-white/10">
@@ -255,7 +255,7 @@ export function GoalDraftPanel({
         </>
       )}
 
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
 
       <div className="flex justify-end gap-2 pt-1">
         <button
@@ -268,7 +268,7 @@ export function GoalDraftPanel({
           <button
             onClick={accept}
             disabled={busy || chosen.size === 0}
-            className="px-3 py-1.5 text-xs text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors font-medium"
+            className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {chosen.size === 0 ? 'Select fields to accept' : `Accept ${chosen.size} ${chosen.size === 1 ? 'field' : 'fields'}`}
           </button>
@@ -276,7 +276,7 @@ export function GoalDraftPanel({
           <button
             onClick={request}
             disabled={busy || !agentId}
-            className="px-3 py-1.5 text-xs text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors font-medium"
+            className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {busy ? 'Sending…' : 'Draft it'}
           </button>

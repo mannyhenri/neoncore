@@ -54,33 +54,33 @@ export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSet
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors hover:bg-white/[0.06] ${
-          anyAuthFailed ? 'text-amber-400' : allHealthy ? 'text-emerald-400' : 'text-red-400'
+        className={`btn-ghost flex items-center gap-2 h-10 px-3 rounded-[10px] text-[13px] whitespace-nowrap transition-colors ${
+          anyAuthFailed ? 'text-amber-200' : allHealthy ? 'text-gray-300' : 'text-red-300'
         }`}
         title="Servers in this fleet"
       >
         <span
           className={`w-2 h-2 rounded-full ${
-            anyAuthFailed ? 'bg-amber-400' : allHealthy ? 'bg-[#00ff88] gl-glow-online' : 'bg-red-400 animate-pulse'
+            anyAuthFailed ? 'bg-amber-400 shadow-[0_0_8px_#FFC44D]' : allHealthy ? 'bg-emerald-400 gl-glow-online' : 'bg-red-400 animate-pulse shadow-[0_0_8px_#FF6B6B]'
           }`}
         />
-        {total <= 1 ? (allHealthy ? 'Live' : 'Polling') : `${reachable}/${total} servers`}
+        {total <= 1 ? (allHealthy ? 'Live' : 'Polling') : allHealthy ? `Live · ${total} servers` : `${reachable}/${total} servers`}
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 z-40 glass-light border border-white/[0.08] rounded-lg shadow-2xl p-3">
-            <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Fleet</div>
+          <div className="absolute right-0 mt-2 w-[360px] z-40 glass-dark rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.55)] p-5">
+            <div className="font-display text-lg font-semibold text-gray-100 mb-3">Fleet</div>
 
-            <div className="space-y-1.5 mb-3 max-h-64 overflow-y-auto">
+            <div className="space-y-2 mb-3 max-h-72 overflow-y-auto">
               {servers.map((server) => {
                 const status = statuses.find((s) => s.url === server.url);
                 const isLocal = !server.url;
                 return (
-                  <div key={server.url || 'local'} className="flex items-center gap-2 text-xs">
+                  <div key={server.url || 'local'} className="flex items-center gap-3 text-[13px] p-3 rounded-xl bg-gl-code border border-white/[0.08]">
                     <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                         status?.authFailed ? 'bg-amber-400'
                           : status?.reachable ? 'bg-[#00ff88]'
                           : 'bg-red-400'
@@ -88,14 +88,14 @@ export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSet
                       title={status?.lastError || (status?.reachable ? 'Reachable' : 'Unreachable')}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-gray-200">
+                      <div className="truncate text-gray-100 font-mono">
                         {server.name}
                         {isLocal && <span className="text-gray-600 ml-1">(local)</span>}
                         {server.manual === false && <span className="text-gray-600 ml-1">(found)</span>}
                       </div>
                       {server.url && <div className="truncate text-gray-600">{server.url}</div>}
                       {status?.authFailed && (
-                        <div className="text-amber-400">Token rejected — not a network problem</div>
+                        <div className="text-xs text-amber-200">Token rejected — not a network problem</div>
                       )}
                       {!status?.reachable && !status?.authFailed && status?.lastOkAt && (
                         <div className="text-gray-600">Showing last known data</div>
@@ -105,14 +105,14 @@ export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSet
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => onHide(server.url, !server.hidden)}
-                          className="text-gray-500 hover:text-gray-300 px-1"
+                          className="h-9 px-2.5 text-xs font-semibold rounded-lg border border-white/[0.12] text-gray-300 hover:text-gray-100"
                           title={server.hidden ? 'Show in grid' : 'Hide from grid'}
                         >
                           {server.hidden ? 'show' : 'hide'}
                         </button>
                         <button
                           onClick={() => onForget(server.url)}
-                          className="text-gray-500 hover:text-red-400 px-1"
+                          className="w-9 h-9 rounded-lg border border-white/[0.12] text-gray-300 hover:text-red-300"
                           title="Forget this server"
                         >
                           ✕
@@ -124,21 +124,21 @@ export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSet
               })}
             </div>
 
-            <form onSubmit={submit} className="space-y-1.5 border-t border-white/[0.06] pt-2">
+            <form onSubmit={submit} className="space-y-2 border-t border-white/[0.08] pt-3">
               <input
                 value={url}
                 onChange={(e) => { setUrl(e.target.value); setError(''); }}
                 placeholder="studio.local:4040"
-                className="w-full bg-black/30 border border-white/[0.08] rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600"
+                className="glass-input w-full h-[42px] rounded-[10px] px-3 text-sm text-gray-100 placeholder-gray-500"
               />
               <div className="flex gap-1.5">
                 <input
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder="fleet token (optional)"
-                  className="flex-1 bg-black/30 border border-white/[0.08] rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600"
+                  className="glass-input flex-1 h-[42px] rounded-[10px] px-3 text-sm text-gray-100 placeholder-gray-500"
                 />
-                <button type="submit" className="text-xs px-2 py-1 rounded bg-white/[0.06] hover:bg-white/[0.1] text-gray-200">
+                <button type="submit" className="btn-primary h-[42px] px-4 rounded-[10px] text-[13px] font-semibold">
                   Add
                 </button>
               </div>
@@ -150,12 +150,12 @@ export function ServerPicker({ servers, statuses, onAdd, onForget, onHide, onSet
                 const next = window.prompt('Fleet token — applied to every server (blank to clear):');
                 if (next !== null) onSetToken(next.trim() || null);
               }}
-              className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 text-left"
+              className="mt-3 w-full text-[13px] text-neon-400 hover:text-neon-200 text-left"
             >
               Set fleet token for all servers…
             </button>
 
-            <p className="mt-2 text-[10px] leading-snug text-gray-600">
+            <p className="mt-2 text-[11px] leading-snug text-gray-500">
               Servers found through gossip appear automatically. Forgetting one only hides it
               until the next discovery — use hide to keep it out of the grid.
             </p>

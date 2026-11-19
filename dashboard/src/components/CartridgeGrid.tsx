@@ -185,38 +185,43 @@ export function CartridgeGrid({
   if (onlineAgents.length === 0) {
     const allHidden = dismissed.length > 0;
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-        <div className="font-pixel text-2xl text-gl-purple/40 mb-6" style={{ imageRendering: 'pixelated' }}>
+      <div className="flex flex-col items-center justify-center text-center px-6 py-16 rounded-[18px] border border-dashed border-neon-500/40 text-gray-400">
+        <div aria-hidden="true" className="flex gap-1 mb-4">
+          <span className="w-3.5 h-[30px] rounded-[2px] border border-neon-500/60" />
+          <span className="w-3.5 h-[30px] rounded-[2px] border border-neon-500/60" />
+          <span className="w-3.5 h-[30px] rounded-[2px] border border-neon-500/60" />
+        </div>
+        <div className="font-display font-bold tracking-[0.12em] text-lg text-neon-200 mb-3">
           {allHidden ? 'ALL PUT AWAY' : 'INSERT CARTRIDGE'}
         </div>
 
         {allHidden ? (
           <>
-            <h3 className="text-lg font-medium text-gray-400 mb-2">
+            <h3 className="text-base font-semibold text-gray-200 mb-2">
               {dismissed.length} cartridge{dismissed.length === 1 ? '' : 's'} hidden
             </h3>
-            <p className="text-sm text-center max-w-md text-gray-500 mb-5">
+            <p className="text-[13px] text-center max-w-md text-gray-400 leading-relaxed mb-5">
               They'll come back on their own the moment an agent does anything — or restore one
               now.
             </p>
-            <div className="w-full max-w-md space-y-1">
+            <div className="w-full max-w-md space-y-1.5 text-left">
               {dismissed.map((a) => {
                 const live = agentStatuses.get(a.id) ?? a.status;
                 return (
                   <div
                     key={a.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded border border-white/[0.06] bg-white/[0.02]"
+                    className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-white/[0.1] bg-[rgba(14,20,36,0.62)]"
                   >
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_CONFIG_DOT[live] ?? 'bg-gray-600'}`} />
-                    <span className="text-sm text-gray-300 font-mono truncate flex-1">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_CONFIG_DOT[live] ?? 'bg-gray-600'}`} />
+                    <span className="text-[14px] text-gray-200 font-mono truncate flex-1">
                       {a.repoName || a.name}
                     </span>
                     {live !== 'offline' && (
-                      <span className="text-[10px] text-green-500/70 font-mono shrink-0">still {live}</span>
+                      <span className="text-[11px] text-neon-300 font-semibold shrink-0">still {live}</span>
                     )}
                     <button
                       onClick={() => onRestore(a.id)}
-                      className="text-[11px] text-gl-purple hover:text-white transition-colors shrink-0"
+                      className="h-8 px-3 rounded-lg border border-neon-500/45 bg-neon-500/10 text-[12px] font-semibold text-neon-200 hover:bg-neon-500/20 transition-colors shrink-0"
                     >
                       restore
                     </button>
@@ -227,12 +232,13 @@ export function CartridgeGrid({
           </>
         ) : (
           <>
-            <h3 className="text-lg font-medium text-gray-400 mb-2">No cartridges inserted</h3>
-            <p className="text-sm text-center max-w-md text-gray-500">
+            <h3 className="sr-only">No cartridges inserted</h3>
+            <p className="text-[13px] text-center max-w-md text-gray-400 leading-relaxed">
+              No cartridges inserted.{' '}
               Install the NeonCore hooks on your machines to connect Claude Code agents.
               <br />
               Run{' '}
-              <code className="text-gl-purple bg-white/[0.06] px-1.5 py-0.5 rounded text-xs font-mono">
+              <code className="text-neon-200 bg-white/[0.06] px-1.5 py-0.5 rounded text-xs font-mono">
                 ./agent/install.sh
               </code>{' '}
               to get started.
@@ -248,11 +254,11 @@ export function CartridgeGrid({
       {/* Grid. It now lives in a 2/3 column, so lg:3 would squeeze a card to ~210px —
           three across is only earned back at 2xl, where the column is wide enough. */}
       {dedupedSorted.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 text-sm">
+        <div className="text-center py-12 rounded-[18px] border border-dashed border-white/[0.14] text-gray-400 text-sm">
           No {statusFilter} cartridges
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-5">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,330px),1fr))] gap-[18px]">
           {dedupedSorted.map((agent) => {
             const siblingIds = siblingMap.get(agent.id) || [];
             const allIds = [agent.id, ...siblingIds];
@@ -308,44 +314,45 @@ export function CartridgeGrid({
           the session ended, hidden means you stopped looking at it — and a hidden agent
           is frequently still running, which is why we show its live status here. */}
       {dismissed.length > 0 && (
-        <div className="mt-8">
+        <div className="mt-4">
           <button
             onClick={() => setShowHidden((v) => !v)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors font-mono"
+            aria-expanded={showHidden}
+            className="h-10 px-3.5 rounded-[10px] border border-dashed border-white/[0.25] text-[13px] font-semibold text-gray-400 hover:text-gray-200 transition-colors"
           >
             {showHidden ? '▾' : '▸'} Hidden ({dismissed.length})
           </button>
 
           {showHidden && (
-            <div className="mt-3 space-y-1">
+            <div className="mt-3 space-y-1.5">
               {dismissed.map((a) => {
                 const live = agentStatuses.get(a.id) ?? a.status;
                 const stillRunning = live !== 'offline';
                 return (
                   <div
                     key={a.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded border border-white/[0.06] bg-white/[0.02]"
+                    className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-white/[0.1] bg-[rgba(14,20,36,0.62)]"
                   >
                     <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      className={`w-2 h-2 rounded-full shrink-0 ${
                         STATUS_CONFIG_DOT[live] ?? 'bg-gray-600'
                       }`}
                     />
-                    <span className="text-sm text-gray-300 font-mono truncate flex-1">
+                    <span className="text-[14px] text-gray-200 font-mono truncate flex-1">
                       {a.repoName || a.name}
                     </span>
-                    <span className="text-[11px] text-gray-500 font-mono shrink-0">
+                    <span className="text-[12px] text-gray-500 shrink-0">
                       {shortMachineName(a.machine)}
                     </span>
                     {/* The point of the separate column: this one is hidden AND alive. */}
                     {stillRunning && (
-                      <span className="text-[10px] text-green-500/70 font-mono shrink-0">
+                      <span className="text-[11px] text-neon-300 font-semibold shrink-0">
                         still {live}
                       </span>
                     )}
                     <button
                       onClick={() => onRestore(a.id)}
-                      className="text-[11px] text-gl-purple hover:text-white transition-colors shrink-0"
+                      className="h-8 px-3 rounded-lg border border-neon-500/45 bg-neon-500/10 text-[12px] font-semibold text-neon-200 hover:bg-neon-500/20 transition-colors shrink-0"
                       title="Bring this cartridge back to the grid"
                     >
                       restore
@@ -353,7 +360,7 @@ export function CartridgeGrid({
                   </div>
                 );
               })}
-              <p className="text-[11px] text-gray-600 pt-1">
+              <p className="text-[12px] text-gray-500 pt-1">
                 These come back on their own the moment the agent does anything, or when you
                 send it a command or start a workflow.
               </p>
@@ -366,10 +373,10 @@ export function CartridgeGrid({
 }
 
 const STATUS_CONFIG_DOT: Record<string, string> = {
-  working: 'bg-green-500',
-  waiting: 'bg-yellow-500',
+  working: 'bg-neon-500 shadow-[0_0_8px_#5AAEFF]',
+  waiting: 'bg-[#FF8A3D] shadow-[0_0_8px_#FF8A3D]',
   idle: 'bg-gray-500',
-  offline: 'bg-red-500/60',
+  offline: 'bg-red-400/70',
 };
 
 function shortMachineName(machine: string): string {

@@ -122,30 +122,30 @@ export function GoalDecomposePanel({
     return (
       <div className="space-y-4">
         <div className="px-3 py-2.5 rounded-lg bg-emerald-900/20 border border-emerald-700/40">
-          <p className="text-[13px] text-emerald-200 font-medium">
+          <p className="text-[14px] text-emerald-200 font-medium">
             Created {result.createdProjects} {result.createdProjects === 1 ? 'project' : 'projects'} and{' '}
             {result.createdTasks} {result.createdTasks === 1 ? 'task' : 'tasks'}.
           </p>
           {result.createdRuns > 0 && (
-            <p className="text-[13px] text-emerald-200 font-medium">
+            <p className="text-[14px] text-emerald-200 font-medium">
               Started {result.createdRuns} {result.createdRuns === 1 ? 'workflow' : 'workflows'}.
             </p>
           )}
-          <p className="text-[12px] text-emerald-200/70 mt-1">
+          <p className="text-[13px] text-emerald-200/70 mt-1">
             Tasks are queued in dependency order — prerequisites run first. Your setup answers
             travel with every one of them.
           </p>
         </div>
         {result.skipped.length > 0 && (
           <div>
-            <h4 className="text-[11px] text-amber-300/80 uppercase tracking-wider mb-1">Skipped</h4>
-            <ul className="text-[12px] text-gray-400 space-y-0.5">
+            <h4 className="text-[12px] text-amber-300/80 uppercase tracking-wider mb-1">Skipped</h4>
+            <ul className="text-[13px] text-gray-400 space-y-0.5">
               {result.skipped.map((s, i) => <li key={i}>· {s}</li>)}
             </ul>
           </div>
         )}
         <div className="flex justify-end">
-          <button onClick={onClose} className="px-3 py-1.5 text-xs text-white bg-violet-600 hover:bg-violet-500 rounded-md transition-colors font-medium">
+          <button onClick={onClose} className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             Done
           </button>
         </div>
@@ -157,7 +157,7 @@ export function GoalDecomposePanel({
     <div className="space-y-4">
       {(!dec || dec.status === 'failed') && (
         <>
-          <p className="text-[12px] text-gray-500 leading-relaxed">
+          <p className="text-[13px] text-gray-500 leading-relaxed">
             A cartridge reads the repository and proposes projects and tasks for this goal. It
             produces a <em>plan</em>: nothing is created until you pick the items you want.
           </p>
@@ -168,10 +168,10 @@ export function GoalDecomposePanel({
               rather than block: a name plus a good seed is a legitimate way to work. */}
           {INTENT_KEYS.every((k) => !String((goal as unknown as Record<string, unknown>)[k] ?? '').trim()) && (
             <div className="px-3 py-2 rounded-lg bg-amber-900/20 border border-amber-700/40">
-              <p className="text-[12px] text-amber-200">
+              <p className="text-[13px] text-amber-200">
                 This goal states no intent — no reason, acceptance criteria, no-gos or invariants.
               </p>
-              <p className="text-[11px] text-amber-200/70 mt-1">
+              <p className="text-[12px] text-amber-200/70 mt-1">
                 The plan will be built from its name, whatever you write below, and the repo. Fill
                 in the intent first (“Help me write this”) for a plan grounded in what you actually
                 want, or give it real context here.
@@ -179,31 +179,31 @@ export function GoalDecomposePanel({
             </div>
           )}
           <div>
-            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">
+            <label className="block text-[12px] text-gray-500 uppercase tracking-wider mb-1">
               Anything to steer it? (optional)
             </label>
             <textarea
               value={seed} onChange={(e) => setSeed(e.target.value)} rows={3}
               placeholder="Where to start, what to leave alone, constraints it cannot read from the goal. It already receives the goal's intent, no-gos and rabbit holes."
-              className="w-full bg-black/30 border border-white/10 rounded-md px-3 py-2 text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50"
+              className="w-full bg-gl-code border border-white/10 rounded-md px-3 py-2 text-[14px] text-gray-200 placeholder:text-gray-500 focus:outline-none focus:border-violet-500/50"
             />
           </div>
           <div>
-            <label className="block text-[11px] text-gray-500 uppercase tracking-wider mb-1">Which cartridge</label>
+            <label className="block text-[12px] text-gray-500 uppercase tracking-wider mb-1">Which cartridge</label>
             <select
               value={agentId} onChange={(e) => setAgentId(e.target.value)}
-              className="w-full bg-black/30 border border-white/10 rounded-md px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-violet-500/50"
+              className="w-full bg-gl-code border border-white/10 rounded-md px-3 py-2 text-[14px] text-gray-200 focus:outline-none focus:border-violet-500/50"
             >
               {online.length === 0 && <option value="">No cartridge is online</option>}
               {online.map((a) => <option key={a.id} value={a.id}>{a.name} — {a.repoName} ({a.status})</option>)}
             </select>
-            <p className="text-[11px] text-gray-600 mt-1">
+            <p className="text-[12px] text-gray-500 mt-1">
               Pick one that can see the code this goal is about — a plan written without reading
               the repo names files that do not exist.
             </p>
           </div>
           {dec?.status === 'failed' && dec.error && (
-            <p className="text-[12px] text-red-400">Planning failed: {dec.error}</p>
+            <p className="text-[13px] text-red-400">Planning failed: {dec.error}</p>
           )}
         </>
       )}
@@ -211,7 +211,7 @@ export function GoalDecomposePanel({
       {dec?.status === 'pending' && (
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-violet-900/20 border border-violet-700/40">
           <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
-          <p className="text-[12px] text-violet-200">
+          <p className="text-[13px] text-violet-200">
             Planning… the cartridge is reading the repo. You can close this and come back.
           </p>
         </div>
@@ -223,16 +223,16 @@ export function GoalDecomposePanel({
               own output would make review meaningless. */}
           {dec.notes.length > 0 && (
             <div className="px-3 py-2 rounded-lg bg-amber-900/15 border border-amber-700/30">
-              <h4 className="text-[11px] text-amber-300/90 uppercase tracking-wider mb-1">
+              <h4 className="text-[12px] text-amber-300/90 uppercase tracking-wider mb-1">
                 Adjusted on arrival
               </h4>
-              <ul className="text-[11px] text-amber-200/70 space-y-0.5">
+              <ul className="text-[12px] text-amber-200/70 space-y-0.5">
                 {dec.notes.map((nt, i) => <li key={i}>· {nt}</li>)}
               </ul>
             </div>
           )}
 
-          <p className="text-[12px] text-gray-500">
+          <p className="text-[13px] text-gray-500">
             {dec.proposal.projects.length} {dec.proposal.projects.length === 1 ? 'project' : 'projects'} proposed.
             Untick anything you do not want — a task cannot be created without its project.
           </p>
@@ -253,10 +253,10 @@ export function GoalDecomposePanel({
                       onChange={() => toggleProject(p.key, p.tasks.map((t) => t.key))}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-medium text-gray-100">{p.name}</div>
-                      {p.description && <p className="text-[12px] text-gray-500 mt-0.5">{p.description}</p>}
+                      <div className="text-[14px] font-medium text-gray-100">{p.name}</div>
+                      {p.description && <p className="text-[13px] text-gray-500 mt-0.5">{p.description}</p>}
                       {p.primaryRepo && (
-                        <p className="text-[11px] text-gray-600 mt-0.5 font-mono truncate">{p.primaryRepo}</p>
+                        <p className="text-[12px] text-gray-500 mt-0.5 font-mono truncate">{p.primaryRepo}</p>
                       )}
                     </div>
                   </label>
@@ -278,31 +278,31 @@ export function GoalDecomposePanel({
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[12px] text-gray-300">{t.title}</span>
+                              <span className="text-[13px] text-gray-300">{t.title}</span>
                               {/* A template-backed item launches a whole workflow rather than
                                   creating a one-shot task — a materially different thing to
                                   accept, so it is labelled rather than left to look identical. */}
                               {t.template && (
                                 <span
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/40 border border-violet-700/40 text-violet-300"
+                                  className="text-[11px] px-1.5 py-0.5 rounded bg-violet-900/40 border border-violet-700/40 text-violet-300"
                                   title={`Accepting this runs the "${t.template}" workflow against the project, not a single task`}
                                 >
                                   ⇉ {t.template}
                                 </span>
                               )}
-                              <span className={`text-[10px] ${SIZE_TONE[t.size] || 'text-gray-500'}`}>{t.size}</span>
+                              <span className={`text-[11px] ${SIZE_TONE[t.size] || 'text-gray-500'}`}>{t.size}</span>
                               {t.dependsOn.length > 0 && (
-                                <span className="text-[10px] text-gray-600" title={`Runs after: ${t.dependsOn.join(', ')}`}>
+                                <span className="text-[11px] text-gray-500" title={`Runs after: ${t.dependsOn.join(', ')}`}>
                                   after {t.dependsOn.join(', ')}
                                 </span>
                               )}
                             </div>
                             {t.prompt && t.prompt !== t.title && (
                               <details className="mt-0.5">
-                                <summary className="text-[10px] text-gray-600 cursor-pointer hover:text-gray-400">
+                                <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-400">
                                   What the cartridge will be told
                                 </summary>
-                                <p className="text-[11px] text-gray-500 mt-1 whitespace-pre-wrap pl-2 border-l border-white/10">
+                                <p className="text-[12px] text-gray-500 mt-1 whitespace-pre-wrap pl-2 border-l border-white/10">
                                   {t.prompt}
                                 </p>
                               </details>
@@ -319,7 +319,7 @@ export function GoalDecomposePanel({
         </>
       )}
 
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
 
       <div className="flex justify-end gap-2 pt-1">
         <button
@@ -332,7 +332,7 @@ export function GoalDecomposePanel({
           <button
             onClick={accept}
             disabled={busy || pickedProjects.size === 0}
-            className="px-3 py-1.5 text-xs text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors font-medium"
+            className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {pickedProjects.size === 0
               ? 'Select at least one project'
@@ -342,7 +342,7 @@ export function GoalDecomposePanel({
           <button
             onClick={request}
             disabled={busy || !agentId}
-            className="px-3 py-1.5 text-xs text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors font-medium"
+            className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {busy ? 'Sending…' : 'Plan the work'}
           </button>

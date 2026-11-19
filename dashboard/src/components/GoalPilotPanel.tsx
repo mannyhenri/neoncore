@@ -30,7 +30,7 @@ import {
   draftCriteriaFrom, criteriaProblems, type DraftCriterion,
 } from '../lib/goalPilot';
 
-import { ENGINE_LABEL, input, primaryBtn, quietBtn, errorText } from './pilotStyles';
+import { ENGINE_LABEL, input, primaryBtn, quietBtn, dangerBtn, errorText } from './pilotStyles';
 import { CriteriaEditor, ContractCard } from './AcceptanceContractPanel';
 
 let metaCache: Promise<GoalPilotMeta> | null = null;
@@ -52,8 +52,9 @@ function Pill({ on, children, onClick, title }: { on: boolean; children: React.R
       type="button"
       onClick={onClick}
       title={title}
-      className={`text-[12px] px-2.5 py-1 rounded-md border transition-colors text-left ${
-        on ? 'bg-violet-600/30 border-violet-500/60 text-violet-100' : 'bg-white/[0.03] border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20'
+      aria-pressed={on}
+      className={`text-[13px] font-semibold min-h-10 px-3.5 py-2 rounded-full border transition-colors text-left ${
+        on ? 'bg-[rgba(124,108,255,0.2)] border-[#7C6CFF] text-[#E4DFFF]' : 'bg-transparent border-white/[0.18] text-gray-300 hover:text-gray-100 hover:border-white/30'
       }`}
     >
       {children}
@@ -65,7 +66,7 @@ function PlannerPicker({ agents, value, onChange }: { agents: Agent[]; value: st
   const options = plannerCandidates(agents);
   if (options.length === 0) {
     return (
-      <p className="text-[12px] text-amber-300/90">
+      <p className="text-[13px] text-amber-300/90">
         No cartridge is online. The planner is a cartridge — launch one from the Agents view, then come back.
       </p>
     );
@@ -120,18 +121,18 @@ export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
     } finally { setBusy(false); }
   };
 
-  if (!meta) return <p className="text-[12px] text-gray-500">Loading…</p>;
+  if (!meta) return <p className="text-[13px] text-gray-500">Loading…</p>;
 
   return (
     <div className="space-y-4">
-      <p className="text-[12px] text-gray-500 leading-relaxed">
+      <p className="text-[13px] text-gray-500 leading-relaxed">
         Answer a few general questions. A planner cartridge then asks whatever is still needed so the
         agents never have to ask once work starts, proposes the workflows that will deliver it, and
         runs them in order once you accept. Nothing runs until you say so.
       </p>
       {meta.intakeQuestions.map((q) => (
         <div key={q.key}>
-          <label className="block text-[12px] text-gray-300 mb-1">
+          <label className="block text-[13px] text-gray-300 mb-1">
             {q.label}{q.required && <span className="text-violet-400"> *</span>}
           </label>
           {q.kind === 'textarea' ? (
@@ -155,21 +156,21 @@ export function GoalPilotIntake({ agents, goal, onCreated, onCancel }: {
             />
           )}
           {q.kind === 'choice' && values[q.key]
-            ? <p className="text-[11px] text-gray-600 mt-1">{q.options!.find((o) => o.value === values[q.key])?.hint}</p>
-            : <p className="text-[11px] text-gray-600 mt-1">{q.help}</p>}
+            ? <p className="text-[12px] text-gray-500 mt-1">{q.options!.find((o) => o.value === values[q.key])?.hint}</p>
+            : <p className="text-[12px] text-gray-500 mt-1">{q.help}</p>}
         </div>
       ))}
 
       <div>
-        <label className="block text-[12px] text-gray-300 mb-1">Which cartridge does the planning?</label>
+        <label className="block text-[13px] text-gray-300 mb-1">Which cartridge does the planning?</label>
         <PlannerPicker agents={agents} value={planner} onChange={setPlanner} />
-        <p className="text-[11px] text-gray-600 mt-1">
+        <p className="text-[12px] text-gray-500 mt-1">
           It reads your answers (and the repo it is in) and submits questions, a brief and a pipeline back to NeonCore.
           Its spend counts toward this goal.
         </p>
       </div>
 
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className={quietBtn}>Cancel</button>
         {conflict && (
@@ -196,19 +197,22 @@ function Stepper({ pilot }: { pilot: GoalPilot }) {
   const at = stepIndexFor(pilot.phase);
   const finished = pilot.phase === 'completed';
   return (
-    <ol className="flex items-center gap-1 flex-wrap text-[11px]">
+    <ol aria-label="Pilot steps" className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
       {PILOT_STEPS.map((label, i) => {
         const done = i < at || finished;
         const here = i === at && !finished;
         return (
-          <li key={label} className="flex items-center gap-1">
-            <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border ${
-              here ? 'border-violet-500/70 bg-violet-600/20 text-violet-200'
-                : done ? 'border-emerald-700/40 text-emerald-400/90' : 'border-white/10 text-gray-600'
-            }`}>
-              <span>{done ? '✓' : i + 1}</span>{label}
-            </span>
-            {i < PILOT_STEPS.length - 1 && <span className="text-gray-700">›</span>}
+          <li
+            key={label}
+            aria-current={here ? 'step' : undefined}
+            className={`flex items-center gap-2.5 h-11 px-3 rounded-[10px] border text-[14px] font-semibold ${
+              here ? 'bg-[rgba(124,108,255,0.2)] border-[#7C6CFF] text-[#E4DFFF]' : 'bg-gl-code/60 border-white/[0.08] text-gray-300'
+            }`}
+          >
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[12px] flex-shrink-0 ${
+              done ? 'bg-emerald-400/20 text-emerald-300' : here ? 'bg-[#7C6CFF] text-[#0B0820]' : 'bg-white/[0.08] text-gray-400'
+            }`}>{done ? '✓' : i + 1}</span>
+            {label}
           </li>
         );
       })}
@@ -250,17 +254,17 @@ function PlannerWait({ pilot, agents, onChanged }: { pilot: GoalPilot; agents: A
     <div className={`rounded-lg border px-3 py-3 ${failed ? 'bg-amber-900/15 border-amber-700/40' : 'bg-violet-900/15 border-violet-700/40'}`}>
       {failed ? (
         <>
-          <p className="text-[13px] text-amber-200 font-medium">The planner did not answer.</p>
-          <p className="text-[12px] text-amber-200/70 mt-0.5">{req?.error}</p>
+          <p className="text-[14px] text-amber-200 font-medium">The planner did not answer.</p>
+          <p className="text-[13px] text-amber-200/70 mt-0.5">{req?.error}</p>
         </>
       ) : (
         <div className="flex items-start gap-2.5">
           <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
           <div className="min-w-0">
-            <p className="text-[13px] text-violet-100">
+            <p className="text-[14px] text-violet-100">
               {pilot.plannerName || 'The planner'} is {what}…
             </p>
-            <p className="text-[11px] text-violet-200/60 mt-0.5">
+            <p className="text-[12px] text-violet-200/60 mt-0.5">
               {req?.queued ? 'Queued behind its current work · ' : ''}asked {since(req?.createdAt)} ago.
               You can leave this page — the answer will be here.
             </p>
@@ -272,11 +276,11 @@ function PlannerWait({ pilot, agents, onChanged }: { pilot: GoalPilot; agents: A
         <button onClick={retry} disabled={busy || !other} className={failed ? primaryBtn : quietBtn}>
           {failed ? 'Ask again' : 'Ask again / switch planner'}
         </button>
-        {req && <button onClick={showPrompt} className="text-[11px] text-gray-500 hover:text-gray-300">{prompt !== null ? 'Hide' : 'Show'} what it was asked</button>}
+        {req && <button onClick={showPrompt} className="text-[12px] text-gray-500 hover:text-gray-300">{prompt !== null ? 'Hide' : 'Show'} what it was asked</button>}
       </div>
-      {error && <p className="text-[12px] text-amber-300 mt-2">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300 mt-2">{error}</p>}
       {prompt !== null && (
-        <pre className="mt-2 text-[11px] text-gray-400 bg-black/40 rounded-md p-2.5 max-h-64 overflow-auto whitespace-pre-wrap">{prompt}</pre>
+        <pre className="mt-2 text-[12px] text-gray-400 bg-gl-code rounded-md p-2.5 max-h-64 overflow-auto whitespace-pre-wrap">{prompt}</pre>
       )}
     </div>
   );
@@ -316,7 +320,7 @@ function QuestionInput({ q, answer, onChange }: { q: PilotQuestion; answer: Pilo
         </div>
         {q.kind === 'choice' && (
           <input
-            className={`${input} text-[12px]`}
+            className={`${input} text-[13px]`}
             placeholder="Something else…"
             value={other}
             disabled={delegated}
@@ -331,18 +335,18 @@ function QuestionInput({ q, answer, onChange }: { q: PilotQuestion; answer: Pilo
     <div className={`rounded-lg border p-3 ${delegated ? 'border-white/[0.06] bg-white/[0.01]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[13px] text-gray-100">{q.text}{q.required && <span className="text-violet-400"> *</span>}</p>
-          {q.why && <p className="text-[11px] text-gray-600 mt-0.5">{q.why}</p>}
+          <p className="text-[14px] text-gray-100">{q.text}{q.required && <span className="text-violet-400"> *</span>}</p>
+          {q.why && <p className="text-[12px] text-gray-500 mt-0.5">{q.why}</p>}
         </div>
       </div>
       <div className={`mt-2 ${delegated ? 'opacity-40' : ''}`}>{body}</div>
       <div className="flex items-center gap-3 mt-2 flex-wrap">
         {suggestionText && !delegated && (
-          <button type="button" onClick={() => { setOther(''); onChange({ value: suggestion }); }} className="text-[11px] text-violet-400 hover:text-violet-300">
+          <button type="button" onClick={() => { setOther(''); onChange({ value: suggestion }); }} className="text-[12px] text-violet-400 hover:text-violet-300">
             Use suggestion: {suggestionText}
           </button>
         )}
-        <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer">
           <input type="checkbox" className="accent-violet-500" checked={delegated} onChange={() => onChange(delegated ? undefined : { value: suggestion, delegated: true })} />
           Let the agents decide{suggestionText ? ` (→ ${suggestionText})` : ''}
         </label>
@@ -371,14 +375,14 @@ function QuestionsStep({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () =
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] text-gray-200">
+          <p className="text-[14px] text-gray-200">
             <span className="text-violet-300">Round {round.round}.</span> {round.message || 'The planner needs a few answers.'}
           </p>
-          <p className="text-[11px] text-gray-600 mt-0.5">
+          <p className="text-[12px] text-gray-500 mt-0.5">
             Answer what you know. Anything you let the agents decide uses the suggestion and is recorded as an assumption.
           </p>
         </div>
-        <button onClick={() => setAnswers(acceptSuggestions(round.questions, answers))} className="text-[11px] text-violet-400 hover:text-violet-300 whitespace-nowrap">
+        <button onClick={() => setAnswers(acceptSuggestions(round.questions, answers))} className="text-[12px] text-violet-400 hover:text-violet-300 whitespace-nowrap">
           Accept all suggestions
         </button>
       </div>
@@ -395,9 +399,9 @@ function QuestionsStep({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () =
           })}
         />
       ))}
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
       <div className="flex items-center justify-end gap-3">
-        {missing.length > 0 && <span className="text-[11px] text-gray-500">{missing.length} required still open</span>}
+        {missing.length > 0 && <span className="text-[12px] text-gray-500">{missing.length} required still open</span>}
         <button onClick={send} disabled={busy || missing.length > 0} className={primaryBtn}>
           {busy ? 'Sending…' : 'Send answers'}
         </button>
@@ -409,8 +413,8 @@ function QuestionsStep({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () =
 function ValidationNotes({ notes }: { notes: string[] }) {
   return (
     <div className="px-3 py-2 rounded-lg bg-amber-900/15 border border-amber-700/30">
-      <h4 className="text-[10px] text-amber-300/90 uppercase tracking-wider mb-1">Adjusted on arrival</h4>
-      <ul className="text-[11px] text-amber-200/70 space-y-0.5">{notes.map((n, i) => <li key={i}>· {n}</li>)}</ul>
+      <h4 className="text-[11px] text-amber-300/90 uppercase tracking-wider mb-1">Adjusted on arrival</h4>
+      <ul className="text-[12px] text-amber-200/70 space-y-0.5">{notes.map((n, i) => <li key={i}>· {n}</li>)}</ul>
     </div>
   );
 }
@@ -421,15 +425,15 @@ function Conversation({ pilot }: { pilot: GoalPilot }) {
   const count = answered.reduce((n, r) => n + r.questions.length, 0);
   return (
     <details className="group">
-      <summary className="text-[11px] text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+      <summary className="text-[12px] text-gray-500 hover:text-gray-300 cursor-pointer select-none">
         Scoping so far — {answered.length} round{answered.length === 1 ? '' : 's'}, {count} decision{count === 1 ? '' : 's'}
       </summary>
       <div className="mt-2 space-y-2 pl-3 border-l border-white/10">
         {answered.map((r) => (
           <div key={r.requestId} className="space-y-1">
-            <p className="text-[10px] text-gray-600 uppercase tracking-wider">Round {r.round}</p>
+            <p className="text-[11px] text-gray-500 uppercase tracking-wider">Round {r.round}</p>
             {r.questions.map((q) => (
-              <div key={q.id} className="text-[12px]">
+              <div key={q.id} className="text-[13px]">
                 <span className="text-gray-500">{q.text}</span>{' '}
                 <span className={r.answers[q.id]?.delegated ? 'text-violet-300/80' : 'text-gray-200'}>→ {answerLabel(q, r.answers[q.id])}</span>
               </div>
@@ -478,24 +482,24 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
     <div className="space-y-5">
       <div>
         <div className="flex items-center justify-between gap-2 mb-2">
-          <h3 className="text-[11px] text-gray-400 uppercase tracking-wider">Scope brief</h3>
-          <span className="text-[10px] text-gray-600">Fields marked → goal are written onto the goal and reach every agent.</span>
+          <h3 className="text-[12px] text-gray-400 uppercase tracking-wider">Scope brief</h3>
+          <span className="text-[11px] text-gray-500">Fields marked → goal are written onto the goal and reach every agent.</span>
         </div>
         <div className="space-y-3 bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
           <div>
-            <label className="block text-[11px] text-gray-400 mb-1">Slug <span className="text-gray-600">— used for docs/&lt;slug&gt;/ paths</span></label>
-            <input className={`${input} font-mono text-[12px]`} value={brief.slug} onChange={(e) => setBrief({ ...brief, slug: e.target.value })} />
+            <label className="block text-[12px] text-gray-400 mb-1">Slug <span className="text-gray-500">— used for docs/&lt;slug&gt;/ paths</span></label>
+            <input className={`${input} font-mono text-[13px]`} value={brief.slug} onChange={(e) => setBrief({ ...brief, slug: e.target.value })} />
           </div>
           {/* The acceptance criteria are edited as numbered rows below; the brief's text is written from them. */}
           {meta.briefFields.filter((f) => f.key !== 'acceptanceCriteria').map((f) => (
             <div key={f.key}>
-              <label className="flex items-center gap-2 text-[11px] text-gray-400 mb-1" title={f.guidance}>
+              <label className="flex items-center gap-2 text-[12px] text-gray-400 mb-1" title={f.guidance}>
                 {f.label}
                 {f.onGoal && <span className="text-[9px] px-1 py-px rounded bg-violet-900/50 text-violet-300 border border-violet-700/40">→ goal</span>}
               </label>
               <textarea
                 rows={Math.min(8, Math.max(2, String(brief[f.key] ?? '').split('\n').length + 1))}
-                className={`${input} text-[12px]`}
+                className={`${input} text-[13px]`}
                 value={brief[f.key] ?? ''}
                 placeholder={f.guidance}
                 onChange={(e) => setBrief({ ...brief, [f.key]: e.target.value })}
@@ -509,8 +513,8 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
 
       <div>
         <div className="flex items-center justify-between gap-2 mb-2">
-          <h3 className="text-[11px] text-gray-400 uppercase tracking-wider">Workflows, in order</h3>
-          {pilot.proposal?.message && <span className="text-[11px] text-gray-500 text-right">{pilot.proposal.message}</span>}
+          <h3 className="text-[12px] text-gray-400 uppercase tracking-wider">Workflows, in order</h3>
+          {pilot.proposal?.message && <span className="text-[12px] text-gray-500 text-right">{pilot.proposal.message}</span>}
         </div>
         {pipelineNotes.length > 0 && <div className="mb-2"><ValidationNotes notes={pipelineNotes} /></div>}
         <div className="space-y-2">
@@ -521,29 +525,29 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
                   onChange={() => setStages((prev) => prev.map((x, j) => (j === i ? { ...x, include: !x.include } : x)))} />
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] text-gray-600 w-4">{i + 1}.</span>
-                    <input className="bg-transparent text-[13px] text-gray-100 font-medium flex-1 min-w-[160px] focus:outline-none border-b border-transparent focus:border-violet-500/50"
+                    <span className="text-[12px] text-gray-500 w-4">{i + 1}.</span>
+                    <input className="bg-transparent text-[14px] text-gray-100 font-medium flex-1 min-w-[160px] focus:outline-none border-b border-transparent focus:border-violet-500/50"
                       value={s.title} onChange={(e) => setStages((prev) => prev.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} />
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/40 border border-violet-700/40 text-violet-300">⇉ {s.template}</span>
-                    {s.optional && <span className="text-[10px] text-gray-500">optional</span>}
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-violet-900/40 border border-violet-700/40 text-violet-300">⇉ {s.template}</span>
+                    {s.optional && <span className="text-[11px] text-gray-500">optional</span>}
                   </div>
-                  {s.why && <p className="text-[12px] text-gray-500 pl-6">{s.why}</p>}
+                  {s.why && <p className="text-[13px] text-gray-500 pl-6">{s.why}</p>}
                   <details className="pl-6">
-                    <summary className="text-[11px] text-gray-600 hover:text-gray-400 cursor-pointer">What this stage will be told</summary>
-                    <textarea rows={4} className={`${input} mt-1 text-[12px]`} value={s.focus} placeholder="The focus for this stage on this goal"
+                    <summary className="text-[12px] text-gray-500 hover:text-gray-400 cursor-pointer">What this stage will be told</summary>
+                    <textarea rows={4} className={`${input} mt-1 text-[13px]`} value={s.focus} placeholder="The focus for this stage on this goal"
                       onChange={(e) => setStages((prev) => prev.map((x, j) => (j === i ? { ...x, focus: e.target.value } : x)))} />
                   </details>
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <button type="button" onClick={() => setStages((prev) => moveItem(prev, i, -1))} disabled={i === 0} className="text-gray-500 hover:text-gray-200 disabled:opacity-20 text-[11px]" title="Run earlier">▲</button>
-                  <button type="button" onClick={() => setStages((prev) => moveItem(prev, i, 1))} disabled={i === stages.length - 1} className="text-gray-500 hover:text-gray-200 disabled:opacity-20 text-[11px]" title="Run later">▼</button>
+                  <button type="button" onClick={() => setStages((prev) => moveItem(prev, i, -1))} disabled={i === 0} className="text-gray-500 hover:text-gray-200 disabled:opacity-20 text-[12px]" title="Run earlier">▲</button>
+                  <button type="button" onClick={() => setStages((prev) => moveItem(prev, i, 1))} disabled={i === stages.length - 1} className="text-gray-500 hover:text-gray-200 disabled:opacity-20 text-[12px]" title="Run later">▼</button>
                 </div>
               </div>
             </div>
           ))}
         </div>
         <div className="flex items-center gap-2 mt-2">
-          <select className={`${input} text-[12px]`} value={adding} onChange={(e) => setAdding(e.target.value)}>
+          <select className={`${input} text-[13px]`} value={adding} onChange={(e) => setAdding(e.target.value)}>
             <option value="">Add a workflow…</option>
             {alternatives.length > 0 && (
               <optgroup label="Considered by the planner">
@@ -558,9 +562,9 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
         </div>
       </div>
 
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
       <div className="flex items-center justify-end gap-3">
-        <span className="text-[11px] text-gray-500">Accepting freezes the criteria and writes the → goal fields onto the goal. Nothing runs yet.</span>
+        <span className="text-[12px] text-gray-500">Accepting freezes the criteria and writes the → goal fields onto the goal. Nothing runs yet.</span>
         <button onClick={accept} disabled={busy || included === 0 || !brief.summary.trim() || criteriaIssues.length > 0} className={primaryBtn}
           title={criteriaIssues.length ? criteriaIssues.join(' ') : undefined}>
           {busy ? 'Saving…' : `Accept plan · ${included} workflow${included === 1 ? '' : 's'}`}
@@ -627,13 +631,13 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[11px] text-gray-400 uppercase tracking-wider mb-1">Which repos execute this goal?</h3>
-        <p className="text-[11px] text-gray-600 mb-2">
+        <h3 className="text-[12px] text-gray-400 uppercase tracking-wider mb-1">Which repos execute this goal?</h3>
+        <p className="text-[12px] text-gray-500 mb-2">
           Pick the repos and the engine that works in each. Each becomes a project under this goal, so its cost and brief roll up here.
           A stage whose cartridge is not running waits for it and starts by itself when it connects.
         </p>
-        {repos === null ? <p className="text-[12px] text-gray-500">Loading repos…</p> : repos.length === 0 ? (
-          <p className="text-[12px] text-amber-300/90">No repos known yet — launch a cartridge in the repo you want to use.</p>
+        {repos === null ? <p className="text-[13px] text-gray-500">Loading repos…</p> : repos.length === 0 ? (
+          <p className="text-[13px] text-amber-300/90">No repos known yet — launch a cartridge in the repo you want to use.</p>
         ) : (
           <div className="space-y-1.5">
             {repos.map((r) => {
@@ -648,13 +652,13 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
                     return next;
                   })} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13px] text-gray-100 flex items-center gap-2">
+                    <div className="text-[14px] text-gray-100 flex items-center gap-2">
                       {r.repoName}
                       {r.owned && <span className="text-[9px] px-1 rounded bg-white/[0.06] text-gray-400">already on this goal</span>}
                     </div>
-                    <div className="text-[10px] text-gray-600 font-mono truncate">{r.repoPath}</div>
+                    <div className="text-[11px] text-gray-500 font-mono truncate">{r.repoPath}</div>
                   </div>
-                  <select disabled={!on} className="bg-black/30 border border-white/10 rounded px-1.5 py-1 text-[12px] text-gray-300 disabled:opacity-40"
+                  <select disabled={!on} className="bg-gl-code border border-white/10 rounded px-1.5 py-1 text-[13px] text-gray-300 disabled:opacity-40"
                     value={engine} onChange={(e) => setChosen((prev) => ({ ...prev, [r.repoPath]: e.target.value }))}>
                     {meta.engines.map((eng) => {
                       const st = engineStatus(r, eng);
@@ -662,7 +666,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
                     })}
                   </select>
                   {on && (
-                    <span className={`text-[10px] w-16 text-right ${status === 'live' ? 'text-emerald-400' : 'text-amber-300/80'}`}>
+                    <span className={`text-[11px] w-16 text-right ${status === 'live' ? 'text-emerald-400' : 'text-amber-300/80'}`}>
                       {status === 'live' ? 'ready' : 'will wait'}
                     </span>
                   )}
@@ -675,13 +679,13 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
 
       {(chosenPaths.length > 1 || teamKeys.length > 0) && (
         <div>
-          <h3 className="text-[11px] text-gray-400 uppercase tracking-wider mb-1">Where each stage runs</h3>
+          <h3 className="text-[12px] text-gray-400 uppercase tracking-wider mb-1">Where each stage runs</h3>
           <div className="space-y-1">
             {placed.map((s, i) => teamKeys.includes(s.key) ? (
-              <div key={s.key} className="text-[12px] space-y-1">
+              <div key={s.key} className="text-[13px] space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-600 w-4">{i + 1}.</span>
-                  <span className="text-gray-300 flex-1 truncate">{s.title} <span className="text-gray-600">· {s.template} — worked together by:</span></span>
+                  <span className="text-gray-500 w-4">{i + 1}.</span>
+                  <span className="text-gray-300 flex-1 truncate">{s.title} <span className="text-gray-500">· {s.template} — worked together by:</span></span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 pl-6">
                   {chosenPaths.map((p) => (
@@ -700,10 +704,10 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
                 </div>
               </div>
             ) : (
-              <div key={s.key} className="flex items-center gap-2 text-[12px]">
-                <span className="text-gray-600 w-4">{i + 1}.</span>
-                <span className="text-gray-300 flex-1 truncate">{s.title} <span className="text-gray-600">· {s.template}</span></span>
-                <select className="bg-black/30 border border-white/10 rounded px-1.5 py-1 text-[12px] text-gray-300"
+              <div key={s.key} className="flex items-center gap-2 text-[13px]">
+                <span className="text-gray-500 w-4">{i + 1}.</span>
+                <span className="text-gray-300 flex-1 truncate">{s.title} <span className="text-gray-500">· {s.template}</span></span>
+                <select className="bg-gl-code border border-white/10 rounded px-1.5 py-1 text-[13px] text-gray-300"
                   value={String(assignments[s.key] ?? '')} onChange={(e) => setAssign((prev) => ({ ...prev, [s.key]: e.target.value }))}>
                   {chosenPaths.map((p) => <option key={p} value={p}>{byPath.get(p)?.repoName ?? p}</option>)}
                 </select>
@@ -714,7 +718,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
       )}
 
       {criteria.length > 0 && (
-        <div className="text-[12px] text-gray-400 rounded-lg border border-sky-800/40 bg-sky-950/10 px-3 py-2">
+        <div className="text-[13px] text-gray-400 rounded-lg border border-sky-800/40 bg-sky-950/10 px-3 py-2">
           <span className="text-sky-200">⚖ The acceptance contract.</span>{' '}
           {tested.length > 0
             ? <>Before any workflow runs, an agent writes {tested.length} failing test{tested.length === 1 ? '' : 's'} ({tested.map((c) => c.id).join(', ')}). You review and approve them; then they are locked and NeonCore runs them after every stage. </>
@@ -724,9 +728,9 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
         </div>
       )}
 
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
       <div className="flex items-center justify-between gap-2">
-        <button onClick={revise} className="text-[11px] text-gray-500 hover:text-gray-300">← Change the plan</button>
+        <button onClick={revise} className="text-[12px] text-gray-500 hover:text-gray-300">← Change the plan</button>
         <button onClick={start} disabled={busy || chosenPaths.length === 0 || short.length > 0} className={primaryBtn}
           title={short.length ? 'A stage worked together needs two or more repos' : undefined}>
           {busy ? 'Starting…' : `Start the pipeline · ${stages.length} workflow${stages.length === 1 ? '' : 's'}`}
@@ -756,48 +760,50 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
   const checking = stage.status === 'verifying';
 
   return (
-    <div className={`rounded-lg border p-3 ${stage.status === 'running' ? 'border-violet-700/50 bg-violet-900/10' : 'border-white/[0.06] bg-white/[0.02]'}`}>
-      <div className="flex items-start gap-2.5">
-        <span className={`text-[14px] leading-5 w-4 text-center ${STAGE_TONE[stage.status]}`} title={stage.status}>{STAGE_ICON[stage.status]}</span>
+    <div className={`rounded-xl border px-3.5 py-3 ${stage.status === 'running' ? 'border-[rgba(124,108,255,0.5)] bg-[rgba(124,108,255,0.1)]' : 'border-white/[0.08] bg-gl-code/60'}`}>
+      <div className="flex items-start gap-3.5">
+        <span className={`text-[18px] leading-6 w-6 text-center ${stage.status === 'running' ? 'text-[#B9AEFF]' : STAGE_TONE[stage.status]}`} title={stage.status}>{STAGE_ICON[stage.status]}</span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] text-gray-100 font-medium">{index + 1}. {stage.title}</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stage.kind === 'workflow' ? 'bg-white/[0.05] border-white/10 text-gray-400' : 'bg-sky-900/30 border-sky-700/40 text-sky-200'}`}>{kindBadge}</span>
-            <span className="text-[10px] text-gray-600">
+            <span className="text-[15px] text-gray-100 font-semibold">{index + 1}. {stage.title}</span>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded border ${stage.kind === 'workflow' ? 'bg-white/[0.05] border-white/10 text-gray-400' : 'bg-sky-900/30 border-sky-700/40 text-sky-200'}`}>{kindBadge}</span>
+            <span className="text-[11px] text-gray-500">
               {team.length >= 2
                 ? `worked together by ${team.join(' + ')}`
                 : stage.agentName || (stage.kind === 'review' ? 'a cartridge that did not do the work' : `${ENGINE_LABEL[stage.agentType] ?? stage.agentType} · ${repoName}`)}
             </span>
-            {stage.attempts > 1 && <span className="text-[10px] text-gray-600">attempt {stage.attempts}</span>}
+            {stage.attempts > 1 && <span className="text-[11px] text-gray-500">attempt {stage.attempts}</span>}
           </div>
           {pct !== null && stage.status === 'running' && (
             <div className="flex items-center gap-2 mt-1.5">
-              <div className="h-1 flex-1 bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              <div aria-hidden="true" className="flex-1 flex gap-[2px]">
+                {Array.from({ length: 24 }, (_, k) => (
+                  <span key={k} className={`flex-1 h-[5px] rounded-[1px] ${k < Math.round((24 * pct) / 100) ? 'seg-on' : 'bg-white/[0.08]'}`} />
+                ))}
               </div>
-              <span className="text-[10px] text-gray-500">{stage.progress!.completed}/{stage.progress!.total} steps{stage.runStatus === 'paused' ? ' · paused' : ''}</span>
+              <span className="text-[11px] text-gray-500">{stage.progress!.completed}/{stage.progress!.total} steps{stage.runStatus === 'paused' ? ' · paused' : ''}</span>
             </div>
           )}
           {stage.attention && (
-            <div className="mt-2 text-[12px] text-amber-200 bg-amber-900/25 border border-amber-700/40 rounded-md px-2.5 py-1.5">
-              <span className="uppercase tracking-wider text-[10px] text-amber-400/90 mr-1.5">needs you · {stage.attention.reason.replace('-', ' ')}</span>
+            <div className="mt-2 text-[13px] text-amber-200 bg-amber-900/25 border border-amber-700/40 rounded-md px-2.5 py-1.5">
+              <span className="uppercase tracking-wider text-[11px] text-amber-400/90 mr-1.5">needs you · {stage.attention.reason.replace('-', ' ')}</span>
               {stage.attention.detail}
             </div>
           )}
           {stage.status === 'waiting' && stage.waitReason && (
-            <p className="mt-1.5 text-[12px] text-amber-300/90">{stage.waitReason}</p>
+            <p className="mt-1.5 text-[13px] text-amber-300/90">{stage.waitReason}</p>
           )}
           {stage.kind === 'acceptance' && stage.status === 'review' && (
-            <p className="mt-1.5 text-[12px] text-amber-200">The tests are written — review them in the acceptance contract above, then approve to lock them.</p>
+            <p className="mt-1.5 text-[13px] text-amber-200">The tests are written — review them in the acceptance contract above, then approve to lock them.</p>
           )}
           {stage.kind === 'review' && stage.status === 'review' && (
-            <p className="mt-1.5 text-[12px] text-amber-200">The reviewer's verdicts are in — confirm or overrule them in the acceptance contract above.</p>
+            <p className="mt-1.5 text-[13px] text-amber-200">The reviewer's verdicts are in — confirm or overrule them in the acceptance contract above.</p>
           )}
           {stage.kind === 'review' && stage.status === 'running' && stage.waitReason && (
-            <p className="mt-1.5 text-[12px] text-amber-300/80">{stage.waitReason}</p>
+            <p className="mt-1.5 text-[13px] text-amber-300/80">{stage.waitReason}</p>
           )}
           {checking && (
-            <p className={`mt-1.5 text-[12px] ${stage.verifyState === 'tampered' || stage.verifyState === 'error' ? 'text-red-300' : 'text-sky-300'}`}>
+            <p className={`mt-1.5 text-[13px] ${stage.verifyState === 'tampered' || stage.verifyState === 'error' ? 'text-red-300' : 'text-sky-300'}`}>
               {stage.verifyState === 'tampered' ? 'Its run changed locked acceptance tests — see the acceptance contract above.'
                 : stage.verifyState === 'error' ? `Its work could not be checked: ${stage.waitReason}`
                 : stage.waitReason || 'Run finished — NeonCore is checking the locked tests are unchanged and running them…'}
@@ -805,16 +811,16 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
           )}
           {stage.resultSummary && (
             <details className="mt-1.5">
-              <summary className="text-[11px] text-gray-500 hover:text-gray-300 cursor-pointer">
+              <summary className="text-[12px] text-gray-500 hover:text-gray-300 cursor-pointer">
                 {stage.status === 'completed' ? 'What it produced' : 'Last result'}
               </summary>
-              <pre className="mt-1 text-[11px] text-gray-400 bg-black/30 rounded-md p-2 whitespace-pre-wrap max-h-56 overflow-auto">{stage.resultSummary}</pre>
+              <pre className="mt-1 text-[12px] text-gray-400 bg-gl-code rounded-md p-2 whitespace-pre-wrap max-h-56 overflow-auto">{stage.resultSummary}</pre>
             </details>
           )}
           {progressOpen && stage.runId && (
             <RunProgressModal workflowId={stage.runId} title={stage.title} onClose={() => { setProgressOpen(false); onChanged(); }} />
           )}
-          {error && <p className="text-[12px] text-amber-300 mt-1">{error}</p>}
+          {error && <p className="text-[13px] text-amber-300 mt-1">{error}</p>}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* A held step is the one kind of "needs you" a single click settles — no reason to send
@@ -826,7 +832,7 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
           )}
           {stage.runId && (
             <button onClick={() => setProgressOpen(true)} title="The run's progress document and what the engine has seen"
-              className="text-[11px] px-2 py-1 rounded border border-white/10 text-sky-300 hover:bg-white/5">
+              className="text-[12px] px-2 py-1 rounded border border-white/10 text-sky-300 hover:bg-white/5">
               Progress
             </button>
           )}
@@ -835,23 +841,23 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
               disabled={busy}
               onClick={() => act(() => api.advanceWorkflowStep(stage.runId, stage.attention!.stepId))}
               title={`Release "${stage.attention.stepName}" so the run continues`}
-              className="text-[11px] px-2 py-1 rounded border border-emerald-600/60 text-emerald-200 hover:bg-emerald-900/30 disabled:opacity-40"
+              className="text-[12px] px-2 py-1 rounded border border-emerald-600/60 text-emerald-200 hover:bg-emerald-900/30 disabled:opacity-40"
             >
               Advance
             </button>
           )}
           {stage.runId && (
-            <button onClick={() => onOpenRun(stage.runId)} className={`text-[11px] px-2 py-1 rounded border ${stage.attention ? 'border-amber-600/60 text-amber-200 hover:bg-amber-900/30' : 'border-white/10 text-gray-400 hover:text-gray-200'}`}>
+            <button onClick={() => onOpenRun(stage.runId)} className={`text-[12px] px-2 py-1 rounded border ${stage.attention ? 'border-amber-600/60 text-amber-200 hover:bg-amber-900/30' : 'border-white/10 text-gray-400 hover:text-gray-200'}`}>
               Open run
             </button>
           )}
           {live && checking && stage.verifyState === 'error' && (
-            <button disabled={busy} onClick={() => act(() => api.verifyGoalPilotStageAgain(pilot.id, stage.id))} className="text-[11px] px-2 py-1 rounded border border-sky-600/50 text-sky-200 hover:bg-sky-900/30 disabled:opacity-40">
+            <button disabled={busy} onClick={() => act(() => api.verifyGoalPilotStageAgain(pilot.id, stage.id))} className="text-[12px] px-2 py-1 rounded border border-sky-600/50 text-sky-200 hover:bg-sky-900/30 disabled:opacity-40">
               Check again
             </button>
           )}
           {live && ['failed', 'cancelled', 'waiting'].includes(stage.status) && (
-            <button disabled={busy} onClick={() => act(() => api.retryGoalPilotStage(pilot.id, stage.id))} className="text-[11px] px-2 py-1 rounded border border-violet-600/50 text-violet-200 hover:bg-violet-900/30 disabled:opacity-40">
+            <button disabled={busy} onClick={() => act(() => api.retryGoalPilotStage(pilot.id, stage.id))} className="text-[12px] px-2 py-1 rounded border border-violet-600/50 text-violet-200 hover:bg-violet-900/30 disabled:opacity-40">
               Retry
             </button>
           )}
@@ -865,7 +871,7 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
                   : stage.status === 'running' ? 'Skip this stage? Its run will be cancelled.' : '';
                 if (!warning || confirm(warning)) act(() => api.skipGoalPilotStage(pilot.id, stage.id));
               }}
-              className="text-[11px] px-2 py-1 rounded border border-white/10 text-gray-500 hover:text-gray-200 disabled:opacity-40"
+              className="text-[12px] px-2 py-1 rounded border border-white/10 text-gray-500 hover:text-gray-200 disabled:opacity-40"
             >
               Skip
             </button>
@@ -900,15 +906,15 @@ function GoalReportCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () 
     <div className="rounded-lg border border-violet-700/40 bg-violet-950/30 p-3.5 space-y-2.5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <h4 className="text-[13px] text-violet-100 font-semibold">Goal report</h4>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${REPORT_TONE[r.status] ?? 'text-gray-300 border-white/20'}`}>{r.status}</span>
+          <h4 className="text-[14px] text-violet-100 font-semibold">Goal report</h4>
+          <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${REPORT_TONE[r.status] ?? 'text-gray-300 border-white/20'}`}>{r.status}</span>
         </div>
         <div className="flex items-center gap-2">
           <a href={`${base}/html`} target="_blank" rel="noreferrer" className={primaryBtn}>Open report</a>
           <a href={`${base}/markdown`} className={quietBtn}>Download .md</a>
         </div>
       </div>
-      <div className="flex gap-4 flex-wrap text-[11px] text-gray-400">
+      <div className="flex gap-4 flex-wrap text-[12px] text-gray-400">
         {r.acceptance && r.acceptance.total > 0 && (
           <span className={r.acceptance.passing === r.acceptance.total ? 'text-emerald-300' : 'text-amber-300'}>
             {r.acceptance.passing}/{r.acceptance.total} criteria pass
@@ -922,28 +928,28 @@ function GoalReportCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () 
         {r.outcome.issues > 0 && <span className="text-amber-300">{r.outcome.issues} issue{r.outcome.issues === 1 ? '' : 's'}</span>}
         <span>${r.costUsd.toFixed(2)} spent</span>
       </div>
-      <p className="text-[13px] text-gray-200 leading-relaxed">{r.summary.text}</p>
+      <p className="text-[14px] text-gray-200 leading-relaxed">{r.summary.text}</p>
       {r.summary.highlights.length > 0 && (
         <div>
-          <h5 className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">What was done</h5>
-          <ul className="text-[12px] text-gray-300 space-y-0.5">{r.summary.highlights.map((h, i) => <li key={i}>· {h}</li>)}</ul>
+          <h5 className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">What was done</h5>
+          <ul className="text-[13px] text-gray-300 space-y-0.5">{r.summary.highlights.map((h, i) => <li key={i}>· {h}</li>)}</ul>
         </div>
       )}
       {r.openItems.length > 0 && (
         <div>
-          <h5 className="text-[10px] text-amber-400/80 uppercase tracking-wider mb-1">Still open</h5>
-          <ul className="text-[12px] text-amber-100/80 space-y-0.5">{r.openItems.slice(0, 6).map((h, i) => <li key={i}>☐ {h}</li>)}</ul>
-          {r.openItems.length > 6 && <p className="text-[11px] text-gray-500 mt-0.5">+{r.openItems.length - 6} more in the report</p>}
+          <h5 className="text-[11px] text-amber-400/80 uppercase tracking-wider mb-1">Still open</h5>
+          <ul className="text-[13px] text-amber-100/80 space-y-0.5">{r.openItems.slice(0, 6).map((h, i) => <li key={i}>☐ {h}</li>)}</ul>
+          {r.openItems.length > 6 && <p className="text-[12px] text-gray-500 mt-0.5">+{r.openItems.length - 6} more in the report</p>}
         </div>
       )}
-      <p className="text-[11px] text-gray-500">
+      <p className="text-[12px] text-gray-500">
         {writing ? `${pilot.plannerName || 'The planner'} is writing the summary… until then it is compiled from the run reports.`
           : r.summary.source === 'planner' ? 'Summary written by the planner from the records.'
           : 'Summary compiled from the run reports.'}
         {plannerFailed && (
           <> The planner did not answer. <button onClick={askAgain} disabled={busy} className="text-violet-400 hover:text-violet-300">Ask again</button></>
         )}
-        {r.files && <span className="block text-gray-600 font-mono truncate" title={r.files.html}>Saved to {r.files.html.replace(/\/[^/]+$/, '/')}</span>}
+        {r.files && <span className="block text-gray-500 font-mono truncate" title={r.files.html}>Saved to {r.files.html.replace(/\/[^/]+$/, '/')}</span>}
       </p>
     </div>
   );
@@ -963,28 +969,28 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-[12px] text-gray-400">{pipelineSummary(pilot.stages)}</p>
+        <p className="text-[14px] text-[#CFC8FF]">{pipelineSummary(pilot.stages)}</p>
         <div className="flex items-center gap-2">
-          {pilot.phase === 'running' && <button disabled={busy} onClick={() => act(() => api.pauseGoalPilot(pilot.id))} className="text-xs text-amber-400 hover:text-amber-300 px-2 py-1">Pause</button>}
+          {pilot.phase === 'running' && <button disabled={busy} onClick={() => act(() => api.pauseGoalPilot(pilot.id))} className={quietBtn}>Pause</button>}
           {/* A changed locked test is resolved in the contract card (restore / accept), not by resuming. */}
-          {pilot.phase === 'paused' && !pilot.acceptance?.tamper && <button disabled={busy} onClick={() => act(() => api.resumeGoalPilot(pilot.id))} className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1">Resume</button>}
+          {pilot.phase === 'paused' && !pilot.acceptance?.tamper && <button disabled={busy} onClick={() => act(() => api.resumeGoalPilot(pilot.id))} className={primaryBtn}>Resume</button>}
         </div>
       </div>
 
       {pilot.phase === 'paused' && pilot.attention && (
-        <div className="text-[12px] text-amber-200 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">{pilot.attention}</div>
+        <div className="text-[13px] text-amber-200 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">{pilot.attention}</div>
       )}
       {pilot.report && <GoalReportCard pilot={pilot} onChanged={onChanged} />}
       <ContractCard pilot={pilot} onChanged={onChanged} />
       {!pilot.report && pilot.phase === 'cancelled' && pilot.stages.some((s) => s.runId) && (
         <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-white/10">
-          <p className="text-[12px] text-gray-400">This pipeline was cancelled part-way. A report can still account for what ran.</p>
+          <p className="text-[13px] text-gray-400">This pipeline was cancelled part-way. A report can still account for what ran.</p>
           <button disabled={busy} onClick={() => act(() => api.buildGoalPilotReport(pilot.id))} className={quietBtn}>Build report</button>
         </div>
       )}
       {pilot.phase === 'completed' && (
         <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-emerald-900/20 border border-emerald-700/40">
-          <p className="text-[13px] text-emerald-200">
+          <p className="text-[14px] text-emerald-200">
             Every stage finished.{pilot.acceptance && pilot.acceptance.total > 0
               ? ` ${pilot.acceptance.passing} of ${pilot.acceptance.total} acceptance criteria pass on NeonCore's own check.`
               : ' Check the results against “done when”.'} Then close the goal.
@@ -1000,7 +1006,7 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
       <div className="space-y-2">
         {pilot.stages.map((s, i) => <StageRow key={s.id} pilot={pilot} stage={s} index={i} onOpenRun={setOpenRun} onChanged={onChanged} />)}
       </div>
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
 
       {openRun && (
         <WorkflowCanvasEditor workflowId={openRun} agents={agents} onClose={() => { setOpenRun(null); onChanged(); }} />
@@ -1062,10 +1068,10 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
   if (pilots === null) return null;
 
   const shell = (body: React.ReactNode, header?: React.ReactNode) => (
-    <section className="rounded-xl border border-violet-700/30 bg-gradient-to-b from-violet-950/30 to-transparent p-4 space-y-3">
+    <section className="rounded-[22px] border border-[rgba(124,108,255,0.45)] bg-[rgba(10,16,32,0.85)] shadow-[0_0_36px_rgba(124,108,255,0.14)] p-6 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h3 className="text-[12px] text-violet-200 font-semibold uppercase tracking-wider flex items-center gap-2">
-          <span aria-hidden="true">✦</span> Goal Pilot
+        <h3 className="font-display text-[22px] text-gray-100 font-semibold flex items-center gap-2">
+          <span aria-hidden="true" className="text-[#B9AEFF]">✦</span> Goal Pilot
         </h3>
         {header}
       </div>
@@ -1077,7 +1083,7 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
     if (!starting) {
       return shell(
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[12px] text-gray-400 max-w-xl">
+          <p className="text-[13px] text-gray-400 max-w-xl">
             Let a planner cartridge scope this goal with you, propose the workflows that deliver it, and run them in order
             on the repos you choose — so no agent has to ask anything once work starts.
           </p>
@@ -1092,11 +1098,10 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
 
   const header = (
     <div className="flex items-center gap-3 flex-wrap">
-      <Stepper pilot={pilot} />
       {isLivePilot(pilot) ? (
-        <button onClick={cancel} className="text-[11px] text-gray-600 hover:text-red-400">Cancel pilot</button>
+        <button onClick={cancel} className={dangerBtn}>Cancel pilot</button>
       ) : (
-        <button onClick={() => setStarting(true)} className="text-[11px] text-violet-400 hover:text-violet-300">
+        <button onClick={() => setStarting(true)} className={primaryBtn}>
           {pilot.phase === 'cancelled' ? 'Start over' : 'Pilot again'}
         </button>
       )}
@@ -1108,15 +1113,16 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged }: { goal: Goal; ag
   else if (pilot.phase === 'clarifying') body = <QuestionsStep pilot={pilot} onChanged={load} />;
   else if (pilot.phase === 'proposed') body = meta ? <PlanStep key={pilot.updatedAt} pilot={pilot} meta={meta} onChanged={load} /> : null;
   else if (pilot.phase === 'staffing') body = meta ? <StaffStep pilot={pilot} meta={meta} onChanged={load} /> : null;
-  else if (pilot.phase === 'cancelled' && pilot.stages.length === 0) body = <p className="text-[12px] text-gray-500">This pilot was cancelled before anything ran.</p>;
+  else if (pilot.phase === 'cancelled' && pilot.stages.length === 0) body = <p className="text-[13px] text-gray-500">This pilot was cancelled before anything ran.</p>;
   else body = <PipelineStep pilot={pilot} goal={goal} agents={agents} onChanged={load} onGoalChanged={onGoalChanged} />;
 
   return shell(
     <>
+      <Stepper pilot={pilot} />
       {body}
       {pilot.phase !== 'clarifying' && <Conversation pilot={pilot} />}
       {pilot.phase === 'clarifying' && pilot.rounds.length > 1 && <Conversation pilot={{ ...pilot, rounds: pilot.rounds.slice(0, -1) }} />}
-      {error && <p className="text-[12px] text-amber-300">{error}</p>}
+      {error && <p className="text-[13px] text-amber-300">{error}</p>}
     </>,
     header,
   );

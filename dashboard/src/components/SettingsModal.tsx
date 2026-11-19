@@ -20,7 +20,7 @@ const BADGE_STYLES: Record<string, string> = {
   teal: 'bg-teal-900/60 text-teal-300',
   orange: 'bg-orange-900/60 text-orange-300',
   green: 'bg-green-900/60 text-green-300',
-  violet: 'bg-violet-900/60 text-violet-300',
+  violet: 'bg-neon-500/20 text-neon-50',
 };
 
 type SettingsTab = 'projects' | 'tools' | 'notifications' | 'github' | 'demo';
@@ -170,8 +170,10 @@ export function SettingsModal({ onClose }: Props) {
   };
 
   const tabClass = (target: SettingsTab) =>
-    `px-3 py-1.5 text-xs font-medium transition-colors rounded-md ${
-      tab === target ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+    `h-11 px-3.5 text-left text-sm font-semibold transition-colors rounded-[10px] border ${
+      tab === target
+        ? 'bg-neon-500/[0.18] border-neon-500 text-neon-50'
+        : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
     }`;
   const isAlreadyAdded = savedDirs.includes(currentPath);
 
@@ -179,22 +181,21 @@ export function SettingsModal({ onClose }: Props) {
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
     >
-      <div className="glass rounded-xl md:rounded-2xl w-full max-w-lg mx-2 md:mx-0 flex flex-col shadow-2xl max-h-[85vh] md:max-h-[75vh]">
-        <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-white/[0.06]">
-          <div className="flex items-center gap-4">
-            <h2 className="text-lg font-semibold text-white">Settings</h2>
-            <div className="flex gap-1">
-              <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
-              <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
-              <button onClick={() => setTab('notifications')} className={tabClass('notifications')}>Notifications</button>
-              <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
-              <button onClick={() => setTab('demo')} className={tabClass('demo')}>Demo</button>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-[1040px] mx-2 md:mx-0 flex flex-col md:flex-row overflow-hidden h-[85vh] md:h-[760px] max-h-[90vh]">
+        {/* Left tab column (Night Glass): the sections read as a list, not a strip of chips. */}
+        <div className="md:w-[240px] shrink-0 px-4 py-6 border-b md:border-b-0 md:border-r border-white/[0.08] bg-gray-950 flex md:flex-col gap-1.5 overflow-x-auto">
+          <h2 className="font-display text-[22px] font-semibold text-gray-100 mb-3.5 ml-2 hidden md:block">Settings</h2>
+          <button onClick={() => setTab('projects')} className={tabClass('projects')}>Projects</button>
+          <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
+          <button onClick={() => setTab('notifications')} className={tabClass('notifications')}>Notifications</button>
+          <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
+          <button onClick={() => setTab('demo')} className={tabClass('demo')}>Demo</button>
         </div>
+        <div className="flex-1 min-w-0 flex flex-col overflow-y-auto relative">
+        <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 w-10 h-10 rounded-[10px] border border-white/[0.16] text-gray-300 hover:text-white text-lg leading-none z-10">&times;</button>
+        <div className="h-4 shrink-0" />
 
         {tab === 'notifications' ? (
           <div className="overflow-y-auto"><NotificationSettings /></div>
@@ -223,7 +224,7 @@ export function SettingsModal({ onClose }: Props) {
                 </span>
               </span>
             </label>
-            <p className="text-[12px] text-gray-600 border-l-2 border-white/10 pl-3">
+            <p className="text-[12px] text-gray-500 border-l-2 border-white/10 pl-3">
               Your real cartridges, workflows and schedules keep running exactly as they are.
               Demo mode changes what this tab shows, not what NeonCore does. Switching it on or
               off reloads the page.
@@ -232,12 +233,12 @@ export function SettingsModal({ onClose }: Props) {
         ) : tab === 'projects' ? (
           <>
             {savedDirs.length > 0 && (
-              <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.06] space-y-1">
+              <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.08] space-y-1">
                 <span className="text-[13px] text-gray-500 uppercase tracking-wider">Watched Directories</span>
                 {savedDirs.map((dir) => (
                   <div key={dir} className="flex items-center gap-2 group">
                     <span className="text-sm text-gray-300 font-mono truncate flex-1">{dir}</span>
-                    <button onClick={() => handleRemoveDir(dir)} className="text-xs text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleRemoveDir(dir)} className="text-xs text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                       remove
                     </button>
                   </div>
@@ -245,7 +246,7 @@ export function SettingsModal({ onClose }: Props) {
               </div>
             )}
 
-            <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.06] flex items-center gap-2 text-sm">
+            <div className="px-4 py-2.5 md:px-6 border-b border-white/[0.08] flex items-center gap-2 text-sm">
               <button onClick={() => parentPath && browse(parentPath)} disabled={!parentPath} className="text-gray-400 hover:text-white disabled:opacity-30">
                 ..
               </button>
@@ -286,7 +287,7 @@ export function SettingsModal({ onClose }: Props) {
               <button
                 onClick={handleAddDir}
                 disabled={saving || !currentPath || isAlreadyAdded}
-                className="text-sm px-4 py-2 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-colors"
+                className="text-sm px-4 py-2 btn-primary hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-colors"
               >
                 {saving ? 'Saving...' : isAlreadyAdded ? 'Already Added' : 'Add This Directory'}
               </button>
@@ -316,7 +317,7 @@ export function SettingsModal({ onClose }: Props) {
                           <div className="text-xs text-gray-500 mt-1">
                             CLI {info.cliInstalled ? 'installed' : 'missing'} · hooks {info.hooksExist ? 'installed' : 'not installed'}
                           </div>
-                          {info.cliPath && <div className="text-[11px] text-gray-600 font-mono truncate max-w-[320px]">{info.cliPath}</div>}
+                          {info.cliPath && <div className="text-[11px] text-gray-500 font-mono truncate max-w-[320px]">{info.cliPath}</div>}
                         </div>
                         <div className="flex items-center gap-2">
                           {info.hooksExist && (
@@ -370,13 +371,14 @@ export function SettingsModal({ onClose }: Props) {
               {ghMsg && (
                 <div className={`text-xs ${ghMsg.type === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{ghMsg.text}</div>
               )}
-              <p className="text-[11px] text-gray-600 leading-relaxed pt-1">
+              <p className="text-[11px] text-gray-500 leading-relaxed pt-1">
                 Note: repos with SSH remotes authenticate via your SSH key, which this doesn't change — this
                 affects gh commands, HTTPS pushes, and commit author.
               </p>
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );

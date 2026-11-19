@@ -53,14 +53,14 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
   }, [logs.length]);
 
   return (
-    <div className="shrink-0 border-t border-white/[0.06]">
+    <div className="shrink-0 border-t border-white/[0.14] bg-[rgba(5,9,19,0.96)]">
       {/* Header */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-center gap-2 px-5 py-2 hover:bg-white/[0.03] transition-colors"
       >
         <svg
-          className={`w-3 h-3 text-gray-500 transition-transform ${collapsed ? '' : 'rotate-180'}`}
+          className={`w-3 h-3 text-gray-400 transition-transform ${collapsed ? '' : 'rotate-180'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -68,11 +68,11 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
         </svg>
-        <span className="text-[13px] text-gray-500 uppercase tracking-wider font-semibold">
+        <span className="text-[12px] text-gray-400 uppercase tracking-[0.12em]">
           Execution Log
         </span>
         {logs.length > 0 && (
-          <span className="text-[13px] bg-white/5 text-gray-500 px-1.5 rounded-full">
+          <span className="text-[12px] bg-white/[0.06] text-gray-300 px-1.5 rounded-full">
             {logs.length}
           </span>
         )}
@@ -83,7 +83,7 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
               e.stopPropagation();
               onClear();
             }}
-            className="text-[13px] text-gray-600 hover:text-gray-400 transition-colors cursor-pointer"
+            className="text-[12px] text-gray-400 hover:text-gray-200 transition-colors cursor-pointer"
           >
             Clear
           </span>
@@ -95,19 +95,19 @@ export function WorkflowExecutionLog({ logs, collapsed, onToggle, onClear }: Pro
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-40 overflow-y-auto bg-[#0d0d14] px-3 py-2 font-mono text-[13px] leading-relaxed"
+          className="h-40 overflow-y-auto bg-transparent px-5 py-2 font-mono text-[12px] leading-[1.8] text-gray-300"
         >
           {logs.length === 0 ? (
-            <div className="text-gray-600 text-center py-6">
+            <div className="text-gray-400 text-center py-6 font-sans text-[13px]">
               Run a workflow to see execution logs here.
             </div>
           ) : (
             logs.slice(-MAX_LOGS).map((log, i) => (
               <div key={i} className="flex items-start gap-2 py-px">
-                <span className="text-gray-600 shrink-0">{formatTime(log.timestamp)}</span>
+                <span className="text-gray-400 shrink-0">{formatTime(log.timestamp)}</span>
                 <span className={`w-1.5 h-1.5 rounded-full mt-[5px] shrink-0 ${TYPE_DOTS[log.type]}`} />
                 {log.stepName && (
-                  <span className="text-gl-purple shrink-0 truncate max-w-[140px]">
+                  <span className="text-neon-300 shrink-0 truncate max-w-[140px]">
                     {log.stepName}
                   </span>
                 )}

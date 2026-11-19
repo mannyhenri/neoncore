@@ -88,13 +88,13 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
   }, {});
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+    <div className={`rounded-2xl px-[18px] py-3.5 ${haltedOnly ? 'bg-amber-400/[0.07] border border-amber-400/40' : 'glass-light'}`}>
       <div className="flex items-center justify-between mb-3">
         <SectionTitle count={items.length}>Queue</SectionTitle>
         <button
           onClick={() => void run(() => api.tickQueue())}
           disabled={busy}
-          className="px-2 py-1 text-[11px] rounded bg-white/[0.06] text-gray-300 hover:bg-white/10 disabled:opacity-40"
+          className="btn-ghost h-9 px-3 text-xs font-semibold rounded-[9px] disabled:opacity-40"
           title="Drain now instead of waiting for the next 15s tick"
         >
           Tick now
@@ -123,16 +123,16 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
         return (
           <div key={lane} className="mb-3">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[11px] text-gray-400 font-mono">{lane}</span>
+              <span className="text-[13px] text-gray-100 font-mono font-semibold">lane: {lane}</span>
               {halted && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300">
+                <span className="text-[11px] font-bold tracking-[1px] text-amber-200">
                   HALTED
                 </span>
               )}
               <button
                 onClick={() => void run(() => halted ? api.resumeQueueLane(lane) : api.pauseQueueLane(lane))}
                 disabled={busy}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 hover:text-gray-200 disabled:opacity-40"
+                className="h-9 px-3 text-xs font-semibold rounded-[9px] border border-amber-400/50 text-amber-100 hover:bg-amber-400/10 disabled:opacity-40 capitalize"
               >
                 {halted ? 'resume' : 'pause'}
               </button>
@@ -140,7 +140,7 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
 
             {/* WHY it stopped, not just that it did. Without this the halt looks like a bug. */}
             {meta?.haltedReason && (
-              <p className="text-[11px] text-amber-400/90 mb-1 pl-1">{meta.haltedReason}</p>
+              <p className="text-[13px] text-gray-300 mb-1">{meta.haltedReason}</p>
             )}
 
             {/* Items are CARDS in the task list, never rows here. Rendering them in strip mode
@@ -163,11 +163,11 @@ export function QueuePanel({ haltedOnly = false }: { haltedOnly?: boolean } = {}
                       <button onClick={() => void run(() => api.moveQueueItem(i.id, 'up'))}
                         disabled={busy || lanePosition(items, i.id).isFirst}
                         title={lanePosition(items, i.id).isFirst ? 'Already first in its lane' : 'Run this sooner'}
-                        className="text-gray-600 hover:text-gray-300 shrink-0 disabled:opacity-30">↑</button>
+                        className="text-gray-500 hover:text-gray-300 shrink-0 disabled:opacity-30">↑</button>
                       <button onClick={() => void run(() => api.moveQueueItem(i.id, 'down'))}
                         disabled={busy || lanePosition(items, i.id).isLast}
                         title={lanePosition(items, i.id).isLast ? 'Already last in its lane' : 'Run this later'}
-                        className="text-gray-600 hover:text-gray-300 shrink-0 disabled:opacity-30">↓</button>
+                        className="text-gray-500 hover:text-gray-300 shrink-0 disabled:opacity-30">↓</button>
                       <button
                         onClick={() => void run(() => i.paused ? api.resumeQueueItem(i.id) : api.pauseQueueItem(i.id))}
                         disabled={busy}

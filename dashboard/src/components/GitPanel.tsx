@@ -98,36 +98,36 @@ export function GitPanel({ agent, onClose }: Props) {
   };
 
   const tabClass = (t: Tab) =>
-    `px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+    `flex-1 h-9 px-3 text-[13px] font-semibold rounded-[7px] transition-colors ${
       tab === t
-        ? 'bg-gl-purple/20 text-gl-purple'
-        : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.06]'
+        ? 'bg-neon-500/[0.22] text-neon-50'
+        : 'text-gray-400 hover:text-gray-200'
     }`;
 
   return createPortal(
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center p-4"
       style={{ zIndex: 10000 }}
     >
-      <div className="glass rounded-xl md:rounded-2xl w-full max-w-3xl mx-2 md:mx-0 max-h-[95vh] md:max-h-[85vh] flex flex-col shadow-2xl">
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-3xl mx-2 md:mx-0 max-h-[95vh] md:max-h-[85vh] flex flex-col shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-5 border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.08]">
           <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <svg className="w-5 h-5 text-gl-purple" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+            <h2 className="font-display text-xl font-semibold text-gray-100 flex items-center gap-2">
+              <svg className="w-5 h-5 text-neon-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
               </svg>
               Git
             </h2>
             <p className="text-sm text-gray-500 mt-0.5">{agent.repoName || agent.name}{agent.branch ? ` (${agent.branch})` : ''}</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="w-10 h-10 rounded-[10px] border border-white/[0.16] text-gray-300 hover:text-white text-xl leading-none">&times;</button>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-4 md:px-6 pt-3 pb-2">
+        <div className="flex gap-1 mx-6 mt-4 p-1 rounded-[10px] bg-gl-code border border-white/[0.1]">
           <button onClick={() => setTab('status')} className={tabClass('status')}>Status</button>
           <button onClick={() => setTab('worktrees')} className={tabClass('worktrees')}>Worktrees</button>
           <button onClick={() => setTab('branches')} className={tabClass('branches')}>Branches</button>
@@ -144,18 +144,18 @@ export function GitPanel({ agent, onClose }: Props) {
             <>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Status</span>
-                  <button onClick={loadStatus} className="text-xs text-gray-500 hover:text-gl-purple transition-colors">
+                  <span className="text-xs text-gray-400 uppercase tracking-[1.2px] font-semibold">Status</span>
+                  <button onClick={loadStatus} className="text-xs text-gray-500 hover:text-neon-300 transition-colors">
                     Refresh
                   </button>
                 </div>
-                <pre className="text-xs text-gray-300 bg-black/40 rounded-lg p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+                <pre className="text-xs text-gray-300 bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto font-mono whitespace-pre-wrap">
                   {gitStatus || '(clean)'}
                 </pre>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Diff</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-[1.2px] font-semibold">Diff</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setStaged(!staged)}
@@ -167,7 +167,7 @@ export function GitPanel({ agent, onClose }: Props) {
                     </button>
                   </div>
                 </div>
-                <pre className="text-xs text-gray-300 bg-black/40 rounded-lg p-3 overflow-x-auto font-mono whitespace-pre-wrap max-h-80">
+                <pre className="text-xs text-gray-300 bg-gl-code border border-white/[0.1] rounded-[10px] p-3 overflow-x-auto font-mono whitespace-pre-wrap max-h-80">
                   {gitDiff || '(no changes)'}
                 </pre>
               </div>
@@ -178,7 +178,7 @@ export function GitPanel({ agent, onClose }: Props) {
           {tab === 'worktrees' && !loading && (
             <>
               {worktrees.length === 0 && (
-                <p className="text-sm text-gray-600 italic text-center py-4">No worktrees found</p>
+                <p className="text-sm text-gray-500 italic text-center py-4">No worktrees found</p>
               )}
               <div className="space-y-2">
                 {worktrees.map((wt, i) => (
@@ -190,12 +190,12 @@ export function GitPanel({ agent, onClose }: Props) {
                           <span className="text-[13px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400">main</span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600 truncate mt-0.5" title={wt.path}>{wt.path}</p>
+                      <p className="text-xs text-gray-500 truncate mt-0.5" title={wt.path}>{wt.path}</p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => handleOpenWorktree(wt.path)}
-                        className="text-xs px-2.5 py-1 glass-input hover:bg-white/[0.15] text-gray-300 hover:text-white rounded-md transition-colors"
+                        className="text-xs px-2.5 py-1 btn-ghost rounded-[9px] transition-colors"
                         title="Open in VS Code"
                       >
                         Open
@@ -203,7 +203,7 @@ export function GitPanel({ agent, onClose }: Props) {
                       {i > 0 && (
                         <button
                           onClick={() => handleRemoveWorktree(wt.path)}
-                          className="text-xs px-2 py-1 text-gray-600 hover:text-red-400 transition-colors"
+                          className="text-xs px-2 py-1 text-gray-500 hover:text-red-400 transition-colors"
                           title="Remove worktree"
                         >
                           Remove
@@ -216,7 +216,7 @@ export function GitPanel({ agent, onClose }: Props) {
 
               {/* Create worktree form */}
               <div className="glass-light rounded-lg p-3">
-                <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Create Worktree</span>
+                <span className="text-xs text-gray-400 uppercase tracking-[1.2px] font-semibold">Create Worktree</span>
                 <div className="flex gap-2 mt-2">
                   <input
                     type="text"
@@ -229,7 +229,7 @@ export function GitPanel({ agent, onClose }: Props) {
                   <button
                     onClick={handleCreateWorktree}
                     disabled={!newBranch.trim() || creating}
-                    className="text-sm px-3 py-1.5 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-opacity"
+                    className="text-sm px-3 py-1.5 btn-primary font-semibold rounded-[10px] disabled:opacity-30 transition-opacity"
                   >
                     {creating ? 'Creating...' : 'Create'}
                   </button>
@@ -242,19 +242,19 @@ export function GitPanel({ agent, onClose }: Props) {
           {tab === 'branches' && !loading && (
             <>
               {branches.length === 0 && (
-                <p className="text-sm text-gray-600 italic text-center py-4">No branches found</p>
+                <p className="text-sm text-gray-500 italic text-center py-4">No branches found</p>
               )}
               <div className="space-y-1">
                 {branches.map((b) => (
                   <div key={b} className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-white/[0.06] transition-colors">
-                    <svg className="w-3.5 h-3.5 text-gray-600 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                     </svg>
-                    <span className={`text-sm font-mono ${b === agent.branch ? 'text-gl-purple font-semibold' : 'text-gray-400'}`}>
+                    <span className={`text-sm font-mono ${b === agent.branch ? 'text-neon-400 font-semibold' : 'text-gray-400'}`}>
                       {b}
                     </span>
                     {b === agent.branch && (
-                      <span className="text-[13px] px-1.5 py-0.5 rounded bg-gl-purple/20 text-gl-purple">current</span>
+                      <span className="text-[13px] px-1.5 py-0.5 rounded bg-neon-500/20 text-neon-200">current</span>
                     )}
                   </div>
                 ))}
