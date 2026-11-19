@@ -35,7 +35,9 @@ const CASES: { label: string; event: string; payload?: string; want: 'working' |
   { label: 'the user sent a prompt', event: 'user_prompt', want: 'working' },
   { label: 'the user ran a command', event: 'user_command', want: 'working' },
   { label: 'a turn ended', event: 'Stop', want: 'working' },
-  { label: 'a subagent finished', event: 'SubagentStop', want: 'working' },
+  // A subagent finishing is not work starting: after the turn ended it would re-mark the cartridge
+  // busy with nothing running (FINISHED_EVENTS; test/finished-events-after-turn.test.ts).
+  { label: 'a subagent finished', event: 'SubagentStop', want: null },
 
   // Blocked on a human — the whole point.
   {

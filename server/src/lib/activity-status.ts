@@ -42,8 +42,20 @@ export const WORKING_EVENTS = new Set([
   // that check — not this event — decides whether the turn is really over (a blocked stop keeps
   // going). The turn's end flips the status to idle there: routes/agents.ts `turnEnded`.
   'Stop',
-  'SubagentStop',
+  // NOT SubagentStop: it reports a subagent ending — see FINISHED_EVENTS.
 ]);
+
+/**
+ * Events that report something ENDING, never something starting: they prove the cartridge is alive
+ * (last_seen) and say nothing about whether it can take work.
+ *
+ * SubagentStop was in WORKING_EVENTS. A background subagent can finish after the main turn ended
+ * (Stop → completion check → idle), and its SubagentStop then set the cartridge back to `working`
+ * with nothing running. No main Stop follows a subagent's, so nothing flipped it back: queued work
+ * and pipeline stages waited on "busy" until the 2-minute staleness sweep (index.ts) released it.
+ * Mid-turn it adds nothing — the prompt and tool events already said `working`.
+ */
+export const FINISHED_EVENTS = new Set(['SubagentStop']);
 
 /** Events that ARE the question, regardless of payload. */
 export const ASKING_EVENTS = new Set(['ask_user']);
