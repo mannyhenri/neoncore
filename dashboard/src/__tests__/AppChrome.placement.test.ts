@@ -291,11 +291,11 @@ describe('dashboard chrome placement', () => {
   });
 
   /**
-   * NIGHT GLASS: the view bar. Agents leads because it is where the day is spent; Projects
-   * (the goals view) is second; Tasks and Tokens follow. Pinned as adjacent pairs so a
+   * NIGHT GLASS: the view bar. Projects (the goals view) leads, asked for 2026-11-18; Agents
+   * is second and stays the default view; Tasks and Tokens follow. Pinned as adjacent pairs so a
    * reshuffle fails on the pair it broke.
    */
-  const VIEW_ORDER = ['agents', 'goals', 'tasks', 'tokens'] as const;
+  const VIEW_ORDER = ['goals', 'agents', 'tasks', 'tokens'] as const;
 
   it.each(
     VIEW_ORDER.slice(0, -1).map((left, i) => ({ left, right: VIEW_ORDER[i + 1] })),

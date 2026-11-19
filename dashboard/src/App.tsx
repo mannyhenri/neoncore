@@ -163,17 +163,17 @@ export default function App() {
   return (
     <div className="min-h-full text-gray-100 bg-ink flex flex-col md:flex-row">
       {/* THE VIEW BAR. Night Glass moves navigation out of the top bar into a slim left bar
-          (a bottom tab bar below md), Agents first because it is where the day is spent.
+          (a bottom tab bar below md), Projects first, then Agents (still the default view).
           Guide and Settings are chrome, so they sit at the bar's foot. */}
       <nav
         aria-label="Views"
         className="order-last md:order-first fixed md:sticky bottom-0 md:top-0 inset-x-0 md:inset-x-auto z-30 md:h-screen md:w-[76px] flex-shrink-0 flex md:flex-col items-center justify-around md:justify-start gap-2 px-2 py-2 md:py-[18px] border-t md:border-t-0 md:border-r border-white/[0.08] bg-gray-950"
       >
-        <NavItem active={activeView === 'agents'} onClick={() => setActiveView('agents')} label="Agents">
-          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
-        </NavItem>
         <NavItem active={activeView === 'goals'} onClick={() => setActiveView('goals')} label="Projects">
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+        </NavItem>
+        <NavItem active={activeView === 'agents'} onClick={() => setActiveView('agents')} label="Agents">
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
         </NavItem>
         <NavItem active={activeView === 'tasks'} onClick={() => setActiveView('tasks')} label="Tasks" badge={activeTaskCount}>
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
