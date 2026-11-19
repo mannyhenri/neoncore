@@ -433,8 +433,8 @@ export function WorldScene({
             const at = plate.districts.find((x) => x.id === d);
             if (at?.x === undefined || at.y === undefined) return null;
             return (
-              <div key={`${z.projectId}-${d}`} data-zone-label={d} className={PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: 1 }}>
-                <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: z.color || ENGINE_COLOURS.claude.suit }} />
+              <div key={`${z.projectId}-${d}`} data-zone-label={d} className={PROJECT_PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: 1 }}>
+                <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: z.color || ENGINE_COLOURS.claude.suit }} />
                 <span className="font-semibold text-gray-100">{z.name}</span>
                 {z.features.total > 0 && <span className="text-gray-400"> · {z.features.done}/{z.features.total} features</span>}
                 {z.features.active > 0 && <span className="text-emerald-300"> · {z.features.active} under way</span>}
@@ -795,6 +795,8 @@ const walkSeconds = (from: Spot, to: Spot) => Math.min(7, Math.max(0.7, Math.hyp
 
 /** Name plates on the map: Night Glass, small, never in the way of a click. */
 const PLATE_CLASS = 'absolute -translate-x-1/2 mt-0.5 px-1.5 py-px rounded-md border border-white/[0.14] bg-[rgba(10,16,32,0.82)] font-mono text-[10px] leading-4 text-gray-300 whitespace-nowrap pointer-events-none select-none';
+/** A project's name on its district — a step up from the repo and machine plates, so the map reads by project. */
+const PROJECT_PLATE_CLASS = 'absolute -translate-x-1/2 mt-0.5 px-2 py-0.5 rounded-md border border-white/[0.14] bg-[rgba(10,16,32,0.82)] font-mono text-[12px] leading-5 text-gray-300 whitespace-nowrap pointer-events-none select-none';
 
 /**
  * SESSION ENDED → the figure walks from where it stood to its machine's landing pad, then it
