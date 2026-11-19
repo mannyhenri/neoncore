@@ -5,6 +5,7 @@
 
 Reads (from the designs folder):
     captain-sheet.png    3 rows x 4 columns on flat magenta: idle / brief / call      (Projects)
+    captain-sheet-2.png  3 more rows for the captain: log / celebrate / worry
     engineer-sheet.png   3 rows x 4 columns: idle / work / call                        (Flows)
     core-sheet.png       4 rows x 4 columns: low / normal / high / warn                (Tokens)
     quartermaster-sheet.png  3 rows x 4 columns: idle / work / call                    (Tasks)
@@ -24,7 +25,8 @@ from build_crew_sheets import keyed  # the same chroma key as the crew
 
 # name -> (source file in designs/, the cycles in row order). Every sheet is 4 columns.
 SHEETS = {
-    'captain': ('captain-sheet.png', ['idle', 'brief', 'call']),
+    # A character can be drawn over several sheets: they are stacked into one atlas.
+    'captain': [('captain-sheet.png', ['idle', 'brief', 'call']), ('captain-sheet-2.png', ['log', 'celebrate', 'worry'])],
     'engineer': ('engineer-sheet.png', ['idle', 'work', 'call']),
     'core': ('core-sheet.png', ['low', 'normal', 'high', 'warn']),
     'quartermaster': ('quartermaster-sheet.png', ['idle', 'work', 'call']),
@@ -36,15 +38,26 @@ CELL_H = 320
 
 
 def sheet(name, designs, out):
-    file, ROWS = SHEETS[name]
-    src = os.path.join(designs, file)
-    if not os.path.exists(src):
-        print(f'{file} not found - {name}: null')
-        return 'null'
-    img = keyed(src, 'magenta')
-    w, h = img.size
-    cw, ch = w / COLS, h / len(ROWS)
-    cells = [[img.crop((round(c * cw), round(r * ch), round((c + 1) * cw), round((r + 1) * ch))) for c in range(COLS)] for r in range(len(ROWS))]
+    parts = SHEETS[name] if isinstance(SHEETS[name], list) else [SHEETS[name]]
+    ROWS, cells, cw, ch = [], [], 0, 0
+    for i, (file, rows) in enumerate(parts):
+        src = os.path.join(designs, file)
+        if not os.path.exists(src):
+            if i == 0:
+                print(f'{file} not found - {name}: null')
+                return 'null'
+            print(f'{file} not found - {name} has no {"/".join(rows)}')
+            continue
+        img = keyed(src, 'magenta')
+        w, h = img.size
+        pw, ph = w / COLS, h / len(rows)
+        if i > 0 and (abs(pw - cw) > 2 or abs(ph - ch) > 2):
+            # A later sheet drawn on a different grid: bring its cells to the first sheet's size.
+            img = img.resize((round(cw * COLS), round(ch * len(rows))), Image.LANCZOS)
+            pw, ph = cw, ch
+        cw, ch = pw, ph
+        ROWS += rows
+        cells += [[img.crop((round(c * pw), round(r * ph), round((c + 1) * pw), round((r + 1) * ph))) for c in range(COLS)] for r in range(len(rows))]
     # One trim box for every cell, so the figure does not jump between frames or cycles.
     box = None
     for row in cells:

@@ -39,6 +39,13 @@ SHEETS = {
     'Pixel-art-game-prop-sheet-in-exactly-the_items.png': (3, 3, [
         'holo-table', 'bench', 'bench-back', 'heater', 'dispenser', 'plant', 'banner', 'signpost', 'fog-pylon',
     ]),
+    # What the records earn and warn of: the deadline gauge (8 levels, full to empty), the
+    # airlock barrier (locked to open), the delivery flare and the pennant going up its pole,
+    # and the rewards a base collects.
+    'deadline-gauge.png': (4, 2, ['gauge-0', 'gauge-1', 'gauge-2', 'gauge-3', 'gauge-4', 'gauge-5', 'gauge-6', 'gauge-7']),
+    'airlock-barrier.png': (4, 1, ['airlock-0', 'airlock-1', 'airlock-2', 'airlock-3']),
+    'celebration.png': (4, 2, ['burst-0', 'burst-1', 'burst-2', 'burst-3', 'pennant-0', 'pennant-1', 'pennant-2', 'pennant-3']),
+    'rewards.png': (3, 3, ['trophy', 'medal', 'insignia', 'statue', 'fountain', 'light-arch', 'signal-tower', 'crew-banners', 'garden']),
 }
 # Frames whose opening was painted black instead of the key colour: the black is flood-filled
 # to transparent from the middle of the cell, so the ground shows through an opening gate.
