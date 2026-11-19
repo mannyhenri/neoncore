@@ -22,12 +22,12 @@ function normalizeRepoPath(p: string): string {
 }
 
 const STATUS_META: Record<TaskStatus, { label: string; cls: string }> = {
-  queued:      { label: 'Queued',      cls: 'bg-gray-900/40 text-gray-400 border-gray-800/50' },
-  claimed:     { label: 'Claimed',     cls: 'bg-blue-900/40 text-blue-400 border-blue-800/50' },
-  in_progress: { label: 'In Progress', cls: 'bg-violet-900/40 text-violet-400 border-violet-800/50' },
-  done:        { label: 'Done',        cls: 'bg-emerald-900/40 text-emerald-400 border-emerald-800/50' },
-  failed:      { label: 'Failed',      cls: 'bg-red-900/40 text-red-400 border-red-800/50' },
-  cancelled:   { label: 'Cancelled',   cls: 'bg-yellow-900/40 text-yellow-400 border-yellow-800/50' },
+  queued:      { label: 'Queued',      cls: 'bg-[rgba(120,150,255,0.12)] text-gray-300 border-transparent' },
+  claimed:     { label: 'Claimed',     cls: 'bg-neon-500/[0.16] text-neon-300 border-transparent' },
+  in_progress: { label: 'In Progress', cls: 'bg-[#7C6CFF]/20 text-[#CFC8FF] border-transparent' },
+  done:        { label: 'Done',        cls: 'bg-emerald-400/[0.14] text-emerald-300 border-transparent' },
+  failed:      { label: 'Failed',      cls: 'bg-red-400/[0.14] text-red-300 border-transparent' },
+  cancelled:   { label: 'Cancelled',   cls: 'bg-amber-400/[0.14] text-amber-200 border-transparent' },
 };
 
 const FILTERS: Array<{ key: 'all' | 'active' | TaskStatus; label: string }> = [
@@ -41,7 +41,7 @@ const FILTERS: Array<{ key: 'all' | 'active' | TaskStatus; label: string }> = [
 
 function StatusBadge({ status }: { status: TaskStatus }) {
   const { label, cls } = STATUS_META[status];
-  return <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${cls}`}>{label}</span>;
+  return <span className={`text-xs px-2.5 py-1 rounded-full border font-semibold ${cls}`}>{label}</span>;
 }
 
 function timeAgo(iso: string | null): string {
@@ -99,40 +99,40 @@ function CreateTaskModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-lg shadow-2xl">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="relative glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] p-5 w-full max-w-lg shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-200">New task</h3>
-          <button onClick={onClose} aria-label="Close" className="text-gray-600 hover:text-gray-300 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-gray-500 hover:text-gray-300 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Title</label>
+        <label className="block text-[13px] text-gray-400 mb-1">Title</label>
         <input
           autoFocus
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Fix the 500 on /login"
-          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 mb-3"
+          className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-neon-500 mb-3"
         />
 
-        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Instructions for the agent</label>
+        <label className="block text-[13px] text-gray-400 mb-1">Instructions for the agent</label>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={5}
           placeholder="What should the agent that claims this task do?"
-          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 mb-3 resize-y"
+          className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-neon-500 mb-3 resize-y"
         />
 
-        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Cartridge / project</label>
+        <label className="block text-[13px] text-gray-400 mb-1">Cartridge / project</label>
         <select
           value={projectId}
           onChange={(e) => setProjectId(e.target.value)}
-          className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25 mb-1"
+          className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500 mb-1"
         >
           <option value="">— Any agent (unpinned) —</option>
           {[...grouped.entries()].map(([goalId, ps]) => {
@@ -149,7 +149,7 @@ function CreateTaskModal({
             );
           })}
         </select>
-        <p className="text-[11px] text-gray-600 mb-3">
+        <p className="text-[11px] text-gray-500 mb-3">
           {selected
             ? selected.primaryRepo
               ? `Only an idle agent in ${selected.primaryRepo.split('/').filter(Boolean).pop()} can claim this — it waits until that agent is free.`
@@ -157,12 +157,12 @@ function CreateTaskModal({
             : 'Any idle agent can claim this task.'}
         </p>
 
-        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Priority</label>
+        <label className="block text-[13px] text-gray-400 mb-1">Priority</label>
         <input
           type="number"
           value={priority}
           onChange={(e) => setPriority(parseInt(e.target.value) || 0)}
-          className="w-28 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25 mb-4"
+          className="w-28 glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500 mb-4"
         />
 
         {error && <p className="text-[12px] text-red-400 mb-3">{error}</p>}
@@ -174,7 +174,7 @@ function CreateTaskModal({
           <button
             onClick={save}
             disabled={!title.trim() || saving}
-            className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
+            className="px-4 py-1.5 btn-primary font-semibold disabled:opacity-40 disabled:cursor-not-allowed text-neon-50 text-sm rounded-md transition-colors"
           >
             {saving ? 'Creating…' : 'Create task'}
           </button>
@@ -289,54 +289,54 @@ function TaskDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-2xl max-h-[88vh] overflow-y-auto shadow-2xl">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="relative glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] p-5 w-full max-w-2xl max-h-[88vh] overflow-y-auto shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <StatusBadge status={task.status} />
             <h3 className="text-sm font-semibold text-gray-200">{editable ? 'Edit task' : 'Task details'}</h3>
           </div>
-          <button onClick={onClose} aria-label="Close" className="text-gray-600 hover:text-gray-300 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-gray-500 hover:text-gray-300 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Title</label>
+        <label className="block text-[13px] text-gray-400 mb-1">Title</label>
         {editable ? (
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25 mb-3"
+            className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500 mb-3"
           />
         ) : (
           <p className="text-sm text-gray-200 mb-3 whitespace-pre-wrap">{task.title}</p>
         )}
 
-        <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Instructions for the agent</label>
+        <label className="block text-[13px] text-gray-400 mb-1">Instructions for the agent</label>
         {editable ? (
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={8}
             placeholder="What should the agent that claims this task do?"
-            className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-white/25 mb-3 resize-y"
+            className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-neon-500 mb-3 resize-y"
           />
         ) : (
-          <p className="text-[13px] text-gray-300 mb-3 whitespace-pre-wrap bg-black/30 border border-white/[0.06] rounded-md px-3 py-2">
-            {task.prompt || <span className="text-gray-600">No instructions.</span>}
+          <p className="text-[13px] text-gray-300 mb-3 whitespace-pre-wrap glass-input rounded-[10px] px-3 py-2.5">
+            {task.prompt || <span className="text-gray-500">No instructions.</span>}
           </p>
         )}
 
         {editable && (
           <div className="flex flex-wrap gap-4 mb-3">
             <div className="flex-1 min-w-[220px]">
-              <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Cartridge / project</label>
+              <label className="block text-[13px] text-gray-400 mb-1">Cartridge / project</label>
               <select
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500"
               >
                 <option value="">— Any agent (unpinned) —</option>
                 {[...grouped.entries()].map(([gid, ps]) => {
@@ -354,12 +354,12 @@ function TaskDetailModal({
               </select>
             </div>
             <div className="w-28">
-              <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Priority</label>
+              <label className="block text-[13px] text-gray-400 mb-1">Priority</label>
               <input
                 type="number"
                 value={priority}
                 onChange={(e) => setPriority(parseInt(e.target.value) || 0)}
-                className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                className="w-full glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500"
               />
             </div>
           </div>
@@ -374,23 +374,23 @@ function TaskDetailModal({
 
         {task.result && (
           <>
-            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Result</label>
-            <p className="text-[12px] text-emerald-400/90 bg-emerald-950/20 border border-emerald-900/30 rounded px-3 py-2 whitespace-pre-wrap mb-3">{task.result}</p>
+            <label className="block text-[13px] text-gray-400 mb-1">Result</label>
+            <p className="text-[12px] text-emerald-300 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-lg px-3 py-2 whitespace-pre-wrap mb-3">{task.result}</p>
           </>
         )}
         {task.error && (
           <>
-            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Error</label>
-            <p className="text-[12px] text-red-400/90 bg-red-950/20 border border-red-900/30 rounded px-3 py-2 whitespace-pre-wrap mb-3">{task.error}</p>
+            <label className="block text-[13px] text-gray-400 mb-1">Error</label>
+            <p className="text-[12px] text-red-300 bg-red-400/[0.08] border border-red-400/30 rounded-lg px-3 py-2 whitespace-pre-wrap mb-3">{task.error}</p>
           </>
         )}
 
         {/* Send to a terminal now */}
         {!isTerminal && (
           <div className="border-t border-white/[0.07] pt-3 mt-1 mb-3">
-            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Send to agent</label>
+            <label className="block text-[13px] text-gray-400 mb-1">Send to agent</label>
             {eligibleAgents.length === 0 ? (
-              <p className="text-[12px] text-gray-600">
+              <p className="text-[12px] text-gray-500">
                 {pinRepo
                   ? 'No online agent is serving this cartridge’s repo right now.'
                   : 'No agents are online right now.'}
@@ -400,7 +400,7 @@ function TaskDetailModal({
                 <select
                   value={targetAgentId}
                   onChange={(e) => setTargetAgentId(e.target.value)}
-                  className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-white/25"
+                  className="flex-1 glass-input rounded-[10px] px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-neon-500"
                 >
                   {eligibleAgents.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -411,19 +411,19 @@ function TaskDetailModal({
                 <button
                   onClick={dispatch}
                   disabled={dispatching || !targetAgentId}
-                  className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors whitespace-nowrap"
+                  className="px-4 py-1.5 btn-primary font-semibold disabled:opacity-40 disabled:cursor-not-allowed text-neon-50 text-sm rounded-md transition-colors whitespace-nowrap"
                 >
                   {dispatching ? 'Sending…' : 'Send to terminal'}
                 </button>
               </div>
             )}
             {assignedAgent && (
-              <p className="text-[11px] text-gray-600 mt-1.5">Currently assigned to {assignedAgent.repoName || assignedAgent.name}.</p>
+              <p className="text-[11px] text-gray-500 mt-1.5">Currently assigned to {assignedAgent.repoName || assignedAgent.name}.</p>
             )}
           </div>
         )}
 
-        <div className="flex items-center gap-3 text-[11px] text-gray-600 mb-4">
+        <div className="flex items-center gap-3 text-[11px] text-gray-500 mb-4">
           <span>created {timeAgo(task.createdAt)}</span>
           {task.claimedAt && <span>claimed {timeAgo(task.claimedAt)}</span>}
           {task.completedAt && <span>finished {timeAgo(task.completedAt)}</span>}
@@ -464,7 +464,7 @@ function TaskDetailModal({
             <button
               onClick={save}
               disabled={!title.trim() || !dirty || saving}
-              className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
+              className="px-4 py-1.5 btn-primary font-semibold disabled:opacity-40 disabled:cursor-not-allowed text-neon-50 text-sm rounded-md transition-colors"
             >
               {saving ? 'Saving…' : 'Save changes'}
             </button>
@@ -482,18 +482,18 @@ function TaskCard({ task, agents, projects, onCancel, onClear, onOpen }: { task:
   return (
     <div
       onClick={() => onOpen(task.id)}
-      className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2 cursor-pointer hover:border-white/20 hover:bg-white/[0.05] transition-colors"
+      className="glass-light rounded-2xl px-[18px] py-4 flex flex-col gap-2 cursor-pointer hover:border-neon-500/40 transition-colors"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <StatusBadge status={task.status} />
             {task.priority > 0 && (
-              <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.05] text-gray-400 border border-white/10">p{task.priority}</span>
+              <span className="text-xs font-mono text-gray-400">p{task.priority}</span>
             )}
             {project && (
               <span
-                className="text-[11px] px-1.5 py-0.5 rounded border flex items-center gap-1"
+                className="text-xs px-2.5 py-0.5 rounded-full border flex items-center gap-1.5"
                 style={{ color: project.color, borderColor: `${project.color}55`, backgroundColor: `${project.color}11` }}
                 title={project.primaryRepo || 'no repo'}
               >
@@ -502,14 +502,14 @@ function TaskCard({ task, agents, projects, onCancel, onClear, onOpen }: { task:
               </span>
             )}
           </div>
-          <h3 className="text-sm font-medium text-gray-200 mt-1.5 truncate">{task.title}</h3>
+          <h3 className="font-sans text-[15px] font-semibold text-gray-100 mt-2 truncate">{task.title}</h3>
         </div>
         {/* Exclusive, same rule as a queue row: cancel while it is live, clear once it has
             finished. Never both, so there is nothing to guess between. */}
         {!isTerminal ? (
           <button
             onClick={(e) => { e.stopPropagation(); onCancel(task.id); }}
-            className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-800/50 transition-colors"
+            className="shrink-0 h-9 text-xs font-semibold px-3 rounded-lg border border-red-400/45 text-red-300 hover:bg-red-500/10 transition-colors"
           >
             Cancel
           </button>
@@ -517,27 +517,27 @@ function TaskCard({ task, agents, projects, onCancel, onClear, onOpen }: { task:
           <button
             onClick={(e) => { e.stopPropagation(); onClear(task.id); }}
             title="Remove this task from the list"
-            className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20 transition-colors"
+            className="btn-ghost shrink-0 h-9 text-xs font-semibold px-3 rounded-lg transition-colors"
           >
             Clear
           </button>
         )}
       </div>
 
-      {task.prompt && <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{task.prompt}</p>}
+      {task.prompt && <p className="text-[13px] text-gray-400 line-clamp-2 whitespace-pre-wrap">{task.prompt}</p>}
 
       {task.result && (
-        <p className="text-[12px] text-emerald-400/80 bg-emerald-950/20 border border-emerald-900/30 rounded px-2 py-1.5 whitespace-pre-wrap line-clamp-3">
+        <p className="text-[12px] text-emerald-300 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-lg px-3 py-2 whitespace-pre-wrap line-clamp-3">
           {task.result}
         </p>
       )}
       {task.error && (
-        <p className="text-[12px] text-red-400/80 bg-red-950/20 border border-red-900/30 rounded px-2 py-1.5 whitespace-pre-wrap line-clamp-3">
+        <p className="text-[12px] text-red-300 bg-red-400/[0.08] border border-red-400/30 rounded-lg px-3 py-2 whitespace-pre-wrap line-clamp-3">
           {task.error}
         </p>
       )}
 
-      <div className="flex items-center gap-3 text-[11px] text-gray-600 mt-0.5">
+      <div className="flex items-center gap-3 text-[13px] text-gray-400 mt-0.5">
         <span>created {timeAgo(task.createdAt)}</span>
         {agent && <span className="text-gray-500">→ {agent.repoName || agent.name}</span>}
         {!agent && task.assignedAgentId && <span className="text-gray-500">→ {task.assignedAgentId.slice(0, 8)}</span>}
@@ -605,12 +605,12 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
   return (
     <div
       onClick={() => setOpen((v) => !v)}
-      className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2 cursor-pointer hover:border-white/20 hover:bg-white/[0.05] transition-colors"
+      className="glass-light rounded-2xl px-[18px] py-4 flex flex-col gap-2 cursor-pointer hover:border-neon-500/40 transition-colors"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex items-center gap-2 flex-wrap">
-          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${meta.cls}`}>{meta.label}</span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full border bg-white/[0.04] text-gray-400 border-white/10">
+          <span className={`text-xs px-2.5 py-1 rounded-full border font-semibold ${meta.cls}`}>{meta.label}</span>
+          <span className="text-xs px-2.5 py-1 rounded-full border bg-[rgba(120,150,255,0.1)] text-gray-300 border-transparent">
             {item.kind}
           </span>
         </div>
@@ -621,7 +621,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
                 onClick={() => void act(() => api.moveQueueItem(item.id, 'up'))}
                 disabled={busy || isFirst}
                 title={isFirst ? 'Already first in its lane' : 'Run this sooner'}
-                className="px-1.5 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
+                className="w-9 h-9 text-sm rounded-lg transition-colors border bg-transparent hover:bg-white/[0.05] text-gray-300 border-white/[0.16] disabled:opacity-40"
               >
                 ↑
               </button>
@@ -629,7 +629,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
                 onClick={() => void act(() => api.moveQueueItem(item.id, 'down'))}
                 disabled={busy || isLast}
                 title={isLast ? 'Already last in its lane' : 'Run this later'}
-                className="px-1.5 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
+                className="w-9 h-9 text-sm rounded-lg transition-colors border bg-transparent hover:bg-white/[0.05] text-gray-300 border-white/[0.16] disabled:opacity-40"
               >
                 ↓
               </button>
@@ -639,7 +639,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
                 title={item.paused
                   ? 'Put this back in line'
                   : 'Hold this one. Everything else in its lane keeps running.'}
-                className={`px-2 py-1 text-xs rounded transition-colors border disabled:opacity-40 ${
+                className={`h-9 px-3 text-xs font-semibold rounded-lg transition-colors border disabled:opacity-40 ${
                   item.paused
                     ? 'bg-amber-900/40 hover:bg-amber-900/70 text-amber-300 border-amber-800/50'
                     : 'bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50'
@@ -654,7 +654,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
               onClick={() => void act(() => api.startQueueItem(item.id))}
               disabled={busy}
               title="Run this now, even if the cartridge is busy"
-              className="px-2 py-1 text-xs rounded transition-colors border bg-emerald-900/40 hover:bg-emerald-900/70 text-emerald-300 border-emerald-800/50 disabled:opacity-40"
+              className="h-9 px-3 text-xs font-semibold rounded-lg transition-colors border bg-emerald-400/10 hover:bg-emerald-400/20 text-emerald-200 border-emerald-400/50 disabled:opacity-40"
             >
               Start now
             </button>
@@ -664,7 +664,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
               onClick={() => void act(() => api.retryQueueItem(item.id))}
               disabled={busy}
               title={item.status === 'done' ? 'Put this back in the queue and run it again' : 'Run this again'}
-              className="px-2 py-1 text-xs rounded transition-colors border bg-violet-900/40 hover:bg-violet-900/70 text-violet-300 border-violet-800/50 disabled:opacity-40"
+              className="h-9 px-3 text-xs font-semibold rounded-lg transition-colors border bg-neon-500/[0.14] hover:bg-neon-500/25 text-neon-100 border-neon-500/50 disabled:opacity-40"
             >
               {item.status === 'done' ? 'Redo' : 'Retry'}
             </button>
@@ -673,7 +673,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
             <button
               onClick={() => void act(() => api.cancelQueueItem(item.id))}
               disabled={busy}
-              className="px-2 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-400 border-gray-700/50 disabled:opacity-40"
+              className="h-9 px-3 text-xs font-semibold rounded-lg transition-colors border bg-transparent hover:bg-white/[0.05] text-gray-300 border-white/[0.16] disabled:opacity-40"
             >
               Cancel
             </button>
@@ -683,7 +683,7 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
               onClick={() => void act(() => api.removeQueueItem(item.id))}
               disabled={busy}
               title="Remove this row. Live work is never clearable."
-              className="px-2 py-1 text-xs rounded transition-colors border bg-gray-800/60 hover:bg-gray-700/60 text-gray-500 border-gray-700/50 disabled:opacity-40"
+              className="h-9 px-3 text-xs font-semibold rounded-lg transition-colors border bg-transparent hover:bg-white/[0.05] text-gray-400 border-white/[0.16] disabled:opacity-40"
             >
               Clear
             </button>
@@ -691,12 +691,12 @@ function QueueRow({ item, all, onChanged }: { item: QueueItem; all: QueueItem[];
         </div>
       </div>
 
-      <p className={`text-sm text-gray-300 whitespace-pre-wrap ${open ? '' : 'line-clamp-2'}`}>{full}</p>
+      <p className={`text-[15px] font-semibold text-gray-100 whitespace-pre-wrap ${open ? '' : 'line-clamp-2'}`}>{full}</p>
       {full.length > 120 && (
-        <span className="text-[11px] text-gray-600">{open ? 'Show less' : 'Show the whole request'}</span>
+        <span className="text-[11px] text-gray-500">{open ? 'Show less' : 'Show the whole request'}</span>
       )}
 
-      <div className="flex items-center gap-2 text-[11px] text-gray-600">
+      <div className="flex items-center gap-2 text-[13px] text-gray-400">
         <span className="font-mono truncate">{item.lane}</span>
       </div>
       {item.error && (
@@ -784,11 +784,11 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
   }, [tasks, queueItems]);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-5">
-        <div>
+    <div className="max-w-[1180px] flex flex-col gap-[18px]">
+      <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-baseline gap-3">
           <SectionTitle>Task queue</SectionTitle>
-          <p className="text-[12px] text-gray-600 mt-0.5">
+          <p className="text-[13px] text-gray-400">
             {(counts.queued || 0)} queued · {(counts.in_progress || 0) + (counts.claimed || 0)} active · {(counts.done || 0)} done
           </p>
         </div>
@@ -803,13 +803,14 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
           smaller box. */}
       <QueuePanel haltedOnly />
 
-      <div className="flex gap-1.5 mb-4 flex-wrap">
+      <div role="group" aria-label="Filter" className="self-start flex gap-1 p-1 flex-wrap rounded-xl bg-gl-surface/70 border border-white/[0.08]">
         {FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-              filter === f.key ? 'bg-white/10 text-gray-200' : 'bg-white/[0.03] text-gray-500 hover:text-gray-300'
+            aria-pressed={filter === f.key}
+            className={`h-9 px-3.5 text-[13px] font-semibold rounded-lg transition-colors ${
+              filter === f.key ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
             {f.label}
@@ -818,16 +819,15 @@ export function TasksPage({ tasks, agents, createTask, cancelTask, updateTask, d
       </div>
 
       {filtered.length === 0 && visibleQueue.length === 0 ? (
-        <div className="text-center py-16 border border-white/[0.06] rounded-xl bg-white/[0.02]">
-          <div className="text-3xl mb-3">🗂️</div>
-          <h3 className="text-sm font-medium text-gray-400 mb-1">No tasks here</h3>
-          <p className="text-[12px] text-gray-600 max-w-sm mx-auto">
+        <div className="text-center py-10 px-10 border border-dashed border-white/[0.16] rounded-[18px]">
+          <h3 className="text-sm font-semibold text-gray-300 mb-1">No tasks here</h3>
+          <p className="text-sm text-gray-400 max-w-md mx-auto">
             Prompt a cartridge, or start a confer or workflow. Anything aimed at a busy
             cartridge lands here and runs as soon as it is free.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="flex flex-col gap-3">
           {visibleQueue.map((q) => (
             <QueueRow key={q.id} item={q} all={queueItems} onChanged={refreshQueue} />
           ))}

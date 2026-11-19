@@ -114,22 +114,23 @@ export function AttachmentList({
       {attachments.map((attachment) => (
         <div
           key={attachment.id}
-          className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[13px] text-gray-300"
+          className="flex items-center gap-2 rounded-lg bg-white/[0.08] px-2.5 py-1 text-[12px] text-gray-300"
         >
           {attachment.previewUrl ? (
-            <img src={attachment.previewUrl} alt="" className="h-7 w-7 rounded object-cover" />
+            <img src={attachment.previewUrl} alt="" className="h-6 w-6 rounded object-cover" />
           ) : (
-            <span className="flex h-7 w-7 items-center justify-center rounded bg-white/[0.06] text-gray-500">#</span>
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-white/[0.06] text-gray-500">#</span>
           )}
           <span className="max-w-[180px] truncate">{attachment.file.name}</span>
           <span className="text-gray-600">{Math.ceil(attachment.file.size / 1024)} KB</span>
           <button
             type="button"
             onClick={() => onRemove(attachment.id)}
-            className="text-gray-500 hover:text-gray-200"
+            className="text-gray-400 hover:text-gray-100"
             title="Remove attachment"
+            aria-label={`Remove ${attachment.file.name}`}
           >
-            x
+            ×
           </button>
         </div>
       ))}
@@ -171,16 +172,16 @@ export function AttachmentField({
         }}
       />
       <div className="flex items-center justify-between">
-        <span className="text-[13px] text-gray-500 uppercase tracking-wider">{label}</span>
+        <span className="text-[12px] text-gray-500 uppercase tracking-[0.12em]">{label}</span>
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="text-[12px] px-2.5 py-1 text-gray-300 rounded-md border border-white/10 hover:bg-white/[0.04] transition-colors"
+          className="btn-ghost h-10 px-3.5 rounded-[10px] text-[13px] font-semibold border-dashed transition-colors"
         >
           Attach files
         </button>
       </div>
-      <p className="text-[12px] text-gray-600">{hint}</p>
+      <p className="text-[12px] text-gray-500">{hint}</p>
       <AttachmentList attachments={attachments} onRemove={onRemove} />
       {error && <div className="text-[13px] text-red-400">{error}</div>}
     </div>

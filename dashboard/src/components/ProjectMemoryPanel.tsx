@@ -99,19 +99,19 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[700px] max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[700px] max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.08]">
           <div>
-            <h2 className="text-sm font-semibold text-white">Project Memory</h2>
+            <h2 className="font-display text-xl font-semibold text-gray-100">Project Memory</h2>
             <p className="text-[13px] text-gray-500 mt-0.5">{project} &middot; {sessions.length} sessions</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="w-10 h-10 rounded-[10px] border border-white/[0.16] text-gray-300 hover:text-white text-lg">&times;</button>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-4 pt-3 pb-2 border-b border-white/[0.06]">
+        <div className="flex gap-1.5 flex-wrap px-6 pt-3 pb-3">
           <TabButton active={activeTab === 'sessions'} onClick={() => setActiveTab('sessions')}>
             Sessions
           </TabButton>
@@ -134,15 +134,15 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search sessions and knowledge…"
-              className="w-full text-sm bg-white/[0.04] border border-white/[0.08] rounded-md px-3 py-1.5 pl-8 text-gray-300 placeholder-gray-600 focus:outline-none focus:border-purple-500/40"
+              className="w-full text-sm glass-input rounded-[10px] px-3 py-2.5 pl-8 text-gray-300 placeholder-gray-600 focus:outline-none focus:border-neon-500"
             />
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
             </svg>
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 text-sm"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-400 text-sm"
               >
                 ✕
               </button>
@@ -165,7 +165,7 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
                     <div className="space-y-3">
                       {searchResults.sessions.length > 0 && (
                         <div>
-                          <p className="text-[11px] text-gray-600 uppercase tracking-wider mb-2">Sessions ({searchResults.sessions.length})</p>
+                          <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Sessions ({searchResults.sessions.length})</p>
                           {searchResults.sessions.map((s) => (
                             <button
                               key={s.id}
@@ -183,14 +183,14 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
                       )}
                       {searchResults.knowledge.length > 0 && (
                         <div>
-                          <p className="text-[11px] text-gray-600 uppercase tracking-wider mb-2">Knowledge Files ({searchResults.knowledge.length})</p>
+                          <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Knowledge Files ({searchResults.knowledge.length})</p>
                           {searchResults.knowledge.map((k, i) => (
                             <button
                               key={i}
                               onClick={() => { setSearchQuery(''); setActiveTab(k.filename as TabKey); }}
                               className="w-full text-left p-2 rounded-md hover:bg-white/[0.04] transition-colors mb-1"
                             >
-                              <div className="text-xs text-purple-400 mb-0.5">{k.filename}</div>
+                              <div className="text-xs text-neon-300 mb-0.5">{k.filename}</div>
                               <div
                                 className="text-[13px] text-gray-300 leading-snug"
                                 dangerouslySetInnerHTML={{ __html: k.snippet }}
@@ -282,7 +282,7 @@ function ReportHistory({ project, formatDate, onShare }: {
     return (
       <div className="px-4 py-8 text-center">
         <p className="text-sm text-gray-500">No completion reports yet.</p>
-        <p className="text-[11px] text-gray-600 mt-2 max-w-md mx-auto">
+        <p className="text-[11px] text-gray-500 mt-2 max-w-md mx-auto">
           Every workflow ends by writing one. It appears here once a run on this repo finishes
           its final step.
         </p>
@@ -305,22 +305,22 @@ function ReportHistory({ project, formatDate, onShare }: {
         const outcome = rep.outcome as Record<string, unknown> | undefined;
         const open = expanded === r.id;
         return (
-          <div key={r.id} className="border border-white/[0.06] rounded-md bg-white/[0.02]">
+          <div key={r.id} className="border border-white/[0.1] rounded-xl bg-gl-code">
             <div className="flex items-start gap-3 px-3 py-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm text-gray-200">{r.workflowName}</span>
-                  {r.runNumber > 0 && <span className="text-[11px] text-gray-600">#{r.runNumber}</span>}
+                  {r.runNumber > 0 && <span className="text-[11px] text-gray-500">#{r.runNumber}</span>}
                   {r.status && (
-                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${TONE[r.status] || 'text-gray-400 border-white/10'}`}>
+                    <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${TONE[r.status] || 'text-gray-400 border-white/10'}`}>
                       {r.status}
                     </span>
                   )}
-                  <span className="text-[11px] text-gray-600">{formatDate(r.createdAt)}</span>
+                  <span className="text-[11px] text-gray-500">{formatDate(r.createdAt)}</span>
                 </div>
                 {summary && <p className="text-[13px] text-gray-400 mt-1.5 leading-relaxed">{summary}</p>}
                 {outcome && (
-                  <p className="text-[11px] text-gray-600 mt-1.5 font-mono">
+                  <p className="text-[11px] text-gray-500 mt-1.5 font-mono">
                     tasks {String(outcome.tasksCompleted ?? '?')}/{String(outcome.tasksTotal ?? '?')}
                     {' · '}tests {String(outcome.testsPassed ?? '?')}/{String(outcome.testsTotal ?? '?')}
                     {Number(outcome.issues) > 0 && ` · ${outcome.issues} issue(s)`}
@@ -374,10 +374,10 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
+      className={`h-9 px-3 text-xs font-semibold rounded-lg border transition-colors ${
         active
-          ? 'bg-white/[0.08] text-white font-medium'
-          : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+          ? 'bg-neon-500/[0.18] border-neon-500 text-neon-50'
+          : 'border-white/[0.16] text-gray-400 hover:text-gray-200'
       }`}
     >
       {children}
@@ -416,7 +416,7 @@ function SessionTimeline({
   onShare?: (text: string, label: string) => void;
 }) {
   if (sessions.length === 0) {
-    return <p className="text-sm text-gray-600 italic text-center py-8">No sessions recorded yet</p>;
+    return <p className="text-sm text-gray-500 italic text-center py-8">No sessions recorded yet</p>;
   }
 
   return (
@@ -441,17 +441,17 @@ function SessionTimeline({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-300 font-medium">{formatDate(s.startedAt)}</span>
-                  <span className="text-[13px] text-gray-600">{formatDuration(s.startedAt, s.endedAt)}</span>
-                  <span className="text-[13px] text-gray-600">{s.activityCount} actions</span>
+                  <span className="text-[13px] text-gray-500">{formatDuration(s.startedAt, s.endedAt)}</span>
+                  <span className="text-[13px] text-gray-500">{s.activityCount} actions</span>
                   {s.branch && (
-                    <span className="text-[13px] text-purple-400/60 font-mono">{s.branch}</span>
+                    <span className="text-[13px] text-neon-300/80 font-mono">{s.branch}</span>
                   )}
                 </div>
                 {taskLine && (
                   <p className="text-[13px] text-gray-500 truncate mt-0.5">{taskLine}</p>
                 )}
               </div>
-              <span className="text-gray-600 text-sm">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+              <span className="text-gray-500 text-sm">{isExpanded ? '\u25B2' : '\u25BC'}</span>
             </button>
 
             {isExpanded && s.summary && (
@@ -526,14 +526,14 @@ function NotesEditor({ project, onShare }: { project: string; onShare?: (text: s
         <button
           onClick={handleCreate}
           disabled={!newContent.trim()}
-          className="text-sm px-3 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 self-end"
+          className="text-sm px-3 py-1.5 rounded-md btn-primary font-semibold transition-colors disabled:opacity-30 self-end"
         >
           Add
         </button>
       </div>
 
       {notes.length === 0 && (
-        <p className="text-sm text-gray-600 italic text-center py-4">No notes yet</p>
+        <p className="text-sm text-gray-500 italic text-center py-4">No notes yet</p>
       )}
 
       {notes.map((note) => (
@@ -547,7 +547,7 @@ function NotesEditor({ project, onShare }: { project: string; onShare?: (text: s
                 className="w-full text-base font-mono glass-input text-gray-300 rounded-lg px-3 py-2.5 focus:outline-none resize-y min-h-[100px]"
               />
               <div className="flex gap-2">
-                <button onClick={() => handleUpdate(note.id)} className="text-[13px] px-2 py-1 bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">Save</button>
+                <button onClick={() => handleUpdate(note.id)} className="btn-primary text-[13px] font-semibold h-9 px-3 rounded-[9px]">Save</button>
                 <button onClick={() => setEditingId(null)} className="text-[13px] px-2 py-1 text-gray-500 hover:text-white">Cancel</button>
               </div>
             </div>
@@ -555,7 +555,7 @@ function NotesEditor({ project, onShare }: { project: string; onShare?: (text: s
             <>
               <pre className="text-base text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">{note.content}</pre>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-sm text-gray-600">{formatDate(note.updatedAt)}</span>
+                <span className="text-sm text-gray-500">{formatDate(note.updatedAt)}</span>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   {onShare && (
                     <ShareButton onClick={() => onShare(note.content, `Note — ${formatDate(note.updatedAt)}`)} />
@@ -606,7 +606,7 @@ function KnowledgeEditor({
         placeholder="No content yet. Start typing..."
       />
       <div className="flex items-center justify-between">
-        <span className="text-[13px] text-gray-600">
+        <span className="text-[13px] text-gray-500">
           {dirty ? 'Unsaved changes' : 'Saved'}
         </span>
         <div className="flex items-center gap-2">
@@ -624,7 +624,7 @@ function KnowledgeEditor({
           <button
             onClick={onSave}
             disabled={!dirty || saving}
-            className="text-sm px-4 py-1.5 rounded-md bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-sm px-4 py-1.5 rounded-md btn-primary font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>

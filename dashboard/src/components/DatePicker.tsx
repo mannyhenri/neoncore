@@ -112,7 +112,7 @@ export function DatePicker({ value, onChange, placeholder = 'Pick a date', id, c
                   aria-selected={selected}
                   onClick={() => pick(d.iso)}
                   className={`h-8 rounded text-[12px] transition-colors focus:outline-none focus:ring-1 focus:ring-violet-400 ${
-                    selected ? 'bg-violet-600 text-white'
+                    selected ? 'seg-on text-ink font-semibold'
                       : isToday ? 'border border-violet-500/60 text-violet-200 hover:bg-white/10'
                       : d.inMonth ? 'text-gray-300 hover:bg-white/10' : 'text-gray-600 hover:bg-white/5'
                   }`}

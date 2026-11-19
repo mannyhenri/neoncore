@@ -93,13 +93,13 @@ export function LaunchSchedule({ value, onChange }: {
 }) {
   const [id] = useState(() => Math.random().toString(36).slice(2, 8));
   const set = (patch: Partial<LaunchScheduleValue>) => onChange({ ...value, ...patch });
-  const sel = 'text-xs glass-input text-gray-300 rounded px-2 py-1 focus:outline-none';
+  const sel = 'h-9 text-[13px] glass-input text-gray-100 rounded-lg px-2.5 focus:outline-none';
 
   return (
-    <div className="space-y-2 pt-1">
+    <div className="space-y-2 px-3.5 py-3 rounded-xl bg-[rgba(4,8,20,0.7)] border border-white/[0.1]">
       {/* ── Schedule this run ── */}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-[13px] text-gray-400 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
           <input
             id={`sched-${id}`}
             type="checkbox"
@@ -110,7 +110,7 @@ export function LaunchSchedule({ value, onChange }: {
               // that opens empty makes you type a date to discover what format it wants.
               firstRunAt: e.target.checked && !value.firstRunAt ? defaultFirstRun() : value.firstRunAt,
             })}
-            className="accent-emerald-500"
+            className="accent-neon-500 w-4 h-4"
           />
           Schedule this run
         </label>
@@ -127,13 +127,13 @@ export function LaunchSchedule({ value, onChange }: {
 
       {/* ── Repeat? ── */}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-[13px] text-gray-400 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
           <input
             id={`rep-${id}`}
             type="checkbox"
             checked={value.repeating}
             onChange={(e) => set({ repeating: e.target.checked })}
-            className="accent-emerald-500"
+            className="accent-neon-500 w-4 h-4"
           />
           Repeat?
         </label>
@@ -162,7 +162,7 @@ export function LaunchSchedule({ value, onChange }: {
       {/* Say what the button is about to do. The four states are easy to mix up, and a green
           button that does something other than what you expected is the whole complaint. */}
       {isScheduledLaunch(value) && (
-        <p className="text-[11px] text-gray-500">{describe(value)}</p>
+        <p className="text-[12px] text-gray-400">{describe(value)}</p>
       )}
     </div>
   );

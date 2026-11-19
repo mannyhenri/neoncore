@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { Agent, ConferSession } from '../types';
 import { api } from '../lib/api';
+import { SegMeter } from './SectionTitle';
 
-const STATUS_DOT: Record<string, string> = {
-  running: 'bg-emerald-400 animate-pulse',
-  completed: 'bg-blue-400',
-  failed: 'bg-red-400',
-  cancelled: 'bg-gray-500',
+const STATUS_TEXT: Record<string, string> = {
+  running: 'text-neon-300',
+  completed: 'text-emerald-300',
+  failed: 'text-red-300',
+  cancelled: 'text-gray-400',
 };
 
 /**
@@ -48,82 +49,99 @@ export function ConferCard({ confer: c, agents }: { confer: ConferSession; agent
     }
   };
 
-  return (
-    <div className="glass rounded-lg border border-white/[0.08] px-3 py-2.5">
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[c.status] || 'bg-gray-500'}`} />
-        <span className="text-xs font-semibold text-gray-200">Confer</span>
-        <span className="text-[11px] text-gray-500">{c.repoName || '—'}</span>
-        <span className="text-[11px] text-gray-600">·</span>
-        <span className="text-[11px] text-gray-500">{c.participantIds.map(typeOf).join(' + ')}</span>
-        <span className="text-[11px] text-gray-600 truncate flex-1" title={c.task}>— {c.taskLabel || c.task}</span>
-        {c.status === 'running' && (
-          cancelPhase === 'cancelling' ? (
-            <span className="text-[11px] text-gray-500 shrink-0">Cancelling…</span>
-          ) : cancelPhase === 'confirm' ? (
-            <span className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={doCancel}
-                className="text-[11px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
-              >
-                Cancel confer
-              </button>
-              <button
-                onClick={() => setCancelPhase('idle')}
-                className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-              >
-                keep
-              </button>
-            </span>
-          ) : (
-            <button
-              onClick={() => setCancelPhase('confirm')}
-              className="text-[11px] px-1.5 py-0.5 rounded border border-white/10 text-gray-400 hover:text-red-300 hover:border-red-500/40 transition-colors shrink-0"
-            >
-              Cancel
-            </button>
-          )
-        )}
-        {c.status === 'failed' && (
-          <button onClick={doResume} disabled={resuming}
-            className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-300 disabled:opacity-50">
-            {resuming ? 'Resuming…' : 'Resume confer'}
-          </button>
-        )}
-      </div>
-      {cancelError && <div className="text-[11px] text-red-400 mb-1.5">{cancelError}</div>}
+  // Overall progress: finished milestones, plus the active one's share of done signals.
+  const doneCount = milestones.filter((m) => m.status === 'done').length;
+  const active = milestones.find((m) => m.status === 'active');
+  const activeShare = active && participants > 0 ? active.doneIds.length / participants : 0;
+  const pct = milestones.length > 0 ? Math.round(((doneCount + activeShare) / milestones.length) * 100) : 0;
+  const live = c.status === 'running';
 
-      {/* Milestone stepper */}
-      <div className="flex items-center gap-1 flex-wrap">
-        {milestones.map((m, i) => {
+  return (
+    <article className={`${live ? 'panel-live' : 'glass-light'} rounded-[18px] p-[18px] space-y-3`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex flex-col gap-0.5">
+          <span className="text-[15px] font-semibold text-gray-100 truncate" title={c.task}>
+            Confer · {c.taskLabel || c.task}
+          </span>
+          <span className="text-[13px] text-gray-400 truncate">
+            {c.repoName || '—'} · {c.participantIds.map(typeOf).join(' + ')}
+          </span>
+        </div>
+        <span className={`text-[11px] font-bold tracking-[0.08em] shrink-0 ${STATUS_TEXT[c.status] || 'text-gray-400'}`}>
+          {c.status.toUpperCase()}
+        </span>
+      </div>
+
+      {live && (
+        <div className="flex items-baseline justify-between font-display">
+          <span className="text-[15px] font-semibold neon-text truncate">
+            {active?.name ?? 'Starting'}<span className="text-gray-600">....</span>
+          </span>
+          <span className="text-[22px] font-bold neon-text">{pct}%</span>
+        </div>
+      )}
+
+      {/* Milestones, each with its own segmented meter. */}
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.max(1, milestones.length)}, minmax(0, 1fr))` }}>
+        {milestones.map((m) => {
           const done = m.status === 'done';
-          const active = m.status === 'active';
+          const isActive = m.status === 'active';
           const signalled = m.doneIds.length;
+          const mPct = done ? 100 : isActive && participants > 0 ? Math.max(8, (signalled / participants) * 100) : 0;
           return (
-            <div key={m.id} className="flex items-center gap-1">
-              <div
-                className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
-                  done
-                    ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/40'
-                    : active
-                      ? 'bg-amber-900/50 text-amber-200 border-amber-600/50'
-                      : 'bg-white/[0.03] text-gray-500 border-white/[0.06]'
-                }`}
-                title={active ? `${signalled}/${participants} agents signalled done` : m.status}
-              >
-                {m.name}
-                {active && <span className="ml-1 text-amber-300/80">{signalled}/{participants}</span>}
-                {done && <span className="ml-1">✓</span>}
-              </div>
-              {i < milestones.length - 1 && <span className="text-gray-700 text-[10px]">→</span>}
+            <div key={m.id} className="flex flex-col gap-1.5 min-w-0" title={isActive ? `${signalled}/${participants} agents signalled done` : m.status}>
+              <SegMeter pct={mPct} cells={5} height={12} label={`${m.name} ${m.status}`} className="!p-[3px] !gap-[2px] shadow-none" />
+              <span className={`text-[12px] font-semibold truncate ${isActive ? 'text-neon-300' : done ? 'text-gray-100' : 'text-gray-500'}`}>
+                {m.name}{done && ' ✓'}
+              </span>
+              {isActive && <span className="font-mono text-[11px] text-gray-400">{signalled}/{participants}</span>}
             </div>
           );
         })}
       </div>
 
-      {c.error && <p className="text-[11px] text-amber-400 mt-1.5">{c.error}</p>}
-      {c.status === 'completed' && <p className="text-[11px] text-blue-400 mt-1.5">All milestones complete.</p>}
-      {c.status === 'failed' && <p className="text-[11px] text-red-400 mt-1.5">Confer failed — a milestone stalled.</p>}
-    </div>
+      {cancelError && <div className="text-[12px] text-red-300">{cancelError}</div>}
+      {c.error && <p className="text-[12px] text-ember-300">{c.error}</p>}
+      {c.status === 'completed' && <p className="text-[12px] text-emerald-300">All milestones complete.</p>}
+      {c.status === 'failed' && <p className="text-[12px] text-red-300">Confer failed — a milestone stalled.</p>}
+
+      {(c.status === 'running' || c.status === 'failed') && (
+        <div className="flex gap-2">
+          {c.status === 'running' && (
+            cancelPhase === 'cancelling' ? (
+              <span className="flex-1 h-10 flex items-center justify-center text-[13px] text-gray-400">Cancelling…</span>
+            ) : cancelPhase === 'confirm' ? (
+              <>
+                <button
+                  onClick={doCancel}
+                  className="flex-1 h-10 rounded-[10px] text-[13px] font-semibold border border-red-400/50 bg-red-500/15 text-red-200"
+                >
+                  Cancel confer
+                </button>
+                <button
+                  onClick={() => setCancelPhase('idle')}
+                  className="flex-1 h-10 rounded-[10px] text-[13px] font-semibold btn-ghost"
+                >
+                  keep
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setCancelPhase('confirm')}
+                className="flex-1 h-10 rounded-[10px] text-[13px] font-semibold border border-red-400/40 text-red-200 hover:bg-red-500/10"
+              >
+                Cancel
+              </button>
+            )
+          )}
+          {c.status === 'failed' && (
+            <button onClick={doResume} disabled={resuming}
+              className="flex-1 h-10 rounded-[10px] text-[13px] font-semibold border border-ember-500/50 text-ember-300 disabled:opacity-50">
+              {resuming ? 'Resuming…' : 'Resume confer'}
+            </button>
+          )}
+        </div>
+      )}
+    </article>
   );
 }

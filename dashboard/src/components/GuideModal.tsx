@@ -16,7 +16,7 @@ const SECTIONS = [
 
 function FeatureCard({ name, desc }: { name: string; desc: string }) {
   return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3 mb-2">
+    <div className="glass-light rounded-2xl p-3 mb-2">
       <p className="text-[12px] font-medium text-gray-300">{name}</p>
       <p className="text-[12px] text-gray-500 mt-0.5">{desc}</p>
     </div>
@@ -25,7 +25,7 @@ function FeatureCard({ name, desc }: { name: string; desc: string }) {
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-sm font-semibold text-gray-200 mb-3 border-l-2 border-violet-500 pl-3">
+    <h2 className="font-display text-[22px] font-semibold text-gray-100 mb-3 ">
       {children}
     </h2>
   );
@@ -92,25 +92,25 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-12">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/70"
         onClick={onClose}
       />
 
       {/* Modal */}
-      <div className="relative bg-[#0d0d0f] border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex overflow-hidden">
+      <div className="relative glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-[1200px] h-[800px] max-h-[85vh] flex overflow-hidden">
         {/* Left sidebar */}
-        <div className="w-48 flex-shrink-0 border-r border-white/[0.07] bg-black/20 py-4 overflow-y-auto">
-          <p className="text-[10px] uppercase tracking-widest text-gray-600 font-semibold px-4 mb-3">
+        <div className="w-[260px] flex-shrink-0 border-r border-white/[0.08] bg-gray-950 px-3.5 py-6 overflow-y-auto flex flex-col gap-1">
+          <p className="font-display text-[22px] text-gray-100 font-semibold px-2.5 mb-3.5">
             Guide
           </p>
           {SECTIONS.map((section, i) => (
             <button
               key={section.id}
               onClick={() => scrollToSection(i)}
-              className={`w-full text-left text-[12px] px-4 py-1.5 cursor-pointer transition-colors ${
+              className={`w-full text-left text-sm font-semibold h-10 px-3 rounded-[9px] border cursor-pointer transition-colors ${
                 activeIndex === i
-                  ? 'text-violet-400 bg-violet-500/10'
-                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.03]'
+                  ? 'text-neon-50 bg-neon-500/[0.18] border-neon-500'
+                  : 'text-gray-400 border-transparent hover:text-gray-200 hover:bg-white/[0.04]'
               }`}
             >
               {section.label}
@@ -119,16 +119,16 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Content area */}
-        <div ref={contentRef} className="flex-1 overflow-y-auto p-6">
+        <div ref={contentRef} className="flex-1 overflow-y-auto p-8">
           {/* Header row */}
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h1 className="text-base font-semibold text-white">How NeonCore Works</h1>
-              <p className="text-[12px] text-gray-600 mt-0.5">Visual AI labor control plane for Claude Code</p>
+              <h1 className="font-display text-[26px] font-semibold text-gray-100">How NeonCore Works</h1>
+              <p className="text-[15px] text-gray-300 mt-1">Visual AI labor control plane for Claude Code</p>
             </div>
             <button
               onClick={onClose}
-              className="text-gray-600 hover:text-gray-300 transition-colors ml-4 flex-shrink-0 mt-0.5"
+              className="w-10 h-10 rounded-[10px] border border-white/[0.16] flex items-center justify-center text-gray-300 hover:text-white transition-colors ml-4 flex-shrink-0"
               aria-label="Close guide"
             >
               {/* X icon */}
@@ -248,14 +248,14 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               Goals represent business objectives with a name, success metric, status, and optional budget cap.
               Projects are work areas under a goal, each tied to a primary repo.
             </BodyText>
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3 mb-4">
+            <div className="glass-light rounded-2xl p-3 mb-4">
               <p className="text-[12px] font-medium text-gray-400 mb-1">The cascade</p>
               <div className="flex items-center gap-2 flex-wrap">
                 {['Goal', 'Project', 'Workflow', 'Step'].map((item, i, arr) => (
                   <span key={item} className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-300 font-medium">{item}</span>
                     {i < arr.length - 1 && (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-gray-600">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-gray-500">
                         <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     )}

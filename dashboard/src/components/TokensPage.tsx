@@ -274,33 +274,54 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-gray-400 text-base md:text-lg font-semibold uppercase tracking-wide">
+        <h2 className="font-display text-gray-100 text-2xl font-semibold">
           Token Report
         </h2>
         {data && (
           <div className="flex items-baseline gap-5 text-sm font-mono">
             <span className="text-gray-500">
-              <span className="text-gl-blue/90 text-xl">{compact(data.total.tokens)}</span> tokens
+              <span className="text-gray-100 text-xl">{compact(data.total.tokens)}</span> tokens
             </span>
             <span className="text-gray-500">
-              <span className="text-emerald-500/90 text-xl">{money(data.total.costUsd)}</span> spend
+              <span className="text-gray-100 text-xl">{money(data.total.costUsd)}</span> spend
             </span>
-            <span className="text-gray-600">{data.total.samples.toLocaleString()} turns</span>
+            <span className="text-gray-500">{data.total.samples.toLocaleString()} turns</span>
           </div>
         )}
       </div>
 
       {problems.length > 0 && (
-        <div className="text-[13px] text-amber-500/90 border border-amber-500/20 bg-amber-500/5 rounded-md px-3 py-2">
+        <div className="text-[13px] text-amber-200 border border-amber-400/40 bg-amber-400/[0.07] rounded-xl px-4 py-2.5">
           Partial: {data!.serversReporting} of {data!.serversAsked} servers reported.
           The figures below are lower than reality — {describeProblems(problems)}.
         </div>
       )}
 
-      <section className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.04] p-4 space-y-3">
+      {stats && (
+        <section>
+          <h3 className="text-gray-100 text-lg font-semibold mb-3">
+            Weekly budget
+          </h3>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
+            <Stat label="budget" value={money(stats.budgetUsd)} note={stats.basis} />
+            <Stat label="spent" value={money(stats.consumedUsd)}
+                  note={`${Math.round((stats.consumedUsd / stats.budgetUsd) * 100)}% of the week`} />
+            <Stat label="left" value={money(stats.remainingUsd)}
+                  note={stats.exhaustionAt
+                    ? `runs out ${new Date(stats.exhaustionAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+                    : 'nothing is being spent'} />
+            {/* Pace is the one figure the badge cannot show: 100% is exactly on plan. */}
+            <Stat label="pace" value={`${Math.round(stats.pacePct * 100)}%`}
+                  accent={stats.pacePct > 1 ? 'text-amber-200' : 'text-emerald-300'}
+                  note={stats.pacePct > 1 ? 'above what the budget allows' : 'within the budget'} />
+          </div>
+        </section>
+      )}
+
+      <section className="glass-light rounded-[18px] p-5 space-y-3">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="text-sm font-semibold text-emerald-300">Usage reading — what the provider shows</h3>
+            <h3 className="text-[17px] font-semibold text-gray-100">Usage reading — what the provider shows</h3>
             <p className="text-xs text-gray-500 mt-1 max-w-2xl">
               Type in the percentage and reset time from the provider's own usage meter. One reading pins the
               gauge to reality; two in the same window measure your pace and let the gauge keep moving between readings.
@@ -309,25 +330,25 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
           <div className="flex items-center gap-2 flex-wrap">
             <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
               aria-label="reading provider"
-              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
+              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300">
               {SUBSCRIPTION_PROVIDERS.map((provider) => (
                 <option key={provider} value={provider}>{provider === 'claude' ? 'Claude' : 'Codex'}</option>
               ))}
             </select>
             <select value={cpWindow} onChange={(e) => setCpWindow(e.target.value as UsageWindow)}
               aria-label="reading window"
-              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
+              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300">
               <option value="weekly">Weekly limit</option>
               <option value="session">5-hour limit</option>
             </select>
             <input type="number" min={0} max={100} step={1} placeholder="% used" value={cpPct}
               onChange={(e) => setCpPct(e.target.value)} aria-label="percent used"
-              className="w-24 bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300" />
+              className="w-24 glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300" />
             <input type="datetime-local" value={cpResetsAt} onChange={(e) => setCpResetsAt(e.target.value)}
               title="When the provider says this window resets" aria-label="resets at"
-              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300" />
+              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300" />
             <button onClick={logCheckpoint} disabled={loggingCp}
-              className="rounded bg-emerald-500/20 border border-emerald-400/30 px-3 py-1.5 text-sm text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50">
+              className="btn-primary h-10 rounded-[10px] px-3.5 text-[13px] font-semibold disabled:opacity-50">
               {loggingCp ? 'Logging…' : 'Log reading'}
             </button>
           </div>
@@ -336,12 +357,12 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         {rate?.usageAnchor?.length ? (
           <div className="grid gap-3 md:grid-cols-2">
             {rate.usageAnchor.map((a) => (
-              <div key={`${a.provider}-${a.window}`} className="rounded border border-white/10 p-3 font-mono text-sm">
+              <div key={`${a.provider}-${a.window}`} className="rounded-xl bg-gl-code border border-white/[0.1] p-3 font-mono text-sm">
                 <div className={a.pace === 'hold' ? 'text-red-300' : a.pace === 'watch' ? 'text-amber-300' : 'text-emerald-300'}>
                   {usageAnchorLabel(a)} <span className="text-gray-500">· {a.window === 'weekly' ? 'weekly' : '5-hour'} · {a.pace}</span>
                 </div>
                 <div className="text-gray-400 mt-1 whitespace-normal">{a.recommendation}</div>
-                <div className="text-gray-600 mt-1">
+                <div className="text-gray-500 mt-1">
                   read {Math.round(a.pctAtCheckpoint * 100)}% · pace {(a.pctPerDay * 100).toFixed(1)}%/day · resets in {hoursLabel(a.hoursToReset)}
                   {a.tokensPerPct
                     ? ` · 1% ≈ ${compact(a.tokensPerPct)} tokens (${a.samples} readings)`
@@ -352,7 +373,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-gray-600">No reading yet. Open the provider's usage page and log what it shows.</p>
+          <p className="text-xs text-gray-500">No reading yet. Open the provider's usage page and log what it shows.</p>
         )}
         {readings.length > 0 && (
           <ul className="text-xs font-mono space-y-1" aria-label="logged readings">
@@ -361,8 +382,8 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
                 <span className="text-gray-300">{r.provider === 'claude' ? 'Claude' : r.provider === 'codex' ? 'Codex' : r.provider}</span>
                 <span>{r.window === 'weekly' ? 'weekly' : '5-hour'}</span>
                 <span className="text-emerald-300">{Math.round(r.pctUsed * 100)}%</span>
-                <span className="text-gray-600">read {new Date(r.observedAt).toLocaleString()}</span>
-                <span className="text-gray-600">· resets {new Date(r.resetsAt).toLocaleString()}</span>
+                <span className="text-gray-500">read {new Date(r.observedAt).toLocaleString()}</span>
+                <span className="text-gray-500">· resets {new Date(r.resetsAt).toLocaleString()}</span>
                 <button
                   onClick={() => void removeReading(r)}
                   onBlur={() => setConfirmingKey((k) => (k === r.key ? null : k))}
@@ -377,10 +398,10 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         )}
       </section>
 
-      <section className="rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-4 space-y-3">
+      <section className="glass-light rounded-[18px] p-5 space-y-3">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="text-sm font-semibold text-amber-300">Subscription usage gauges</h3>
+            <h3 className="text-[17px] font-semibold text-gray-100">Subscription usage gauges</h3>
             <p className="text-xs text-gray-500 mt-1 max-w-2xl">
               When a provider reaches 100%, record the time. NeonCore snapshots the preceding seven days
               as that subscription's observed token ceiling and improves the estimate after each mark.
@@ -389,15 +410,15 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
           <div className="flex items-center gap-2 flex-wrap">
             <select value={limitProvider} onChange={(e) => setLimitProvider(e.target.value as SubscriptionProvider)}
               aria-label="provider that reached 100%"
-              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300">
+              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300">
               {SUBSCRIPTION_PROVIDERS.map((provider) => (
                 <option key={provider} value={provider}>{provider === 'claude' ? 'Claude' : 'Codex'}</option>
               ))}
             </select>
             <input type="datetime-local" value={limitAt} onChange={(e) => setLimitAt(e.target.value)}
-              className="bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300" />
+              className="glass-input rounded-[10px] px-2 py-2.5 text-sm text-gray-300" />
             <button onClick={markLimit} disabled={markingLimit}
-              className="rounded bg-amber-500/20 border border-amber-400/30 px-3 py-1.5 text-sm text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">
+              className="btn-primary h-10 rounded-[10px] px-3.5 text-[13px] font-semibold disabled:opacity-50">
               {markingLimit ? 'Recording…' : 'Mark 100%'}
             </button>
           </div>
@@ -406,22 +427,24 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         {rate?.subscriptionUsage?.length ? (
           <div className="grid gap-3 md:grid-cols-2">
             {rate.subscriptionUsage.map((row) => (
-              <div key={row.provider} className="rounded border border-white/10 p-3 font-mono text-sm">
+              <div key={row.provider} className="rounded-xl bg-gl-code border border-white/[0.1] p-3 font-mono text-sm">
                 <div className="text-amber-300">{subscriptionPillLabel(row)}</div>
                 <div className="text-gray-500 mt-1">
                   100% ≈ {compact(row.ceilingTokens)} tokens/week · {row.samples} observation{row.samples === 1 ? '' : 's'} · {Math.round(row.confidence * 100)}% confidence
                 </div>
                 <div className="mt-2 h-2 rounded bg-white/5 overflow-hidden">
-                  <div className="h-full bg-amber-400/70" style={{ width: `${Math.min(100, Math.max(0, row.pctUsed * 100))}%` }} />
+                  <div className="h-full seg-on" style={{ width: `${Math.min(100, Math.max(0, row.pctUsed * 100))}%` }} />
                 </div>
               </div>
             ))}
           </div>
-        ) : <p className="text-xs text-gray-600">No 100% observations recorded yet.</p>}
+        ) : <p className="text-xs text-gray-500">No 100% observations recorded yet.</p>}
       </section>
 
       {/* Controls. Range and granularity are separate questions: "how far back" and "how fine". */}
-      <div className="flex items-center gap-3 flex-wrap text-sm">
+      <section className="panel-live rounded-[20px] p-[22px] flex flex-col gap-4">
+      <div className="flex items-center gap-2.5 flex-wrap text-sm">
+        <h3 className="text-lg font-semibold text-gray-100 mr-auto">Burn over time</h3>
         <Segmented options={RANGES.map((r) => ({ key: r.key, label: r.label }))} value={rangeKey} onChange={selectRange} accent="violet" />
         <Segmented options={BUCKETS.map((b) => ({ key: b.key, label: b.label }))} value={bucket} onChange={(k) => setBucket(k as 'hour' | 'day' | 'week')} accent="blue" />
         <Segmented
@@ -430,10 +453,11 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         />
         <button
           onClick={() => setCumulative((c) => !c)}
-          className={`px-3.5 py-1.5 rounded-md border transition-colors ${
+          aria-pressed={cumulative}
+          className={`h-10 px-3.5 rounded-[10px] border text-[13px] font-semibold transition-colors ${
             cumulative
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-              : 'border-white/10 bg-white/[0.04] text-gray-500 hover:text-gray-300'
+              ? 'border-neon-500 bg-neon-500/20 text-neon-50'
+              : 'border-white/[0.14] text-gray-300 hover:text-gray-100'
           }`}
           title="Running total across the window — where you were when a plan limit was reached"
         >
@@ -445,37 +469,18 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
         points={points} max={max} metric={metric} bucket={bucket}
         loading={loading} hover={hover} setHover={setHover}
       />
+      </section>
 
-      {stats && (
-        <section className="mb-6">
-          <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
-            Weekly budget
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm font-mono">
-            <Stat label="budget" value={money(stats.budgetUsd)} note={stats.basis} />
-            <Stat label="spent" value={money(stats.consumedUsd)}
-                  note={`${Math.round((stats.consumedUsd / stats.budgetUsd) * 100)}% of the week`} />
-            <Stat label="left" value={money(stats.remainingUsd)}
-                  note={stats.exhaustionAt
-                    ? `runs out ${new Date(stats.exhaustionAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
-                    : 'nothing is being spent'} />
-            {/* Pace is the one figure the badge cannot show: 100% is exactly on plan. */}
-            <Stat label="pace" value={`${Math.round(stats.pacePct * 100)}%`}
-                  accent={stats.pacePct > 1 ? 'text-amber-400/90' : 'text-emerald-500/80'}
-                  note={stats.pacePct > 1 ? 'above what the budget allows' : 'within the budget'} />
-          </div>
-        </section>
-      )}
 
       {/* "What did this project cost me" is the question you arrive with. See the header for
           why this is the only breakdown. */}
       {data && data.byProject.length > 0 && (
 
         <section className="mb-6">
-          <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wide mb-2">
+          <h3 className="text-gray-100 text-lg font-semibold mb-3">
             By project — {range.label.toLowerCase()}
           </h3>
-          <div className="border border-white/[0.06] rounded-lg overflow-hidden">
+          <div className="glass-light rounded-[18px] overflow-hidden">
             {data.byProject.map((p) => {
               const share = data.total.tokens > 0 ? p.tokens / data.total.tokens : 0;
               return (
@@ -484,16 +489,16 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
                   className="flex items-center gap-3 px-3 py-2.5 text-sm border-b border-white/[0.04] last:border-0"
                 >
                   <span className="flex-1 min-w-0 truncate text-gray-300">{p.project}</span>
-                  <span className="hidden sm:block w-36 h-2 rounded-full bg-white/[0.06] overflow-hidden">
-                    <span className="block h-full bg-gl-violet/60" style={{ width: `${Math.max(2, share * 100)}%` }} />
+                  <span className="hidden sm:block w-36 h-2 rounded-sm bg-[rgba(120,150,255,0.12)] overflow-hidden">
+                    <span className="block h-full seg-on" style={{ width: `${Math.max(2, share * 100)}%` }} />
                   </span>
-                  <span className="w-14 text-right text-gray-600 font-mono">{(share * 100).toFixed(1)}%</span>
+                  <span className="w-14 text-right text-gray-500 font-mono">{(share * 100).toFixed(1)}%</span>
                   <span className="w-20 text-right text-gray-400 font-mono">{compact(p.tokens)}</span>
                   {/* Turns, which the removed cartridge table used to be the only place to see.
                       The cartridge count rides along ONLY when a project spans more than one —
                       "1 cartridge" repeated down every row was the noise, but a project that
                       really does span several is the one case this row hides something. */}
-                  <span className="w-28 text-right text-gray-600 font-mono">
+                  <span className="w-28 text-right text-gray-500 font-mono">
                     {p.samples.toLocaleString()} turns{p.cartridges > 1 ? ` · ${p.cartridges} cart` : ''}
                   </span>
                 </div>
@@ -511,10 +516,10 @@ function Stat({ label, value, note, accent = 'text-gray-300' }: {
   label: string; value: string; note?: string; accent?: string;
 }) {
   return (
-    <div className="border border-white/10 rounded-md px-3 py-2">
-      <div className="text-gray-600 text-[11px] uppercase tracking-wide">{label}</div>
-      <div className={`${accent} text-lg`}>{value}</div>
-      {note && <div className="text-gray-600 text-[11px]">{note}</div>}
+    <div className="glass-light rounded-[18px] p-5 flex flex-col gap-2.5">
+      <div className="text-gray-400 text-[13px] capitalize">{label}</div>
+      <div className={`${accent} font-display text-[34px] leading-none font-semibold`}>{value}</div>
+      {note && <div className="text-gray-400 text-[13px]">{note}</div>}
     </div>
   );
 }
@@ -525,15 +530,16 @@ function Segmented({ options, value, onChange, accent }: {
   onChange: (k: string) => void;
   accent: 'violet' | 'blue';
 }) {
-  const on = accent === 'violet' ? 'bg-violet-900/60 text-violet-300' : 'bg-white/10 text-gray-200';
+  const on = accent === 'violet' || accent === 'blue' ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : '';
   return (
-    <div className="flex rounded-md overflow-hidden border border-white/10 w-fit">
+    <div className="flex gap-1 p-1 rounded-[10px] bg-gl-code border border-white/[0.1] w-fit">
       {options.map((o) => (
         <button
           key={o.key}
           onClick={() => onChange(o.key)}
-          className={`px-3.5 py-1.5 font-medium transition-colors ${
-            value === o.key ? on : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'
+          aria-pressed={value === o.key}
+          className={`h-8 px-3 rounded-[7px] text-xs font-semibold transition-colors ${
+            value === o.key ? on : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           {o.label}
@@ -577,21 +583,27 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
   const hovered = hover != null ? points[hover] : null;
 
   return (
-    <div ref={box} className="border border-white/[0.06] rounded-lg bg-white/[0.02] p-3 relative">
+    <div ref={box} className="rounded-xl bg-gl-code p-3 relative">
       {loading && !points.length ? (
-        <div className="h-[300px] flex items-center justify-center text-gray-600 text-sm">Loading…</div>
+        <div className="h-[300px] flex items-center justify-center text-gray-500 text-sm">Loading…</div>
       ) : !points.length ? (
-        <div className="h-[300px] flex items-center justify-center text-gray-600 text-sm">
+        <div className="h-[300px] flex items-center justify-center text-gray-500 text-sm">
           No usage recorded in this window.
         </div>
       ) : (
         <svg width="100%" height={H} viewBox={`0 0 ${w} ${H}`} role="img" aria-label="Token burn over time">
+          <defs>
+            <linearGradient id="nc-bar" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#5AAEFF" />
+              <stop offset="100%" stopColor="#5AAEFF" stopOpacity="0.15" />
+            </linearGradient>
+          </defs>
           {gridlines.map(({ f, v }) => {
             const y = PAD_T + plotH * (1 - f);
             return (
               <g key={f}>
-                <line x1={PAD_L} x2={w - 8} y1={y} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-                <text x={PAD_L - 10} y={y + 4} textAnchor="end" fontSize={11} fill="rgba(255,255,255,0.38)" fontFamily="ui-monospace, monospace">
+                <line x1={PAD_L} x2={w - 8} y1={y} y2={y} stroke="rgba(120,150,255,0.1)" strokeWidth={1} />
+                <text x={PAD_L - 10} y={y + 4} textAnchor="end" fontSize={11} fill="#8A97B8" fontFamily="JetBrains Mono, ui-monospace, monospace">
                   {fmt(v, metric)}
                 </text>
               </g>
@@ -605,7 +617,9 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
               <rect
                 key={p.t}
                 x={x} y={PAD_T + plotH - h} width={barW} height={Math.max(p.v > 0 ? 1 : 0, h)}
-                className={hover === i ? 'fill-gl-pink' : 'fill-gl-blue/70'}
+                fill={hover === i ? '#CFE6FF' : 'url(#nc-bar)'}
+                rx={3}
+                style={{ filter: 'drop-shadow(0 0 5px rgba(90,174,255,0.6))' }}
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover(null)}
               />
@@ -619,7 +633,7 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
             return (
               <text
                 key={`t-${p.t}`} x={PAD_L + i * step + barW / 2} y={H - 8}
-                textAnchor="middle" fontSize={11} fill="rgba(255,255,255,0.38)" fontFamily="ui-monospace, monospace"
+                textAnchor="middle" fontSize={11} fill="#8A97B8" fontFamily="JetBrains Mono, ui-monospace, monospace"
               >
                 {tickLabel(p.t, bucket)}
               </text>
@@ -629,11 +643,11 @@ function Chart({ points, max, metric, bucket, loading, hover, setHover }: {
       )}
 
       {hovered && (
-        <div className="absolute top-3 right-3 text-[13px] font-mono bg-black/80 border border-white/15 rounded-md px-3 py-2 pointer-events-none">
+        <div className="absolute top-3 right-3 text-[13px] font-mono bg-[#0A1020] border border-neon-500/40 rounded-[10px] px-3 py-2 pointer-events-none">
           <div className="text-gray-300">{new Date(hovered.t).toUTCString().replace(' GMT', ' UTC')}</div>
-          <div className="text-gl-blue/90">{compact(hovered.tokens)} tokens</div>
-          <div className="text-emerald-500/90">{money(hovered.costUsd)}</div>
-          <div className="text-gray-600">{hovered.samples.toLocaleString()} turns</div>
+          <div className="text-neon-300">{compact(hovered.tokens)} tokens</div>
+          <div className="text-emerald-300">{money(hovered.costUsd)}</div>
+          <div className="text-gray-500">{hovered.samples.toLocaleString()} turns</div>
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { SectionTitle } from './SectionTitle';
+import { Eyebrow, SegMeter } from './SectionTitle';
 import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import { AttachmentField, useAttachments } from './AttachmentPicker';
 import { createPortal } from 'react-dom';
@@ -100,15 +100,6 @@ const TAB_LABELS: Record<TemplateTab, string> = {
   learning: 'Learn',
 };
 
-const TAB_COLORS: Record<TemplateTab, string> = {
-  all:         'bg-white/10 text-gray-200',
-  strategy:    'bg-violet-900/60 text-violet-300',
-  planning:    'bg-indigo-900/60 text-indigo-300',
-  development: 'bg-blue-900/60 text-blue-300',
-  quality:     'bg-emerald-900/60 text-emerald-300',
-  delivery:    'bg-orange-900/60 text-orange-300',
-  learning:    'bg-cyan-900/60 text-cyan-300',
-};
 const ROUND_LABELS = ['', 'Work', 'Reflect', 'Converge'] as const;
 
 // ─── WorkflowPanel ──────────────────────────────────
@@ -118,7 +109,6 @@ export function WorkflowPanel({ agents }: Props) {
   const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
   const [confers, setConfers] = useState<ConferSession[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [expanded, setExpanded] = useState(true);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | undefined>();
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -291,38 +281,31 @@ export function WorkflowPanel({ agents }: Props) {
 
   return (
     <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 mb-3 md:mb-4 group"
-      >
-        <span className={`text-xs text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
-        <SectionTitle>Workflows</SectionTitle>
-        {totalActive > 0 && (
-          <span className="bg-gl-blue/20 text-gl-blue px-2 py-0.5 rounded-full text-xs font-medium">
-            {totalActive} active
-          </span>
-        )}
-      </button>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="font-display text-xl font-semibold text-gray-100 flex items-center gap-2">
+          Workflows
+          {totalActive > 0 && (
+            <span className="font-sans text-[12px] font-semibold px-2 py-0.5 rounded-full bg-neon-500/15 text-neon-300">
+              {totalActive} active
+            </span>
+          )}
+        </h2>
+        <button
+          onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
+          className="text-sm font-semibold text-neon-400 hover:text-neon-200 transition-colors"
+        >
+          + New Workflow
+        </button>
+        {/* Confer used to sit here. It moved to the header alongside Launch and New Repo:
+            this panel renders only on the Agents view, which silently made starting a
+            confer impossible from Goals and Tasks. */}
+      </div>
 
-      {expanded && (
         <div className="space-y-4">
-          {/* Action buttons */}
-          <div className="flex gap-2 flex-wrap items-center">
-            <button
-              onClick={() => { setEditingWorkflowId(undefined); setCanvasOpen(true); }}
-              className="text-sm px-4 py-2 rounded-lg gl-gradient text-white hover:opacity-90 transition-opacity font-medium"
-            >
-              + New Workflow
-            </button>
-            {/* Confer used to sit here. It moved to the header alongside Launch and New Repo:
-                this panel renders only on the Agents view, which silently made starting a
-                confer impossible from Goals and Tasks. */}
-          </div>
-
           {/* Active runs */}
           {(activeRuns.length > 0 || activeConfers.length > 0) && (
-            <div className="space-y-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider">Active Runs</div>
+            <div className="space-y-3">
+              <Eyebrow>Active runs · {activeRuns.length + activeConfers.length}</Eyebrow>
               {activeRuns.map((wf) => (
                 <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
                   templateName={templates.find((t) => t.id === wf.templateId)?.name} />
@@ -333,15 +316,15 @@ export function WorkflowPanel({ agents }: Props) {
               ))}
               {/* Queued sessions — started, waiting on a busy cartridge */}
               {[...queuedConfers, ...queuedWorkflows].map((q) => (
-                <div key={q.id} className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
+                <div key={q.id} className="glass-light rounded-[14px] px-4 py-3">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400">{q.kind}</span>
-                    <span className="text-[11px] text-amber-300/90">waiting — cartridge busy</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-300">{q.kind}</span>
+                    <span className="text-[12px] text-ember-300">waiting — cartridge busy</span>
                   </div>
                   <p className="text-[13px] text-gray-300 line-clamp-2">
                     {q.description || (q.payload?.task as string) || q.kind}
                   </p>
-                  <p className="text-[10px] text-gray-600 mt-1 font-mono truncate">{q.lane}</p>
+                  <p className="text-[11px] text-gray-500 mt-1 font-mono truncate">{q.lane}</p>
                 </div>
               ))}
             </div>
@@ -351,18 +334,18 @@ export function WorkflowPanel({ agents }: Props) {
               made a freshly created schedule look like it had not been created at all. */}
           {upcoming.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider">Scheduled</div>
+              <Eyebrow>Scheduled · {upcoming.length}</Eyebrow>
               {upcoming.map((h) => (
-                <div key={h.id} className="border border-white/[0.06] rounded-xl bg-white/[0.02] p-3">
+                <div key={h.id} className="glass-light rounded-[14px] px-4 py-3">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[13px] text-gray-200 flex-1 truncate">
+                    <span className="text-sm font-semibold text-gray-100 flex-1 truncate">
                       {h.label || h.templateName || 'Scheduled run'}
                     </span>
-                    <span className="text-[11px] text-emerald-300/80 whitespace-nowrap">
+                    <span className="text-[12px] text-neon-300 whitespace-nowrap">
                       {untilNextRun(h) || 'scheduled'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
+                  <p className="text-[12px] text-gray-400 mt-0.5">
                     {h.scheduleLabel}
                     {h.agentName ? ` · ${h.agentName}` : ''}
                     {h.lastRunAt ? ` · last ran ${new Date(h.lastRunAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ' · not run yet'}
@@ -379,13 +362,8 @@ export function WorkflowPanel({ agents }: Props) {
 
           {/* Pending runs */}
           {pendingRuns.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                Pending
-                <span className="bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded text-[10px]">
-                  {pendingRuns.length}
-                </span>
-              </div>
+            <div className="space-y-3">
+              <Eyebrow>Pending · {pendingRuns.length}</Eyebrow>
               {pendingRuns.map((wf) => (
                 <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
                   templateName={templates.find((t) => t.id === wf.templateId)?.name} />
@@ -395,35 +373,31 @@ export function WorkflowPanel({ agents }: Props) {
 
           {/* Templates */}
           {templates.filter((t) => t.stepSummary).length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 w-full">
-                <span className="text-xs text-gray-500 uppercase tracking-wider">
-                  Templates
-                </span>
-                <span className="text-[11px] text-gray-600 ml-1">
-                  {templates.filter((t) => t.stepSummary).length}
-                </span>
-                {/* Search. Deliberately OUTSIDE the category tabs: it spans the whole library,
-                    so typing "canary" on the Quality tab still finds the Ship workflow. */}
+            <div className="space-y-3">
+              <Eyebrow className="pt-1.5">Templates · {templates.filter((t) => t.stepSummary).length}</Eyebrow>
+              {/* Search. Deliberately OUTSIDE the category tabs: it spans the whole library,
+                  so typing "canary" on the Quality tab still finds the Ship workflow. */}
+              <label className="flex items-center gap-2 h-10 px-3 rounded-[10px] bg-gl-surface/70 border border-white/[0.1] text-gray-400 focus-within:border-neon-500/70">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
                 <input
                   value={templateQuery}
                   onChange={(e) => setTemplateQuery(e.target.value)}
                   placeholder="Search templates…"
                   aria-label="Search workflow templates"
-                  className="ml-auto text-xs glass-input text-gray-300 rounded-md px-2.5 py-1 w-44 focus:outline-none focus:w-56 transition-all placeholder:text-gray-600"
+                  className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-gray-100 placeholder:text-gray-500"
                 />
                 {templateQuery && (
                   <button
                     onClick={() => setTemplateQuery('')}
-                    className="text-gray-600 hover:text-gray-300 text-xs shrink-0"
+                    className="text-gray-500 hover:text-gray-200 text-base shrink-0"
                     title="Clear search"
                   >
                     &times;
                   </button>
                 )}
-              </div>
+              </label>
                   {/* Category tabs */}
-                  <div className="flex rounded-md overflow-hidden border border-white/10 w-fit">
+                  <div role="tablist" aria-label="Template categories" className="flex flex-wrap gap-1.5">
                     {(Object.keys(TAB_LABELS) as TemplateTab[]).map((tab) => {
                       // Counts are taken AFTER the search, so a tab never advertises rows the
                       // list below will not show — a "Quality 6" chip over an empty list is the
@@ -434,15 +408,17 @@ export function WorkflowPanel({ agents }: Props) {
                       return (
                         <button
                           key={tab}
+                          role="tab"
+                          aria-selected={templateTab === tab}
                           onClick={() => setTemplateTab(tab)}
-                          className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1 ${
+                          className={`h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors flex items-center gap-1.5 ${
                             templateTab === tab
-                              ? TAB_COLORS[tab]
-                              : 'bg-white/[0.04] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                              ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]'
+                              : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
                           }`}
                         >
                           {TAB_LABELS[tab]}
-                          <span className={`text-[10px] ${templateTab === tab ? 'opacity-70' : 'opacity-40'}`}>{count}</span>
+                          <span className={`text-[11px] ${templateTab === tab ? 'opacity-80' : 'opacity-60'}`}>{count}</span>
                         </button>
                       );
                     })}
@@ -451,15 +427,16 @@ export function WorkflowPanel({ agents }: Props) {
                   {visibleTemplates.length === 0 && (
                     // Stated, not an empty container — an empty list looks identical to a
                     // broken filter, which is how a search box loses trust.
-                    <p className="text-[13px] text-gray-500 py-3">
+                    <p className="text-[13px] text-gray-400 py-3">
                       No template matches “{templateQuery}”
                       {templateTab !== 'all' && <> in {TAB_LABELS[templateTab]}</>}.{' '}
                       <button onClick={() => { setTemplateQuery(''); setTemplateTab('all'); }}
-                        className="underline underline-offset-2 hover:text-gray-300">
+                        className="underline underline-offset-2 hover:text-gray-200">
                         Clear
                       </button>
                     </p>
                   )}
+                  <div className="space-y-2">
                   {visibleTemplates
                     .map((wf) => (
                       <WorkflowRunCard key={wf.id} workflow={wf} onAction={loadWorkflows} onOpen={openWorkflow} agents={agents}
@@ -467,6 +444,7 @@ export function WorkflowPanel({ agents }: Props) {
                         runCount={runs.filter((r) => r.templateId === wf.id).length} />
                     ))
                   }
+                  </div>
             </div>
           )}
 
@@ -475,13 +453,10 @@ export function WorkflowPanel({ agents }: Props) {
             <div className="space-y-2">
               <button
                 onClick={() => setShowRecentRuns((v) => !v)}
-                className="flex items-center gap-1.5 group w-full text-left"
+                aria-expanded={showRecentRuns}
+                className="w-full h-10 px-3.5 rounded-[10px] border border-dashed border-white/[0.18] text-left text-[13px] font-semibold text-gray-400 hover:text-gray-200 hover:border-white/30 transition-colors"
               >
-                <span className={`text-[10px] text-gray-600 transition-transform ${showRecentRuns ? 'rotate-90' : ''}`}>&#9654;</span>
-                <span className="text-xs text-gray-500 uppercase tracking-wider group-hover:text-gray-400 transition-colors">
-                  Recent Runs
-                </span>
-                <span className="text-[11px] text-gray-600 ml-1">{recentRunsAll.length + recentConfers.length}</span>
+                {showRecentRuns ? '▾' : '▸'} Recent runs ({recentRunsAll.length + recentConfers.length})
               </button>
               {showRecentRuns && (
                 <>
@@ -496,7 +471,7 @@ export function WorkflowPanel({ agents }: Props) {
                   {recentRunsAll.length > 5 && (
                     <button
                       onClick={() => setShowAllRecent((v) => !v)}
-                      className="text-[11px] text-gray-600 hover:text-gray-400 transition-colors pl-4"
+                      className="text-[12px] text-gray-400 hover:text-gray-200 transition-colors pl-1"
                     >
                       {showAllRecent ? 'Show less' : `Show all ${recentRunsAll.length}`}
                     </button>
@@ -506,7 +481,6 @@ export function WorkflowPanel({ agents }: Props) {
             </div>
           )}
         </div>
-      )}
 
       {/* Canvas Workflow Editor */}
       {canvasOpen && (
@@ -624,19 +598,19 @@ function ScheduleControl({ templateId, templateName, agents, onClose }: {
   }
 
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const sel = 'text-xs glass-input text-gray-300 rounded px-2 py-1 focus:outline-none';
+  const sel = 'h-9 text-[13px] glass-input text-gray-100 rounded-lg px-2.5 focus:outline-none';
 
   return (
-    <div className="px-3 py-2 border-t border-white/[0.06] space-y-2">
+    <div className="mt-1.5 px-3.5 py-3 rounded-[14px] bg-[rgba(4,8,20,0.7)] border border-neon-500/30 space-y-2.5">
       {existing.length > 0 && (
         <div className="space-y-1">
           {existing.map((h) => (
-            <div key={h.id} className="flex items-center gap-2 text-[11px]">
-              <span className={h.active ? 'text-emerald-400' : 'text-gray-600'}>{h.active ? '●' : '○'}</span>
-              <span className="text-gray-400 flex-1">{h.scheduleLabel || 'scheduled'}</span>
+            <div key={h.id} className="flex items-center gap-2 text-[12px]">
+              <span className={h.active ? 'text-emerald-300' : 'text-gray-500'}>{h.active ? '●' : '○'}</span>
+              <span className="text-gray-300 flex-1">{h.scheduleLabel || 'scheduled'}</span>
               <button
                 onClick={() => api.deleteHeartbeat(h.id).then(() => setExisting((p) => p.filter((x) => x.id !== h.id))).catch(() => {})}
-                className="text-gray-600 hover:text-red-400"
+                className="text-gray-400 hover:text-red-300"
               >remove</button>
             </div>
           ))}
@@ -685,18 +659,18 @@ function ScheduleControl({ templateId, templateName, agents, onClose }: {
           const a = options.find((o) => o.id === id);
           return (
             <button key={id} onClick={() => setWithIds((w) => w.filter((x) => x !== id))}
-              className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-300 hover:text-red-300" title="Remove">
+              className="h-9 text-[12px] px-2.5 rounded-lg bg-white/[0.06] text-gray-300 hover:text-red-300" title="Remove">
               + {a ? (a.repoName || a.name) : id.slice(0, 8)} ×
             </button>
           );
         })}
         <button onClick={save} disabled={saving}
-          className="text-xs px-2 py-1 rounded bg-emerald-600/80 hover:bg-emerald-500 text-white disabled:opacity-30">
+          className="h-9 text-[13px] font-semibold px-3 rounded-lg btn-primary disabled:opacity-30 disabled:shadow-none">
           {saving ? '…' : 'Schedule'}
         </button>
-        <button onClick={onClose} className="text-xs px-2 py-1 text-gray-500 hover:text-gray-300">Close</button>
+        <button onClick={onClose} className="h-9 text-[13px] font-semibold px-3 rounded-lg btn-ghost">Close</button>
       </div>
-      {error && <p className="text-[11px] text-red-400">{error}</p>}
+      {error && <p className="text-[12px] text-red-300">{error}</p>}
     </div>
   );
 }
@@ -739,7 +713,7 @@ function WorkflowLaunchOptionField({ option, value, onChange }: {
         <>
           <label className="text-[12px] text-gray-400">{option.label}</label>
           <select value={String(value)} onChange={(event) => onChange(event.target.value)}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none">
+            className="w-full h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none">
             {option.choices?.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
           </select>
           {option.description && <p className="text-[11px] text-gray-600">{option.description}</p>}
@@ -772,7 +746,7 @@ function WorkflowLaunchOptionField({ option, value, onChange }: {
           <label className="text-[12px] text-gray-400">{option.label}{option.required ? ' *' : ''}</label>
           <input type="text" value={String(value)} placeholder={option.placeholder}
             onChange={(event) => onChange(event.target.value)}
-            className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono" />
+            className="w-full h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none" />
           {option.description && <p className="text-[11px] text-gray-600">{option.description}</p>}
         </>
       );
@@ -1103,27 +1077,27 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   // Deferred popup — rendered via portal to escape any parent stacking context
   const deferredPopupEl = deferredPopup && createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[640px] max-w-[calc(100vw-32px)] max-h-[85vh] flex flex-col">
+        <div className="flex items-start justify-between px-[26px] pt-[26px] pb-2">
           <div>
-            <SectionTitle>Configure & Run</SectionTitle>
-            <p className="text-[13px] text-gray-500 mt-0.5">Fill in the required fields before running</p>
+            <h2 className="font-display text-[22px] font-semibold text-gray-100">Configure &amp; Run — {wf.name}</h2>
+            <p className="text-[13px] text-gray-400 mt-1">Fill in the required fields before running.</p>
           </div>
-          <button onClick={() => setDeferredPopup(null)} className="text-gray-500 hover:text-white text-lg">&times;</button>
+          <button onClick={() => setDeferredPopup(null)} aria-label="Close" className="w-10 h-10 rounded-[10px] btn-ghost text-lg leading-none">&times;</button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-[26px] py-4 space-y-[18px]">
           <div className="space-y-2">
             {wf.name === 'Feature Validation' ? (
               <>
-                <span className="text-[13px] text-gray-300 font-medium">Feature Specification</span>
-                <p className="text-[12px] text-gray-600">
+                <span className="text-[13px] text-gray-200 font-medium">Feature Specification</span>
+                <p className="text-[12px] text-gray-400">
                   Describe the feature you want to validate. Include: what it does functionally, how it should work architecturally, acceptance criteria, and any edge cases or error states that must be handled. Optionally add a Jira epic key (e.g. GRD-500) to pull in task requirements.
                 </p>
                 <textarea
                   value={initialContext}
                   onChange={(e) => setInitialContext(e.target.value)}
                   rows={8}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y"
                   placeholder={"Feature: [name]\n\nWhat it should do:\n- \n\nArchitecture (components/routes/DB tables involved):\n- \n\nAcceptance criteria:\n- [ ] \n\nEdge cases / error states:\n- \n\nJira epic (optional): GRD-"}
                 />
               </>
@@ -1131,59 +1105,59 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               <>
                 {/* The template resolves a path OR a tracker key, so the prompt must not
                     imply that only one of them works. */}
-                <span className="text-[13px] text-gray-300 font-medium">Which epic?</span>
-                <p className="text-[12px] text-gray-600">A path to an epic markdown file, or a tracker key. Every task in it gets worked and committed, one at a time, until none are left.</p>
+                <span className="text-[13px] text-gray-200 font-medium">Which epic?</span>
+                <p className="text-[12px] text-gray-400">A path to an epic markdown file, or a tracker key. Every task in it gets worked and committed, one at a time, until none are left.</p>
                 <textarea
                   value={initialContext}
                   onChange={(e) => setInitialContext(e.target.value)}
                   rows={2}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y"
                   placeholder="docs/plans/EPIC-search.md   ·   or   GRD-1712"
                 />
               </>
             ) : wf.name === 'Confer' ? (
               <>
-                <span className="text-[13px] text-gray-300 font-medium">What should they work on?</span>
-                <p className="text-[12px] text-gray-600">Describe the task — or give a Jira epic below and the cartridges work every task in it. With both, the text is extra direction for the epic.</p>
+                <span className="text-[13px] text-gray-200 font-medium">What should they work on?</span>
+                <p className="text-[12px] text-gray-400">Describe the task — or give a Jira epic below and the cartridges work every task in it. With both, the text is extra direction for the epic.</p>
                 <textarea
                   value={initialContext}
                   onChange={(e) => setInitialContext(e.target.value)}
                   rows={3}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y"
                   placeholder="e.g. Add refunds: the ledger API in harbour-ledger and the refund screen in frontdesk"
                 />
                 <span className="text-[13px] text-gray-300 font-medium block pt-1">Jira epic <span className="text-gray-600 font-normal">(optional)</span></span>
-                <p className="text-[12px] text-gray-600">The epic is looked up first; the run keeps going until every task in it is done.</p>
+                <p className="text-[12px] text-gray-400">The epic is looked up first; the run keeps going until every task in it is done.</p>
                 <input
                   type="text"
                   value={conferEpic}
                   onChange={(e) => setConferEpic(e.target.value)}
                   aria-label="Jira epic"
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none font-mono"
+                  className="w-full h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none"
                   placeholder="GRD-1712  ·  or the epic's Jira URL"
                 />
               </>
             ) : wf.name === 'Jira Tasks Validation' ? (
               <>
-                <span className="text-[13px] text-gray-300 font-medium">Which Jira epic?</span>
-                <p className="text-[12px] text-gray-600">Enter the epic name or key (e.g. "Document Generation" or "GRD-1712").</p>
+                <span className="text-[13px] text-gray-200 font-medium">Which Jira epic?</span>
+                <p className="text-[12px] text-gray-400">Enter the epic name or key (e.g. "Document Generation" or "GRD-1712").</p>
                 <textarea
                   value={initialContext}
                   onChange={(e) => setInitialContext(e.target.value)}
                   rows={2}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y"
                   placeholder="e.g. GRD-1712 or Document Generation"
                 />
               </>
             ) : (
               <>
-                <span className="text-[13px] text-gray-500 uppercase tracking-wider">Initial Context</span>
-                <p className="text-[12px] text-gray-600">Optional — passed to the first step(s) of this workflow run.</p>
+                <span className="text-[13px] text-gray-400 font-medium">Initial Context</span>
+                <p className="text-[12px] text-gray-400">Optional — passed to the first step(s) of this workflow run.</p>
                 <textarea
                   value={initialContext}
                   onChange={(e) => setInitialContext(e.target.value)}
                   rows={3}
-                  className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                  className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y"
                   placeholder="Describe what this run should focus on…"
                 />
               </>
@@ -1210,9 +1184,9 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           )}
           {/* Project assignment — required */}
           <div className="space-y-1.5">
-            <span className="text-[13px] text-gray-500 uppercase tracking-wider">Project</span>
+            <span className="text-[13px] text-gray-400 font-medium">Project</span>
             {projects.length === 0 ? (
-              <p className="text-[12px] text-gray-600">
+              <p className="text-[12px] text-gray-400">
                 No projects yet.{' '}
                 <a
                   href="#"
@@ -1226,7 +1200,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
               <select
                 value={selectedProjectId}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                className="w-full h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none"
               >
                 <option value="">Select a project…</option>
                 {projects.map((p) => (
@@ -1249,13 +1223,13 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           {deferredPopup.agentSteps.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-[13px] text-gray-500 uppercase tracking-wider">Run on</span>
+                <span className="text-[13px] text-gray-400 font-medium">Run on</span>
                 {/* The escape hatch. Almost nobody wants a different cartridge per step, so
                     that's opt-in rather than the default the whole modal is built around. */}
                 {deferredPopup.agentSteps.length > 1 && conferAgents.length === 0 && (
                   <button
                     onClick={() => setPerStepAgents((v) => !v)}
-                    className="text-[11px] text-gray-500 hover:text-gl-purple transition-colors"
+                    className="text-[12px] text-gray-400 hover:text-neon-300 transition-colors"
                   >
                     {perStepAgents ? '← use one cartridge' : 'assign per step →'}
                   </button>
@@ -1267,10 +1241,10 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   this" is answered by the participants at each step rather than by whoever
                   filled in this modal. */}
               <div className="mb-2">
-                <label className="text-[11px] text-gray-500 block mb-1">
+                <label className="text-[13px] text-gray-400 block mb-2">
                   Confer across repos — pick 2+ cartridges to work every step together
                 </label>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-2">
                   {conferCandidates.map((a) => {
                     const on = conferAgents.includes(a.id);
                     return (
@@ -1278,13 +1252,14 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                         key={a.id}
                         onClick={() => setConferAgents((prev) =>
                           prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id])}
-                        className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                        aria-pressed={on}
+                        className={`h-10 px-3.5 rounded-full border font-mono text-[13px] font-semibold transition-colors ${
                           on
-                            ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
-                            : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
+                            ? 'border-neon-500 bg-neon-500/20 text-neon-50'
+                            : 'border-white/[0.18] text-gray-400 hover:text-gray-200'
                         }`}
                       >
-                        {conferOptionLabel(a)}
+                        {on ? '✓ ' : ''}{conferOptionLabel(a)}
                       </button>
                     );
                   })}
@@ -1308,7 +1283,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   <select
                     value={runAgentId}
                     onChange={(e) => setRunAgentId(e.target.value)}
-                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                    className="w-full h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none"
                   >
                     <option value="">Select cartridge...</option>
                     <CartridgeOptions live={liveAgents} offline={offlineAgents} />
@@ -1326,7 +1301,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                     <select
                       value={deferredAssignments[s.stepId] || ''}
                       onChange={(e) => setDeferredAssignments((prev) => ({ ...prev, [s.stepId]: e.target.value }))}
-                      className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none"
+                      className="w-full h-[42px] text-sm glass-input text-gray-100 rounded-[10px] px-3 focus:outline-none"
                     >
                       <option value="">Select cartridge...</option>
                       <CartridgeOptions live={liveAgents} offline={offlineAgents} />
@@ -1343,7 +1318,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           )}
           {deferredPopup.promptSteps.length > 0 && (
             <div className="space-y-3">
-              <span className="text-[13px] text-gray-500 uppercase tracking-wider">Prompt Inputs</span>
+              <span className="text-[13px] text-gray-400 font-medium">Prompt Inputs</span>
               {deferredPopup.promptSteps.map((s) => (
                 <div key={`${s.stepId}-${s.field}`}>
                   <label className="block text-sm text-gray-400 mb-1">
@@ -1356,7 +1331,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                       [s.stepId]: { ...prev[s.stepId], [s.field]: e.target.value },
                     }))}
                     rows={3}
-                    className="w-full text-sm glass-input text-gray-300 rounded-md px-3 py-2 focus:outline-none resize-y font-mono"
+                    className="w-full text-sm glass-input text-gray-100 rounded-[10px] px-3 py-2.5 focus:outline-none resize-y"
                     placeholder={`Enter ${s.label.toLowerCase()}...`}
                   />
                 </div>
@@ -1364,26 +1339,26 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             </div>
           )}
         </div>
-        {runError && <p className="px-4 pb-2 text-[13px] text-red-400">{runError}</p>}
+        {runError && <p className="px-[26px] pb-2 text-[13px] text-red-300">{runError}</p>}
         {!runError && blockers.length > 0 && (
           // A disabled button with nothing beside it is the same dead end as a silent handler:
           // the user can see they cannot start and not why.
-          <p className="px-4 pb-2 text-[13px] text-gray-500">{blockers.join(' ')}</p>
+          <p className="px-[26px] pb-2 text-[13px] text-gray-400">{blockers.join(' ')}</p>
         )}
-        <div className="px-4 pb-1">
+        <div className="px-[26px] pb-2">
           <LaunchSchedule value={launchSchedule} onChange={setLaunchSchedule} />
         </div>
-        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
+        <div className="px-[26px] pt-2 pb-[22px] flex items-center justify-end gap-2.5">
+          <button onClick={() => setDeferredPopup(null)} className="h-11 px-4 rounded-[10px] btn-ghost text-sm font-semibold">
+            Cancel
+          </button>
           <button
             onClick={handleDeferredRun}
             disabled={starting || blockers.length > 0}
             title={blockers.join(' ')}
-            className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md disabled:opacity-30 transition-colors"
+            className="h-11 px-[22px] rounded-[10px] btn-primary text-sm font-semibold disabled:opacity-35 disabled:shadow-none transition-colors"
           >
             {launchButtonLabel(launchSchedule, starting)}
-          </button>
-          <button onClick={() => setDeferredPopup(null)} className="text-sm px-3 py-2 text-gray-500 hover:text-white transition-colors">
-            Cancel
           </button>
         </div>
       </div>
@@ -1404,13 +1379,13 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
   if (compact) {
     return (
       <>
-        <div className="flex items-center gap-3 px-3 py-2 glass-light rounded-lg text-xs group">
+        <div className="flex items-center gap-3 px-3.5 py-2.5 glass-light rounded-xl text-[13px] group">
           {wf.templateId && (
             <span className={`font-medium ${statusColor}`}>{wf.status}</span>
           )}
           <button
             onClick={() => onOpen?.(wf.id)}
-            className="text-gray-400 truncate flex-1 text-left hover:text-white transition-colors"
+            className="text-gray-200 truncate flex-1 text-left hover:text-white transition-colors"
           >
             {displayName}
           </button>
@@ -1421,13 +1396,13 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
                   {wf.stepSummary.projects.join(', ')}
                 </span>
               )}
-              <span className="text-gray-600 shrink-0">
+              <span className="text-gray-400 shrink-0">
                 {wf.templateId
                   ? `${wf.stepSummary.completed}/${wf.stepSummary.total}`
                   : `${wf.stepSummary.total} steps`}
               </span>
               {wf.progress && (
-                <span className="text-sky-400/80 shrink-0 hidden sm:inline" title={progressLine(wf.progress)}>
+                <span className="text-neon-300 shrink-0 hidden sm:inline" title={progressLine(wf.progress)}>
                   {wf.progress.total !== null ? `${wf.progress.done}/${wf.progress.total} tasks` : `${wf.progress.done} tasks`}
                 </span>
               )}
@@ -1438,7 +1413,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             <button
               onClick={handleRunFromList}
               disabled={starting}
-              className="text-emerald-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all shrink-0 disabled:opacity-30"
+              className="text-neon-400 hover:text-neon-200 opacity-0 group-hover:opacity-100 transition-all shrink-0 disabled:opacity-30"
               title="Run workflow"
             >
               {starting ? '...' : '▶'}
@@ -1447,7 +1422,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           {isTemplate && (
             <button
               onClick={() => setScheduling((v) => !v)}
-              className={`shrink-0 transition-all ${scheduling ? 'text-gl-purple' : 'text-gray-500 hover:text-gl-purple opacity-0 group-hover:opacity-100'}`}
+              className={`shrink-0 transition-all ${scheduling ? 'text-neon-300' : 'text-gray-400 hover:text-neon-300 opacity-0 group-hover:opacity-100'}`}
               title="Repeat this workflow on a schedule"
             >
               ⏱
@@ -1461,7 +1436,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+              className="text-gray-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-all shrink-0"
               title="Delete workflow"
             >
               &times;
@@ -1481,90 +1456,138 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
     );
   }
 
-  return (
-    <div className="glass rounded-xl p-4 space-y-3 border border-white/10">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          {wf.templateId && (
-            <span className={`text-sm font-semibold ${statusColor}`}>{wf.status.toUpperCase()}</span>
-          )}
-          {/* A run blocked on a person reads as RUNNING otherwise — which is how a decision
-              gate sat for half an hour looking exactly like work in progress. Amber, because
-              this is a call to action rather than a failure. */}
-          {wf.needsAttention && (
-            <span
-              title={wf.needsAttention.detail}
-              className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-900/40 text-amber-300 border-amber-700/50 shrink-0"
-            >
-              NEEDS YOU
-            </span>
-          )}
+  // ── Template row: a compact entry in the library, not a card. ──
+  if (isTemplate) {
+    const category = TAB_LABELS[TEMPLATE_CATEGORY[wf.name] ?? 'development'];
+    const total = wf.stepSummary?.total ?? 0;
+    return (
+      <>
+        <div className="group flex items-center gap-2.5 px-3.5 py-3 rounded-[14px] glass-light hover:border-white/[0.2] transition-colors">
           <button
             onClick={() => onOpen?.(wf.id)}
-            className="text-sm text-gray-300 truncate hover:text-white transition-colors"
+            title={wf.description || undefined}
+            className="flex-1 min-w-0 flex flex-col gap-0.5 text-left"
           >
-            {displayName}
+            <span className="text-sm font-semibold text-gray-100 truncate">{displayName}</span>
+            <span className="text-[12px] text-gray-400 truncate">
+              {category} · {total} step{total === 1 ? '' : 's'}
+              {typeof runCount === 'number' ? ` · ${runCount} run${runCount === 1 ? '' : 's'}` : ''}
+            </span>
           </button>
-          {typeof runCount === 'number' && runCount > 0 && (
-            <span className="text-xs text-gray-600 shrink-0">{runCount} run{runCount !== 1 ? 's' : ''}</span>
-          )}
-          {wf.jiraTaskId && <span className="text-xs text-gray-500 font-mono shrink-0">{wf.jiraTaskId}</span>}
-          {wf.stepSummary?.projects && wf.stepSummary.projects.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap">
-              {wf.stepSummary.projects.map((p) => (
-                <span key={p} className="text-[11px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 border border-white/[0.06]">
-                  {p}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {wf.iteration > 1 && (
-            <span className="text-xs text-gray-500">Iteration {wf.iteration}/{wf.maxIterations}</span>
-          )}
           {canRun && (
             <button
               onClick={handleRunFromList}
               disabled={starting}
-              className="text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded hover:bg-white/5 disabled:opacity-30"
+              aria-label={`Run ${wf.name}`}
+              className="h-9 px-3 rounded-[9px] bg-neon-500/15 border border-neon-500/45 text-neon-100 text-[13px] font-semibold hover:bg-neon-500/25 disabled:opacity-40 transition-colors shrink-0"
             >
-              {starting ? 'Starting...' : '▶ Run'}
+              {starting ? 'Starting…' : '▶ Run'}
             </button>
           )}
-          {/* The automate control sits WITH pause and cancel: they are the same question —
-              how much of this run is yours to drive right now. */}
-          {['running', 'paused'].includes(wf.status) && <AutonomyControl workflowId={wf.id} />}
-          {wf.status === 'running' && (
-            <button onClick={handlePause} className="text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-white/5">Pause</button>
+          <button
+            onClick={() => setScheduling((v) => !v)}
+            aria-label={`Schedule ${wf.name}`}
+            title="Repeat this workflow on a schedule"
+            className={`w-9 h-9 rounded-[9px] border flex items-center justify-center shrink-0 transition-colors ${
+              scheduling ? 'border-neon-500/60 text-neon-300 bg-neon-500/10' : 'border-white/[0.14] text-gray-400 hover:text-gray-100'
+            }`}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2M9 2h6" /></svg>
+          </button>
+          {confirmDelete ? (
+            <span className="flex items-center gap-1 shrink-0">
+              <button onClick={handleDelete} className="h-9 px-2.5 rounded-[9px] text-[12px] font-semibold text-red-300 bg-red-500/15 border border-red-400/40">Delete</button>
+              <button onClick={() => setConfirmDelete(false)} className="h-9 px-2 text-[12px] text-gray-400 hover:text-gray-200">No</button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              aria-label={`Delete ${wf.name}`}
+              title="Delete workflow"
+              className="w-7 h-9 text-gray-500 hover:text-red-300 opacity-60 group-hover:opacity-100 transition-all shrink-0 text-lg leading-none"
+            >
+              &times;
+            </button>
           )}
-          {wf.status === 'paused' && (
-            <button onClick={handleResume} className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-white/5">Resume</button>
+        </div>
+        {scheduling && (
+          <ScheduleControl
+            templateId={wf.id}
+            templateName={wf.name}
+            agents={agents}
+            onClose={() => setScheduling(false)}
+          />
+        )}
+        {deferredPopupEl}
+      </>
+    );
+  }
+
+  // ── Run card. Running = the live neon card; blocked on you = the ember card. ──
+  const live = wf.status === 'running' || wf.status === 'paused';
+  const sum = wf.stepSummary;
+  const pct = sum && sum.total > 0 ? Math.round(((sum.completed + sum.running * 0.5) / sum.total) * 100) : 0;
+  const currentStepName = sum?.stepNames?.length
+    ? sum.stepNames[Math.min(sum.completed, sum.stepNames.length - 1)]
+    : undefined;
+  const statusText = {
+    pending: 'text-gray-400',
+    running: 'text-neon-300',
+    paused: 'text-ember-300',
+    completed: wf.error ? 'text-ember-300' : 'text-emerald-300',
+    failed: 'text-red-300',
+    cancelled: 'text-gray-400',
+  }[wf.status] || 'text-gray-400';
+  const cardTone = wf.needsAttention ? 'panel-ask' : live ? 'panel-live' : 'glass-light';
+  const subtitle = [
+    sum?.projects?.join(' · '),
+    wf.iteration > 1 ? `Iteration ${wf.iteration}/${wf.maxIterations}` : '',
+    typeof runCount === 'number' && runCount > 0 ? `${runCount} run${runCount !== 1 ? 's' : ''}` : '',
+  ].filter(Boolean).join(' · ');
+  const btn = 'flex-1 h-10 rounded-[10px] text-[13px] font-semibold transition-colors';
+
+  return (
+    <article className={`${cardTone} rounded-[18px] p-[18px] space-y-3`}>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex flex-col gap-0.5">
+          <button
+            onClick={() => onOpen?.(wf.id)}
+            className="text-[15px] font-semibold text-gray-100 text-left hover:text-white transition-colors"
+          >
+            {displayName}
+          </button>
+          {subtitle && <span className="text-[13px] text-gray-400 truncate">{subtitle}</span>}
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {/* A run blocked on a person reads as RUNNING otherwise — which is how a decision
+              gate sat for half an hour looking exactly like work in progress. */}
+          {wf.needsAttention ? (
+            <span title={wf.needsAttention.detail} className="text-[11px] font-bold tracking-[0.08em] text-ember-300">
+              NEEDS YOU
+            </span>
+          ) : (
+            <span className={`text-[11px] font-bold tracking-[0.08em] ${statusText}`}>{wf.status.toUpperCase()}</span>
           )}
-          {['running', 'paused'].includes(wf.status) && (
-            <button onClick={handleCancel} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-white/5">Cancel</button>
-          )}
-          {!['running', 'paused'].includes(wf.status) && (
-            confirmDelete ? (
-              <div className="flex items-center gap-1">
-                <button onClick={handleDelete} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-red-500/20">Delete</button>
-                <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1">Cancel</button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)} className="text-xs text-gray-600 hover:text-red-400 px-2 py-1 rounded hover:bg-white/5 transition-colors">Delete</button>
-            )
-          )}
+          {wf.jiraTaskId && <span className="text-[11px] text-gray-400 font-mono">{wf.jiraTaskId}</span>}
         </div>
       </div>
       {!wf.templateId && wf.description && (
-        <p className="text-xs leading-relaxed text-gray-500">{wf.description}</p>
+        <p className="text-xs leading-relaxed text-gray-400">{wf.description}</p>
       )}
 
-      {/* Step progress (V2 canvas) or Phase progress (V1) — templates don't show progress */}
-      {wf.stepSummary && wf.templateId ? (
+      {/* Step progress (V2 canvas) or Phase progress (V1) */}
+      {sum && wf.templateId ? (
         <>
-          <StepProgress summary={wf.stepSummary} />
+          <div className="flex items-baseline justify-between font-display">
+            <span className="text-[15px] font-semibold neon-text truncate">
+              {currentStepName ?? `${sum.completed}/${sum.total} steps`}
+              {live && <span className="text-gray-600">....</span>}
+            </span>
+            <span className="text-[22px] font-bold neon-text">{pct}%</span>
+          </div>
+          <SegMeter pct={pct} cells={30} height={20} label={`${pct} percent — ${sum.completed} of ${sum.total} steps`} />
+          <StepProgress summary={sum} />
           {/* A task-list run: how many tasks are done, its progress document, and — when it
               stopped with tasks open — the choice only you can make. */}
           <RunProgressStrip wf={wf} onAction={onAction} />
@@ -1572,36 +1595,82 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       ) : wf.phases.length > 0 ? (
         <>
           <PhaseProgress phases={wf.phases} currentPhase={wf.currentPhase} />
-          {wf.needsAttention && (
-            <div className="text-[12px] text-amber-300/90 bg-amber-950/30 border border-amber-800/40 rounded-md px-2 py-1 mb-2">
-              <span className="uppercase tracking-wider text-[10px] text-amber-400/80 mr-1.5">
-                {wf.needsAttention.reason.replace('-', ' ')}
-              </span>
-              {wf.needsAttention.detail}
-            </div>
-          )}
           {wf.status === 'running' && wf.phases[wf.currentPhase] && (
             <PhaseDetails phase={wf.phases[wf.currentPhase]} players={wf.players} agents={agents} />
           )}
         </>
       ) : null}
 
+      {wf.needsAttention && (
+        <div className="text-[13px] text-ember-300">
+          <span className="uppercase tracking-[0.08em] text-[11px] mr-1.5 opacity-80">
+            {wf.needsAttention.reason.replace('-', ' ')}
+          </span>
+          {wf.needsAttention.detail}
+        </div>
+      )}
+
       {/* Error */}
       {wf.error && (
-        <div className="text-xs text-amber-400 bg-amber-900/20 rounded-lg px-3 py-2">{wf.error}</div>
+        <div className="text-[13px] text-ember-300 bg-ember-500/10 border border-ember-500/30 rounded-[10px] px-3 py-2">{wf.error}</div>
       )}
+
+      {/* Chips: who works it, and how much of it is yours to drive. */}
+      {(live || (sum?.projects && sum.projects.length > 0)) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {sum?.projects?.map((p) => (
+            <span key={p} className="text-[12px] px-2 py-0.5 rounded-full bg-white/[0.07] text-gray-300 font-mono">{p}</span>
+          ))}
+          {/* The automate control sits WITH pause and cancel: they are the same question —
+              how much of this run is yours to drive right now. */}
+          {live && <AutonomyControl workflowId={wf.id} />}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        {wf.templateId && (
+          <button onClick={() => onOpen?.(wf.id)} className={`${btn} btn-ghost`}>
+            {wf.needsAttention ? 'Open run' : 'Progress'}
+          </button>
+        )}
+        {canRun && (
+          <button onClick={handleRunFromList} disabled={starting} className={`${btn} btn-primary disabled:opacity-40`}>
+            {starting ? 'Starting...' : '▶ Run'}
+          </button>
+        )}
+        {wf.status === 'running' && (
+          <button onClick={handlePause} className={`${btn} btn-ghost`}>Pause</button>
+        )}
+        {wf.status === 'paused' && (
+          <button onClick={handleResume} className={`${btn} btn-ghost`}>Resume</button>
+        )}
+        {live && (
+          <button onClick={handleCancel} className={`${btn} border border-red-400/40 text-red-200 hover:bg-red-500/10`}>Cancel</button>
+        )}
+        {!live && (
+          confirmDelete ? (
+            <>
+              <button onClick={handleDelete} className={`${btn} border border-red-400/50 bg-red-500/15 text-red-200`}>Delete</button>
+              <button onClick={() => setConfirmDelete(false)} className={`${btn} btn-ghost`}>Cancel</button>
+            </>
+          ) : (
+            <button onClick={() => setConfirmDelete(true)} className={`${btn} border border-white/[0.12] text-gray-400 hover:text-red-300 hover:border-red-400/40`}>Delete</button>
+          )
+        )}
+      </div>
 
       {/* Shared context viewer */}
       {wf.sharedContext && (
         <div>
           <button
             onClick={() => setShowContext(!showContext)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
           >
             {showContext ? 'Hide' : 'Show'} deliberation context
           </button>
           {showContext && (
-            <pre className="mt-2 text-xs text-gray-400 bg-black/30 rounded-lg p-3 max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
+            <pre className="mt-2 text-xs text-gray-300 bg-gl-code rounded-[10px] border border-white/[0.08] p-3 max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
               {wf.sharedContext}
             </pre>
           )}
@@ -1609,7 +1678,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
       )}
 
       {deferredPopupEl}
-    </div>
+    </article>
   );
 }
 
@@ -1617,39 +1686,20 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
 
 function StepProgress({ summary }: { summary: StepSummary }) {
   const { total, completed, running, failed, pending } = summary;
-
+  // The meter above carries the proportion; this line names the steps and the counts.
   return (
-    <div className="space-y-1.5">
-      {/* Progress bar */}
-      <div className="flex h-1.5 rounded-full overflow-hidden bg-white/5 gap-px">
-        {completed > 0 && (
-          <div className="bg-emerald-500/70 rounded-sm" style={{ flex: completed }} />
-        )}
-        {running > 0 && (
-          <div className="bg-blue-500/70 animate-pulse rounded-sm" style={{ flex: running }} />
-        )}
-        {failed > 0 && (
-          <div className="bg-red-500/60 rounded-sm" style={{ flex: failed }} />
-        )}
-        {pending > 0 && (
-          <div className="bg-white/5 rounded-sm" style={{ flex: pending }} />
-        )}
-      </div>
-
-      {/* Step names */}
+    <div className="space-y-1">
       {summary.stepNames && summary.stepNames.length > 0 && (
-        <div className="text-[13px] text-gray-500 truncate" title={summary.stepNames.join(' → ')}>
+        <div className="text-[12px] text-gray-400 truncate" title={summary.stepNames.join(' → ')}>
           {summary.stepNames.join(' → ')}
         </div>
       )}
-
-      {/* Labels */}
-      <div className="flex gap-3 text-[13px]">
-        {completed > 0 && <span className="text-emerald-400">{completed} done</span>}
-        {running > 0 && <span className="text-blue-400">{running} running</span>}
-        {failed > 0 && <span className="text-red-400">{failed} failed</span>}
-        {pending > 0 && <span className="text-gray-500">{pending} pending</span>}
-        <span className="text-gray-600 ml-auto">{completed}/{total} steps</span>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
+        {completed > 0 && <span className="text-emerald-300">{completed} done</span>}
+        {running > 0 && <span className="text-neon-300">{running} running</span>}
+        {failed > 0 && <span className="text-red-300">{failed} failed</span>}
+        {pending > 0 && <span className="text-gray-400">{pending} pending</span>}
+        <span className="text-gray-500 ml-auto">{completed}/{total} steps</span>
       </div>
     </div>
   );

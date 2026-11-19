@@ -48,22 +48,22 @@ function PermissionItem({
   }, [perm.id, onDecide]);
 
   return (
-    <div className="p-3 rounded-lg bg-white/[0.04] border border-white/[0.07] space-y-2">
+    <div className={`p-3.5 rounded-xl border space-y-2.5 ${isPlan ? 'bg-amber-400/[0.06] border-amber-400/35' : 'bg-neon-500/[0.07] border-neon-500/35'}`}>
       {/* Header row */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-              isQuestion ? 'bg-blue-500/20 text-blue-400' :
-              isPlan    ? 'bg-amber-500/20 text-amber-400' :
+            <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
+              isQuestion ? 'bg-neon-500/20 text-neon-200' :
+              isPlan    ? 'bg-amber-400/20 text-amber-200' :
                           'bg-gl-pink/20 text-gl-pink'
             }`}>
               {isQuestion ? 'Question' : isPlan ? 'Plan Ready' : perm.toolName}
             </span>
-            <span className="text-[11px] text-gray-500 truncate">{label}</span>
+            <span className="text-[13px] font-mono text-gray-300 truncate">{label}</span>
           </div>
           {perm.description && (
-            <p className="text-xs text-gray-300 mt-1 leading-snug line-clamp-3">{perm.description}</p>
+            <p className="text-sm text-gray-100 mt-1.5 leading-snug line-clamp-3">{perm.description}</p>
           )}
         </div>
       </div>
@@ -77,22 +77,22 @@ function PermissionItem({
           onChange={(e) => setResponse(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleAllow(); }}
           placeholder="Type your answer…"
-          className="w-full text-xs glass-input text-gray-200 rounded px-2.5 py-1.5 focus:outline-none placeholder-gray-600"
+          className="w-full h-10 text-[13px] glass-input text-gray-100 rounded-[9px] px-3 focus:outline-none placeholder-gray-500"
         />
       )}
 
       {/* Action buttons */}
-      <div className="flex gap-1.5">
+      <div className="flex gap-2">
         <button
           onClick={handleAllow}
           disabled={isQuestion && !response.trim()}
-          className="flex-1 text-xs font-medium px-2.5 py-1.5 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/20 disabled:opacity-40 transition-colors"
+          className="flex-1 h-10 text-[13px] font-semibold px-3 rounded-[9px] bg-emerald-400/[0.12] text-emerald-200 hover:bg-emerald-400/20 border border-emerald-400/55 disabled:opacity-40 transition-colors"
         >
           {isQuestion ? 'Send' : isPlan ? 'Approve' : 'Allow'}
         </button>
         <button
           onClick={handleDeny}
-          className="flex-1 text-xs font-medium px-2.5 py-1.5 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20 transition-colors"
+          className="flex-1 h-10 text-[13px] font-semibold px-3 rounded-[9px] bg-transparent text-red-300 hover:bg-red-500/10 border border-red-400/45 transition-colors"
         >
           Deny
         </button>
@@ -114,23 +114,23 @@ function StuckItem({
   return (
     <div
       onClick={() => onDismiss(alert.agentId)}
-      className="p-3 rounded-lg bg-amber-500/[0.07] border border-amber-500/20 space-y-2 cursor-pointer hover:bg-amber-500/[0.12] transition-colors"
+      className="p-3.5 rounded-xl bg-gl-code border border-amber-400/30 space-y-2 cursor-pointer hover:bg-amber-400/[0.06] transition-colors"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/20 text-amber-400">
+            <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-amber-400/20 text-amber-200">
               Stuck
             </span>
-            <span className="text-[11px] text-gray-500 truncate">{label}</span>
+            <span className="text-[13px] font-mono text-gray-300 truncate">{label}</span>
           </div>
-          <p className="text-xs text-gray-300 mt-1 leading-snug line-clamp-2">{alert.pattern}</p>
+          <p className="text-[13px] text-gray-300 mt-1.5 leading-snug line-clamp-2">{alert.pattern}</p>
           {alert.suggestion && (
             <p className="text-[11px] text-gray-500 mt-1 leading-snug line-clamp-2">{alert.suggestion}</p>
           )}
         </div>
       </div>
-      <div className="text-center text-[10px] text-gray-500/80">Click to dismiss</div>
+      <div className="text-[11px] text-gray-500">Click to dismiss</div>
     </div>
   );
 }
@@ -145,12 +145,12 @@ function WorkflowNotificationItem({
   return (
     <div
       onClick={() => onDismiss(n.id)}
-      className="p-3 rounded-lg bg-emerald-500/[0.07] border border-emerald-500/20 space-y-2 cursor-pointer hover:bg-emerald-500/[0.12] transition-colors"
+      className="p-3.5 rounded-xl bg-gl-code border border-emerald-400/30 space-y-2 cursor-pointer hover:bg-emerald-400/[0.06] transition-colors"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-emerald-500/20 text-emerald-400">
+            <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-400/20 text-emerald-200">
               Workflow Done
             </span>
             {n.projects.map((p) => (
@@ -159,13 +159,13 @@ function WorkflowNotificationItem({
               </span>
             ))}
           </div>
-          <p className="text-xs text-gray-300 mt-1 font-medium leading-snug">{n.title}</p>
+          <p className="text-[13px] text-gray-100 mt-1.5 font-semibold leading-snug">{n.title}</p>
           {n.body && n.body !== n.title && (
             <p className="text-[11px] text-gray-500 mt-0.5 leading-snug line-clamp-2">{n.body}</p>
           )}
         </div>
       </div>
-      <div className="text-center text-[10px] text-gray-500/80">Click to dismiss</div>
+      <div className="text-[11px] text-gray-500">Click to dismiss</div>
     </div>
   );
 }
@@ -212,10 +212,10 @@ export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNo
       <button
         ref={btnRef}
         onClick={() => setOpen((v) => !v)}
-        className={`relative p-1.5 rounded-md transition-colors ${
+        className={`relative w-10 h-10 flex items-center justify-center rounded-[10px] border transition-colors ${
           total > 0
-            ? 'text-gl-pink hover:text-white'
-            : 'text-gray-500 hover:text-gray-300'
+            ? 'border-ember-500/50 bg-ember-500/10 text-ember-300 hover:bg-ember-500/20'
+            : 'border-white/[0.12] text-gray-400 hover:text-gray-100'
         }`}
         title="Notifications"
       >
@@ -225,7 +225,7 @@ export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNo
 
         {/* Badge */}
         {total > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-gl-pink text-white text-[9px] font-bold px-1 animate-pulse">
+          <span className="absolute -top-[5px] -right-[5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-ember-500 text-[#1A0A00] text-[11px] font-bold px-1">
             {total}
           </span>
         )}
@@ -235,21 +235,21 @@ export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNo
       {open && (
         <div
           ref={panelRef}
-          className="absolute right-0 top-full mt-2 w-80 glass-dark rounded-xl border border-white/10 shadow-2xl z-50 flex flex-col max-h-[70vh]"
+          className="absolute right-0 top-full mt-2 w-[380px] glass-dark rounded-[20px] border-ember-500/40 shadow-[0_30px_80px_rgba(0,0,0,0.55)] z-50 flex flex-col max-h-[70vh]"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.06] shrink-0">
-            <span className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+          <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+            <span className="font-display text-lg font-semibold text-gray-100">
               Notifications
               {total > 0 && (
-                <span className="ml-2 text-[10px] bg-gl-pink/20 text-gl-pink px-1.5 py-0.5 rounded-full">{total}</span>
+                <span className="ml-2 text-[11px] font-sans bg-ember-500/20 text-ember-300 px-2 py-0.5 rounded-full">{total}</span>
               )}
             </span>
-            <button onClick={() => setOpen(false)} className="text-gray-600 hover:text-white text-sm leading-none">&times;</button>
+            <button onClick={() => setOpen(false)} className="w-9 h-9 text-gray-300 hover:text-white text-lg leading-none" aria-label="Close">&times;</button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2.5">
             {total === 0 && (
               <div className="text-center py-8 text-gray-600 text-xs">
                 No pending notifications

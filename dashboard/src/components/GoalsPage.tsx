@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
-import { SectionTitle } from './SectionTitle';
 import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import { api } from '../lib/api';
 import { workflowAgentOptions, conferOptionLabel } from '../lib/workflow-agent-options';
@@ -212,18 +211,37 @@ function formatUsd(n: number): string {
 
 function statusBadge(status: Goal['status']) {
   const map: Record<Goal['status'], { label: string; cls: string }> = {
-    active:   { label: 'Active',   cls: 'bg-emerald-900/40 text-emerald-400 border-emerald-800/50' },
-    achieved: { label: 'Achieved', cls: 'bg-blue-900/40 text-blue-400 border-blue-800/50' },
-    paused:   { label: 'Paused',   cls: 'bg-yellow-900/40 text-yellow-400 border-yellow-800/50' },
+    active:   { label: 'Active',   cls: 'bg-neon-500/15 text-neon-200 border-neon-500/40' },
+    achieved: { label: 'Achieved', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' },
+    paused:   { label: 'Paused',   cls: 'bg-white/[0.06] text-gray-300 border-white/15' },
   };
   const { label, cls } = map[status];
-  return <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${cls}`}>{label}</span>;
+  return <span className={`font-sans text-[11px] px-2.5 py-0.5 rounded-full border font-semibold align-middle ${cls}`}>{label}</span>;
 }
 
 const PROJECT_COLORS = [
-  '#a855f7', '#3b82f6', '#10b981', '#f59e0b',
-  '#ef4444', '#ec4899', '#06b6d4', '#84cc16',
+  '#5AAEFF', '#7C6CFF', '#2EE6D6', '#FF8A3D',
+  '#FF7AC0', '#4ADE80', '#FFC44D', '#FF6B6B',
 ];
+
+/**
+ * The Night Glass segmented meter: lit cells glow, unlit cells are outlines. Purely a view of
+ * a percentage the caller already computed — it never invents progress.
+ */
+function SegMeter({ pct, cells, height = 22, framed = false }: { pct: number; cells: number; height?: number; framed?: boolean }) {
+  const lit = Math.round((cells * Math.max(0, Math.min(100, pct))) / 100);
+  return (
+    <div
+      role="img"
+      aria-label={`${pct} percent`}
+      className={framed ? 'flex gap-[3px] p-[5px] rounded-md bg-gl-code shadow-[0_0_16px_rgba(59,139,255,0.28)]' : 'flex gap-[2px]'}
+    >
+      {Array.from({ length: cells }, (_, i) => (
+        <span key={i} className={`flex-1 rounded-[2px] ${i < lit ? 'seg-on' : framed ? 'seg-off' : 'bg-white/[0.08]'}`} style={{ height }} />
+      ))}
+    </div>
+  );
+}
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
@@ -428,7 +446,7 @@ function GoalForm({ initial, onSave, onCancel }: GoalFormProps) {
         <button
           onClick={() => onSave({ name: name.trim(), description: description.trim(), successMetric: successMetric.trim(), budgetUsd: budgetUsdStr ? parseFloat(budgetUsdStr) : null, status, acceptanceCriteria: acceptanceCriteria.trim(), noGos: noGos.trim(), rabbitHoles: rabbitHoles.trim(), invariants: invariants.trim(), targetDate, owner: owner.trim(), investmentCategory, autonomy })}
           disabled={!name.trim()}
-          className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
+          className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {initial ? 'Save' : 'Create Goal'}
         </button>
@@ -553,7 +571,7 @@ function ProjectForm({ goals, initial, onSave, onCancel }: ProjectFormProps) {
         <button
           onClick={() => onSave({ name: name.trim(), description: description.trim(), goalId, primaryRepo: primaryRepo.trim(), color, cartridges })}
           disabled={!name.trim()}
-          className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors"
+          className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {initial ? 'Save' : 'Create Project'}
         </button>
@@ -576,32 +594,28 @@ interface ProjectCardProps {
 
 function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats, onRun }: ProjectCardProps) {
   return (
-    <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-4 flex flex-col gap-2">
+    <div
+      className="glass-light rounded-[18px] p-[18px] flex flex-col gap-2.5"
+      style={{ borderTop: `3px solid ${project.color}` }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
-          <span className="text-sm font-medium text-gray-200 truncate">{project.name}</span>
+          <span className="font-display text-[17px] font-semibold text-gray-100 truncate">{project.name}</span>
           {(project.activeRunCount ?? 0) > 0
-            ? <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 bg-blue-900/30 border border-blue-700/30 rounded-full px-1.5 py-0.5 flex-shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />{project.activeRunCount} running</span>
+            ? <span className="inline-flex items-center gap-1 text-[11px] text-neon-200 bg-neon-500/15 border border-neon-500/40 rounded-full px-2 py-0.5 flex-shrink-0"><span className="w-1.5 h-1.5 rounded-full seg-on animate-pulse" />{project.activeRunCount} running</span>
             : project.lastRunStatus && <RunStatusDot status={project.lastRunStatus} />
           }
         </div>
-        <div className="flex gap-1 flex-shrink-0">
-          <button
-            onClick={() => onRun(project)}
-            className="text-gray-600 hover:text-violet-400 transition-colors p-0.5"
-            title="Run workflow"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
-            </svg>
-          </button>
-          <button onClick={() => onEdit(project)} className="text-gray-600 hover:text-gray-300 transition-colors p-0.5">
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {(project.costUsd ?? 0) > 0 && (
+            <span className="text-[12px] text-gray-400 mr-1" title="Real spend on this cartridge (from session usage)">{formatUsd(project.costUsd!)}</span>
+          )}
+          <button onClick={() => onEdit(project)} className="text-gray-500 hover:text-gray-200 transition-colors p-1" title="Edit project" aria-label="Edit project">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
             </svg>
           </button>
-          <button onClick={() => onDelete(project.id)} className="text-gray-600 hover:text-red-400 transition-colors p-0.5">
+          <button onClick={() => onDelete(project.id)} className="text-gray-500 hover:text-red-400 transition-colors p-1" title="Delete project" aria-label="Delete project">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
             </svg>
@@ -609,45 +623,41 @@ function ProjectCard({ project, onEdit, onDelete, onLearnings, onHeartbeats, onR
         </div>
       </div>
       {project.description && (
-        <p className="text-[12px] text-gray-500 leading-relaxed line-clamp-2">{project.description}</p>
+        <p className="text-[13px] text-gray-300 leading-relaxed line-clamp-2">{project.description}</p>
       )}
-      <div className="flex items-center justify-between gap-2 mt-auto pt-1 border-t border-white/[0.05]">
-        <div className="flex items-center gap-3 text-[11px] text-gray-600">
-          {project.primaryRepo && (
-            <span className="truncate max-w-[100px]" title={project.primaryRepo}>
-              {project.primaryRepo.split('/').pop()}
-            </span>
-          )}
-          <span>{project.runCount ?? 0} runs</span>
-          {(project.tokensUsed ?? 0) > 0 && (
-            <span className="text-violet-400">{formatTokens(project.tokensUsed!)}</span>
-          )}
-          {(project.costUsd ?? 0) > 0 && (
-            <span className="text-emerald-400" title="Real spend on this cartridge (from session usage)">{formatUsd(project.costUsd!)}</span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onHeartbeats(project)}
-            className="text-[10px] text-gray-600 hover:text-emerald-400 transition-colors flex items-center gap-1"
-            title="Scheduled runs"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Schedule
-          </button>
-          <button
-            onClick={() => onLearnings(project)}
-            className="text-[10px] text-gray-600 hover:text-violet-400 transition-colors flex items-center gap-1"
-            title="Workflow learnings"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-            </svg>
-            Learnings
-          </button>
-        </div>
+      <div className="flex items-center gap-3 font-mono text-[12px] text-gray-500 flex-wrap">
+        {project.primaryRepo && (
+          <span className="truncate max-w-[160px]" title={project.primaryRepo}>
+            {project.primaryRepo.split('/').pop()}
+          </span>
+        )}
+        <span>{project.runCount ?? 0} runs</span>
+        {(project.tokensUsed ?? 0) > 0 && (
+          <span className="text-neon-300/80">{formatTokens(project.tokensUsed!)}</span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-auto pt-1">
+        <button
+          onClick={() => onRun(project)}
+          className="h-9 px-3 rounded-[9px] border border-neon-500/50 bg-neon-500/15 text-neon-100 text-[12px] font-semibold hover:bg-neon-500/25 transition-colors"
+          title="Run workflow"
+        >
+          ▶ Run workflow
+        </button>
+        <button
+          onClick={() => onHeartbeats(project)}
+          className="h-9 px-3 rounded-[9px] btn-ghost text-gray-300 text-[12px] font-semibold transition-colors"
+          title="Scheduled runs"
+        >
+          Scheduled
+        </button>
+        <button
+          onClick={() => onLearnings(project)}
+          className="h-9 px-3 rounded-[9px] btn-ghost text-gray-300 text-[12px] font-semibold transition-colors"
+          title="Workflow learnings"
+        >
+          Learnings
+        </button>
       </div>
     </div>
   );
@@ -882,7 +892,7 @@ function LaunchFromProjectModal({ project, onClose }: { project: Project; onClos
           // The cartridge above is ignored while conferring — this said so in the hint
           // and then went on requiring it, so the Launch button stayed grey.
           disabled={!templateId || (!agentId && conferAgents.length < 2) || launching}
-          className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm rounded-md transition-colors"
+          className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {launching ? 'Launching…' : 'Launch'}
         </button>
@@ -1153,7 +1163,7 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
             <button
               onClick={handleSave}
               disabled={!form.templateId}
-              className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm rounded-md transition-colors"
+              className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {editingId ? 'Save' : 'Create'}
             </button>
@@ -1227,8 +1237,8 @@ function HeartbeatsPanel({ project }: { project: Project; onClose: () => void })
 
 const TASK_STATUS_DOT: Record<string, string> = {
   queued: 'bg-gray-500',
-  claimed: 'bg-blue-400',
-  in_progress: 'bg-violet-400 animate-pulse',
+  claimed: 'bg-neon-300',
+  in_progress: 'bg-neon-400 animate-pulse',
   done: 'bg-emerald-500',
   failed: 'bg-red-500',
   cancelled: 'bg-yellow-600',
@@ -1242,16 +1252,16 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-ink/75 backdrop-blur-sm" onClick={onClose} />
       {/* Scrolls INSIDE itself. Without the height cap a long form simply grows past the
           viewport: the title clips off the top, the Save button sits on the bottom edge, and
           neither can be reached because the page behind a `fixed inset-0` overlay does not
           scroll. The goal form crossed that line when the planning fields were added, but the
           bug was latent before — the fix belongs on the Modal, not on one form. */}
-      <div className="relative bg-[#111] border border-white/10 rounded-xl p-5 w-full max-w-lg shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
+      <div className="relative glass-dark rounded-[22px] p-6 w-full max-w-lg shadow-[0_30px_80px_rgba(0,0,0,0.6)] max-h-[calc(100vh-2rem)] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-200">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="text-gray-600 hover:text-gray-300 transition-colors">
+          <h3 className="font-display text-xl font-semibold text-gray-100">{title}</h3>
+          <button onClick={onClose} aria-label="Close" className="w-10 h-10 rounded-[10px] btn-ghost flex items-center justify-center text-gray-300 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -1430,10 +1440,17 @@ export function GoalsProvider({ active, agents, children }: { active: boolean; a
  * and colouring it as a failure forever trains people to ignore the badge.
  */
 const SCHEDULE_TONE: Record<string, string> = {
-  overdue: 'text-red-400',
-  'due-soon': 'text-amber-300',
-  'on-time': 'text-gray-600',
-  met: 'text-emerald-400',
+  overdue: 'text-red-300',
+  'due-soon': 'text-amber-200',
+  'on-time': 'text-gray-400',
+  met: 'text-emerald-300',
+};
+/** The rail's schedule tag is a pill, tinted to match its tone. */
+const SCHEDULE_PILL: Record<string, string> = {
+  overdue: 'bg-red-500/15 text-red-300',
+  'due-soon': 'bg-amber-400/15 text-amber-200',
+  'on-time': 'bg-white/[0.06] text-gray-400',
+  met: 'bg-emerald-500/15 text-emerald-300',
 };
 const SCHEDULE_LABEL: Record<string, string> = {
   overdue: 'overdue',
@@ -1443,8 +1460,8 @@ const SCHEDULE_LABEL: Record<string, string> = {
 };
 
 const STATUS_DOT: Record<Goal['status'], string> = {
-  active: 'bg-violet-400',
-  achieved: 'bg-emerald-400',
+  active: 'seg-on',
+  achieved: 'bg-emerald-400 shadow-[0_0_8px_#4ADE80]',
   paused: 'bg-gray-500',
 };
 
@@ -1453,10 +1470,10 @@ function RailItem({ active, onSelect, children }: { active: boolean; onSelect: (
     <button
       onClick={onSelect}
       aria-current={active ? 'true' : undefined}
-      className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+      className={`w-full text-left rounded-2xl border p-4 transition-colors ${
         active
-          ? 'bg-violet-900/25 border-violet-700/50'
-          : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06]'
+          ? 'bg-neon-500/[0.12] border-neon-500 shadow-[0_0_22px_rgba(90,174,255,0.25)]'
+          : 'glass-light hover:bg-white/[0.05]'
       }`}
     >
       {children}
@@ -1484,12 +1501,12 @@ function PortfolioStrip() {
   const pct = s.fraction === null ? null : Math.round(s.fraction * 100);
 
   return (
-    <div className="mb-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
+    <div className="mb-3 rounded-2xl glass-light p-4">
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[11px] text-gray-500 uppercase tracking-wider">Across {s.goalCount} goals</span>
-        {s.totalCostUsd > 0 && <span className="text-[11px] text-emerald-400">{formatUsd(s.totalCostUsd)}</span>}
+        <span className="text-[12px] text-gray-400 uppercase tracking-[0.12em]">Across {s.goalCount} goals</span>
+        {s.totalCostUsd > 0 && <span className="text-[13px] text-gray-200">{formatUsd(s.totalCostUsd)}</span>}
       </div>
-      <div className="flex items-center gap-3 text-[10px] text-gray-600 flex-wrap">
+      <div className="flex items-center gap-3 text-[12px] text-gray-400 flex-wrap">
         <span>{s.activeCount} active</span>
         {/* Both counts are shown only when non-zero: a row of confident zeroes reads as
             "everything is fine", which is a claim, whereas absence is not. */}
@@ -1500,14 +1517,14 @@ function PortfolioStrip() {
         <span>{pct === null ? 'nothing measurable yet' : `${pct}% of steps done`}</span>
       </div>
       {pct !== null && (
-        <div className="mt-1.5 h-0.5 bg-white/10 rounded-full overflow-hidden">
-          <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pct}%` }} />
+        <div className="mt-2">
+          <SegMeter pct={pct} cells={20} height={5} />
         </div>
       )}
       {/* Uncategorised is shown as its own slice rather than dropped — hiding it would make the
           split look complete while the largest share of spend is missing. */}
       {s.byCategory.filter((c) => c.costUsd > 0).length > 1 && (
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
           {s.byCategory.filter((c) => c.costUsd > 0).map((c) => (
             <span key={c.category || 'none'}>
               {c.label} {formatUsd(c.costUsd)}
@@ -1529,8 +1546,8 @@ export function GoalsRail() {
 
   return (
     <section>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <SectionTitle>Goals</SectionTitle>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h2 className="font-display text-xl font-semibold text-gray-100">Goals</h2>
         {/* HIERARCHY ORDER: Goal, then Project.
             They read Project-then-Goal, which inverts the containment the whole page is built
             on — a project lives under a goal, and this is the one place a user meets both at
@@ -1540,14 +1557,14 @@ export function GoalsRail() {
           <button
             onClick={() => setModal({ type: 'new-goal' })}
             title="New goal"
-            className="text-[11px] text-white bg-violet-600 hover:bg-violet-500 px-2 py-1 rounded-md transition-colors font-medium"
+            className="h-10 px-3.5 rounded-[10px] btn-ghost text-sm font-semibold transition-colors"
           >
             + Goal
           </button>
           <button
             onClick={() => setModal({ type: 'new-project', goalId: null })}
             title="New project — lives under a goal"
-            className="text-[11px] text-gray-400 hover:text-gray-200 border border-white/10 hover:border-white/20 px-2 py-1 rounded-md transition-colors"
+            className="h-10 px-3.5 rounded-[10px] btn-primary text-sm font-semibold transition-colors"
           >
             + Project
           </button>
@@ -1559,81 +1576,78 @@ export function GoalsRail() {
           contributes nothing to reach or cost and receives no goal brief, and until now
           nothing said so. Silent at zero. */}
       {unassignedNotice(projects) && (
-        <p className="text-[11px] text-amber-300/80 mb-2 leading-snug">{unassignedNotice(projects)}</p>
+        <p className="text-[12px] text-amber-200/90 mb-3 leading-snug">{unassignedNotice(projects)}</p>
       )}
 
       <PortfolioStrip />
 
       {loading ? (
-        <p className="text-[12px] text-gray-600 py-4">Loading…</p>
+        <p className="text-[13px] text-gray-400 py-4">Loading…</p>
       ) : goals.length === 0 && ungrouped.length === 0 ? (
-        <div className="border border-white/[0.06] rounded-lg bg-white/[0.02] p-4 text-center">
-          <div className="text-2xl mb-2">🎯</div>
-          <p className="text-[12px] text-gray-500 leading-snug">
+        <div className="rounded-2xl border border-dashed border-white/[0.18] p-5 text-center">
+          <p className="text-[13px] text-gray-400 leading-snug">
             Goals connect workflow runs to something. Create one and every run counts toward it.
           </p>
         </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-3">
           {goals.map((goal) => {
             const count = projects.filter((p) => p.goalId === goal.id).length;
             const reach = goal.reach ?? 0;
             const spent = goal.costUsd ?? 0;
             return (
               <RailItem key={goal.id} active={selected === goal.id} onSelect={() => select(goal.id)}>
-                <div className="flex items-start gap-2">
-                  <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[goal.status]}`} title={goal.status} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-medium text-gray-100 truncate">{goal.name}</div>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-600 flex-wrap">
-                      <span>{count} {count === 1 ? 'project' : 'projects'}</span>
-                      {/* Reach is the number that makes the others legible: at 0 the brief
-                          reaches no prompt and the spend beside it cannot move. */}
-                      {reach === 0 ? (
-                        <span className="text-amber-300/90" title="No cartridge resolves to this goal — its brief reaches no prompts and its cost stays $0">
-                          reaches nothing
-                        </span>
-                      ) : (
-                        <span>{reach} {reach === 1 ? 'cartridge' : 'cartridges'}</span>
-                      )}
-                      {spent > 0 && <span className="text-emerald-400">{formatUsd(spent)}</span>}
-                      {goal.schedule && (
-                        <span className={SCHEDULE_TONE[goal.schedule.state]} title={goal.schedule.detail}>
-                          {SCHEDULE_LABEL[goal.schedule.state]}
-                        </span>
-                      )}
-                    </div>
-                    {/* Progress. The bar is drawn ONLY when there is something to measure —
-                        an empty bar for a goal nobody has started reads as failing. */}
-                    {(() => {
-                      const pv = progressView(goal);
-                      return (
-                        <div className="mt-1.5">
-                          {pv.pct !== null && (
-                            <div className="h-0.5 bg-white/10 rounded-full overflow-hidden mb-1">
-                              <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pv.pct}%` }} />
-                            </div>
-                          )}
-                          <div className="text-[10px] text-gray-600">
-                            {pv.pct !== null ? `${pv.pct}% · ${pv.text}` : pv.text}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    {/* Health — the "does anything need me" answer, at a glance across goals. */}
-                    {(() => {
-                      const hv = healthView(goal.health);
-                      if (!hv) return null;
-                      return (
-                        <div
-                          className={`mt-1.5 text-[10px] font-medium ${hv.tone === 'bad' ? 'text-red-400' : 'text-amber-300'}`}
-                          title={hv.detail}
-                        >
-                          ● {hv.label}
-                        </div>
-                      );
-                    })()}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[goal.status]}`} title={goal.status} />
+                      <span className="text-[15px] font-semibold text-gray-100 truncate">{goal.name}</span>
+                    </span>
+                    {goal.schedule && (
+                      <span className={`flex-shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full ${SCHEDULE_PILL[goal.schedule.state]}`} title={goal.schedule.detail}>
+                        {SCHEDULE_LABEL[goal.schedule.state]}
+                      </span>
+                    )}
                   </div>
+                  <div className="flex items-center gap-1.5 text-[13px] text-gray-400 flex-wrap">
+                    <span>{count} {count === 1 ? 'project' : 'projects'}</span>
+                    <span aria-hidden="true">·</span>
+                    {/* Reach is the number that makes the others legible: at 0 the brief
+                        reaches no prompt and the spend beside it cannot move. */}
+                    {reach === 0 ? (
+                      <span className="text-amber-200" title="No cartridge resolves to this goal — its brief reaches no prompts and its cost stays $0">
+                        reaches nothing
+                      </span>
+                    ) : (
+                      <span>{reach} {reach === 1 ? 'cartridge' : 'cartridges'}</span>
+                    )}
+                    {spent > 0 && <><span aria-hidden="true">·</span><span>{formatUsd(spent)}</span></>}
+                  </div>
+                  {/* Progress. The meter is drawn ONLY when there is something to measure —
+                      an empty one for a goal nobody has started reads as failing. */}
+                  {(() => {
+                    const pv = progressView(goal);
+                    return pv.pct !== null ? (
+                      <div title={`${pv.pct}% · ${pv.text}`}>
+                        <SegMeter pct={pv.pct} cells={20} height={5} />
+                      </div>
+                    ) : (
+                      <div className="text-[12px] text-gray-500">{pv.text}</div>
+                    );
+                  })()}
+                  {/* Health — the "does anything need me" answer, at a glance across goals. */}
+                  {(() => {
+                    const hv = healthView(goal.health);
+                    if (!hv) return null;
+                    return (
+                      <div
+                        className={`text-[12px] font-semibold ${hv.tone === 'bad' ? 'text-red-300' : 'text-ember-300'}`}
+                        title={hv.detail}
+                      >
+                        ● {hv.label}
+                      </div>
+                    );
+                  })()}
                 </div>
               </RailItem>
             );
@@ -1642,10 +1656,10 @@ export function GoalsRail() {
           {ungrouped.length > 0 && (
             <RailItem active={selected === UNASSIGNED} onSelect={() => select(UNASSIGNED)}>
               <div className="flex items-start gap-2">
-                <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-400/70" />
+                <span className="mt-1.5 w-2 h-2 rounded-full flex-shrink-0 bg-ember-500 shadow-[0_0_8px_#FF8A3D]" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium text-amber-200/90 truncate">No goal</div>
-                  <div className="mt-1 text-[10px] text-gray-600">
+                  <div className="text-[15px] font-semibold text-gray-100 truncate">No goal</div>
+                  <div className="mt-1 text-[13px] text-gray-400">
                     {ungrouped.length} {ungrouped.length === 1 ? 'project' : 'projects'} · rolls up to nothing
                   </div>
                 </div>
@@ -1678,12 +1692,12 @@ const INTENT_FIELDS: { key: string; label: string; hint: string; read: (g: Goal)
 
 function IntentBlock({ label, hint, value }: { label: string; hint: string; value: string }) {
   return (
-    <div>
-      <h4 className="text-[11px] text-gray-500 uppercase tracking-wider" title={hint}>{label}</h4>
+    <div className="flex flex-col gap-1 py-2.5 border-b border-white/[0.06] last:border-b-0">
+      <h4 className="text-[12px] text-gray-500 uppercase tracking-[0.12em]" title={hint}>{label}</h4>
       {value ? (
-        <p className="text-[13px] text-gray-300 mt-1 whitespace-pre-wrap leading-relaxed">{value}</p>
+        <p className="text-[14px] text-gray-100 whitespace-pre-wrap leading-relaxed">{value}</p>
       ) : (
-        <p className="text-[12px] text-gray-600 mt-1 italic">Not set — this reaches no agent</p>
+        <p className="text-[14px] text-ember-300">Not set — this reaches no agent</p>
       )}
     </div>
   );
@@ -1713,246 +1727,243 @@ function GoalDetail({ goal }: { goal: Goal }) {
 
   return (
     <div className="space-y-5">
-      {/* Identity. Titled through the shared primitive rather than hand-set type — the
-          working surface is a new screen, and a new screen with its own heading style is
-          exactly how the five variants SectionTitle replaced came about. */}
-      <div>
-        <SectionTitle
-          actions={
-            <>
-              <button
-                onClick={() => setModal({ type: 'edit-goal', goal })}
-                className="text-xs text-gray-400 hover:text-gray-200 border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-md transition-colors"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => deleteGoal(goal.id)}
-                className="text-xs text-gray-500 hover:text-red-400 border border-white/10 hover:border-red-700/40 px-3 py-1.5 rounded-md transition-colors"
-              >
-                Delete
-              </button>
-            </>
-          }
-        >
-          {goal.name}
-          {statusBadge(goal.status)}
-        </SectionTitle>
-        {goal.successMetric && (
-          <p className="text-[13px] text-gray-500 -mt-1">
-            <span className="text-gray-600">Done when: </span>{goal.successMetric}
-          </p>
-        )}
-      </div>
-
-      {/* Does anything need me? First, because it is the only thing here that is time-sensitive
-          — cost and progress can wait, a blocked run cannot. Absent entirely when nothing is
-          waiting: an "all good" badge on a goal with no runs would claim evidence there is none. */}
-      {(() => {
-        const hv = healthView(goal.health);
-        if (!hv) return null;
-        return (
-          <div
-            className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border ${
-              hv.tone === 'bad'
-                ? 'bg-red-900/25 border-red-700/40 text-red-300'
-                : 'bg-amber-900/20 border-amber-700/40 text-amber-200'
-            }`}
-          >
-            <span className="mt-0.5 text-[13px] leading-none" aria-hidden="true">●</span>
-            <div className="min-w-0">
-              <div className="text-[13px] font-medium">{hv.label}</div>
-              <p className="text-[12px] opacity-80 mt-0.5">{hv.detail}</p>
-              {hv.runName && <p className="text-[11px] opacity-60 mt-0.5">in {hv.runName}</p>}
-            </div>
+      {/* THE HERO. Identity, how far along, where it stands and — last, in the warm accent —
+          whatever is waiting on you. Night Glass gathers these into one live panel so the
+          goal reads as a single status object rather than five stacked sections. */}
+      <section className="panel-live rounded-[22px] p-6 flex flex-col gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <h2 className="font-display text-[28px] leading-tight font-semibold text-gray-100 flex items-center gap-3 flex-wrap">
+              {goal.name}
+              {statusBadge(goal.status)}
+            </h2>
+            {goal.successMetric && (
+              <p className="text-[14px] text-gray-400">Done when: {goal.successMetric}</p>
+            )}
           </div>
-        );
-      })()}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setModal({ type: 'edit-goal', goal })}
+              className="h-10 px-3.5 rounded-[10px] btn-ghost text-[13px] font-semibold transition-colors"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => deleteGoal(goal.id)}
+              className="h-10 px-3.5 rounded-[10px] border border-red-400/40 text-red-200 hover:bg-red-500/10 text-[13px] font-semibold transition-colors"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => document.getElementById('goal-pilot')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              className="h-10 px-4 rounded-[10px] text-[13px] font-semibold transition-colors"
+              style={{ border: '1px solid rgba(124,108,255,0.7)', background: 'rgba(124,108,255,0.2)', color: '#E4DFFF' }}
+            >
+              ✦ Goal Pilot
+            </button>
+          </div>
+        </div>
 
-      {/* The Goal Pilot: scoping with a planner cartridge, the accepted pipeline of workflows,
-          and the stage running now. Above progress and intent because it is where the goal is
-          DRIVEN from — and where a stage waiting on you says so. */}
-      <GoalPilotPanel goal={goal} agents={agents} onGoalChanged={refresh} />
-
-      {/* How far along. Words and counts, not a bare percentage — "30%" of what is
-          unanswerable, "12 of 40 steps" can be checked against the runs themselves. */}
-      {(() => {
-        const pv = progressView(goal);
-        return (
-          <div>
-            <div className="flex items-center justify-between gap-2 mb-1.5">
-              <h3 className="text-[11px] text-gray-500 uppercase tracking-wider">Progress</h3>
-              <span className="text-[11px] text-gray-500">
-                {pv.pct !== null ? `${pv.pct}% · ${pv.text}` : pv.text}
-              </span>
-            </div>
-            {pv.pct !== null ? (
-              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pv.pct}%` }} />
-              </div>
-            ) : (
-              // No bar at all. An empty track would read as 0% — work started, got nowhere —
-              // which is a different and more damning claim than "nothing has run yet".
-              <p className="text-[12px] text-gray-600">
+        {/* How far along. Words and counts beside the meter — "30%" of what is unanswerable,
+            "12 of 40 steps" can be checked against the runs themselves. */}
+        {(() => {
+          const pv = progressView(goal);
+          if (pv.pct === null) {
+            // No meter at all. An empty track would read as 0% — work started, got nowhere —
+            // which is a different and more damning claim than "nothing has run yet".
+            return (
+              <p className="text-[13px] text-gray-400">
                 Progress appears once a workflow runs against one of this goal's projects.
               </p>
-            )}
-            {pv.pct !== null && (
-              <p className="text-[11px] text-gray-600 mt-1">
+            );
+          }
+          return (
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-baseline justify-between font-display">
+                <span className="text-[15px] text-gray-300">Steps completed <span className="font-sans text-[12px] text-gray-500">· {pv.text}</span></span>
+                <span className="text-[28px] font-bold neon-text">{pv.pct}%</span>
+              </div>
+              <SegMeter pct={pv.pct} cells={40} height={22} framed />
+              <p className="text-[12px] text-gray-500">
                 Counted across {goal.progress?.runsCounted ?? 0}{' '}
                 {(goal.progress?.runsCounted ?? 0) === 1 ? 'run' : 'runs'}; cancelled runs excluded.
                 Measures steps completed, not acceptance criteria met.
               </p>
+            </div>
+          );
+        })()}
+
+        {/* Where it stands */}
+        <div className="flex items-center gap-x-4 gap-y-1 text-[13px] text-gray-400 flex-wrap">
+          <span>{mine.length} {mine.length === 1 ? 'project' : 'projects'}</span>
+          {reach === 0 ? (
+            <span className="text-amber-200 font-medium" title="No cartridge resolves to this goal, so its brief reaches no prompts and its cost stays $0. Attach a repo to one of its projects.">
+              reaches no cartridges
+            </span>
+          ) : (
+            <span title="Cartridges that receive this goal's brief at dispatch">
+              {reach} {reach === 1 ? 'cartridge' : 'cartridges'}
+            </span>
+          )}
+          <span>{goal.runCount ?? 0} runs</span>
+          {goalTasks.length > 0 && (
+            <span>{activeTasks.length} active {activeTasks.length === 1 ? 'task' : 'tasks'}</span>
+          )}
+          {spentUsd > 0 && (
+            <span className="text-gray-200" title="Real spend across this goal's cartridges — workflows + tasks, cache-inclusive">
+              {formatUsd(spentUsd)}{goal.budgetUsd ? ` / ${formatUsd(goal.budgetUsd)}` : ' spent'}
+            </span>
+          )}
+          {!(spentUsd > 0) && goal.budgetUsd && <span>budget {formatUsd(goal.budgetUsd)}</span>}
+          {totalTokens > 0 && (
+            <span className="text-neon-300/80" title="Workflow token estimate (does not include tasks)">
+              {formatTokens(totalTokens)} · workflows
+            </span>
+          )}
+          {/* Only rendered when a date was actually set. A goal with no target is not "on time" —
+              it has no schedule, and a badge on every goal would mean nothing. */}
+          {goal.schedule && (
+            <span className={`font-medium ${SCHEDULE_TONE[goal.schedule.state]}`} title={goal.schedule.detail}>
+              {goal.schedule.state === 'met' ? 'target met' : `${SCHEDULE_LABEL[goal.schedule.state]} · ${goal.schedule.targetDate}`}
+            </span>
+          )}
+          {goal.owner && <span title="Accountable for this goal">owner: {goal.owner}</span>}
+        </div>
+        {goal.schedule && goal.schedule.state !== 'on-time' && (
+          <p className={`text-[13px] -mt-2 ${SCHEDULE_TONE[goal.schedule.state]}`}>{goal.schedule.detail}</p>
+        )}
+
+        {budgetPct !== null && (
+          <div>
+            <SegMeter pct={Math.round(budgetPct)} cells={40} height={5} />
+            {budgetPct >= 90 && (
+              <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium ${budgetPct >= 100 ? 'bg-red-500/10 border border-red-400/45 text-red-300' : 'bg-amber-400/10 border border-amber-300/40 text-amber-200'}`}>
+                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                {budgetPct >= 100 ? 'Budget cap reached — heartbeats paused' : `${Math.round(budgetPct)}% of budget used — approaching cap`}
+              </div>
             )}
           </div>
-        );
-      })()}
+        )}
 
-      {/* Where it stands */}
-      <div className="flex items-center gap-4 text-[11px] text-gray-600 flex-wrap border-y border-white/[0.06] py-2.5">
-        <span>{mine.length} {mine.length === 1 ? 'project' : 'projects'}</span>
-        {reach === 0 ? (
-          <span className="text-amber-300/90 font-medium" title="No cartridge resolves to this goal, so its brief reaches no prompts and its cost stays $0. Attach a repo to one of its projects.">
-            reaches no cartridges
-          </span>
-        ) : (
-          <span title="Cartridges that receive this goal's brief at dispatch">
-            reaches {reach} {reach === 1 ? 'cartridge' : 'cartridges'}
-          </span>
-        )}
-        <span>{goal.runCount ?? 0} runs</span>
-        {goalTasks.length > 0 && (
-          <span>{activeTasks.length} active {activeTasks.length === 1 ? 'task' : 'tasks'}</span>
-        )}
-        {spentUsd > 0 && (
-          <span className="text-emerald-400 font-medium" title="Real spend across this goal's cartridges — workflows + tasks, cache-inclusive">
-            {formatUsd(spentUsd)} spent
-          </span>
-        )}
-        {goal.budgetUsd && <span>/ {formatUsd(goal.budgetUsd)} budget</span>}
-        {totalTokens > 0 && (
-          <span className="text-violet-400/60" title="Workflow token estimate (does not include tasks)">
-            {formatTokens(totalTokens)} · workflows
-          </span>
-        )}
-        {/* Only rendered when a date was actually set. A goal with no target is not "on time" —
-            it has no schedule, and a badge on every goal would mean nothing. */}
-        {goal.schedule && (
-          <span className={`font-medium ${SCHEDULE_TONE[goal.schedule.state]}`} title={goal.schedule.detail}>
-            {goal.schedule.state === 'met' ? 'target met' : `${SCHEDULE_LABEL[goal.schedule.state]} · ${goal.schedule.targetDate}`}
-          </span>
-        )}
-        {goal.owner && <span title="Accountable for this goal">owner: {goal.owner}</span>}
-      </div>
-      {goal.schedule && goal.schedule.state !== 'on-time' && (
-        <p className={`text-[12px] -mt-2 ${SCHEDULE_TONE[goal.schedule.state]}`}>{goal.schedule.detail}</p>
-      )}
-
-      {budgetPct !== null && (
-        <div>
-          <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+        {/* Does anything need me? Absent entirely when nothing is waiting: an "all good" badge
+            on a goal with no runs would claim evidence there is none. */}
+        {(() => {
+          const hv = healthView(goal.health);
+          if (!hv) return null;
+          const bad = hv.tone === 'bad';
+          return (
             <div
-              className={`h-full rounded-full transition-all ${budgetPct >= 90 ? 'bg-red-500' : budgetPct >= 70 ? 'bg-yellow-500' : 'bg-violet-500'}`}
-              style={{ width: `${budgetPct}%` }}
-            />
-          </div>
-          {budgetPct >= 90 && (
-            <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium ${budgetPct >= 100 ? 'bg-red-900/30 border border-red-700/40 text-red-400' : 'bg-yellow-900/30 border border-yellow-700/40 text-yellow-400'}`}>
-              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-              </svg>
-              {budgetPct >= 100 ? 'Budget cap reached — heartbeats paused' : `${Math.round(budgetPct)}% of budget used — approaching cap`}
+              className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border ${
+                bad ? 'bg-red-500/[0.08] border-red-400/45' : 'bg-ember-500/[0.08] border-ember-500/40'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`w-[9px] h-[9px] rounded-full flex-shrink-0 ${bad ? 'bg-red-400 shadow-[0_0_8px_#FF6B6B]' : 'bg-ember-500 shadow-[0_0_8px_#FF8A3D]'}`}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] text-gray-100">
+                  {hv.label}{hv.runName && <span className="text-gray-400"> · in {hv.runName}</span>}
+                </div>
+                <p className="text-[12px] text-gray-400 mt-0.5">{hv.detail}</p>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+          );
+        })()}
+      </section>
 
-      {/* Intent. This is what the goal brief carries into every dispatched prompt, so an
-          unfilled goal is a goal that says nothing to the agents working under it —
-          shown as a countable gap rather than an empty area. */}
-      <div>
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider">Intent</h3>
-          <div className="flex items-center gap-3">
-            {/* Offered right where the gap is already visible. The count says how much of the
-                goal says nothing to the agents working under it; this is how you fill it. */}
+      {/* Projects */}
+      <section>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h3 className="font-display text-[17px] font-semibold text-gray-100">Projects</h3>
+          <button
+            onClick={() => setModal({ type: 'new-project', goalId: goal.id })}
+            className="flex items-center gap-1.5 text-[13px] font-semibold text-neon-300 hover:text-neon-200 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add project
+          </button>
+        </div>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-4">
+          {mine.map((p) => <ProjectCard key={p.id} project={p} {...projectHandlers} />)}
+          {/* Decompose. Offered next to the manual path rather than instead of it: the point is
+              to stop the user typing every task, not to remove the option. */}
+          <button
+            onClick={() => setModal({ type: 'decompose', goal })}
+            className="min-h-[160px] rounded-[18px] border border-dashed flex flex-col gap-2 items-center justify-center text-[14px] font-semibold transition-colors hover:bg-white/[0.02]"
+            style={{ borderColor: 'rgba(124,108,255,0.5)', background: 'rgba(124,108,255,0.05)', color: '#DCD6FF' }}
+            title="A cartridge reads the repo and proposes projects and tasks. You pick what becomes real — nothing is created automatically."
+          >
+            ✦ Plan the work for me
+            <span className="text-[12px] font-normal text-gray-400">
+              {mine.length === 0 ? 'No projects yet — or add one to start tracking work against this goal.' : 'or + Add project'}
+            </span>
+          </button>
+        </div>
+      </section>
+
+      {/* The Goal Pilot: scoping with a planner cartridge, the accepted pipeline of workflows,
+          and the stage running now. The hero's "✦ Goal Pilot" button scrolls here. */}
+      <div id="goal-pilot" className="scroll-mt-24">
+        <GoalPilotPanel goal={goal} agents={agents} onGoalChanged={refresh} />
+      </div>
+
+      <section className={`grid grid-cols-1 ${goalTasks.length > 0 ? 'xl:grid-cols-2' : ''} gap-4 items-start`}>
+        {/* Intent. This is what the goal brief carries into every dispatched prompt, so an
+            unfilled goal is a goal that says nothing to the agents working under it —
+            shown as a countable gap rather than an empty area. */}
+        <div className="glass-light rounded-[18px] p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-display text-[17px] font-semibold text-gray-100">
+              Intent <span className={`ml-1 font-sans text-[12px] font-normal ${filled === INTENT_FIELDS.length ? 'text-gray-500' : 'text-ember-300'}`}>{filled}/{INTENT_FIELDS.length} filled</span>
+            </h3>
+            {/* Offered right where the gap is already visible. */}
             <button
               onClick={() => setModal({ type: 'draft', goal })}
-              className="text-[11px] text-violet-400 hover:text-violet-300 transition-colors"
+              className="text-[13px] font-semibold text-neon-300 hover:text-neon-200 transition-colors"
               title="A cartridge drafts the intent from a sentence or two. You accept it field by field — nothing is applied automatically."
             >
               ✎ Help me write this
             </button>
-            <span className={`text-[10px] ${filled === INTENT_FIELDS.length ? 'text-gray-600' : 'text-amber-300/80'}`}>
-              {filled}/{INTENT_FIELDS.length} filled
-            </span>
           </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-          {INTENT_FIELDS.map((f) => (
-            <IntentBlock key={f.key} label={f.label} hint={f.hint} value={f.read(goal)} />
-          ))}
-        </div>
-        {goal.keyResults?.length > 0 && (
-          <div className="mt-3 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-            <h4 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Key results</h4>
-            <div className="space-y-1.5">
-              {goal.keyResults.map((kr, i) => (
-                <div key={i} className="flex items-center gap-2 text-[12px] text-gray-400">
-                  <span className="text-gray-300">{kr.metric}</span>
-                  {kr.baseline && <span className="text-gray-600">from {kr.baseline}</span>}
-                  {kr.target && <span className="text-emerald-400/80">to {kr.target}</span>}
-                  {kr.measure && <span className="text-gray-600">· {kr.measure}</span>}
-                </div>
-              ))}
+          <div className="flex flex-col">
+            {INTENT_FIELDS.map((f) => (
+              <IntentBlock key={f.key} label={f.label} hint={f.hint} value={f.read(goal)} />
+            ))}
+          </div>
+          {goal.keyResults?.length > 0 && (
+            <div className="pt-1">
+              <h4 className="text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-2">Key results</h4>
+              <div className="space-y-1.5">
+                {goal.keyResults.map((kr, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[13px] text-gray-400 flex-wrap">
+                    <span className="text-gray-200">{kr.metric}</span>
+                    {kr.baseline && <span className="text-gray-500">from {kr.baseline}</span>}
+                    {kr.target && <span className="text-emerald-300">to {kr.target}</span>}
+                    {kr.measure && <span className="text-gray-500">· {kr.measure}</span>}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      {/* Projects */}
-      <div>
-        <h3 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Projects</h3>
-        {mine.length === 0 ? (
-          <p className="text-[12px] text-gray-600">No projects yet — add one to start tracking work against this goal.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {mine.map((p) => <ProjectCard key={p.id} project={p} {...projectHandlers} />)}
-          </div>
-        )}
-        <button
-          onClick={() => setModal({ type: 'new-project', goalId: goal.id })}
-          className="mt-3 flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-violet-400 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Add project
-        </button>
-        {/* Decompose. Offered next to the manual path rather than instead of it: the point is
-            to stop the user typing every task, not to remove the option. */}
-        <button
-          onClick={() => setModal({ type: 'decompose', goal })}
-          className="mt-3 ml-4 text-[12px] text-violet-400 hover:text-violet-300 transition-colors"
-          title="A cartridge reads the repo and proposes projects and tasks. You pick what becomes real — nothing is created automatically."
-        >
-          ✦ Plan the work for me
-        </button>
-      </div>
-
-      {/* Tasks under this goal's projects */}
-      {goalTasks.length > 0 && (
-        <div>
-          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Tasks</h3>
-          <div className="space-y-1.5">
+        {/* Tasks under this goal's projects */}
+        {goalTasks.length > 0 && (
+          <div className="glass-light rounded-[18px] p-5 flex flex-col gap-2">
+            <h3 className="font-display text-[17px] font-semibold text-gray-100 mb-1">Tasks</h3>
             {goalTasks.slice(0, 12).map((t) => {
               const project = mine.find((p) => p.id === t.projectId);
               return (
-                <div key={t.id} className="flex items-center gap-2 text-[12px] bg-black/20 border border-white/[0.05] rounded-md px-2.5 py-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${TASK_STATUS_DOT[t.status] || 'bg-gray-600'}`} title={t.status} />
-                  <span className="text-gray-300 truncate flex-1">{t.title}</span>
+                <div key={t.id} className="flex items-center gap-2.5 min-h-[40px]">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${TASK_STATUS_DOT[t.status] || 'bg-gray-600'}`} title={t.status} />
+                  <span className="text-[14px] text-gray-200 truncate flex-1">{t.title}</span>
                   {project && (
-                    <span className="text-[10px] flex-shrink-0" style={{ color: project.color }} title={project.name}>
+                    <span className="text-[12px] flex-shrink-0 px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-300" title={project.name}>
                       {project.name}
                     </span>
                   )}
@@ -1960,11 +1971,11 @@ function GoalDetail({ goal }: { goal: Goal }) {
               );
             })}
             {goalTasks.length > 12 && (
-              <p className="text-[11px] text-gray-600 pl-1">+{goalTasks.length - 12} more</p>
+              <p className="text-[13px] font-semibold text-neon-300">+{goalTasks.length - 12} more</p>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </section>
     </div>
   );
 }
@@ -1975,15 +1986,15 @@ function UnassignedDetail() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <SectionTitle>Projects without a goal</SectionTitle>
-        <p className="text-[13px] text-gray-500 -mt-1 max-w-xl leading-relaxed">
+      <div className="panel-ask rounded-[22px] p-6">
+        <h2 className="font-display text-[28px] leading-tight font-semibold text-gray-100 mb-2">Projects without a goal</h2>
+        <p className="text-[14px] text-gray-300 max-w-2xl leading-relaxed">
           These are legal — quick work should not need ceremony. But they contribute nothing to any
           goal's reach or cost, and the cartridges working on them receive no goal brief at dispatch.
           Attach one to a goal from its Edit form to change that.
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-4">
         {mine.map((p) => (
           <ProjectCard
             key={p.id}
@@ -2014,12 +2025,13 @@ function NewGoalBody({ agents, onQuickSave, onGuidedCreated, onCancel }: {
   const [mode, setMode] = useState<'guided' | 'quick'>('guided');
   return (
     <div className="space-y-4">
-      <div className="flex rounded-md overflow-hidden border border-white/10 text-[12px]">
+      <div className="flex gap-1 p-1 rounded-xl bg-gl-code border border-white/[0.08] text-[13px]">
         {(['guided', 'quick'] as const).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
-            className={`flex-1 px-3 py-1.5 transition-colors ${mode === m ? 'bg-violet-600/40 text-violet-100' : 'bg-white/[0.03] text-gray-500 hover:text-gray-300'}`}
+            aria-pressed={mode === m}
+            className={`flex-1 h-9 px-3 rounded-lg font-semibold transition-colors ${mode === m ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'}`}
           >
             {m === 'guided' ? '✦ Guided — Goal Pilot' : 'Quick form'}
           </button>
@@ -2046,19 +2058,21 @@ export function GoalsWorkspace() {
     <section>
       {loading ? (
         <div className="flex items-center justify-center h-32">
-          <span className="text-sm text-gray-500">Loading...</span>
+          <span className="text-sm text-gray-400">Loading...</span>
         </div>
       ) : selected === null ? (
-        <div className="text-center py-16 border border-white/[0.06] rounded-xl bg-white/[0.02]">
-          <div className="text-3xl mb-3">🎯</div>
-          <h3 className="text-sm font-medium text-gray-400 mb-1">No goals yet</h3>
-          <p className="text-[12px] text-gray-600 max-w-xs mx-auto">
+        <div className="text-center py-16 px-6 rounded-[22px] border border-dashed border-neon-500/40 bg-neon-500/[0.03] flex flex-col items-center">
+          <div aria-hidden="true" className="flex gap-1 mb-4">
+            <span className="w-3.5 h-[30px] rounded-[2px] seg-on" /><span className="w-3.5 h-[30px] rounded-[2px] seg-on" /><span className="w-3.5 h-[30px] rounded-[2px] seg-off" />
+          </div>
+          <h3 className="font-display text-xl font-semibold text-gray-100 mb-2">No goals yet</h3>
+          <p className="text-[14px] text-gray-400 max-w-md mx-auto leading-relaxed">
             Goals connect your AI workflows to business objectives. Set a goal, create projects under
             it, and every workflow run counts toward something.
           </p>
           <button
             onClick={() => setModal({ type: 'new-goal' })}
-            className="mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm rounded-md transition-colors"
+            className="mt-5 h-11 px-5 rounded-[10px] btn-primary text-sm font-semibold transition-colors"
           >
             Create your first goal
           </button>

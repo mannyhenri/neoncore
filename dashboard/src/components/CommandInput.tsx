@@ -159,7 +159,7 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <input
         ref={fileInputRef}
         type="file"
@@ -170,57 +170,55 @@ export function CommandInput({ onSend, placeholder, agentId, mode }: Props) {
           e.currentTarget.value = '';
         }}
       />
-      <textarea
-        ref={inputRef}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          // Reset history navigation when user types
-          if (historyIndex >= 0) {
-            setHistoryIndex(-1);
-            savedCurrentRef.current = '';
-          }
-        }}
-        onKeyDown={handleKeyDown}
-        onPaste={(e) => {
-          const files = e.clipboardData?.files;
-          if (files && files.length > 0) {
-            addFiles(files);
-          }
-        }}
-        placeholder={placeholder || "Type an instruction for this agent..."}
-        rows={1}
-        className="w-full glass-input text-gray-200 text-base rounded-lg px-3 py-2.5 focus:outline-none resize-none placeholder-gray-600 overflow-hidden"
-      />
-      <AttachmentList attachments={attachments} onRemove={removeAttachment} />
-      {attachmentError && <div className="text-[13px] text-red-400">{attachmentError}</div>}
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-gray-600 flex items-center gap-2">
-          {mode === 'plan' && <span className="text-indigo-400">Plan mode</span>}
-          <span>Enter to send, Shift+Enter for newline, paste screenshots to attach</span>
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="text-sm px-3 py-1.5 text-gray-300 rounded-md border border-white/10 hover:bg-white/[0.04] transition-colors"
-            title="Attach files"
-          >
-            Attach
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isEncoding || (!text.trim() && attachments.length === 0)}
-            className={`text-sm px-3.5 py-1.5 text-white rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
-              mode === 'plan'
-                ? 'bg-indigo-600 hover:bg-indigo-500'
-                : 'gl-gradient hover:opacity-90'
-            }`}
-          >
-            {isEncoding ? 'Preparing...' : mode === 'plan' ? 'Send (Plan)' : 'Send'}
-          </button>
-        </div>
+      {/* One field, Night Glass: the prompt, an attach icon and Send live on a single dark row. */}
+      <div className="flex items-end gap-2 pl-3 pr-1.5 py-1.5 rounded-xl bg-[#050913]/90 border border-white/[0.14] focus-within:border-neon-500/70 focus-within:shadow-[0_0_0_2px_rgba(90,174,255,0.18)] transition-colors">
+        <textarea
+          ref={inputRef}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            // Reset history navigation when user types
+            if (historyIndex >= 0) {
+              setHistoryIndex(-1);
+              savedCurrentRef.current = '';
+            }
+          }}
+          onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            const files = e.clipboardData?.files;
+            if (files && files.length > 0) {
+              addFiles(files);
+            }
+          }}
+          placeholder={placeholder || "Type an instruction for this agent..."}
+          rows={1}
+          className="flex-1 min-w-0 self-center bg-transparent border-0 text-gray-100 text-sm py-2 focus:outline-none resize-none placeholder-gray-500 overflow-hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] transition-colors"
+          title="Attach files"
+          aria-label="Attach"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />
+          </svg>
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={isEncoding || (!text.trim() && attachments.length === 0)}
+          className="btn-primary shrink-0 h-9 px-3.5 rounded-lg text-[13px] font-semibold disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-colors"
+        >
+          {isEncoding ? 'Preparing...' : mode === 'plan' ? 'Send (Plan)' : 'Send'}
+        </button>
       </div>
+      <AttachmentList attachments={attachments} onRemove={removeAttachment} />
+      {attachmentError && <div className="text-[12px] text-red-400">{attachmentError}</div>}
+      <span className="text-[12px] text-gray-500 flex items-center gap-2">
+        {mode === 'plan' && <span className="text-neon-300 font-semibold">Plan mode</span>}
+        <span>Enter to send · Shift+Enter newline · paste screenshots to attach</span>
+      </span>
     </div>
   );
 }

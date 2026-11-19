@@ -20,8 +20,8 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 
 const LEVELS = [
   { key: 'manual', label: 'Manual', hint: 'Every gate waits for you.', color: 'text-gray-400' },
-  { key: 'advance', label: 'Advance', hint: 'Releases finished steps. Decides nothing.', color: 'text-blue-300' },
-  { key: 'full', label: 'Full', hint: 'Also takes decision gates by their recommendation. Holds when there is none.', color: 'text-violet-300' },
+  { key: 'advance', label: 'Advance', hint: 'Releases finished steps. Decides nothing.', color: 'text-neon-300' },
+  { key: 'full', label: 'Full', hint: 'Also takes decision gates by their recommendation. Holds when there is none.', color: 'text-ember-300' },
 ] as const;
 
 const DURATIONS = [
@@ -42,7 +42,7 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
   const [open, setOpen] = useState(false);
   useEscapeKey(() => setOpen(false), open);
   const btn = useRef<HTMLButtonElement>(null);
-  const [at, setAt] = useState<{ top: number; right: number } | null>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -84,11 +84,12 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
           // Measured at open time, not on every render: the rail scrolls independently, so a
           // position captured once would drift away from its button.
           const r = btn.current?.getBoundingClientRect();
-          if (r) setAt({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+          // 360px panel, kept on screen: start at the chip, slide left only if it would overflow.
+          if (r) setAt({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 368)) });
           setOpen((o) => !o);
         }}
-        className={`text-xs px-2 py-1 rounded hover:bg-white/5 transition-colors ${current.color} ${
-          raised ? 'border border-current/30' : ''
+        className={`text-[12px] font-semibold px-2.5 py-0.5 rounded-full transition-colors ${current.color} ${
+          raised ? 'bg-neon-500/15 hover:bg-neon-500/25' : 'bg-white/[0.06] hover:bg-white/[0.1]'
         }`}
         title={
           `Autonomy: ${state.level} (${state.source})` +
@@ -98,8 +99,11 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
         }
       >
         ⚡ {current.label}
+        {state.expiresAt && raised && (
+          <span className="opacity-80"> · {Math.max(1, Math.round((new Date(state.expiresAt).getTime() - Date.now()) / 3_600_000))}h</span>
+        )}
         {state.resolutions.length > 0 && (
-          <span className="ml-1 text-[10px] text-gray-500">{state.resolutions.length}</span>
+          <span className="ml-1 text-[11px] text-gray-400">{state.resolutions.length}</span>
         )}
       </button>
 
@@ -116,30 +120,39 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
           {/* Click-away. Inside the portal so it covers the page rather than the rail. */}
           <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
           <div
-            className="fixed z-[91] w-72 bg-[#0d0f12] border border-white/[0.08] rounded-lg shadow-2xl p-2 space-y-1"
-            style={{ top: at.top, right: at.right }}
+            className="fixed z-[91] w-[360px] glass-dark rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.5)] p-5 space-y-3"
+            style={{ top: at.top, left: at.left }}
           >
+          <h3 className="font-display text-lg font-semibold text-gray-100">⚡ Autonomy</h3>
           {LEVELS.map((l) => (
-            <div key={l.key} className="rounded hover:bg-white/[0.04] p-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className={`text-xs font-medium ${l.color}`}>{l.label}</span>
+            <div
+              key={l.key}
+              className={`flex items-center gap-3 rounded-xl p-3 border ${
+                state.level === l.key ? 'bg-neon-500/10 border-neon-500/50' : 'bg-[rgba(4,8,20,0.6)] border-white/[0.08]'
+              }`}
+            >
+              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-gray-100">{l.label}</span>
+                <p className="text-[13px] text-gray-400">{l.hint}</p>
+              </div>
+              <div className="shrink-0">
                 {l.key === 'manual' ? (
                   <button
                     disabled={busy}
                     onClick={() => set('manual')}
-                    className="text-[11px] px-2 py-0.5 rounded border border-white/10 text-gray-400 hover:text-white disabled:opacity-40"
+                    className="h-9 min-w-[44px] px-2.5 rounded-lg border border-white/[0.18] text-[12px] font-semibold text-gray-200 hover:border-neon-500/60 disabled:opacity-40"
                   >
                     Set
                   </button>
                 ) : (
                   // No untimed option, deliberately. Every raise expires.
-                  <div className="flex gap-1">
+                  <div className="flex gap-1.5">
                     {DURATIONS.map((d) => (
                       <button
                         key={d.label}
                         disabled={busy}
                         onClick={() => set(l.key, d.ms)}
-                        className="text-[11px] px-1.5 py-0.5 rounded border border-white/10 text-gray-400 hover:text-white disabled:opacity-40"
+                        className="h-9 min-w-[44px] px-2.5 rounded-lg border border-white/[0.18] text-[12px] font-semibold text-gray-200 hover:border-neon-500/60 hover:bg-neon-500/10 disabled:opacity-40"
                       >
                         {d.label}
                       </button>
@@ -147,16 +160,15 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
                   </div>
                 )}
               </div>
-              <p className="text-[11px] text-gray-600 mt-0.5">{l.hint}</p>
             </div>
           ))}
 
-          <p className="text-[11px] text-gray-600 px-2 pt-1 border-t border-white/[0.06]">
+          <p className="text-[12px] text-gray-400">
             {state.expiresAt
               ? `Ends ${new Date(state.expiresAt).toLocaleString()}.`
               : 'Raising always expires. Failed and interrupted steps are never auto-resolved.'}
           </p>
-          {error && <p className="text-[11px] text-red-400 px-2">{error}</p>}
+          {error && <p className="text-[12px] text-red-300">{error}</p>}
           </div>
         </>,
         document.body,

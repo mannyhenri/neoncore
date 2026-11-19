@@ -82,17 +82,17 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
   return (
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
-      <div className="bg-[#0d0f12] border border-white/[0.08] rounded-xl shadow-2xl w-[500px] max-h-[70vh] flex flex-col">
+      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[500px] max-h-[70vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.08]">
           <div>
-            <h2 className="text-sm font-semibold text-white">Send Context</h2>
+            <h2 className="font-display text-xl font-semibold text-gray-100">Send Context</h2>
             <p className="text-[13px] text-gray-500 mt-0.5">{project}</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="w-10 h-10 rounded-[10px] border border-white/[0.16] text-gray-300 hover:text-white text-lg leading-none">&times;</button>
         </div>
 
         {/* Content */}
@@ -104,9 +104,9 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
               {/* Knowledge Files */}
               <div className="space-y-2">
                 <span className="text-[13px] text-gray-500 uppercase tracking-wider">Knowledge Files</span>
-                <label className={`flex items-center gap-2 text-xs ${hasDetails ? 'text-gray-300' : 'text-gray-600'}`}>
+                <label className={`flex items-center gap-2 text-xs ${hasDetails ? 'text-gray-300' : 'text-gray-500'}`}>
                   <input type="checkbox" checked={includeDetails} onChange={() => setIncludeDetails(!includeDetails)} disabled={!hasDetails}
-                    className="rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
+                    className="rounded border-white/20 bg-white/5 text-neon-400 focus:ring-neon-500/50" />
                   Project Details
                 </label>
               </div>
@@ -125,11 +125,11 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
                     {sessions.map((s) => (
                       <label key={s.id} className="flex items-start gap-2 text-xs text-gray-300 p-1.5 rounded hover:bg-white/5 cursor-pointer">
                         <input type="checkbox" checked={selectedSessions.has(s.id)} onChange={() => toggleSession(s.id)}
-                          className="mt-0.5 rounded border-white/20 bg-white/5 text-gl-purple focus:ring-gl-purple/50" />
+                          className="mt-0.5 rounded border-white/20 bg-white/5 text-neon-400 focus:ring-neon-500/50" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400">{formatDate(s.startedAt)}</span>
-                            {s.branch && <span className="text-[13px] text-purple-400/60">{s.branch}</span>}
+                            {s.branch && <span className="text-[13px] text-neon-300/80">{s.branch}</span>}
                           </div>
                           <p className="text-[13px] text-gray-500 truncate mt-0.5">{s.summary}</p>
                         </div>
@@ -147,11 +147,11 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
+        <div className="px-6 py-4 border-t border-white/[0.08] flex items-center gap-3">
           <button
             onClick={handleSend}
             disabled={sending || !hasAnythingSelected}
-            className="text-sm px-4 py-2 gl-gradient hover:opacity-90 text-white rounded-md disabled:opacity-30 transition-colors"
+            className="text-sm px-4 py-2 btn-primary font-semibold rounded-[10px] disabled:opacity-30 transition-colors"
           >
             {sending ? 'Sending...' : 'Send Context'}
           </button>

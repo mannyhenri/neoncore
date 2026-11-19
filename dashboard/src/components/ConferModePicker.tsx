@@ -61,56 +61,52 @@ export function ConferModePicker({ value, onChange, isolation, onIsolationChange
   // and any prior worktree pick is reflected back as shared rather than left looking selected.
   const isolationOffered = !!onIsolationChange && value === 'divide';
   const effectiveIsolation: ConferIsolation = value === 'divide' ? (isolation ?? 'shared') : 'shared';
+  // Two big selectable cards per question, each carrying its own hint — the choice and its
+  // consequence read together instead of the hint living under a row of pills.
+  const card = (on: boolean) =>
+    `flex flex-col gap-1 text-left px-3.5 py-3 min-h-[64px] rounded-xl border transition-colors ${
+      on
+        ? 'bg-neon-600/15 border-neon-500 shadow-[0_0_16px_rgba(90,174,255,0.3)] text-gray-100'
+        : 'bg-[rgba(4,8,20,0.7)] border-white/[0.14] text-gray-200 hover:border-white/30'
+    }`;
   return (
-    <div className="mt-2">
-      <label className="text-[11px] text-gray-500 block mb-1">How should they work?</label>
-      <div className="flex flex-wrap gap-1">
-        {CONFER_MODES.map((m) => {
-          const on = value === m;
-          return (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onChange(m)}
-              title={CONFER_MODE_LABEL[m].hint}
-              className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
-                on
-                  ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
-                  : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {CONFER_MODE_LABEL[m].title}
-            </button>
-          );
-        })}
+    <div className="mt-3 space-y-2">
+      <span className="text-sm font-semibold text-gray-100 block">How should they work?</span>
+      <div className="grid grid-cols-2 gap-2.5">
+        {CONFER_MODES.map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={value === m}
+            onClick={() => onChange(m)}
+            title={CONFER_MODE_LABEL[m].hint}
+            className={card(value === m)}
+          >
+            <span className="text-sm font-semibold">{CONFER_MODE_LABEL[m].title}</span>
+            <span className="text-[12px] text-gray-400 leading-snug">{CONFER_MODE_LABEL[m].hint}</span>
+          </button>
+        ))}
       </div>
-      <p className="text-[11px] text-gray-500 mt-1">{CONFER_MODE_LABEL[value].hint}</p>
 
       {isolationOffered && (
-        <div className="mt-2">
-          <label className="text-[11px] text-gray-500 block mb-1">Where do they work?</label>
-          <div className="flex flex-wrap gap-1">
-            {CONFER_ISOLATIONS.map((i) => {
-              const on = effectiveIsolation === i;
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => onIsolationChange?.(i)}
-                  title={CONFER_ISOLATION_LABEL[i].hint}
-                  className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
-                    on
-                      ? 'border-sky-400/40 bg-sky-500/10 text-sky-300'
-                      : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  {CONFER_ISOLATION_LABEL[i].title}
-                </button>
-              );
-            })}
+        <>
+          <span className="text-sm font-semibold text-gray-100 block pt-1">Where do they work?</span>
+          <div className="grid grid-cols-2 gap-2.5">
+            {CONFER_ISOLATIONS.map((i) => (
+              <button
+                key={i}
+                type="button"
+                aria-pressed={effectiveIsolation === i}
+                onClick={() => onIsolationChange?.(i)}
+                title={CONFER_ISOLATION_LABEL[i].hint}
+                className={card(effectiveIsolation === i)}
+              >
+                <span className="text-sm font-semibold">{CONFER_ISOLATION_LABEL[i].title}</span>
+                <span className="text-[12px] text-gray-400 leading-snug">{CONFER_ISOLATION_LABEL[i].hint}</span>
+              </button>
+            ))}
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">{CONFER_ISOLATION_LABEL[effectiveIsolation].hint}</p>
-        </div>
+        </>
       )}
     </div>
   );

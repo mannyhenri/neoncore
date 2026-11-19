@@ -244,7 +244,7 @@ export default function App() {
           own; below lg it stacks above the main column. Tokens has no rail. */}
       <GoalsProvider active={activeView === 'goals'} agents={agents}>
       <div className={`p-4 md:p-6 grid grid-cols-1 gap-6 items-start ${activeView === 'tokens' || activeView === 'tasks' ? '' : 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]'}`}>
-        <aside className={`${activeView === 'tokens' || activeView === 'tasks' ? 'hidden' : ''} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
+        <aside className={`${activeView === 'tokens' || activeView === 'tasks' ? 'hidden' : ''} ${activeView === 'agents' ? 'order-last lg:order-none' : ''} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
           {activeView === 'agents' && (
             <section>
               <WorkflowPanel agents={agents} />

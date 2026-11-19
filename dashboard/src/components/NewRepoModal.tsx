@@ -82,15 +82,15 @@ export function NewRepoModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div
-        className="glass rounded-lg border border-white/10 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08]">
-          <h2 className="font-pixel text-sm text-white tracking-wide">New Repo</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" title="Close">
+        <div className="flex items-center justify-between px-6 pt-6 pb-1">
+          <h2 className="font-display text-xl font-semibold text-gray-100">New Repo</h2>
+          <button onClick={onClose} className="w-10 h-10 rounded-[10px] border border-white/[0.16] flex items-center justify-center text-gray-300 hover:text-white transition-colors" title="Close">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
@@ -99,7 +99,7 @@ export function NewRepoModal({ onClose }: Props) {
 
         {result ? (
           /* ── Success ── */
-          <div className="p-4 space-y-3">
+          <div className="px-6 pb-6 pt-3 space-y-3">
             <div className="flex items-center gap-2 text-emerald-400 text-sm">
               <span className="w-2 h-2 bg-emerald-400 rounded-full" />
               Repo created and pushed
@@ -109,7 +109,7 @@ export function NewRepoModal({ onClose }: Props) {
               href={result.repoUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-block text-sm text-gl-purple hover:text-white underline break-all"
+              className="inline-block text-sm text-neon-400 hover:text-neon-200 underline break-all"
             >
               {result.repoUrl}
             </a>
@@ -127,7 +127,7 @@ export function NewRepoModal({ onClose }: Props) {
             <div className="flex justify-end pt-1">
               <button
                 onClick={onClose}
-                className="text-sm px-3.5 py-1.5 text-white rounded-md gl-gradient hover:opacity-90 transition-opacity"
+                className="text-sm px-3.5 py-1.5 text-white rounded-[10px] btn-primary font-semibold transition-colors"
               >
                 Done
               </button>
@@ -135,17 +135,17 @@ export function NewRepoModal({ onClose }: Props) {
           </div>
         ) : (
           /* ── Form ── */
-          <div className="p-4 space-y-4">
+          <div className="px-6 pb-6 pt-3 space-y-4">
             {/* Name */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Repo name</label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">Repo name</label>
               <input
                 autoFocus
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && nameValid) handleCreate(); }}
                 placeholder="my-quick-example"
-                className="w-full glass-input text-gray-200 text-sm rounded-md px-3 py-2 focus:outline-none placeholder-gray-600"
+                className="w-full glass-input text-gray-100 text-sm rounded-[10px] px-3 py-2.5 focus:outline-none placeholder-gray-600"
               />
               {name && !nameValid && (
                 <p className="text-[11px] text-red-400 mt-1">
@@ -159,16 +159,16 @@ export function NewRepoModal({ onClose }: Props) {
 
             {/* GitHub account (owner) */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1">GitHub account</label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">GitHub account</label>
               {accounts.length === 0 ? (
                 <p className="text-[11px] text-gray-500">No connected accounts found (is the gh CLI logged in?).</p>
               ) : (
-                <div className="flex rounded-md overflow-hidden border border-white/10 w-fit max-w-full flex-wrap">
+                <div className="flex gap-1 p-1 rounded-[10px] bg-gl-code border border-white/[0.12] w-fit max-w-full flex-wrap">
                   {accounts.map((a) => (
                     <button
                       key={a.login}
                       onClick={() => setOwner(a.login)}
-                      className={`px-3 py-1 text-xs transition-colors ${owner === a.login ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+                      className={`h-9 px-3 rounded-[8px] text-[13px] font-semibold transition-colors ${owner === a.login ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'}`}
                     >
                       {a.login}{a.active && <span className="text-emerald-400/70"> ·active</span>}
                     </button>
@@ -179,20 +179,20 @@ export function NewRepoModal({ onClose }: Props) {
 
             {/* Description */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Description <span className="text-gray-600">(optional)</span></label>
+              <label className="block text-[13px] text-gray-400 mb-1.5">Description <span className="text-gray-500">(optional)</span></label>
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="A quick example for…"
-                className="w-full glass-input text-gray-200 text-sm rounded-md px-3 py-2 focus:outline-none placeholder-gray-600"
+                className="w-full glass-input text-gray-100 text-sm rounded-[10px] px-3 py-2.5 focus:outline-none placeholder-gray-600"
               />
             </div>
 
             {/* Folder browser */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Create in</label>
-              <div className="rounded-md border border-white/10 bg-white/[0.02]">
-                <div className="flex items-center gap-2 px-2 py-1.5 border-b border-white/[0.06]">
+              <label className="block text-[13px] text-gray-400 mb-1.5">Create in</label>
+              <div className="rounded-[10px] border border-white/[0.12] bg-gl-code">
+                <div className="flex items-center gap-2 px-2 py-1.5 border-b border-white/[0.08]">
                   <button
                     onClick={() => parent && browse(parent)}
                     disabled={!parent}
@@ -205,13 +205,13 @@ export function NewRepoModal({ onClose }: Props) {
                 </div>
                 <div className="max-h-32 overflow-y-auto">
                   {dirs.length === 0 ? (
-                    <div className="px-3 py-2 text-[11px] text-gray-600">No subfolders here</div>
+                    <div className="px-3 py-2 text-[11px] text-gray-500">No subfolders here</div>
                   ) : (
                     dirs.map((d) => (
                       <button
                         key={d}
                         onClick={() => browse(`${current}/${d}`)}
-                        className="w-full text-left px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.05] transition-colors font-mono truncate"
+                        className="w-full text-left px-3 py-1.5 text-[13px] text-gray-300 hover:bg-white/[0.05] transition-colors font-mono truncate"
                       >
                         {d}/
                       </button>
@@ -226,17 +226,17 @@ export function NewRepoModal({ onClose }: Props) {
 
             {/* Visibility */}
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400">Visibility</label>
-              <div className="flex rounded-md overflow-hidden border border-white/10">
+              <label className="text-[13px] text-gray-400">Visibility</label>
+              <div className="flex gap-1 p-1 rounded-[10px] bg-gl-code border border-white/[0.12]">
                 <button
                   onClick={() => setIsPrivate(true)}
-                  className={`px-3 py-1 text-xs transition-colors ${isPrivate ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+                  className={`h-9 px-4 rounded-[8px] text-[13px] font-semibold transition-colors ${isPrivate ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'}`}
                 >
                   Private
                 </button>
                 <button
                   onClick={() => setIsPrivate(false)}
-                  className={`px-3 py-1 text-xs transition-colors ${!isPrivate ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+                  className={`h-9 px-4 rounded-[8px] text-[13px] font-semibold transition-colors ${!isPrivate ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'}`}
                 >
                   Public
                 </button>
@@ -245,17 +245,17 @@ export function NewRepoModal({ onClose }: Props) {
 
             {/* Launch agent */}
             <div className="flex items-center gap-3 flex-wrap">
-              <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
                 <input type="checkbox" checked={launchAgent} onChange={(e) => setLaunchAgent(e.target.checked)} />
                 Launch agent after create
               </label>
               {launchAgent && (
-                <div className="flex rounded-md overflow-hidden border border-white/10">
+                <div className="flex gap-1 p-1 rounded-[10px] bg-gl-code border border-white/[0.12]">
                   {TOOLS.map((t) => (
                     <button
                       key={t.value}
                       onClick={() => setTool(t.value)}
-                      className={`px-3 py-1 text-xs transition-colors ${tool === t.value ? 'bg-white/10 text-gray-200' : 'bg-white/[0.04] text-gray-500 hover:text-gray-300'}`}
+                      className={`h-9 px-4 rounded-[8px] text-[13px] font-semibold transition-colors ${tool === t.value ? 'bg-neon-500/20 text-neon-50 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.6)]' : 'text-gray-400 hover:text-gray-200'}`}
                     >
                       {t.label}
                     </button>
@@ -267,13 +267,13 @@ export function NewRepoModal({ onClose }: Props) {
             {error && <p className="text-xs text-red-400">{error}</p>}
 
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={onClose} className="text-sm px-3 py-1.5 text-gray-400 hover:text-gray-200 transition-colors">
+              <button onClick={onClose} className="btn-ghost h-11 text-sm font-semibold px-4 rounded-[10px] transition-colors">
                 Cancel
               </button>
               <button
                 onClick={handleCreate}
                 disabled={creating || !nameValid || !current || !owner}
-                className="text-sm px-3.5 py-1.5 text-white rounded-md gl-gradient hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+                className="h-11 text-sm font-semibold px-5 rounded-[10px] btn-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 {creating ? 'Creating…' : 'Create & Push'}
               </button>
