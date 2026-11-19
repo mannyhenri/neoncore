@@ -24,6 +24,7 @@ vi.mock('../../lib/api', async () => {
   return { api: {
     getGoalPilotMeta: () => Promise.resolve(demo.DEMO_PILOT_META),
     getGoalPilots: () => Promise.resolve(state.current),
+    getFeatureFiles: () => Promise.resolve([]),
     getGoalPilotCandidates: () => Promise.resolve(demo.DEMO_CANDIDATES),
     getGoalPilotRequest: () => Promise.resolve({ prompt: 'the prompt' }),
     createGoalPilot: record('createGoalPilot', { goalId: 'demo-g1', pilot: null, queued: false, error: null }),

@@ -16,7 +16,7 @@ export interface PendingAttachment {
   previewUrl?: string;
 }
 
-function fileToPayload(file: File): Promise<CommandAttachmentInput> {
+export function fileToPayload(file: File): Promise<CommandAttachmentInput> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

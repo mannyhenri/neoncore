@@ -44,6 +44,25 @@ You also pick **which cartridge does the planning**. The registry of questions i
 `INTAKE_QUESTIONS` in `server/src/lib/goal-pilot.ts`: the form, the validation and the planner
 prompt are all driven from it.
 
+### Files
+
+The questions take **files** too — a mockup, a spec PDF, a CSV of examples — and so does the pipeline
+panel at every step after (**Files** card: add or remove any time). They belong to the **feature**,
+not to one prompt: the server keeps them (beside its database, `feature-files/<featureId>/`, at most 20
+files and 50 MB per feature), and every cartridge the feature's pipeline talks to gets a copy in its
+**own** repo, under `.neoncore/attachments/feature-<id>/` (gitignored), named in its prompt by an
+absolute path:
+
+- every request — scoping, planning, tests, review, the report — through the one delivery path
+  (`deliverPlannerRequest`); files picked in the questions travel with the request that starts
+  scoping, so the planner's very first prompt has them;
+- every stage — in its launch context, for each participant's repo.
+
+A file added later reaches the next request and every stage not yet started; one removed stops being
+handed out (and leaves the repos' copies). Deleting the feature deletes its files. As with prompt
+attachments, the copy is made on the server's machine: a cartridge on another machine is named a path
+that exists only there.
+
 ## 2. Scoping — until nothing is left for an agent to ask
 
 The planner receives your answers and either **asks questions** or, when nothing that would
@@ -255,7 +274,7 @@ A rejected submission is answered with the reason so the planner can submit agai
 | `GET /api/goal-pilots/meta` | The registries: intake questions, involvement levels, brief fields, engines, limits, templates |
 | `GET /api/goal-pilots?goalId=` | Pilots (with stages, current request, live run progress and attention) |
 | `GET /api/goal-pilots/candidates?goalId=` | Repos a pipeline can run in, with the engines seen there |
-| `POST /api/goal-pilots` | `{ intake, plannerAgentId, goalId?, replace? }` — start; creates the goal when `goalId` is absent |
+| `POST /api/goal-pilots` | `{ intake, plannerAgentId, goalId?, replace?, files? }` — start; creates the goal when `goalId` is absent; `files` are kept with the feature before the first scoping request |
 | `POST /api/goal-pilots/:id/answers` | `{ answers: { [questionId]: { value, delegated? } } }` |
 | `POST /api/goal-pilots/:id/retry` | `{ agentId? }` — ask the planner again (optionally another one) |
 | `POST /api/goal-pilots/:id/accept-plan` | `{ brief, stages, criteria }` — the only write from planner output to the goal; freezes the criteria |
@@ -276,6 +295,8 @@ A rejected submission is answered with the reason so the planner can submit agai
 | `GET /api/goal-pilots/:id/report` · `/report/html` · `/report/markdown` | the goal report, as JSON, a page, or a download |
 | `POST /api/goal-pilots/:id/report` | build (or rebuild) the report now — e.g. for a pipeline cancelled part-way |
 | `DELETE /api/goal-pilots/:id` | delete the record (a live pipeline is cancelled first) |
+| `GET/POST /api/goals/:id/files` | The feature's files; add `{ files: [{ name, mimeType, size, dataBase64 }] }` |
+| `GET/DELETE /api/goals/:id/files/:fileId` | Download / remove one |
 
 Socket event: `goal_pilot_updated { id }` whenever a pilot changes.
 

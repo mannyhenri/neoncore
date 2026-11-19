@@ -23,6 +23,7 @@ import { getProjectCartridges } from './resolve-agent.js';
 import { pilotsForGoal, slugify, type GoalPilot, type PilotBrief } from './goal-pilot.js';
 import { getContract, criterionStates, PASSING, type CriterionOutcome } from './acceptance-contract.js';
 import { goalCostUsd } from './goal-cost.js';
+import { groupOf, sectionOf, projectAreas, OTHER_GROUP } from './project-import.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,8 @@ export interface SpecFeature {
   position: number;
   status: SpecStatus;
   origin: 'imported' | 'planned';
+  /** The capability it belongs to: '<group> · <sub-area>', '<group>', or '' (unsorted). */
+  area: string;
   alignment: Alignment;
   /** The intent: what was agreed before any work. */
   intent: {
@@ -101,11 +104,26 @@ export interface SpecFeature {
   updatedAt: string;
 }
 
+/**
+ * A capability group — how an executive reads the feature list: a handful of these, each with a line
+ * on what it does, instead of every feature in one run. Sub-areas split a large group further.
+ */
+export interface SpecGroup {
+  name: string;
+  summary: string;
+  sections: { name: string; featureIds: string[] }[];
+  counts: { features: number; existing: number; planned: number; building: number; done: number; verified: number; gaps: number };
+}
+
+export const UNSORTED_GROUP = 'Unsorted';
+
 export interface ProjectSpec {
   generatedAt: string;
   project: { id: string; name: string; description: string; repos: string[]; mainRepo: string; color: string };
   architecture: string;
   features: SpecFeature[];
+  /** Every feature in exactly one group, largest first ("Other" and "Unsorted" last). Empty when no feature has an area. */
+  groups: SpecGroup[];
   totals: {
     features: number; existing: number; planned: number; inProgress: number; delivered: number; done: number; paused: number;
     verified: number; gaps: number; intentOnly: number;
@@ -215,6 +233,7 @@ function specFeature(goal: Record<string, unknown>): SpecFeature {
     position: (goal.position as number) ?? 0,
     status,
     origin: goal.origin === 'imported' ? 'imported' : 'planned',
+    area: nonEmpty(goal.area),
     alignment: alignmentOf(status, criteria),
     intent: {
       summary: nonEmpty(brief?.summary) || nonEmpty(goal.description),
@@ -248,6 +267,45 @@ function uniqueSlugs(features: SpecFeature[]): SpecFeature[] {
   return features;
 }
 
+/** Group the features by their area's top-level group, in list order within each. */
+export function groupFeatures(features: SpecFeature[], summaries: { name: string; summary: string }[]): SpecGroup[] {
+  if (!features.some((f) => f.area)) return [];
+  const byName = new Map<string, SpecFeature[]>();
+  for (const f of features) {
+    const g = groupOf(f.area) || UNSORTED_GROUP;
+    if (!byName.has(g)) byName.set(g, []);
+    byName.get(g)!.push(f);
+  }
+  const last = (g: string) => (g === UNSORTED_GROUP ? 2 : g === OTHER_GROUP ? 1 : 0);
+  const summary = new Map(summaries.map((a) => [a.name, a.summary]));
+  return [...byName.entries()]
+    .sort((a, b) => last(a[0]) - last(b[0]) || b[1].length - a[1].length)
+    .map(([name, list]) => {
+      const sections = new Map<string, string[]>();
+      for (const f of list) {
+        const s = sectionOf(f.area);
+        if (!sections.has(s)) sections.set(s, []);
+        sections.get(s)!.push(f.id);
+      }
+      const built = list.filter((f) => f.status === 'done' || f.status === 'delivered');
+      return {
+        name,
+        summary: summary.get(name) ?? '',
+        // Features filed straight under the group (no sub-area) come first.
+        sections: [...sections.entries()].sort((a, b) => (a[0] ? 1 : 0) - (b[0] ? 1 : 0)).map(([n, featureIds]) => ({ name: n, featureIds })),
+        counts: {
+          features: list.length,
+          existing: list.filter((f) => f.status === 'existing').length,
+          planned: list.filter((f) => f.status === 'planned').length,
+          building: list.filter((f) => ['in-progress', 'delivered', 'paused'].includes(f.status)).length,
+          done: list.filter((f) => f.status === 'done').length,
+          verified: built.filter((f) => f.alignment === 'verified').length,
+          gaps: built.filter((f) => f.alignment === 'partial' || f.alignment === 'unverified').length,
+        },
+      };
+    });
+}
+
 export function buildProjectSpec(projectId: string): ProjectSpec | null {
   const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Record<string, unknown> | undefined;
   if (!p) return null;
@@ -264,6 +322,7 @@ export function buildProjectSpec(projectId: string): ProjectSpec | null {
     },
     architecture: (p.architecture as string) || '',
     features,
+    groups: groupFeatures(features, projectAreas(projectId)),
     totals: {
       features: features.length, existing: count('existing'), planned: count('planned'), inProgress: count('in-progress'),
       delivered: count('delivered'), done: count('done'), paused: count('paused'),
@@ -347,6 +406,12 @@ export function renderArchitectureMarkdown(spec: ProjectSpec, opts: { placeholde
   return body ? `# ${spec.project.name} — architecture\n\n> ${GENERATED_NOTE}\n\n${body}\n` : '';
 }
 
+/** The architecture page (self-contained HTML, written by Generate with AI) — '' when there is none. */
+export function architecturePage(projectId: string): string {
+  const r = db.prepare('SELECT architecture_html FROM projects WHERE id = ?').get(projectId) as { architecture_html?: string } | undefined;
+  return (r?.architecture_html || '').trim();
+}
+
 /** One feature's full record — docs/product/features/<slug>.md. */
 export function renderFeatureMarkdown(f: SpecFeature, project: ProjectSpec['project']): string {
   const out: string[] = [
@@ -412,7 +477,22 @@ export function renderSpecMarkdown(spec: ProjectSpec, opts: { featureLinks?: boo
     '',
   );
   const existing = spec.features.filter((f) => f.status === 'existing');
-  if (existing.length) {
+  if (spec.groups.length) {
+    // The executive's view: the capabilities, then each one's features under its own heading.
+    const byId = new Map(spec.features.map((f) => [f.id, f]));
+    out.push('## At a glance', '', '| Capability | Features | What it does |', '|---|---|---|',
+      ...spec.groups.map((g) => `| ${g.name} | ${g.counts.features}${g.counts.existing && g.counts.existing < g.counts.features ? ` (${g.counts.existing} existing)` : ''} | ${cell(g.summary || g.sections.map((x) => x.name).filter(Boolean).join(' · ')) || '—'} |`), '');
+    out.push('## By capability', '');
+    for (const g of spec.groups) {
+      out.push(`### ${g.name}`, '');
+      if (g.summary) out.push(g.summary, '');
+      for (const sec of g.sections) {
+        if (sec.name) out.push(`**${sec.name}**`, '');
+        out.push('| Feature | Status | What it does |', '|---|---|---|',
+          ...sec.featureIds.map((id) => byId.get(id)!).map((f) => `| ${link(f)} | ${STATUS_LABEL[f.status]} | ${cell(f.intent.summary) || '—'} |`), '');
+      }
+    }
+  } else if (existing.length) {
     out.push('## Already in the product', '', '| Feature | What it does |', '|---|---|',
       ...existing.map((f) => `| ${link(f)} | ${cell(f.intent.summary) || '—'} |`), '');
   }

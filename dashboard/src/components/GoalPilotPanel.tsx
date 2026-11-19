@@ -34,6 +34,8 @@ import {
 import { ENGINE_LABEL, input, primaryBtn, quietBtn, dangerBtn, errorText } from './pilotStyles';
 import { CriteriaEditor, ContractCard } from './AcceptanceContractPanel';
 import { AiWorkingBar } from './SectionTitle';
+import { useAttachments, AttachmentList, fileToPayload, MAX_TOTAL_BYTES } from './AttachmentPicker';
+import type { FeatureFile } from '../types';
 
 let metaCache: Promise<GoalPilotMeta> | null = null;
 /** The registries barely change; one fetch per page load is enough. */
@@ -107,6 +109,7 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
+  const staged = useAttachments();
 
   const candidates = useMemo(() => plannerCandidates(agents, preferRepos), [agents, preferRepos]);
   useEffect(() => { if (!planner && candidates.length) setPlanner(candidates[0].id); }, [candidates, planner]);
@@ -117,7 +120,10 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
   const submit = async (replace = false) => {
     setBusy(true); setError('');
     try {
-      const out = await api.createGoalPilot({ intake: values, plannerAgentId: planner, goalId: goal?.id, projectId: goal ? undefined : projectId, replace });
+      // Sent with the request, so the planner's first scoping prompt already carries them.
+      const files = staged.attachments.length ? await staged.encode() : undefined;
+      const out = await api.createGoalPilot({ intake: values, plannerAgentId: planner, goalId: goal?.id, projectId: goal ? undefined : projectId, replace, files });
+      staged.clear();
       if (out.error) setError(`Created, but: ${out.error}`);
       onCreated(out.goalId);
     } catch (e) {
@@ -181,6 +187,17 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
       </details>
 
       <div>
+        <label className="block text-[13px] text-gray-300 mb-1">Files <span className="text-gray-500">(optional)</span></label>
+        <FileDrop onFiles={staged.addFiles} label="Add mockups, specs, examples…" />
+        <div className="mt-2"><AttachmentList attachments={staged.attachments} onRemove={staged.removeAttachment} /></div>
+        {staged.error && <p className="text-[12px] text-amber-300 mt-1">{staged.error}</p>}
+        <p className="text-[12px] text-gray-500 mt-1">
+          Kept with the feature: the planner reads them while it scopes, and every stage of the pipeline gets a copy in its repo.
+          You can add more at any point.
+        </p>
+      </div>
+
+      <div>
         <label className="block text-[13px] text-gray-300 mb-1">Which cartridge does the planning?</label>
         <PlannerPicker agents={agents} value={planner} onChange={setPlanner} preferRepos={preferRepos} />
         <p className="text-[12px] text-gray-500 mt-1">
@@ -206,6 +223,80 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
           {busy ? 'Sending…' : goal ? 'Start scoping' : 'Add feature & start scoping'}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── the feature's files ───────────────────────────────────────────────────────
+
+/** A click-or-drop target for files. */
+function FileDrop({ onFiles, label, disabled = false }: { onFiles: (files: File[]) => void; label: string; disabled?: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      role="button" tabIndex={0} aria-label={label}
+      onClick={() => !disabled && ref.current?.click()}
+      onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); ref.current?.click(); } }}
+      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); if (!disabled) onFiles(Array.from(e.dataTransfer.files)); }}
+      className={`flex items-center justify-center rounded-xl border border-dashed px-3 py-3 text-[13px] cursor-pointer transition-colors
+        ${over ? 'border-violet-400/70 bg-violet-500/10 text-violet-100' : 'border-white/15 text-gray-400 hover:text-gray-200 hover:border-white/25'}
+        ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      {label} <span className="text-gray-500 ml-1">— click or drop</span>
+      <input ref={ref} type="file" multiple hidden onChange={(e) => { if (e.target.files) onFiles(Array.from(e.target.files)); e.target.value = ''; }} />
+    </div>
+  );
+}
+
+/**
+ * The files kept with the feature — added here they reach the next request the planner gets and
+ * every stage not yet started (each cartridge gets a copy in its own repo).
+ */
+export function FeatureFilesCard({ goalId }: { goalId: string }) {
+  const [files, setFiles] = useState<FeatureFile[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.getFeatureFiles(goalId).then((f) => live && setFiles(f)).catch(() => live && setFiles([]));
+    return () => { live = false; };
+  }, [goalId]);
+  const add = async (picked: File[]) => {
+    if (!picked.length) return;
+    const total = picked.reduce((n, f) => n + f.size, 0);
+    if (total > MAX_TOTAL_BYTES) { setErr('Add up to 20 MB at a time.'); return; }
+    setBusy(true); setErr('');
+    try { setFiles(await api.addFeatureFiles(goalId, await Promise.all(picked.map(fileToPayload)))); }
+    catch (e) { setErr(errorText(e)); } finally { setBusy(false); }
+  };
+  const remove = async (f: FeatureFile) => {
+    setErr('');
+    try { await api.removeFeatureFile(goalId, f.id); setFiles((list) => (list ?? []).filter((x) => x.id !== f.id)); }
+    catch (e) { setErr(errorText(e)); }
+  };
+  if (files === null) return null;
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-gl-code/60 px-3.5 py-3 space-y-2">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h4 className="text-[13px] text-gray-200">Files <span className="text-gray-500">— {files.length ? `${files.length} kept with this feature` : 'none yet'}</span></h4>
+        <span className="text-[12px] text-gray-500">The planner and every stage get a copy in their repo.</span>
+      </div>
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {files.map((f) => (
+            <div key={f.id} className="flex items-center gap-2 rounded-lg bg-white/[0.08] px-2.5 py-1 text-[12px] text-gray-300">
+              <span className="max-w-[200px] truncate" title={f.name}>{f.name}</span>
+              <span className="text-gray-600">{Math.max(1, Math.ceil(f.size / 1024))} KB</span>
+              <button type="button" onClick={() => remove(f)} className="text-gray-400 hover:text-gray-100" aria-label={`Remove ${f.name}`} title="Remove — later requests and stages no longer get it">×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <FileDrop onFiles={add} disabled={busy} label={busy ? 'Uploading…' : 'Add files'} />
+      {err && <p className="text-[12px] text-amber-300">{err}</p>}
     </div>
   );
 }
@@ -1153,6 +1244,7 @@ export function GoalPilotPanel({ goal, agents, onGoalChanged, projectRepos, star
     <>
       <Stepper pilot={pilot} />
       {body}
+      <FeatureFilesCard goalId={goal.id} />
       {pilot.phase !== 'clarifying' && <Conversation pilot={pilot} />}
       {pilot.phase === 'clarifying' && pilot.rounds.length > 1 && <Conversation pilot={{ ...pilot, rounds: pilot.rounds.slice(0, -1) }} />}
       {error && <p className="text-[13px] text-amber-300">{error}</p>}

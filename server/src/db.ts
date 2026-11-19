@@ -1486,6 +1486,21 @@ db.exec(`
  * (that is Phase 6), so it would be an inert column — except that acceptance derives each
  * task's `priority` from its dependency depth, which makes the queue respect the order today.
  */
+// Files a person attached to a FEATURE (lib/feature-files.ts): kept by the server next to the
+// database, handed to every cartridge the feature's pipeline talks to.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS goal_files (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size INTEGER NOT NULL DEFAULT 0,
+    stored_name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_files_goal ON goal_files(goal_id);
+`);
+
 for (const [table, column, decl] of [
   ['tasks', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
   // A SHORT human subject for a run, so a list can name it without a uuid. The column existed on
@@ -1590,6 +1605,14 @@ for (const [table, column, decl] of [
   ['projects', 'docs_auto_publish', 'INTEGER NOT NULL DEFAULT 0'],
   ['projects', 'docs_published_at', "TEXT NOT NULL DEFAULT ''"],
   ['projects', 'docs_publish_error', "TEXT NOT NULL DEFAULT ''"],
+  // How an executive reads the feature list: grouped by capability (docs/PROJECT-SPEC.md).
+  //   goals.area                  '<group> · <sub-area>' or '<group>' ('' = unsorted) — set by Generate with AI, editable
+  //   projects.feature_areas      JSON [{ name, summary }] — one plain-language line per top-level group
+  ['goals', 'area', "TEXT NOT NULL DEFAULT ''"],
+  ['projects', 'feature_areas', "TEXT NOT NULL DEFAULT '[]'"],
+  // The architecture as a page (self-contained HTML with diagrams) — what the Architecture tab shows.
+  // projects.architecture stays: plain-text notes, what the planner reads.
+  ['projects', 'architecture_html', "TEXT NOT NULL DEFAULT ''"],
 ] as const) {
   try {
     db.prepare(`SELECT ${column} FROM ${table} LIMIT 1`).get();

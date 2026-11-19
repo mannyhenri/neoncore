@@ -104,6 +104,7 @@ const AUTHORED_NOT_DISPATCHED: { column: string; why: string }[] = [
   { column: 'project_id', why: 'the project reaches the planner through goal-pilot-prompts projectContext (its repos, notes and sibling features), not through the per-goal brief' },
   { column: 'position', why: 'the feature\'s order on its project\'s list — what to pick up next, not how to do this one' },
   { column: 'roadmap_lane', why: 'Now / Next / Later on the roadmap — planning metadata for people, not an instruction' },
+  { column: 'area', why: 'the capability group the spec files it under, so an executive reads the list by group — a heading, not an instruction' },
 ];
 
 test('the registry covers every authored column on the goals table', () => {

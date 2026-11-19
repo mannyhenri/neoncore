@@ -6,6 +6,7 @@
  *   docs/product/ROADMAP.md         Now / Next / Later / Done (and ROADMAP.html, to send or print)
  *   docs/product/CHANGELOG.md       what shipped, by release
  *   docs/product/ARCHITECTURE.md    how the product is built (when the project has it)
+ *   docs/product/ARCHITECTURE.html  the same as a page with diagrams (when it was generated)
  *
  * The docs live WITH the code, so a pull request, a code review or an agent reading the repo sees
  * the same spec the dashboard shows — and every stage of a feature's pipeline is told where it is.
@@ -24,7 +25,7 @@
 import db from '../db.js';
 import { repoAccessFor } from './repo-access.js';
 import {
-  buildProjectSpec, renderSpecMarkdown, renderFeatureMarkdown, renderRoadmapMarkdown, renderRoadmapHtml, renderArchitectureMarkdown, GENERATED_NOTE,
+  buildProjectSpec, renderSpecMarkdown, renderFeatureMarkdown, renderRoadmapMarkdown, renderRoadmapHtml, renderArchitectureMarkdown, architecturePage, GENERATED_NOTE,
 } from './project-spec.js';
 import { changelogFor, renderChangelogMarkdown } from './project-changelog.js';
 
@@ -52,6 +53,8 @@ export function projectDocFiles(projectId: string): { repo: string; files: Map<s
   files.set(`${DOCS_DIR}/CHANGELOG.md`, renderChangelogMarkdown(spec.project.name, changelogFor(projectId)));
   const architecture = renderArchitectureMarkdown(spec);
   if (architecture) files.set(`${DOCS_DIR}/ARCHITECTURE.md`, architecture);
+  const page = architecturePage(projectId);
+  if (page) files.set(`${DOCS_DIR}/ARCHITECTURE.html`, page);
   return { repo: spec.project.mainRepo, files };
 }
 

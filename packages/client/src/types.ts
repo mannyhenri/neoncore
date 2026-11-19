@@ -128,6 +128,9 @@ export interface Command {
   transport?: DeliveryTransport;
 }
 
+/** A file attached to a feature (server lib/feature-files.ts). */
+export interface FeatureFile { id: string; goalId: string; name: string; mimeType: string; size: number; createdAt: string }
+
 export interface CommandAttachmentInput {
   name: string;
   mimeType: string;
@@ -771,6 +774,8 @@ export interface Goal {
   doneAt?: string;
   /** Where the person placed it on the roadmap: '' = automatic, else 'now' | 'next' | 'later'. */
   roadmapLane?: '' | 'now' | 'next' | 'later';
+  /** Its capability group on the spec: '<group> · <sub-area>', '<group>', or '' (unsorted). */
+  area?: string;
   /** Where the feature's pipeline stands (its latest pilot); null when it was never started. */
   pilot?: FeaturePilotSummary | null;
   name: string;
@@ -856,6 +861,8 @@ export interface Project {
   activeRunCount?: number;
   /** How the product is built (markdown) — read by the planner when it scopes each feature. */
   architecture?: string;
+  /** The project has an architecture page (served at /docs/architecture?format=html, shown in the Architecture tab). */
+  hasArchitecturePage?: boolean;
   /** Rewrite docs/product/ in the main repo whenever a feature changes. */
   docsAutoPublish?: boolean;
   /** When docs/product/ was last written ('' = never), and why the last attempt failed. */
@@ -1252,6 +1259,8 @@ export interface SpecFeature {
   position: number;
   status: SpecStatus;
   origin: 'imported' | 'planned';
+  /** '<group> · <sub-area>', '<group>', or '' (unsorted). */
+  area: string;
   alignment: SpecAlignment;
   intent: { summary: string; doneWhen: string; inScope: string; outOfScope: string; invariants: string; assumptions: string };
   criteria: SpecCriterion[];
@@ -1269,11 +1278,21 @@ export interface SpecFeature {
   updatedAt: string;
 }
 
+/** A capability group of the spec — every feature is in exactly one (server lib/project-spec.ts). */
+export interface SpecGroup {
+  name: string;
+  summary: string;
+  sections: { name: string; featureIds: string[] }[];
+  counts: { features: number; existing: number; planned: number; building: number; done: number; verified: number; gaps: number };
+}
+
 export interface ProjectSpec {
   generatedAt: string;
   project: { id: string; name: string; description: string; repos: string[]; mainRepo: string; color: string };
   architecture: string;
   features: SpecFeature[];
+  /** Empty when no feature has an area — the list then reads flat. */
+  groups: SpecGroup[];
   totals: {
     features: number; existing: number; planned: number; inProgress: number; delivered: number; done: number; paused: number;
     verified: number; gaps: number; intentOnly: number;
@@ -1307,8 +1326,12 @@ export interface ProjectImport {
   proposal: {
     message: string;
     architecture: string;
+    /** The architecture as a page (self-contained HTML) — '' on proposals written before pages existed. */
+    architectureHtml?: string;
     features: { name: string; description: string; area: string; evidence: string; criteria: { text: string; expect: string }[] }[];
-    backlog: { name: string; description: string; source: string }[];
+    /** The top-level capability groups, each with a line on what it does. */
+    areas?: { name: string; summary: string }[];
+    backlog: { name: string; description: string; source: string; area?: string }[];
     changelog: { id: string; kind: ChangeKind; title: string; body: string; release: string; date: string }[];
   } | null;
   notes: string[];

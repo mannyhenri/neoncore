@@ -681,7 +681,7 @@ export function createClient(config: ClientConfig = {}) {
   // The intent fields are what actually reach the agents at dispatch (lib/goal-brief.ts).
   createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string }) =>
     request<import('./types').Goal>('/goals', { method: 'POST', body: JSON.stringify(data) }),
-  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string; roadmapLane?: '' | 'now' | 'next' | 'later' }) =>
+  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string; roadmapLane?: '' | 'now' | 'next' | 'later'; area?: string }) =>
     request<import('./types').Goal>(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteGoal: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
 
@@ -747,7 +747,12 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').PilotRequest & { prompt: string }>(`/goal-pilots/requests/${requestId}`),
   /** Starts piloting: a new goal from the intake, or `goalId` for an existing one. */
   /** `projectId` files a NEW feature under that project; `goalId` pilots an existing feature. */
-  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; projectId?: string; replace?: boolean }) =>
+  /** The files attached to a feature — every cartridge its pipeline talks to gets them (server lib/feature-files.ts). */
+  getFeatureFiles: (goalId: string) => request<import('./types').FeatureFile[]>(`/goals/${goalId}/files`),
+  addFeatureFiles: (goalId: string, files: import('./types').CommandAttachmentInput[]) =>
+    request<import('./types').FeatureFile[]>(`/goals/${goalId}/files`, { method: 'POST', body: JSON.stringify({ files }) }),
+  removeFeatureFile: (goalId: string, fileId: string) => request<void>(`/goals/${goalId}/files/${fileId}`, { method: 'DELETE' }),
+  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; projectId?: string; replace?: boolean; files?: import('./types').CommandAttachmentInput[] }) =>
     request<{ pilot: import('./types').GoalPilot; goalId: string; queued: boolean; error: string | null }>(
       '/goal-pilots', { method: 'POST', body: JSON.stringify(data) },
     ),
@@ -817,6 +822,8 @@ export function createClient(config: ClientConfig = {}) {
     request<{ ids: string[] }>(`/projects/${projectId}/features`, { method: 'POST', body: JSON.stringify({ features }) }),
   /** The living spec: every feature's intent beside the evidence for each acceptance criterion. */
   getProjectSpec: (projectId: string) => request<import('./types').ProjectSpec>(`/projects/${projectId}/spec`),
+  /** The architecture page (self-contained HTML; '' when none) — the Architecture tab renders it sandboxed. */
+  getArchitecturePage: (projectId: string) => request<{ html: string }>(`/projects/${projectId}/architecture`),
   /** Write docs/product/ (spec, features, roadmap, changelog, architecture) into the project's main repo. */
   publishProjectDocs: (projectId: string) =>
     request<import('./types').DocsPublishResult>(`/projects/${projectId}/docs/publish`, { method: 'POST' }),
@@ -838,7 +845,7 @@ export function createClient(config: ClientConfig = {}) {
     request<{ import: import('./types').ProjectImport; queued: boolean }>(`/projects/${projectId}/imports`, { method: 'POST', body: JSON.stringify({ agentId, parts }) }),
   getProjectImport: (importId: string) => request<import('./types').ProjectImport>(`/project-imports/${importId}`),
   /** Keep what the person ticked: the architecture (as edited), existing features, backlog items. */
-  applyProjectImport: (importId: string, data: { architecture?: string; features: string[]; backlog: string[]; changelog: string[] }) =>
+  applyProjectImport: (importId: string, data: { architecture?: string; architectureHtml?: boolean; features: string[]; backlog: string[]; changelog: string[] }) =>
     request<{ imp: import('./types').ProjectImport; created: { existing: string[]; planned: string[]; changelog: number } }>(`/project-imports/${importId}/apply`, { method: 'POST', body: JSON.stringify(data) }),
   /** The order the project's features are to be built in. */
   reorderProjectFeatures: (projectId: string, ids: string[]) =>

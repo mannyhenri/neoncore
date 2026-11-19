@@ -47,6 +47,15 @@ For every feature the spec shows:
 | Criteria set | not built yet — the criteria are the target |
 | Documented as it behaves today | an existing feature (generated from the codebase): its current behaviour written down as criteria, not yet checked by NeonCore |
 
+**Grouped by capability, for executives.** Every feature carries an **area** — `<group> · <sub-area>`,
+e.g. *Gateway · Routing & engines*. The spec reads as a handful of capability groups, each with a line
+on what it does for the business, how many features it holds and their mix (existing / done / in
+progress / planned / with gaps); open a group for its features, split by sub-area. A long list starts
+collapsed, so the first screen is the executive summary. docs/product/README.md opens with the same
+**At a glance** table, then a section per group. Generate with AI files features under at most 10
+groups named as the business knows them (the smallest fold into *Other*); set or change a feature's
+area in the **Capability** field on its page. Projects with no areas at all read as a flat list.
+
 The **Needs attention** filter lists the features that were built (delivered or done) but do not
 match their intent: a criterion not met, one never checked, or no criteria to check at all — the ways
 a spec quietly stops meaning anything. (A planned feature without criteria is normal: scoping writes
@@ -94,10 +103,16 @@ their release. (With several repos, releases are named after their repo: *harbou
 
 ## Architecture
 
-The architecture notes say how the product is built: the components, how data flows, the stack, where
-the tests are. The **planner reads them when it scopes every feature**, so its questions are grounded in
-the real system (they reach the planner clipped to 3,000 characters — the repo stays the authority).
-Write them yourself (**Edit**), or generate them.
+The Architecture tab shows **a page**: how the product is built, drawn — a diagram of the components and
+how data flows between them, then the stack and where the tests are. **✦ Generate with AI** on this tab
+asks for the architecture only. The cartridge writes the page as self-contained HTML (inline CSS and SVG);
+it is shown in a sandboxed frame with no permissions, scripts and embeds are stripped on arrival, and
+the page route serves it under a CSP sandbox — it is written by an agent, so it never runs as the
+dashboard. **Download .html** saves it; publishing writes it as `docs/product/ARCHITECTURE.html`.
+
+Beside the page, short **planner notes** (plain text, generated with it, editable): the **planner reads
+them when it scopes every feature**, so its questions are grounded in the real system (clipped to 3,000
+characters — the repo stays the authority).
 
 ## ✦ Generate with AI — a codebase new to NeonCore
 
@@ -110,17 +125,17 @@ nothing. Any of four parts:
 
 | Part | What comes back | Kept as |
 |---|---|---|
-| **Architecture** | markdown: components, data flow, stack, tests, real paths (editable before you keep it) | the project's architecture notes |
-| **Existing features + specs** | what the product already does, named as a user would, grouped by area, each with where it lives and **acceptance criteria for how it behaves today** ("When …, the system shall …" with real inputs and results; known gaps said as such) | features with status **Existing**: counted apart from the build list and the roadmap's progress, in the spec as *Documented as it behaves today*, and under *Already in the product* |
+| **Architecture** | a page (self-contained HTML: a diagram of components and data flow, stack, tests, real paths) plus short planner notes (editable before you keep them) | the Architecture tab's page, and the planner notes |
+| **Existing features + specs** | what the product already does, named as a user would, grouped into at most 10 capability groups (each with a one-line summary) and their sub-areas, each with where it lives and **acceptance criteria for how it behaves today** ("When …, the system shall …" with real inputs and results; known gaps said as such) | features with status **Existing**: counted apart from the build list and the roadmap's progress, in the spec as *Documented as it behaves today*, and under *Already in the product* |
 | **Changelog** | the history so far, from git and any existing CHANGELOG, grouped by release | changelog entries, with their dates and releases |
 | **Backlog** | work the code points at: TODO/FIXME, half-built paths, documented-but-missing behaviour | planned features at the end of the list |
 
 Where to ask:
 
-- **Architecture tab** — tick any mix of the four (all four for a first time), then **✦ Generate with AI**.
-- **Spec tab** — existing features with their specs.
+- **Architecture tab** — the architecture page.
+- **Spec tab** — existing features with their specs, and (tick it) the backlog the code points at.
 - **Changelog tab** — the changelog from git.
-- **Features tab**, on an empty project — a link to the Architecture tab.
+- **Features tab**, on an empty project — links to all three.
 
 The proposal comes back for **review, item by item** — nothing is added until you apply, and only what
 is ticked (changelog entries and existing features start ticked, backlog items unticked). Things
@@ -148,7 +163,8 @@ answer does not come back (the cartridge restarted or went offline), **Ask again
 | `docs/product/features/<slug>.md` | one feature: intent, criteria with evidence, delivery |
 | `docs/product/ROADMAP.md`, `ROADMAP.html` | the roadmap, and the shareable page |
 | `docs/product/CHANGELOG.md` | the changelog |
-| `docs/product/ARCHITECTURE.md` | the architecture notes |
+| `docs/product/ARCHITECTURE.md` | the planner notes |
+| `docs/product/ARCHITECTURE.html` | the architecture page |
 
 **Keep in sync** republishes by itself whenever the spec changes meaning — a plan accepted, a pipeline
 finished, a feature marked done, the list or the changelog edited, a generated proposal applied — not on every
@@ -167,7 +183,8 @@ server's machine, through that machine's runner for a repo elsewhere.
 | Method & path | Purpose |
 |---|---|
 | `GET /api/projects/:id/spec` | The spec as JSON: every feature's intent, criteria with evidence, delivery, alignment, and totals |
-| `GET /api/projects/:id/docs/:doc` | `spec`, `roadmap`, `changelog` or `architecture` as Markdown; `?format=html` for the roadmap page; `?download=1` to save |
+| `GET /api/projects/:id/docs/:doc` | `spec`, `roadmap`, `changelog` or `architecture` as Markdown; `?format=html` for the roadmap or architecture page (the latter under a CSP sandbox); `?download=1` to save |
+| `GET /api/projects/:id/architecture` | `{ html }` — the architecture page, for the tab |
 | `POST /api/projects/:id/docs/publish` | Write docs/product/ into the main repo now |
 | `PUT /api/projects/:id` | `architecture` (markdown), `docsAutoPublish` (keep in sync) — turning sync on publishes at once |
 | `GET/POST /api/projects/:id/changelog` | List entries; add one `{ kind, title, body }` |
@@ -176,8 +193,8 @@ server's machine, through that machine's runner for a repo elsewhere.
 | `GET/POST /api/projects/:id/imports` | List Generate-with-AI requests; start one `{ agentId, parts? }` — `parts` any of `architecture`, `features`, `changelog`, `backlog` (default: all) |
 | `GET /api/project-imports/:id` | One request and its proposal |
 | `POST /api/project-imports/:id/submit` | Where the cartridge submits (MCP `neoncore_submit_project_import`) — stores a proposal only |
-| `POST /api/project-imports/:id/apply` | `{ architecture, features: [names], backlog: [names], changelog: [ids] }` — what the person kept |
-| `PUT /api/goals/:id` | `roadmapLane`: `now` / `next` / `later`, or `''` for automatic |
+| `POST /api/project-imports/:id/apply` | `{ architecture, architectureHtml: true, features: [names], backlog: [names], changelog: [ids] }` — what the person kept |
+| `PUT /api/goals/:id` | `roadmapLane`: `now` / `next` / `later`, or `''` for automatic; `area`: `'<group> · <sub-area>'` or `''` |
 
 ## Code map
 

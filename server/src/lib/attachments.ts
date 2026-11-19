@@ -34,7 +34,7 @@ export interface AttachmentEntry {
 /** repoPath → prompt block. Empty repo paths are never keys. */
 export type AttachmentBlocks = Record<string, string>;
 
-function safeFilename(name: string, fallback: string): string {
+export function safeFilename(name: string, fallback: string): string {
   const base = path.basename(name || fallback)
     .replace(/[^\w.\- ]+/g, '_')
     .replace(/\s+/g, '-')
@@ -42,7 +42,7 @@ function safeFilename(name: string, fallback: string): string {
   return base && base !== '.' && base !== '..' ? base : fallback;
 }
 
-function ensureGitignore(repoPath: string): void {
+export function ensureGitignore(repoPath: string): void {
   const gitignorePath = path.join(repoPath, '.gitignore');
   const entry = '.neoncore/attachments/';
   try {

@@ -289,11 +289,15 @@ export interface ReportSummary {
   source: 'planner' | 'compiled';
 }
 
+/** Every kind of request a pipeline sends a cartridge — the registry tests iterate. */
+export const PILOT_REQUEST_KINDS = ['scope', 'pipeline', 'report', 'tests', 'review'] as const;
+export type PilotRequestKind = (typeof PILOT_REQUEST_KINDS)[number];
+
 export interface PilotRequest {
   id: string;
   pilotId: string;
   /** scope/pipeline/report go to the planner; tests to the test writer; review to the checklist reviewer. */
-  kind: 'scope' | 'pipeline' | 'report' | 'tests' | 'review';
+  kind: PilotRequestKind;
   round: number;
   status: 'pending' | 'ready' | 'failed' | 'superseded';
   agentId: string;

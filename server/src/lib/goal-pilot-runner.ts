@@ -35,6 +35,7 @@ import { getIO } from '../ws.js';
 import { guardBusy } from './queue-if-busy.js';
 import { isCartridgeBusy } from './queue-runner.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from './send-command.js';
+import { featureFilesBlock } from './feature-files.js';
 import { cartridgeExists } from './cartridge-exists.js';
 import { agentIdForRepoAndType, normalizeRepoPath, setProjectCartridges, getProjectCartridges } from './resolve-agent.js';
 import { cloneTemplateAsRun } from './workflow-from-template.js';
@@ -194,7 +195,10 @@ export function deliverPlannerRequest(
     db.prepare('UPDATE goal_pilot_requests SET agent_id = ? WHERE id = ?').run(agentId, req.id);
     if (planner) db.prepare('UPDATE goal_pilots SET planner_agent_id = ? WHERE id = ?').run(agentId, req.pilotId);
   }
-  const cmd = sendCommandToAgent(agentId, requestPrompt(req.id), false, undefined, { standard: false });
+  // The feature's files, copied into this cartridge's repo — whatever the request is for.
+  const goalId = (db.prepare('SELECT goal_id FROM goal_pilots WHERE id = ?').get(req.pilotId) as { goal_id?: string } | undefined)?.goal_id ?? '';
+  const repo = (db.prepare('SELECT repo_path FROM agents WHERE id = ?').get(agentId) as { repo_path?: string } | undefined)?.repo_path ?? '';
+  const cmd = sendCommandToAgent(agentId, requestPrompt(req.id) + (goalId ? featureFilesBlock(goalId, [repo]) : ''), false, undefined, { standard: false });
   if (!cmd) {
     const error = `${who} no longer exists — pick another one and retry`;
     failRequest(req.id, error);
@@ -497,6 +501,9 @@ export function buildStageContext(pilot: GoalPilot, stage: PilotStage, stages: P
     }).join('\n\n')}`);
   }
   if (next) parts.push(`## After this stage\nNext: ${next.title} (${stageKindLabel(next)}). Leave what it needs where it can find it, and say where in your report.`);
+  // The feature's files, in every repo this stage works in.
+  const files = featureFilesBlock(pilot.goalId, [stage.repoPath, ...stage.participants.map((p) => p.repoPath)]).trim();
+  if (files) parts.push(`## Files attached to the feature\n${files}`);
   return parts.join('\n\n');
 }
 

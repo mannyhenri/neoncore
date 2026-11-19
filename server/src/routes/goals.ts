@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import { addFeatureFiles, listFeatureFiles, readFeatureFile, removeFeatureFile, deleteFeatureFiles, FeatureFileError } from '../lib/feature-files.js';
 import db from '../db.js';
 import type { Command, Goal } from '../types.js';
 import { goalCostUsd } from '../lib/goal-cost.js';
@@ -123,6 +124,7 @@ function normalizeGoal(row: Record<string, unknown>, extra?: Partial<Goal>): Goa
     origin: row.origin === 'imported' ? 'imported' : '',
     doneAt: (row.done_at as string) || '',
     roadmapLane: (['now', 'next', 'later'].includes(row.roadmap_lane as string) ? row.roadmap_lane : '') as Goal['roadmapLane'],
+    area: (row.area as string) || '',
     name: row.name as string,
     description: (row.description as string) || '',
     successMetric: (row.success_metric as string) || '',
@@ -252,7 +254,7 @@ router.put('/:id', (req, res) => {
 
   const { name, description, successMetric, tokenBudget, budgetUsd, status,
           acceptanceCriteria, noGos, rabbitHoles, invariants, keyResults,
-          targetDate, owner, investmentCategory, autonomy, projectId, roadmapLane } = req.body;
+          targetDate, owner, investmentCategory, autonomy, projectId, roadmapLane, area } = req.body;
   const now = new Date().toISOString();
   if (status !== undefined && status !== '' && !['active', 'achieved', 'paused'].includes(String(status))) {
     return res.status(400).json({ error: 'status must be active, achieved or paused' });
@@ -262,6 +264,11 @@ router.put('/:id', (req, res) => {
   if (roadmapLane !== undefined) {
     const lane = ['now', 'next', 'later'].includes(String(roadmapLane)) ? String(roadmapLane) : '';
     db.prepare('UPDATE goals SET roadmap_lane = ? WHERE id = ?').run(lane, req.params.id);
+  }
+
+  // Its capability group on the spec: '<group> · <sub-area>', '<group>', or '' (unsorted).
+  if (area !== undefined) {
+    db.prepare('UPDATE goals SET area = ? WHERE id = ?').run(String(area ?? '').replace(/\s+/g, ' ').trim().slice(0, 80), req.params.id);
   }
 
   // Moving a feature to another project (or filing an unfiled one): it goes to the end of that list.
@@ -325,8 +332,35 @@ export function deleteFeatureCascade(goalId: string): void {
     if (p.phase !== 'completed' && p.phase !== 'cancelled') cancelPilot(p.id);
   }
   deletePilotsForGoal(goalId);
+  deleteFeatureFiles(goalId);
   db.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
 }
+
+// ── the feature's files (lib/feature-files.ts) ────────────────────────────────
+
+router.get('/:id/files', (req, res) => {
+  res.json(listFeatureFiles(req.params.id));
+});
+
+router.post('/:id/files', (req, res) => {
+  try { res.json(addFeatureFiles(req.params.id, req.body?.files)); }
+  catch (err) {
+    const status = err instanceof FeatureFileError ? err.status : 500;
+    res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get('/:id/files/:fileId', (req, res) => {
+  const hit = readFeatureFile(req.params.id, req.params.fileId);
+  if (!hit) return res.status(404).json({ error: 'file not found' });
+  res.type(hit.file.mimeType).setHeader('Content-Disposition', `attachment; filename="${hit.file.name.replace(/"/g, '')}"`);
+  res.send(hit.data);
+});
+
+router.delete('/:id/files/:fileId', (req, res) => {
+  if (!removeFeatureFile(req.params.id, req.params.fileId)) return res.status(404).json({ error: 'file not found' });
+  res.status(204).send();
+});
 
 router.delete('/:id', (req, res) => {
   const pid = (db.prepare('SELECT project_id FROM goals WHERE id = ?').get(req.params.id) as { project_id?: string } | undefined)?.project_id;

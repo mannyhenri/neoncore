@@ -309,7 +309,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'neoncore_submit_project_import',
       description:
-        'Answer a NeonCore project import request you were given (its header reads "[NeonCore project import request …]"): taking stock of a codebase. Read the repos — existing docs first, then the code; change nothing. Submit ONLY the parts the request asks for: {message, architecture:"<markdown: components, data flow, stack, tests, real paths>", features:[{name, description, area, evidence, criteria:[{text:"When …, the system shall …", expect:"<inputs → exact result>"}]}], changelog:[{kind:"added|changed|fixed|removed|security", title, body, release, date:"YYYY-MM-DD"}], backlog:[{name, description, source}]}. features = what the product already does, named as a user would, with its CURRENT behaviour as criteria; changelog = history from git log/tags and any existing CHANGELOG, grouped by release; backlog = work the code points at (TODO/FIXME, half-built paths). This stores a PROPOSAL the person reviews item by item. If rejected, the reply says why — fix it and submit again.',
+        'Answer a NeonCore project import request you were given (its header reads "[NeonCore project import request …]"): taking stock of a codebase. Read the repos — existing docs first, then the code; change nothing. Submit ONLY the parts the request asks for: {message, architectureHtml:"<ONE self-contained HTML page: inline <svg> diagram of components and data flow, then components, stack, tests, real paths — inline <style> only, no <script>, nothing external>", architecture:"<plain-text notes under 3,000 chars, for the planner>", features:[{name, description, area:"<group> · <sub-area>", evidence, criteria:[{text:"When …, the system shall …", expect:"<inputs → exact result>"}]}], areas:[{name:"<group>", summary:"<one plain-language sentence>"}], changelog:[{kind:"added|changed|fixed|removed|security", title, body, release, date:"YYYY-MM-DD"}], backlog:[{name, description, source, area}]}. features = what the product already does, named as a user would, with its CURRENT behaviour as criteria, filed under at most 10 groups an executive recognises (areas lists them, each with a summary); changelog = history from git log/tags and any existing CHANGELOG, grouped by release; backlog = work the code points at (TODO/FIXME, half-built paths). This stores a PROPOSAL the person reviews item by item. If rejected, the reply says why — fix it and submit again.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -319,15 +319,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             properties: {
               message: { type: 'string' },
               architecture: { type: 'string' },
+              architectureHtml: { type: 'string' },
               features: { type: 'array', items: { type: 'object', properties: {
                 name: { type: 'string' }, description: { type: 'string' }, area: { type: 'string' }, evidence: { type: 'string' },
                 criteria: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, expect: { type: 'string' } } } },
               }, required: ['name'] } },
+              areas: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, summary: { type: 'string' } }, required: ['name'] } },
               changelog: { type: 'array', items: { type: 'object', properties: {
                 kind: { type: 'string', enum: ['added', 'changed', 'fixed', 'removed', 'security'] }, title: { type: 'string' },
                 body: { type: 'string' }, release: { type: 'string' }, date: { type: 'string' },
               }, required: ['title'] } },
-              backlog: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, source: { type: 'string' } }, required: ['name'] } },
+              backlog: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, source: { type: 'string' }, area: { type: 'string' } }, required: ['name'] } },
             },
           },
         },

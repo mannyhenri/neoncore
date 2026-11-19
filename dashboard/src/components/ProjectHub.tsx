@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
-import type { Agent, Project, ProjectSpec, SpecFeature, SpecAlignment, SpecStatus, ChangelogEntry, ChangeKind, ProjectImport, ImportPart } from '../types';
+import type { Agent, Project, ProjectSpec, SpecFeature, SpecGroup, SpecAlignment, SpecStatus, ChangelogEntry, ChangeKind, ProjectImport, ImportPart } from '../types';
 import { plannerCandidates } from '../lib/goalPilot';
 import { AiWorkingBar } from './SectionTitle';
 
@@ -190,14 +190,68 @@ function FeatureSpecCard({ f, onOpen }: { f: SpecFeature; onOpen: (id: string) =
 
 type SpecFilter = 'all' | 'gaps' | 'building' | 'done' | 'planned' | 'existing';
 
+/** What a group holds, in the words an executive reads — "12 existing · 2 planned · 1 in progress". */
+function groupMix(c: SpecGroup['counts']): string {
+  return [
+    c.existing ? `${c.existing} existing` : '', c.done ? `${c.done} done` : '', c.building ? `${c.building} in progress` : '',
+    c.planned ? `${c.planned} planned` : '', c.gaps ? `${c.gaps} with gaps` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/**
+ * One capability group: its name, what it does, how much is in it — collapsed, that is the whole
+ * executive read. Open, its features, split by sub-area.
+ */
+function SpecGroupSection({ g, shown, open, onToggle, onOpenFeature }: {
+  g: SpecGroup; shown: Map<string, SpecFeature>; open: boolean; onToggle: () => void; onOpenFeature: (id: string) => void;
+}) {
+  const sections = g.sections.map((s) => ({ name: s.name, features: s.featureIds.map((id) => shown.get(id)).filter((f): f is SpecFeature => !!f) }))
+    .filter((s) => s.features.length);
+  const n = sections.reduce((a, s) => a + s.features.length, 0);
+  if (!n) return null;
+  const subs = g.sections.map((s) => s.name).filter(Boolean);
+  return (
+    <section className="rounded-[14px] border border-white/[0.1] bg-white/[0.02]">
+      <button type="button" onClick={onToggle} className="w-full text-left px-4 py-3 flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h4 className="font-display text-[15px] font-semibold text-gray-100">{g.name}</h4>
+            <span className="text-[12px] text-gray-500">{n === g.counts.features ? n : `${n} of ${g.counts.features}`} feature{g.counts.features === 1 ? '' : 's'}</span>
+          </div>
+          {g.summary && <p className="text-[13px] text-gray-300 mt-0.5">{g.summary}</p>}
+          <p className="text-[12px] text-gray-500 mt-0.5 truncate">
+            {groupMix(g.counts)}{subs.length > 0 && <span> — {subs.join(' · ')}</span>}
+          </p>
+        </div>
+        <span className="text-gray-500 text-[12px] pt-1">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-3">
+          {sections.map((s) => (
+            <div key={s.name || '-'}>
+              {s.name && <div className="text-[11px] text-gray-500 uppercase tracking-[0.12em] mb-1 px-1">{s.name}</div>}
+              <div className="space-y-1.5">{s.features.map((f) => <FeatureSpecCard key={f.id} f={f} onOpen={onOpenFeature} />)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function SpecTab({ project, agents, version, onOpenFeature, onChanged }: {
   project: Project; agents: Agent[]; version: number; onOpenFeature: (id: string) => void; onChanged: () => void;
 }) {
   const { spec, error } = useSpec(project.id, version);
   const [filter, setFilter] = useState<SpecFilter>('all');
+  // Which capability groups are open; null = the default (all open for a short list, all closed for a long one).
+  const [openGroups, setOpenGroups] = useState<Set<string> | null>(null);
   if (error) return <p className="text-[13px] text-ember-300">{error}</p>;
   if (!spec) return <p className="text-[13px] text-gray-500">Loading…</p>;
   const t = spec.totals;
+  // A server older than the dashboard (it is served from server/public, so a rebuild lands before a
+  // restart) sends no groups — the list then reads flat rather than not at all.
+  const groups = spec.groups ?? [];
   // Built (delivered or done) and not matching its intent: criteria unmet or unchecked, or none to check.
   const isGap = (f: SpecFeature) => (f.status === 'done' || f.status === 'delivered')
     && (f.alignment === 'partial' || f.alignment === 'unverified' || f.alignment === 'intent-only');
@@ -227,10 +281,11 @@ export function SpecTab({ project, agents, version, onOpenFeature, onChanged }: 
         <span className="text-gray-300"> evidence</span> for each acceptance criterion (NeonCore's own test runs and the independent
         reviewer's verdicts). It is generated from the records, so it is always current.
       </p>
-      <AiGenerate project={project} agents={agents} version={version} onChanged={onChanged} parts={['features']}
+      <AiGenerate project={project} agents={agents} version={version} onChanged={onChanged} parts={['features', 'backlog']} choose initial={['features']}
         title={t.existing ? 'Document more of what the product already does' : 'Write the spec of what the product already does'}
         blurb={t.existing ? undefined : <>For a codebase new to NeonCore: a cartridge reads the docs and the code and proposes the
-          features already there, each with acceptance criteria for how it behaves today. You tick what to keep.</>} />
+          features already there, each with acceptance criteria for how it behaves today — and, if you tick it, the backlog the code
+          points at (TODOs, half-built paths). You tick what to keep.</>} />
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex gap-1.5 flex-wrap">
           {chips.map(([k, label, n]) => (
@@ -242,9 +297,29 @@ export function SpecTab({ project, agents, version, onOpenFeature, onChanged }: 
         </div>
         <a href={docUrl(project.id, 'spec', { download: true })} className="text-[12px] text-gray-400 hover:text-gray-200">Download spec (.md)</a>
       </div>
-      <div className="space-y-1.5">
-        {shown.length === 0 ? <p className="text-[13px] text-gray-500">Nothing here.</p> : shown.map((f) => <FeatureSpecCard key={f.id} f={f} onOpen={onOpenFeature} />)}
-      </div>
+      {groups.length > 0 && shown.length > 0 ? (() => {
+        const opened = openGroups ?? new Set(spec.features.length <= 20 ? groups.map((g) => g.name) : []);
+        const byId = new Map(shown.map((f) => [f.id, f]));
+        const toggle = (name: string) => { const next = new Set(opened); if (next.has(name)) next.delete(name); else next.add(name); setOpenGroups(next); };
+        const allOpen = groups.every((g) => opened.has(g.name));
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[12px] text-gray-500">
+              <span>{groups.length} capabilit{groups.length === 1 ? 'y' : 'ies'}</span>
+              <button className="hover:text-gray-300" onClick={() => setOpenGroups(new Set(allOpen ? [] : groups.map((g) => g.name)))}>
+                {allOpen ? 'Collapse all' : 'Expand all'}
+              </button>
+            </div>
+            {groups.map((g) => (
+              <SpecGroupSection key={g.name} g={g} shown={byId} open={opened.has(g.name)} onToggle={() => toggle(g.name)} onOpenFeature={onOpenFeature} />
+            ))}
+          </div>
+        );
+      })() : (
+        <div className="space-y-1.5">
+          {shown.length === 0 ? <p className="text-[13px] text-gray-500">Nothing here.</p> : shown.map((f) => <FeatureSpecCard key={f.id} f={f} onOpen={onOpenFeature} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -496,7 +571,7 @@ export function ChangelogTab({ project, agents, version, onChanged }: { project:
  * for its own part; the Architecture tab can ask for any mix — the "first time in NeonCore" case.
  */
 const PARTS: { key: ImportPart; label: string; hint: string }[] = [
-  { key: 'architecture', label: 'Architecture', hint: 'components, how data flows, the stack, where the tests are' },
+  { key: 'architecture', label: 'Architecture', hint: 'a page with diagrams: components, how data flows, the stack, where the tests are' },
   { key: 'features', label: 'Existing features + specs', hint: 'what the product already does, each with acceptance criteria for how it behaves today' },
   { key: 'changelog', label: 'Changelog', hint: 'the history of what shipped — from git commits and tags, and any CHANGELOG already there' },
   { key: 'backlog', label: 'Backlog', hint: 'work the code points at — TODOs, half-built paths — offered as planned features' },
@@ -527,6 +602,8 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
   const p = imp.proposal!;
   const [arch, setArch] = useState(p.architecture);
   const [useArch, setUseArch] = useState(!!p.architecture);
+  const page = p.architectureHtml ?? '';
+  const [usePage, setUsePage] = useState(!!page);
   const [features, setFeatures] = useState<Set<string>>(() => new Set(p.features.map((f) => f.name)));
   const [backlog, setBacklog] = useState<Set<string>>(() => new Set());
   const [changes, setChanges] = useState<Set<string>>(() => new Set(p.changelog.map((c) => c.id)));
@@ -535,11 +612,16 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
   const toggle = (set: Set<string>, setter: (s: Set<string>) => void, key: string) => {
     const next = new Set(set); if (next.has(key)) next.delete(key); else next.add(key); setter(next);
   };
-  const areas = [...new Set(p.features.map((f) => f.area || 'General'))];
+  // Two levels, as the spec shows them: the capability group ("Gateway"), then its sub-areas.
+  const groupName = (area: string | undefined) => (area || '').split(' · ')[0].trim() || 'General';
+  const subName = (area: string | undefined) => (area || '').split(' · ').slice(1).join(' · ').trim();
+  const groups = [...new Set(p.features.map((f) => groupName(f.area)))];
+  const summaryOf = new Map((p.areas ?? []).map((a) => [a.name, a.summary]));
   const releases = [...new Set(p.changelog.map((c) => c.release))];
   const asked = new Set(imp.parts);
   const kept = [
-    useArch ? 'the architecture' : '',
+    usePage ? 'the architecture page' : '',
+    useArch ? 'the planner notes' : '',
     features.size ? plural(features.size, 'existing feature') : '',
     changes.size ? plural(changes.size, 'changelog entry', 'changelog entries') : '',
     backlog.size ? plural(backlog.size, 'backlog item') : '',
@@ -547,7 +629,7 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
   const apply = async () => {
     setBusy(true); setErr('');
     try {
-      await api.applyProjectImport(imp.id, { architecture: useArch ? arch : '', features: [...features], backlog: [...backlog], changelog: [...changes] });
+      await api.applyProjectImport(imp.id, { architecture: useArch ? arch : '', architectureHtml: usePage, features: [...features], backlog: [...backlog], changelog: [...changes] });
       onApplied();
     } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
   };
@@ -561,14 +643,21 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
       </div>
 
       {asked.has('architecture') && (
-        <div>
-          <label className="flex items-center gap-2 text-[13px] text-gray-300 mb-1.5">
-            <input type="checkbox" className="accent-neon-500" checked={useArch} onChange={() => setUseArch((v) => !v)} disabled={!p.architecture} />
-            Architecture {p.architecture
-              ? <span className="text-gray-500">— {p.architecture.split('\n').length} lines, editable{useArch ? ' below' : ''}; replaces what the project has</span>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-[13px] text-gray-300">
+            <input type="checkbox" className="accent-neon-500" checked={usePage} onChange={() => setUsePage((v) => !v)} disabled={!page} />
+            Architecture page {page
+              ? <span className="text-gray-500">— shown in the Architecture tab; replaces the one the project has</span>
               : <span className="text-gray-500">— none proposed</span>}
           </label>
-          {p.architecture && useArch && <textarea rows={10} className={`${input} font-mono text-[12px]`} value={arch} onChange={(e) => setArch(e.target.value)} />}
+          {page && usePage && <ArchitectureFrame srcDoc={page} title="Proposed architecture" />}
+          <label className="flex items-center gap-2 text-[13px] text-gray-300">
+            <input type="checkbox" className="accent-neon-500" checked={useArch} onChange={() => setUseArch((v) => !v)} disabled={!p.architecture} />
+            Planner notes {p.architecture
+              ? <span className="text-gray-500">— the short text the planner reads when it scopes a feature, editable{useArch ? ' below' : ''}</span>
+              : <span className="text-gray-500">— none proposed</span>}
+          </label>
+          {p.architecture && useArch && <textarea rows={6} className={`${input} font-mono text-[12px]`} value={arch} onChange={(e) => setArch(e.target.value)} />}
         </div>
       )}
 
@@ -578,10 +667,24 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
             <h5 className="text-[13px] text-gray-300">Already in the product — {features.size} of {p.features.length} kept <span className="text-gray-500">(join the list as existing features, their criteria as documented behaviour)</span></h5>
             {p.features.length > 0 && <button className="text-[12px] text-gray-500 hover:text-gray-300" onClick={() => tickAll(!features.size, p.features.map((f) => f.name), setFeatures)}>{features.size ? 'Untick all' : 'Tick all'}</button>}
           </div>
-          {p.features.length === 0 ? <p className="text-[13px] text-gray-500">None proposed.</p> : areas.map((area) => (
-            <div key={area} className="mb-2">
-              <div className="text-[11px] text-gray-500 uppercase tracking-[0.12em] mb-1">{area}</div>
-              {p.features.filter((f) => (f.area || 'General') === area).map((f) => (
+          {p.features.length === 0 ? <p className="text-[13px] text-gray-500">None proposed.</p> : groups.map((group) => {
+            const inGroup = p.features.filter((f) => groupName(f.area) === group);
+            const keptHere = inGroup.filter((f) => features.has(f.name)).length;
+            const setGroup = (on: boolean) => { const next = new Set(features); for (const f of inGroup) { if (on) next.add(f.name); else next.delete(f.name); } setFeatures(next); };
+            return (
+            <div key={group} className="mb-3 rounded-[12px] border border-white/[0.08] px-3 py-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[13px] font-semibold text-gray-100">{group}</span>
+                  <span className="text-[12px] text-gray-500"> — {keptHere} of {inGroup.length} kept</span>
+                  {summaryOf.get(group) && <p className="text-[12px] text-gray-400">{summaryOf.get(group)}</p>}
+                </div>
+                <button className="text-[12px] text-gray-500 hover:text-gray-300 whitespace-nowrap" onClick={() => setGroup(!keptHere)}>{keptHere ? 'Untick group' : 'Tick group'}</button>
+              </div>
+              {[...new Set(inGroup.map((f) => subName(f.area)))].map((sub) => (
+              <div key={sub || '-'} className="mt-1.5">
+              {sub && <div className="text-[11px] text-gray-500 uppercase tracking-[0.12em] mb-0.5">{sub}</div>}
+              {inGroup.filter((f) => subName(f.area) === sub).map((f) => (
                 <div key={f.name} className="flex items-start gap-2 py-1 text-[13px]">
                   <input type="checkbox" aria-label={`Keep ${f.name}`} className="accent-neon-500 mt-0.5 cursor-pointer" checked={features.has(f.name)} onChange={() => toggle(features, setFeatures, f.name)} />
                   <div className="min-w-0 flex-1">
@@ -603,8 +706,11 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
                   </div>
                 </div>
               ))}
+              </div>
+              ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -663,13 +769,14 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
  * proposal, shows it for review, and after it is applied offers to publish docs/product/ into the repo.
  * Requests are per project: asking again — from any tab — replaces one still outstanding.
  */
-function AiGenerate({ project, agents, version, onChanged, parts, choose = false, title, blurb, button = '✦ Generate with AI' }: {
+function AiGenerate({ project, agents, version, onChanged, parts, choose = false, initial, title, blurb, button = '✦ Generate with AI' }: {
   project: Project; agents: Agent[]; version: number; onChanged: () => void;
-  parts: ImportPart[]; choose?: boolean; title: string; blurb?: React.ReactNode; button?: string;
+  /** What this tab can ask for; with `choose`, the person ticks among them (`initial` ticked to start). */
+  parts: ImportPart[]; choose?: boolean; initial?: ImportPart[]; title: string; blurb?: React.ReactNode; button?: string;
 }) {
   const { imports, load } = useImports(project.id, version);
   const [agentId, setAgentId] = useState('');
-  const [picked, setPicked] = useState<Set<ImportPart>>(() => new Set(parts));
+  const [picked, setPicked] = useState<Set<ImportPart>>(() => new Set(initial ?? parts));
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [published, setPublished] = useState('');
@@ -684,7 +791,7 @@ function AiGenerate({ project, agents, version, onChanged, parts, choose = false
   const relevant = imports?.find((i) => i.status !== 'superseded' && i.parts.some((k) => parts.includes(k))) ?? null;
   const waiting = latest?.status === 'pending';
   const mine = !!relevant && relevant.id === latest?.id;
-  const asking = choose ? PARTS.map((x) => x.key).filter((k) => picked.has(k)) : parts;
+  const asking = choose ? parts.filter((k) => picked.has(k)) : parts;
   const repo = project.primaryRepo || project.cartridges?.[0] || '';
 
   const start = async () => {
@@ -729,7 +836,7 @@ function AiGenerate({ project, agents, version, onChanged, parts, choose = false
         </div>
         {choose && (
           <div className="flex gap-x-4 gap-y-1.5 flex-wrap">
-            {PARTS.map((x) => (
+            {PARTS.filter((x) => parts.includes(x.key)).map((x) => (
               <label key={x.key} title={x.hint} className="flex items-center gap-1.5 text-[13px] text-gray-300 cursor-pointer">
                 <input type="checkbox" className="accent-neon-500" checked={picked.has(x.key)}
                   onChange={() => setPicked((s) => { const n = new Set(s); if (n.has(x.key)) n.delete(x.key); else n.add(x.key); return n; })} />
@@ -766,6 +873,17 @@ function AiGenerate({ project, agents, version, onChanged, parts, choose = false
 
 // ── Architecture ───────────────────────────────────────────────────────────────
 
+/**
+ * The architecture page — written by a cartridge, so shown sandboxed: no scripts, no reaching into
+ * the dashboard (the iframe has no permissions; the page route adds a CSP sandbox of its own).
+ */
+function ArchitectureFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
+  return (
+    <iframe title={title} sandbox="" srcDoc={srcDoc}
+      className="w-full h-[75vh] min-h-[420px] rounded-[18px] border border-white/[0.1] bg-gl-code" />
+  );
+}
+
 export function ArchitectureTab({ project, agents, version, onChanged }: { project: Project; agents: Agent[]; version: number; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(project.architecture ?? '');
@@ -775,44 +893,74 @@ export function ArchitectureTab({ project, agents, version, onChanged }: { proje
     setErr('');
     try { await api.updateProject(project.id, { architecture: text }); setEditing(false); onChanged(); } catch (e) { setErr(errText(e)); }
   };
+  // Fetched through the API client (it carries the fleet token), rendered from srcDoc in the sandbox.
+  const [page, setPage] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!project.hasArchitecturePage) { setPage(''); return; }
+    api.getArchitecturePage(project.id).then((r) => live && setPage(r.html)).catch((e) => live && (setErr(errText(e)), setPage('')));
+    return () => { live = false; };
+  }, [project.id, project.hasArchitecturePage, version]);
+  // Saved as a file, not opened in a tab: a page opened from here would share the dashboard's origin, outside the sandbox.
+  const download = () => {
+    if (!page) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([page], { type: 'text/html' }));
+    a.download = `${project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project'}-ARCHITECTURE.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  };
 
   return (
     <div className="space-y-5">
-      <AiGenerate project={project} agents={agents} version={version} onChanged={onChanged} choose
-        parts={['architecture', 'features', 'changelog', 'backlog']}
-        title={project.architecture ? 'Regenerate from the codebase' : 'First time using NeonCore on this codebase?'}
-        blurb={<>A cartridge reads the project's repos — existing docs (README, docs/, CHANGELOG) first, then the code and the git
-          history — and writes what you tick: the architecture, the features the product already has with a spec of how each behaves
-          today, the changelog so far, and the backlog the code points at. You review it item by item; nothing is kept until you apply,
-          and then <span className="text-gray-300">Publish</span> writes it all into the repo as Markdown under docs/product/.</>} />
+      <AiGenerate project={project} agents={agents} version={version} onChanged={onChanged} parts={['architecture']}
+        title={project.hasArchitecturePage ? 'Regenerate the architecture from the codebase' : 'Generate the architecture from the codebase'}
+        blurb={<>A cartridge reads the project's repos — existing docs (README, docs/) first, then the code — and draws how the product is
+          built: a diagram of the components and how data flows between them, the stack, where the tests are. You review it before it
+          is kept.</>} />
 
       <div>
         <div className="flex items-center justify-between gap-2 mb-2">
           <h4 className="text-[12px] text-gray-500 uppercase tracking-[0.12em]">How the product is built</h4>
-          <div className="flex items-center gap-3">
-            {project.architecture && <a href={docUrl(project.id, 'architecture', { download: true })} className="text-[12px] text-gray-400 hover:text-gray-200">Download .md</a>}
-            {!editing && <button onClick={() => setEditing(true)} className="text-[12px] text-neon-400 hover:text-neon-300">{project.architecture ? 'Edit' : 'Write it yourself'}</button>}
-          </div>
-        </div>
-        <p className="text-[12px] text-gray-500 mb-2">The planner reads this when it scopes each feature, so its questions are grounded in the real system.</p>
-        {err && <p className="text-[13px] text-ember-300 mb-2">{err}</p>}
-        {editing ? (
-          <div className="space-y-2">
-            <textarea rows={16} className={`${input} font-mono text-[13px]`} value={text} onChange={(e) => setText(e.target.value)}
-              placeholder={'## Components\n- api/ — …\n\n## How data flows\n…\n\n## Tests\n…'} />
-            <div className="flex gap-2">
-              <button onClick={save} className={primaryBtn}>Save</button>
-              <button onClick={() => { setEditing(false); setText(project.architecture ?? ''); }} className="px-3 py-1.5 text-[13px] text-gray-400 hover:text-gray-200">Cancel</button>
+          {project.hasArchitecturePage && (
+            <div className="flex items-center gap-3">
+              <button onClick={download} disabled={!page} className="text-[12px] text-gray-400 hover:text-gray-200 disabled:opacity-40">Download .html</button>
             </div>
-          </div>
-        ) : project.architecture ? (
-          <div className="prose prose-invert prose-sm max-w-none rounded-[18px] border border-white/[0.1] bg-gl-code p-4">
-            <Markdown remarkPlugins={[remarkGfm]}>{project.architecture}</Markdown>
-          </div>
-        ) : (
-          <p className="text-[13px] text-gray-500 italic">Not written yet — generate it with AI above, or write it yourself.</p>
-        )}
+          )}
+        </div>
+        {!project.hasArchitecturePage
+          ? <p className="text-[13px] text-gray-500 italic">Not generated yet — generate it with AI above.</p>
+          : page === null ? <p className="text-[13px] text-gray-500">Loading…</p>
+          : page ? <ArchitectureFrame srcDoc={page} title={`${project.name} architecture`} />
+          : <p className="text-[13px] text-ember-300">The page could not be loaded{err ? `: ${err}` : ' — try again'}.</p>}
       </div>
+
+      <details className="rounded-[14px] border border-white/[0.1] bg-gl-surface/60 px-4 py-3" open={editing || (!project.hasArchitecturePage && !!project.architecture)}>
+        <summary className="cursor-pointer select-none text-[13px] text-gray-300">
+          Planner notes <span className="text-gray-500">— the short text the planner reads when it scopes each feature{project.architecture ? '' : ' (none yet)'}</span>
+        </summary>
+        <div className="mt-3">
+          <div className="flex items-center justify-end gap-3 mb-2">
+            {project.architecture && <a href={docUrl(project.id, 'architecture', { download: true })} className="text-[12px] text-gray-400 hover:text-gray-200">Download .md</a>}
+            {!editing && <button onClick={() => setEditing(true)} className="text-[12px] text-neon-400 hover:text-neon-300">{project.architecture ? 'Edit' : 'Write them yourself'}</button>}
+          </div>
+          {err && <p className="text-[13px] text-ember-300 mb-2">{err}</p>}
+          {editing ? (
+            <div className="space-y-2">
+              <textarea rows={12} className={`${input} font-mono text-[13px]`} value={text} onChange={(e) => setText(e.target.value)}
+                placeholder={'## Components\n- api/ — …\n\n## How data flows\n…\n\n## Tests\n…'} />
+              <div className="flex gap-2">
+                <button onClick={save} className={primaryBtn}>Save</button>
+                <button onClick={() => { setEditing(false); setText(project.architecture ?? ''); }} className="px-3 py-1.5 text-[13px] text-gray-400 hover:text-gray-200">Cancel</button>
+              </div>
+            </div>
+          ) : project.architecture ? (
+            <div className="prose prose-invert prose-sm max-w-none">
+              <Markdown remarkPlugins={[remarkGfm]}>{project.architecture}</Markdown>
+            </div>
+          ) : null}
+        </div>
+      </details>
     </div>
   );
 }

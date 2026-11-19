@@ -17,7 +17,7 @@
  * view switches and fetches only while the view is active. The selection lives in the URL
  * (lib/projectSelection.ts), so a project and a feature can be linked to and survive a refresh.
  */
-import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext, useId } from 'react';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, Task, Agent } from '../types';
@@ -498,7 +498,7 @@ const PROJECT_TABS: { key: ProjectTab; label: string; hint: string }[] = [
   { key: 'spec', label: 'Spec', hint: 'Every feature\'s intent beside what was verified' },
   { key: 'roadmap', label: 'Roadmap', hint: 'Now / Next / Later / Done — shareable' },
   { key: 'changelog', label: 'Changelog', hint: 'What shipped, by release' },
-  { key: 'architecture', label: 'Architecture', hint: 'How it is built — and generating the docs of an existing codebase with AI' },
+  { key: 'architecture', label: 'Architecture', hint: 'How it is built — a page with diagrams, generated from the codebase' },
 ];
 
 /** "Already in the product": features that existed before NeonCore (generated from the codebase). */
@@ -640,7 +640,9 @@ function ProjectDetail({ project }: { project: Project }) {
         {mine.length === 0 && existing.length === 0 && (
           <p className="text-[12px] text-gray-500 mt-2">
             Picking up a product that already exists?{' '}
-            <button onClick={() => setTab('architecture')} className="text-neon-400 hover:text-neon-300">✦ Generate its architecture, existing features, changelog and backlog with AI</button>.
+            <button onClick={() => setTab('spec')} className="text-neon-400 hover:text-neon-300">✦ Document what it already does, and the backlog the code points at</button>
+            {' · '}<button onClick={() => setTab('architecture')} className="text-neon-400 hover:text-neon-300">its architecture</button>
+            {' · '}<button onClick={() => setTab('changelog')} className="text-neon-400 hover:text-neon-300">its changelog</button>.
           </p>
         )}
         <ExistingFeatures list={existing} onOpenSpec={() => setTab('spec')} />
@@ -727,6 +729,14 @@ function FeatureDetail({ feature, project }: { feature: Goal; project: Project |
               <option value="next">Roadmap: Next</option>
               <option value="later">Roadmap: Later</option>
             </select>
+          )}
+          {project && (
+            <AreaField
+              key={feature.id}
+              value={feature.area || ''}
+              suggestions={[...new Set(siblings.map((f) => f.area || '').filter(Boolean))].sort()}
+              onSave={(area) => updateFeature(feature.id, { area })}
+            />
           )}
           <button onClick={() => setModal({ type: 'edit-feature', feature })} className={iconBtn}>Edit</button>
           <button onClick={() => setModal({ type: 'move-feature', feature })} className={iconBtn} title="Move it to another project">Move to project…</button>
@@ -991,5 +1001,31 @@ export function ProjectsWorkspace() {
         </Modal>
       )}
     </section>
+  );
+}
+
+/**
+ * The feature's capability group on the spec — free text, suggested from the project's other
+ * features, so a planned feature joins the same groups the imported ones are in. Saved on blur / Enter.
+ */
+function AreaField({ value, suggestions, onSave }: { value: string; suggestions: string[]; onSave: (area: string) => void }) {
+  const [text, setText] = useState(value);
+  const listId = `areas-${useId()}`;
+  const save = () => { const v = text.replace(/\s+/g, ' ').trim(); if (v !== value) onSave(v); };
+  return (
+    <>
+      <input
+        aria-label="Capability"
+        title="Its capability group on the spec — '<group> · <sub-area>', e.g. 'Billing · Invoices'. Executives read the spec by these."
+        list={listId}
+        value={text}
+        placeholder="Capability…"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className="h-9 w-48 text-[12px] text-gray-300 glass-input rounded-[10px] px-2.5"
+      />
+      <datalist id={listId}>{suggestions.map((a) => <option key={a} value={a} />)}</datalist>
+    </>
   );
 }

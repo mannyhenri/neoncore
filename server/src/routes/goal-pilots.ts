@@ -10,6 +10,7 @@
  *     verbatim and may submit again.
  */
 import { Router, type Response } from 'express';
+import { addFeatureFiles, FeatureFileError } from '../lib/feature-files.js';
 import db from '../db.js';
 import { cartridgeExists } from '../lib/cartridge-exists.js';
 import { normalizeRepoPath } from '../lib/resolve-agent.js';
@@ -34,7 +35,7 @@ import {
   restoreTests, acceptTestChange, verifyAgain, confirmChecklist,
 } from '../lib/acceptance-runner.js';
 import { asyncRoute } from '../lib/async-route.js';
-import { createFeature } from './goals.js';
+import { createFeature, deleteFeatureCascade } from './goals.js';
 import { goalRepos } from '../lib/goal-scope.js';
 import { docsChangedForGoal } from '../lib/project-docs.js';
 
@@ -209,8 +210,10 @@ router.get('/:id', (req, res) => {
  * Dispatches the first scoping request to the planner cartridge.
  */
 router.post('/', (req, res) => {
-  const { intake: rawIntake, goalId, projectId, plannerAgentId, replace } = (req.body ?? {}) as {
+  const { intake: rawIntake, goalId, projectId, plannerAgentId, replace, files } = (req.body ?? {}) as {
     intake?: unknown; goalId?: string; projectId?: string; plannerAgentId?: string; replace?: boolean;
+    /** Files for the feature (lib/feature-files.ts) — stored before the first scoping request, so it carries them. */
+    files?: unknown;
   };
   const { intake, missing } = normalizeIntake(rawIntake);
   if (missing.length) return res.status(400).json({ error: `please answer: ${missing.join('; ')}` });
@@ -244,6 +247,15 @@ router.post('/', (req, res) => {
         budgetUsd: budget && budget > 0 ? budget : null, targetDate: intake.deadline ?? '',
         autonomy: involvementOf(intake.involvement).goalAutonomy,
       });
+    }
+
+    if (Array.isArray(files) && files.length) {
+      try { addFeatureFiles(gid, files); }
+      catch (err) {
+        // A feature created by this request and left without its files is not what was asked for.
+        if (!goalId) deleteFeatureCascade(gid);
+        return res.status(err instanceof FeatureFileError ? err.status : 500).json({ error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     const pilot = createPilotRow({ goalId: gid, plannerAgentId, intake });

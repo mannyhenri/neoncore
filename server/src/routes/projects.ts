@@ -6,7 +6,7 @@ import { setProjectCartridges, getProjectCartridges } from '../lib/resolve-agent
 import type { Project } from '../types.js';
 import { projectTotalCostUsd } from '../lib/goal-cost.js';
 import { createFeature, deleteFeatureCascade, pilotSummary } from './goals.js';
-import { buildProjectSpec, renderSpecMarkdown, renderRoadmapMarkdown, renderRoadmapHtml, renderArchitectureMarkdown } from '../lib/project-spec.js';
+import { buildProjectSpec, renderSpecMarkdown, renderRoadmapMarkdown, renderRoadmapHtml, renderArchitectureMarkdown, architecturePage } from '../lib/project-spec.js';
 import {
   changelogFor, addEntry, updateEntry, deleteEntry, getEntry, cutRelease, renderChangelogMarkdown, CHANGE_KINDS,
 } from '../lib/project-changelog.js';
@@ -35,6 +35,8 @@ function normalizeProject(row: Record<string, unknown>, extra?: Partial<Project>
     primaryRepo: (row.primary_repo as string) || '',
     color: (row.color as string) || '#a855f7',
     architecture: (row.architecture as string) || '',
+    // The page itself is served by GET /:id/docs/architecture?format=html — too big for every list row.
+    hasArchitecturePage: !!String(row.architecture_html || '').trim(),
     docsAutoPublish: !!row.docs_auto_publish,
     docsPublishedAt: (row.docs_published_at as string) || '',
     docsPublishError: (row.docs_publish_error as string) || '',
@@ -305,12 +307,28 @@ router.get('/:id/docs/:doc', (req, res) => {
   if (doc === 'spec') { body = renderSpecMarkdown(spec); file = 'SPEC.md'; }
   else if (doc === 'roadmap') { body = html ? renderRoadmapHtml(spec) : renderRoadmapMarkdown(spec); file = html ? 'ROADMAP.html' : 'ROADMAP.md'; }
   else if (doc === 'changelog') { body = renderChangelogMarkdown(spec.project.name, changelogFor(req.params.id)); file = 'CHANGELOG.md'; }
+  else if (doc === 'architecture' && html) {
+    body = architecturePage(req.params.id);
+    if (!body) return res.status(404).json({ error: 'no architecture page yet — generate it in the Architecture tab' });
+    file = 'ARCHITECTURE.html';
+    // Written by a cartridge and served from this origin: no scripts, nothing loaded from elsewhere.
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:");
+  }
   else if (doc === 'architecture') { body = renderArchitectureMarkdown(spec, { placeholder: true }); file = 'ARCHITECTURE.md'; }
   else return res.status(404).json({ error: `unknown document "${doc}" — spec, roadmap, changelog or architecture` });
   const slug = spec.project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
-  res.type(html && doc === 'roadmap' ? 'html' : 'text/markdown; charset=utf-8');
+  res.type(html && (doc === 'roadmap' || doc === 'architecture') ? 'html' : 'text/markdown; charset=utf-8');
   if (req.query.download === '1') res.setHeader('Content-Disposition', `attachment; filename="${slug}-${file}"`);
   res.send(body);
+});
+
+/**
+ * The architecture page, for the Architecture tab: JSON, so it travels through the authenticated
+ * client (an iframe pointed at a URL could not send the fleet token). The tab renders it sandboxed.
+ */
+router.get('/:id/architecture', (req, res) => {
+  if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Project not found' });
+  res.json({ html: architecturePage(req.params.id) });
 });
 
 /** Write docs/product/ into the project's main repo now. */

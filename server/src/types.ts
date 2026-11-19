@@ -391,6 +391,8 @@ export interface Goal {
   doneAt?: string;
   /** Where the person placed it on the roadmap: '' = automatic, else 'now' | 'next' | 'later'. */
   roadmapLane?: '' | 'now' | 'next' | 'later';
+  /** Its capability group on the spec: '<group> · <sub-area>', '<group>', or '' (unsorted). */
+  area?: string;
   /** Where the feature's pipeline stands (its latest pilot); null when it was never started. */
   pilot?: FeaturePilotSummary | null;
   name: string;
@@ -469,6 +471,8 @@ export interface Project {
   activeRunCount?: number;
   /** How the product is built (markdown) — read by the planner when it scopes each feature. */
   architecture?: string;
+  /** The project has an architecture page (served at /docs/architecture?format=html, shown in the Architecture tab). */
+  hasArchitecturePage?: boolean;
   /** Rewrite docs/product/ in the main repo whenever a feature changes. */
   docsAutoPublish?: boolean;
   /** When docs/product/ was last written ('' = never), and why the last attempt failed. */
