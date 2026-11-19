@@ -752,6 +752,8 @@ export function createClient(config: ClientConfig = {}) {
   addFeatureFiles: (goalId: string, files: import('./types').CommandAttachmentInput[]) =>
     request<import('./types').FeatureFile[]>(`/goals/${goalId}/files`, { method: 'POST', body: JSON.stringify({ files }) }),
   removeFeatureFile: (goalId: string, fileId: string) => request<void>(`/goals/${goalId}/files/${fileId}`, { method: 'DELETE' }),
+  /** A cartridge's full final answer, read from its transcript (server lib/final-answer.ts). */
+  getFinalAnswer: (agentId: string) => request<import('./types').FinalAnswer>(`/agents/${agentId}/final-answer`),
   createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; projectId?: string; replace?: boolean; files?: import('./types').CommandAttachmentInput[] }) =>
     request<{ pilot: import('./types').GoalPilot; goalId: string; queued: boolean; error: string | null }>(
       '/goal-pilots', { method: 'POST', body: JSON.stringify(data) },

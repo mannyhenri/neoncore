@@ -128,6 +128,9 @@ export interface Command {
   transport?: DeliveryTransport;
 }
 
+/** A cartridge's full final answer (server lib/final-answer.ts). `complete` is false while its turn still runs. */
+export interface FinalAnswer { text: string; complete: boolean; sessionId: string; at: string }
+
 /** A file attached to a feature (server lib/feature-files.ts). */
 export interface FeatureFile { id: string; goalId: string; name: string; mimeType: string; size: number; createdAt: string }
 

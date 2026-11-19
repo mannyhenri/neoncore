@@ -7,6 +7,7 @@ import { CommandInput } from './CommandInput';
 import { GitPanel } from './GitPanel';
 import ProjectMemoryPanel from './ProjectMemoryPanel';
 import SendContextModal from './SendContextModal';
+import { FinalAnswerModal } from './FinalAnswerModal';
 import { api } from '../lib/api';
 
 // ---------------------------------------------------------------------------
@@ -538,6 +539,7 @@ export function CartridgeCard({
 
   const [gitOpen, setGitOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
+  const [answerOpen, setAnswerOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
 
   // Token usage + USD cost — fetched from server, refreshed when agent status changes
@@ -643,6 +645,16 @@ export function CartridgeCard({
             </span>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={() => setAnswerOpen(true)}
+              className={iconBtn}
+              title="Read the agent's full final answer"
+              aria-label="Final answer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5h16v11H9l-5 4z" /><path d="M8 9h8M8 12h5" />
+              </svg>
+            </button>
             <button
               onClick={() => setJournalOpen(true)}
               className={iconBtn}
@@ -1073,6 +1085,9 @@ export function CartridgeCard({
           </div>
         )}
       </div>
+
+      {/* The agent's full final answer */}
+      {answerOpen && <FinalAnswerModal agentId={agent.id} name={agent.repoName || agent.name} onClose={() => setAnswerOpen(false)} />}
 
       {/* Git Panel Modal */}
       {gitOpen && <GitPanel agent={agent} onClose={() => setGitOpen(false)} />}

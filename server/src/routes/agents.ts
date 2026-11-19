@@ -1,3 +1,4 @@
+import { finalAnswerOf } from '../lib/final-answer.js';
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
@@ -652,6 +653,13 @@ function normalizeMessage(row: Record<string, unknown>): TranscriptEvent {
 // open" path (live updates still arrive via the `transcript_event` socket event).
 // Returns the most recent `limit` messages in chronological order (oldest first).
 // Pass `before` (an ISO ts cursor) to page further back for infinite scroll.
+/** The agent's full final answer — the Agents screen's "Read the full answer" (lib/final-answer.ts). */
+router.get('/:id/final-answer', (req, res) => {
+  const answer = finalAnswerOf(req.params.id);
+  if (!answer) return res.status(404).json({ error: 'no answer recorded for this cartridge yet' });
+  res.json(answer);
+});
+
 router.get('/:id/messages', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const before = (req.query.before as string) || '';
