@@ -47,7 +47,7 @@ before a reviewer forms their own theory. Ambiguity here costs a review cycle.
 
 - [ ] **App name** — "NeonCore" may be taken; check App Store Connect early. A subtitle
       ("AI agent orchestrator") carries the meaning if you need a longer name.
-- [ ] **Bundle ID** `ai.gridlight.neoncore` — already registered
+- [ ] **Bundle ID** `com.mannyhenri.neoncore` — register it in App Store Connect
 - [ ] **Marketing version** — currently `0.7.0`. Ship 1.0; a sub-1.0 version signals beta to users
       and to review.
 - [ ] **Age rating** — 4+ likely, but the questionnaire asks about unrestricted web access. The app

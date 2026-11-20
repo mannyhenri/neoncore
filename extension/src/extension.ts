@@ -26,17 +26,13 @@ let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 
 // Agent type — read from config (or auto-detected from host app name)
-let agentType: 'claude' | 'gridlight' | 'codex' = 'claude';
+let agentType: 'claude' | 'codex' = 'claude';
 let registeredAgentId: string | null = null;
 
 // All discovered agent-related commands
 let discoveredCommands: string[] = [];
 let autoApproveInFlight = false;
 let queuedAutoApprove = 0;
-
-// Gridlight heartbeat & idle reporting
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-let gridlightIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Presence monitoring: track which AI extensions are active in this VS Code instance
 let presenceInterval: ReturnType<typeof setInterval> | null = null;
@@ -59,11 +55,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('neoncore.disconnect', () => disconnectFromOrchestrator()),
   );
 
-  // Read agent type from config. Only claude, codex and gridlight are supported engines,
-  // so host-app sniffing no longer selects a type — an unconfigured host is claude.
+  // Read agent type from config. Only claude and codex are supported engines, so host-app
+  // sniffing no longer selects a type, and anything else (unset, or an engine that is no
+  // longer supported) is claude.
   const config = vscode.workspace.getConfiguration('neoncore');
   const configuredType = config.get<string>('agentType', '');
-  agentType = configuredType ? (configuredType as typeof agentType) : 'claude';
+  agentType = configuredType === 'codex' ? 'codex' : 'claude';
 
   // Discover agent extension commands (for command injection)
   discoverAgentCommands();
@@ -76,7 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
     setTimeout(() => connectToOrchestrator(), 500);
   }
 
-  // Start monitoring which AI extensions are active (Gridlight, Claude, etc.)
+  // Start monitoring which AI extensions are active (Claude, Copilot, etc.)
   // This updates the server so the dashboard shows the correct badges.
   startPresenceMonitoring(context);
 }
@@ -86,12 +83,9 @@ async function discoverAgentCommands() {
     const allCommands = await vscode.commands.getCommands(true);
     discoveredCommands = allCommands.filter((c) => {
       const lower = c.toLowerCase();
-      if (agentType === 'gridlight') {
-        return lower.includes('gridlight') || lower.includes('gl-');
-      }
       return lower.includes('claude') || lower.includes('cline');
     });
-    const label = agentType === 'gridlight' ? 'Gridlight' : 'Claude';
+    const label = 'Claude';
     if (discoveredCommands.length > 0) {
       log(`Discovered ${discoveredCommands.length} ${label} commands:`);
       for (const cmd of discoveredCommands) {
@@ -121,21 +115,7 @@ async function focusAgentPanel(): Promise<void> {
   }
 
   // Type-specific fallbacks
-  if (agentType === 'gridlight') {
-    try {
-      await vscode.commands.executeCommand('gridlight.focusInput');
-    } catch {
-      try {
-        await vscode.commands.executeCommand('gridlight.open');
-      } catch {
-        try {
-          await vscode.commands.executeCommand('workbench.action.focusSideBar');
-        } catch {
-          // ignore
-        }
-      }
-    }
-  } else if (agentType === 'codex') {
+  if (agentType === 'codex') {
     // Terminal-based agents — focus the integrated terminal
     try {
       await vscode.commands.executeCommand('workbench.action.terminal.focus');
@@ -156,7 +136,7 @@ async function focusAgentPanel(): Promise<void> {
 }
 
 function getAutoApproveCommands(): string[] {
-  const typeToken = agentType === 'gridlight' ? 'gridlight' : 'claude';
+  const typeToken = 'claude';
   return discoveredCommands.filter((cmd) => {
     const lower = cmd.toLowerCase();
     const mentionsPlan = lower.includes('plan');
@@ -306,10 +286,7 @@ function connectToOrchestrator() {
     socket!.emit('register_extension', { machine, repoPath, agentType });
     log(`Registered socket with machine=${machine}, repoPath=${repoPath}, agentType=${agentType}`);
 
-    // HTTP registration + command handling only for claude — Gridlight extension manages its own
-    if (agentType !== 'gridlight') {
-      registerWithOrchestrator();
-    }
+    registerWithOrchestrator();
     vscode.window.showInformationMessage(`NeonCore: Connected to orchestrator at ${url}`);
   });
 
@@ -318,8 +295,7 @@ function connectToOrchestrator() {
     updateStatusBar(false);
   });
 
-  // Skip command/plan listeners for gridlight — the Gridlight extension handles those
-  if (agentType !== 'gridlight') {
+  {
     // Listen for commands — wait until registeredAgentId is known before acting
     socket.on('command_send', (command: Command) => {
       if (!registeredAgentId) {
@@ -363,8 +339,6 @@ function connectToOrchestrator() {
 }
 
 function disconnectFromOrchestrator() {
-  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-  if (gridlightIdleTimer) { clearTimeout(gridlightIdleTimer); gridlightIdleTimer = null; }
   if (presenceInterval) { clearInterval(presenceInterval); presenceInterval = null; }
   registeredAgentId = null;
   if (socket) {
@@ -388,7 +362,6 @@ function detectActiveAIExtensions(): Set<string> {
     const id = ext.id.toLowerCase();
     if (id.includes('neoncore')) continue; // skip ourselves
     if (ext.isActive) {
-      if (id.includes('gridlight')) active.add('gridlight');
       if (id.includes('claude') || id.includes('anthropic')) active.add('claude');
       if (id.includes('github.copilot')) active.add('copilot');
     }
@@ -516,10 +489,6 @@ function registerWithOrchestrator() {
       focusAgentPanel();
       // Drain any commands queued while we were offline
       drainPendingCommands(url, agent.id);
-      // Start heartbeat for Gridlight agents (they lack hooks to keep last_seen fresh)
-      if (agentType === 'gridlight') {
-        startHeartbeat(url);
-      }
     })
     .catch((err) => {
       log(`Registration failed: ${err}`);
@@ -688,15 +657,6 @@ async function handleCommand(command: Command) {
       );
     }
 
-    // For Gridlight agents: mark as working and schedule idle report
-    if (agentType === 'gridlight' && registeredAgentId) {
-      fetch(`${url}/api/agents/${registeredAgentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'working' }),
-      }).catch(() => {});
-      scheduleIdleReport(url);
-    }
   } catch (err) {
     log(`handleCommand error: ${err}`);
     vscode.window.showErrorMessage(`NeonCore: Failed to deliver command - ${err}`);
@@ -805,14 +765,14 @@ async function executeAutoApprove(initialDelayMs: number) {
     if (!succeeded) {
       log('Auto-approve: all attempts failed — showing notification');
       vscode.window.showInformationMessage(
-        `NeonCore: Plan approved on dashboard — please confirm in ${agentType === 'gridlight' ? 'Gridlight' : 'Claude Code'}`,
+        `NeonCore: Plan approved on dashboard — please confirm in Claude Code`,
         'OK'
       );
     }
   } catch (err) {
     log(`executeAutoApprove failed: ${err}`);
     vscode.window.showInformationMessage(
-      `NeonCore: Plan approved on dashboard — please confirm in ${agentType === 'gridlight' ? 'Gridlight' : 'Claude Code'}`,
+      `NeonCore: Plan approved on dashboard — please confirm in Claude Code`,
       'OK'
     );
   } finally {
@@ -824,42 +784,6 @@ async function executeAutoApprove(initialDelayMs: number) {
       }, 50);
     }
   }
-}
-
-// ─── Gridlight heartbeat & idle reporting ─────────
-
-function startHeartbeat(url: string) {
-  if (heartbeatInterval) clearInterval(heartbeatInterval);
-  heartbeatInterval = setInterval(async () => {
-    if (!registeredAgentId) return;
-    try {
-      await fetch(`${url}/api/agents/${registeredAgentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-    } catch { /* silent */ }
-  }, 30_000);
-  log('Gridlight heartbeat started (30s interval)');
-}
-
-function scheduleIdleReport(url: string) {
-  if (gridlightIdleTimer) clearTimeout(gridlightIdleTimer);
-  gridlightIdleTimer = setTimeout(async () => {
-    if (!registeredAgentId) return;
-    const { machine, repoPath } = getLocalIdentity();
-    try {
-      await fetch(`${url}/api/agents/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          machine, repoPath, agentType: 'gridlight',
-          message: '(Gridlight agent task completed)',
-        }),
-      });
-      log('Gridlight idle report sent');
-    } catch { /* silent */ }
-  }, 60_000);
 }
 
 // ─── Helpers ──────────────────────────────────────
@@ -892,8 +816,6 @@ function markDelivered(url: string, commandId: string) {
 }
 
 export function deactivate() {
-  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-  if (gridlightIdleTimer) { clearTimeout(gridlightIdleTimer); gridlightIdleTimer = null; }
   if (socket) {
     socket.disconnect();
     socket = null;

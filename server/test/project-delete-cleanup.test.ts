@@ -75,7 +75,7 @@ test('project knowledge is untouched — it is keyed by repo name, not project i
   // on the wrong column would delete accumulated knowledge for a repo that still exists.
   const p = project();
   db.prepare(`INSERT INTO project_knowledge (id, project, filename, content, updated_at)
-              VALUES (?,?,?,?,?)`).run(`k-${++n}`, 'gridlight', 'notes.md', 'x', ISO);
+              VALUES (?,?,?,?,?)`).run(`k-${++n}`, 'atlas', 'notes.md', 'x', ISO);
   const before = (db.prepare('SELECT COUNT(*) AS n FROM project_knowledge').get() as { n: number }).n;
 
   deleteProjectCascade(p);

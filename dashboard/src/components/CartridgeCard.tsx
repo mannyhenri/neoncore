@@ -70,12 +70,11 @@ function shortMachine(machine: string): string {
 
 // Presentation for each tool (agentType). `label` is the full badge/selector text,
 // `short` the compact form used to tag Live Log lines, `badge` the Tailwind classes.
-// `color` is the engine colour (Claude blue, Codex teal, Gridlight pink): an outlined pill on the
+// `color` is the engine colour (Claude blue, Codex teal): an outlined pill on the
 // card and the [engine] tag colour in the live log.
 type ToolMeta = { label: string; short: string; badge: string; color: string };
 function toolMeta(agentType: string): ToolMeta {
   switch (agentType) {
-    case 'gridlight': return { label: 'Gridlight', short: 'Gridlight', badge: 'border border-[#FF7AC0]/60 text-[#FF7AC0]', color: '#FF7AC0' };
     case 'codex':     return { label: 'Codex CLI', short: 'Codex', badge: 'border border-[#2EE6D6]/60 text-[#2EE6D6]', color: '#2EE6D6' };
     default:          return { label: 'Claude CC', short: 'Claude', badge: 'border border-[#7CC4FF]/60 text-[#7CC4FF]', color: '#7CC4FF' };
   }
@@ -83,7 +82,6 @@ function toolMeta(agentType: string): ToolMeta {
 
 function launchTypeFor(agentType: string): string {
   switch (agentType) {
-    case 'gridlight': return 'gridlight-cli';
     case 'codex': return 'codex-cli';
     default: return 'claude-cli';
   }
@@ -477,13 +475,10 @@ export function CartridgeCard({
 
   const status = STATUS_CONFIG[effectiveStatus];
 
-  // The tools available in this cartridge (primary + siblings), Gridlight first — same
+  // The tools available in this cartridge (primary first, then siblings) — same
   // order as the badge row. Each is a separate agent with its own agentType.
   const tools = useMemo(
-    () =>
-      [agent, ...(siblingAgents || [])].sort(
-        (a, b) => (a.agentType === 'gridlight' ? -1 : 1) - (b.agentType === 'gridlight' ? -1 : 1),
-      ),
+    () => [agent, ...(siblingAgents || [])],
     [agent, siblingAgents],
   );
   const multiTool = tools.length > 1;
@@ -729,7 +724,7 @@ export function CartridgeCard({
             />
             {status.label}
           </span>
-          {/* Tool badges — Gridlight first, then others. When more than one tool is running in
+          {/* Tool badges — primary first, then others. When more than one tool is running in
               this repo, the badges are a multi-select send target: all start selected, so a
               prompt fans out to every engine; tap one to exclude it (tap again to re-include).
               With a single tool they're plain labels. */}

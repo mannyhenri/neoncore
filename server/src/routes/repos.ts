@@ -233,7 +233,7 @@ router.post('/create', (req, res) => {
     const git = (...args: string[]) => execFileSync('git', args, { cwd: targetPath, stdio: 'pipe' });
     git('init', '-b', 'main');
     git('add', '-A');
-    git('-c', 'user.name=NeonCore', '-c', 'user.email=neoncore@gridlight.ai', 'commit', '-m', 'Initial commit');
+    git('-c', 'user.name=NeonCore', '-c', 'user.email=neoncore@localhost', 'commit', '-m', 'Initial commit');
 
     // 3. Create the GitHub repo and push. `gh` must be authed on this host. execFileSync (no
     //    shell) so the free-text description can't inject shell commands.

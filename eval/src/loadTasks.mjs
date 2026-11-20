@@ -10,7 +10,7 @@ import path from 'node:path';
  * @typedef {Object} Task
  * @property {string} id
  * @property {string} class     capability class (bash|read|edit|write|refactor|search|git|bugfix)
- * @property {string} prompt    natural-language instruction handed to Gridlight
+ * @property {string} prompt    natural-language instruction handed to the agent CLI
  * @property {number} timeoutMs
  * @property {string} dir
  * @property {string} fixtureDir

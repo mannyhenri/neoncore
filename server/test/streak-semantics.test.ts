@@ -32,7 +32,7 @@ let n = 0;
 function agent(): string {
   const id = `ag-${++n}`;
   db.prepare(`INSERT INTO agents (id,name,machine,repo_path,agent_type,status,last_seen)
-              VALUES (?,?,?,?,?,?,?)`).run(id, `t/${id}`, 'm', '/r', 'gridlight', 'working', ISO);
+              VALUES (?,?,?,?,?,?,?)`).run(id, `t/${id}`, 'm', '/r', 'codex', 'working', ISO);
   return id;
 }
 

@@ -17,7 +17,7 @@
  *   · The payload is single-quoted JSON containing the agent's prose. One apostrophe in
  *     "don't", or a newline in pasted command output, breaks the command.
  *   · A shell command buried at the end of a ~2000-char prompt is simply less likely to be
- *     run than a tool in the agent's tool list. Observed: gridlight ran four greps for CE
+ *     run than a tool in the agent's tool list. Observed: a cartridge ran four greps for CE
  *     Brainstorm, never ran the curl, and the step sat at result_len=0.
  *
  * The set is the three instruction builders. Migrating two of three would leave panel steps

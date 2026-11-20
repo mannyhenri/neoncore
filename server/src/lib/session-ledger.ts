@@ -22,8 +22,7 @@
  *    that has happened but not been reported yet;
  *  - the server restarted (the ledger lives in memory: losing it errs toward full prompts).
  *
- * Only engines whose compactions NeonCore can see get references at all. Others (Codex, Gridlight —
- * often a small local model whose window is the tightest) get full prompts, as before.
+ * Only engines whose compactions NeonCore can see get references at all. Others (Codex) get full prompts, as before.
  */
 import { createHash } from 'node:crypto';
 import db from '../db.js';

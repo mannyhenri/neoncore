@@ -1,6 +1,6 @@
 /** Shared look of the Goal Pilot panel and its acceptance contract (GoalPilotPanel, AcceptanceContractPanel). */
 export const ENGINE_LABEL: Record<string, string> = {
-  claude: 'Claude Code', codex: 'Codex', gridlight: 'Gridlight',
+  claude: 'Claude Code', codex: 'Codex',
 };
 
 export const input = 'w-full glass-input rounded-[10px] px-3 py-2 text-[14px] text-gray-100 placeholder-gray-500';

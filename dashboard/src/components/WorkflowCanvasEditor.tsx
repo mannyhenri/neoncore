@@ -272,9 +272,9 @@ function StepNode({ data, selected }: NodeProps<StepNode>) {
             CC
           </span>
         )}
-        {data.agentType === 'gridlight' && (
-          <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-gl-pink/15 text-gl-pink uppercase tracking-wider">
-            GL
+        {data.agentType === 'codex' && (
+          <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-[#2EE6D6]/15 text-[#2EE6D6] uppercase tracking-wider">
+            CX
           </span>
         )}
         {data.agentName ? (

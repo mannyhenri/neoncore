@@ -95,5 +95,5 @@ test('the blocked match is on MEANING, not on the word "waiting" appearing anywh
 test('case and surrounding text do not defeat the match', () => {
   // The hook text has varied in casing and has been seen with a prefix.
   assert.equal(statusFromActivity('notification', 'CLAUDE IS WAITING FOR YOUR INPUT'), 'waiting');
-  assert.equal(statusFromActivity('notification', '[gridlight] Claude is waiting for your input'), 'waiting');
+  assert.equal(statusFromActivity('notification', '[atlas] Claude is waiting for your input'), 'waiting');
 });

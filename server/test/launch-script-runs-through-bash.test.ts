@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
  * executable, so macOS holds the exec for a syspolicyd/XProtect assessment first. When those
  * daemons are busy (cargo builds minting test binaries), that took 13s for a two-line script,
  * over 60s for the real launch script, and in Terminal it ended in `killed` — gl-demo, gw-demo
- * and gridlight-manager-gw-demo all failed to start on 2026-10-13. Run as `bash <script>`, the
+ * and app-manager-gw-demo all failed to start on 2026-10-13. Run as `bash <script>`, the
  * only executable is bash itself, already assessed: the same script finished in 2.5s.
  *
  * The set is every place a macOS terminal is told to run a launch script: the runner's

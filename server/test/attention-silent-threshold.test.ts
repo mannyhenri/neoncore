@@ -7,7 +7,7 @@
  * reasoning is wrong and the shape is right, for the opposite reason:
  *
  *   gl-dev GRD-3412       median 13.9  p90 39.9  max  51.8   ← the 52m loop COMPLETED normally
- *   gridlight-work 3502   median  9.9  p90 17.8  max 173.1   ← 65m legit; 146m+173m = the stall
+ *   app-work 3502        median  9.9  p90 17.8  max 173.1   ← 65m legit; 146m+173m = the stall
  *   film-engine   3598    median 11.3  p90 21.2  max  32.2
  *
  * Longest VERIFIED-LEGITIMATE gap: ~65 min. Shortest GENUINE stall: ~146 min. The fixed 90

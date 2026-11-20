@@ -5,7 +5,7 @@
  * times in a row, and each time it was caught by a human noticing rather than by a test:
  *
  *   1. `trouble_signals` events were emitted for three confers and never consumed.
- *   2. `gridlight.modelId` was read from settings and never written by anything.
+ *   2. a `<engine>.modelId` settings key was read and never written by anything.
  *   3. `workflow_steps.routing_note` was written on every routing substitution — the FIX for
  *      (1) and (2) — and surfaced by no serializer, no type, and no component.
  *

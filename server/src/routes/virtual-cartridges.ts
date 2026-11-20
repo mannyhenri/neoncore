@@ -95,7 +95,7 @@ router.delete('/:id', (req, res) => {
   res.status(204).send();
 });
 
-// Launch an agent extension (Claude CC, Gridlight, CLI) in the cartridge's directory
+// Launch an agent extension (Claude, Codex, CLI) in the cartridge's directory
 router.post('/:id/launch', (req, res) => {
   const row = db.prepare('SELECT * FROM virtual_cartridges WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Virtual cartridge not found' });

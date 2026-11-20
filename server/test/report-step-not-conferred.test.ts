@@ -53,7 +53,7 @@ let n = 0;
  *
  * The placeholder tests below need at least one template that carries `<workflowRunId>`, or
  * they sweep the templates and find nothing to check. No standard template carries it since
- * the Gridlight QA templates (the only ones that did) were removed, but a user-built template
+ * the QA templates that did were removed, but a user-built template
  * with a customized report still can — so the resolution is still needed and still tested.
  */
 const PLACEHOLDER_TEMPLATE = 'Fixture: Scorecard Report';

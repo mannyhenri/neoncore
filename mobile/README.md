@@ -18,7 +18,7 @@ The app follows the dashboard's design, **Night Glass** (`docs/DESIGN.md`): near
 panels with thin blue-grey borders, neon blue for what is live or selected, ember orange for what
 needs you, segmented meters. Every colour comes from `src/theme.ts`; there is no logo — the header
 is the name, and the app icon and launch screen are a neon "N" on the page colour.
-`src/__tests__/night-glass.test.ts` fails if the retired violet/pink look or the Gridlight mark
+`src/__tests__/night-glass.test.ts` fails if the retired violet/pink look or the old logo mark
 comes back.
 
 The drawn art is the dashboard's, not a second set:
@@ -47,12 +47,12 @@ npm run ios              # builds and boots the simulator
 ```
 
 On a **device**, open `ios/NeonCore.xcworkspace` in Xcode, pick your team, and run. Two things you
-will have to change because they are hardcoded to Gridlight's account:
+will have to change because they are hardcoded to the original developer account:
 
 | Setting | Current value | What to do |
 |---|---|---|
-| `DEVELOPMENT_TEAM` | `3AXRJ22S9P` | Your own Apple Developer Team ID |
-| Bundle identifier | `ai.gridlight.neoncore` | Your own reverse-DNS identifier |
+| `DEVELOPMENT_TEAM` | set in Xcode | Your own Apple Developer Team ID |
+| Bundle identifier | `com.mannyhenri.neoncore` | Your own reverse-DNS identifier |
 
 The Metro bundler starts with `npm start` if you want it separately.
 

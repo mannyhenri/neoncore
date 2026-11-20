@@ -76,7 +76,7 @@ describe('goal pilot panel logic', () => {
 
   it('planners: online only, Claude first', () => {
     const a = (id: string, agentType: string, status: string, lastSeen: string) => ({ id, agentType, status, lastSeen } as unknown as Agent);
-    const out = plannerCandidates([a('x', 'codex', 'idle', '3'), a('y', 'claude', 'offline', '9'), a('z', 'claude', 'working', '1'), a('w', 'gridlight', 'idle', '5')]);
+    const out = plannerCandidates([a('x', 'codex', 'idle', '3'), a('y', 'claude', 'offline', '9'), a('z', 'claude', 'working', '1'), a('w', 'other', 'idle', '5')]);
     expect(out.map((x) => x.id)).toEqual(['z', 'x', 'w']);
   });
 
@@ -86,7 +86,7 @@ describe('goal pilot panel logic', () => {
     ] };
     expect(defaultEngine(repo)).toBe('codex');
     expect(engineStatus(repo, 'claude')).toBe('offline');
-    expect(engineStatus(repo, 'gridlight')).toBe('none');
+    expect(engineStatus(repo, 'other')).toBe('none');
     expect(resolveAssignments(['s1', 's2', 's3'], ['/a', '/b'], { s2: '/b', s3: '/gone' })).toEqual({ s1: '/a', s2: '/b', s3: '/a' });
   });
 

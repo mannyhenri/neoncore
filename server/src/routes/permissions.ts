@@ -79,7 +79,7 @@ router.post('/request', (req, res) => {
 
   // Resolve agent — try sessionId first, then fall back to agentId.
   // Both lookups are needed because hooks may register under a different
-  // session_id than the one stored when agentType differs (e.g. gridlight).
+  // session_id than the one stored when agentType differs (e.g. codex).
   let resolvedAgentId = agentId;
   let trustMode = false;
   let resolvedBySession = false;
@@ -98,8 +98,8 @@ router.post('/request', (req, res) => {
 
   // Fallback: if sessionId didn't find the agent, try by machine + repoPath
   // (cross-platform normalized). A relay-launched CLI registers under the
-  // relay's own session_id, so a terminal CLI that only knows its repo — e.g.
-  // gridlight — would otherwise fail to resolve. Mirrors the transcript route.
+  // relay's own session_id, so a terminal CLI that only knows its repo would
+  // otherwise fail to resolve. Mirrors the transcript route.
   if (!resolvedBySession && !resolvedAgentId && (machine || repoPath)) {
     const byRepo = resolveAgentId({ machine, repoPath, agentType: req.body.agentType });
     if (byRepo) resolvedAgentId = byRepo;
@@ -187,7 +187,7 @@ router.post('/request', (req, res) => {
   }
   // Every configured channel, carrying the QUESTION and its OPTIONS — not just the fact that
   // one exists. This shipped with `actions: []` and a note deferring buttons to N3; N3 covered
-  // workflow attention events, so permission requests arrived as "gridlight — Question /
+  // workflow attention events, so permission requests arrived as "<cartridge> — Question /
   // AskUserQuestion" with no way to reply. A notification you cannot act on is a worse version
   // of the dashboard you were not at.
   //

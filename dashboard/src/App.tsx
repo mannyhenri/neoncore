@@ -138,9 +138,8 @@ export default function App() {
 
   const filteredAgents = typeFilter === 'all' ? agents : agents.filter((a) => a.agentType === typeFilter);
 
-  // A type's chip shows only when at least one online agent uses it (Gridlight is no longer
-  // offered, but a cartridge that still runs it keeps its chip).
-  const TYPE_ORDER: AgentType[] = ['claude', 'codex', 'gridlight'];
+  // A type's chip shows only when at least one online agent uses it.
+  const TYPE_ORDER: AgentType[] = ['claude', 'codex'];
   const visibleTypeFilters: (AgentType | 'all')[] = [
     'all',
     ...TYPE_ORDER.filter((t) => onlineAgents.some((a) => (a.agentType || 'claude') === t)),
@@ -308,7 +307,7 @@ export default function App() {
                 <div role="group" aria-label="Engine" className={groupCls}>
                   {visibleTypeFilters.map((t) => {
                     const LABELS: Partial<Record<AgentType | 'all', string>> = {
-                      all: 'All', gridlight: 'Gridlight', claude: 'Claude', codex: 'Codex',
+                      all: 'All', claude: 'Claude', codex: 'Codex',
                     };
                     return (
                       <button key={t} onClick={() => setTypeFilter(t)} aria-pressed={typeFilter === t} className={chipCls(typeFilter === t)}>

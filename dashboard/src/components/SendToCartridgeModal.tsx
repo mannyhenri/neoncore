@@ -144,7 +144,7 @@ export default function SendToCartridgeModal({
                 {onlineAgents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.repoName || a.name}
-                    {a.agentType === 'gridlight' ? ' (Gridlight)' : ' (Claude CC)'}
+                    {a.agentType === 'codex' ? ' (Codex)' : ' (Claude CC)'}
                     {a.branch ? ` — ${a.branch}` : ''}
                   </option>
                 ))}
@@ -153,11 +153,11 @@ export default function SendToCartridgeModal({
             {selectedAgent && (
               <div className="flex items-center gap-2 text-[13px]">
                 <span className={`px-1.5 py-0.5 rounded font-medium ${
-                  selectedAgent.agentType === 'gridlight'
-                    ? 'bg-pink-900/60 text-pink-300'
+                  selectedAgent.agentType === 'codex'
+                    ? 'bg-teal-900/60 text-teal-300'
                     : 'bg-blue-900/60 text-blue-300'
                 }`}>
-                  {selectedAgent.agentType === 'gridlight' ? 'GL' : 'CC'}
+                  {selectedAgent.agentType === 'codex' ? 'CX' : 'CC'}
                 </span>
                 <span className="text-gray-500">{selectedAgent.machine?.replace(/\.local$/, '')}</span>
               </div>

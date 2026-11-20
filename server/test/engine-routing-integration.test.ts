@@ -16,7 +16,7 @@ import db from '../src/db.js';
  *
  * Every test before this one exercised the router as a library. The feature was still a
  * dead drop in both directions: nothing persisted a profile, and nothing had EVER read the
- * trouble_signals events Gridlight has been emitting since the second confer. A library
+ * trouble_signals events a local engine has been emitting since the second confer. A library
  * with passing tests that nothing calls is exactly the shape of that bug, so these tests
  * assert the wiring, not the logic.
  */
@@ -209,7 +209,7 @@ test('the model is persisted from the signal payload — the relay never sends o
   // Every signal event carries the model the turn ran on, so that is the real data path.
   db.prepare(`INSERT INTO agents (id, name, machine, repo_path, repo_name, branch, current_task,
     status, pending_question, trust_mode, agent_mode, last_seen, session_id, agent_type)
-    VALUES ('agent-gl', 'gl', 'm', '/tmp/r', 'r', 'main', '', 'working', '', 0, 'trust', ?, 's', 'gridlight')`)
+    VALUES ('agent-gl', 'gl', 'm', '/tmp/r', 'r', 'main', '', 'working', '', 0, 'trust', ?, 's', 'codex')`)
     .run(new Date().toISOString());
 
   consumeActivityEvent('trouble_signals', JSON.stringify({ model: MODEL, signals: { success: true } }), 'agent-gl');

@@ -5,10 +5,10 @@ import zlib from 'node:zlib';
 import { theme, statusColor } from '../theme';
 
 /**
- * THE PHONE LOOKS LIKE THE DASHBOARD — Night Glass, and nothing of Gridlight.
+ * THE PHONE LOOKS LIKE THE DASHBOARD — Night Glass, and nothing of the retired look.
  *
  * The app shipped the retired look long after the web dropped it: violet accent, pink "Core"
- * wordmark, the Gridlight circuit logo in the header, on the app icon and on the launch screen.
+ * wordmark, the old circuit logo in the header, on the app icon and on the launch screen.
  * The dashboard has designGuard.test.ts to stop that look coming back; the phone had nothing, so
  * nothing failed. This is that guard for the phone, checked as sets: every source file, every
  * colour token, every icon image.
@@ -35,7 +35,7 @@ describe('Night Glass on the phone', () => {
     for (const gone of ['pink', 'teal', 'amber', 'blue']) expect(Object.keys(theme), gone).not.toContain(gone);
   });
 
-  it('no source file carries a colour of the retired look, or the Gridlight name as a brand', () => {
+  it('no source file carries a colour of the retired look, or the retired logo', () => {
     // Violet/purple accents, the pink wordmark, the purple-tinted card and border, the old page.
     const RETIRED = ['#a855f7', '#c084fc', '#ec4899', '#1a1a2e', '#2a2a3e', '#0d0f12', '#14161c', '#55efc4',
       '168,85,247', '236,72,153', '245,158,11'];
@@ -43,7 +43,7 @@ describe('Night Glass on the phone', () => {
     for (const f of SOURCES) {
       const src = fs.readFileSync(f, 'utf8').toLowerCase().replace(/\s+/g, '');
       for (const c of RETIRED) if (src.includes(c)) hits.push(`${rel(f)}: ${c}`);
-      if (/gridlightlogo|assets\/logo\.png/.test(src)) hits.push(`${rel(f)}: the Gridlight logo`);
+      if (/assets\/logo\.png/.test(src)) hits.push(`${rel(f)}: the retired logo`);
     }
     expect(hits).toEqual([]);
   });
@@ -106,7 +106,7 @@ describe('Night Glass on the phone', () => {
     let pinkish = 0; let neon = 0; let dark = 0;
     for (let i = 0; i < w * h; i++) {
       const r = data[i * ch]; const g = data[i * ch + 1]; const b = data[i * ch + 2];
-      if (r > 150 && g < 120 && b > 90) pinkish++;          // the Gridlight gradient: pink through violet
+      if (r > 150 && g < 120 && b > 90) pinkish++;          // the retired gradient: pink through violet
       if (b > 200 && g > 130 && r < 150) neon++;
       if (r < 24 && g < 24 && b < 32) dark++;
     }
@@ -123,6 +123,6 @@ describe('Night Glass on the phone', () => {
   });
 
   it('the logo image is not shipped any more', () => {
-    expect(fs.existsSync(path.join(ROOT, 'assets/logo.png')), 'assets/logo.png (the Gridlight mark) is still in the bundle').toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'assets/logo.png')), 'assets/logo.png (the retired mark) is still in the bundle').toBe(false);
   });
 });

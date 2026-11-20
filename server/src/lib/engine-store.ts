@@ -3,7 +3,7 @@
  *
  * This module exists because the feature was a dead drop at both ends. Nothing loaded a
  * measured profile at runtime, and nothing had EVER read the `trouble_signals` events
- * Gridlight has been emitting since the second confer: they landed in `activities` and
+ * a local engine has been emitting since the second confer: they landed in `activities` and
  * were never consulted. The router honoured a demotion argument that nothing produced.
  *
  * Two stores, deliberately separate:
@@ -152,7 +152,7 @@ export function consumeActivityEvent(
   let payload: TroubleSignalsPayload;
   try { payload = JSON.parse(toolInput) as TroubleSignalsPayload; } catch { return; }
 
-  // THE MODEL ARRIVES HERE, not at registration. The relay registers a gridlight cartridge
+  // THE MODEL ARRIVES HERE, not at registration. The relay registers a cartridge
   // with no model field at all (agent/relay/index.js has zero references to one), so
   // agents.model would stay '' forever and every lookup would miss. Every signal event, by
   // contrast, carries the model the turn actually ran on — so this is the real data path,

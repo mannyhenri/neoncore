@@ -271,7 +271,7 @@ function useRepoLiveness(agents: Agent[]) {
   }, [agents]);
 }
 
-const ENGINE_SHORT: Record<string, string> = { claude: 'Claude', codex: 'Codex', gridlight: 'Gridlight' };
+const ENGINE_SHORT: Record<string, string> = { claude: 'Claude', codex: 'Codex' };
 
 function RepoChips({ repos, agents }: { repos: string[]; agents: Agent[] }) {
   const liveIn = useRepoLiveness(agents);

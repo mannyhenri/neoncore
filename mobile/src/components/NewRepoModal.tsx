@@ -9,7 +9,7 @@ import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
 
 // Tool to launch in the new folder → the relay-terminal launcher for each engine (server side).
-// The selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+// The selectable engines (SELECTABLE_ENGINES).
 const TOOLS: { value: string; label: string }[] = SELECTABLE_ENGINES.map((e) => ({ value: `${e}-cli`, label: ENGINE_NAME[e] }));
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;

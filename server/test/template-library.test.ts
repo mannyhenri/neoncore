@@ -89,8 +89,6 @@ test('the registry and the database agree — no template seeds that nobody decl
 
 const RETIRED_TEMPLATES = [
   'CI/CD Pipeline', 'New Feature',
-  // Removed as unused.
-  'Gridlight Local QA', 'Gridlight Full Release QA', 'Gridlight Performance Improvement',
   // Removed as duplicates: Full Delivery copied the seven CE phases, Spec Intake overlapped
   // Feature Validation. Merged: Epic: Confer Across Repos into Confer, the two QA templates
   // into Super QA.
@@ -198,7 +196,7 @@ test('the launch form and the template agree on the epic line', () => {
 });
 
 test('NO template step writes to a path on one person\'s machine', () => {
-  // Deep Research saved every epic to /Users/mannyhenri/Documents/Git/gridlight/.claude/scoping/,
+  // Deep Research saved every epic to a fixed path in one person's home directory,
   // whatever repo the run was on. Set-based over every prompt of every template.
   const offenders: string[] = [];
   for (const name of STANDARD_TEMPLATE_NAMES) {

@@ -102,7 +102,7 @@ Standard Check** — see [below](#the-work-standard-check-and-the-completion-rep
 > phases instead; Phase 3 continues into Phase 4 itself), *Spec Intake → Dev Spec* (use Feature
 > Validation), *Epic: Confer Across Repos* (use Confer with a Jira epic), *Full QA Review* and
 > *Code Review & Audit* (use Super QA), the two daily digests (*Daily AI Research Digest*, *Daily
-> AI Filmmaking Digest*), the three *Gridlight* QA and performance templates,
+> AI Filmmaking Digest*),
 > *New Feature*, *CI/CD Pipeline*, *Code Improvement*, *Feature Fix*, *Refactor* and
 > *Jira Tasks Completion*.
 
@@ -269,7 +269,7 @@ code last. For a bug you already know about, use **Bug Investigation**.
    (Jira Tasks Validation), or the task and an optional Jira epic (Confer, one of the two
    required). Pick two or more cartridges under **Run on** to run a template as a confer. By
    default every step runs on that one tool. To fan the workflow
-   across tools, use **assign per step** to choose which **tool** (Claude / Codex / Gridlight)
+   across tools, use **assign per step** to choose which **tool** (Claude / Codex)
    runs each step — it resolves to a live cartridge of that engine in the project. (You can also
    bake a tool into a step in the editor via its **Tool** field; steps left on *Default* use the
    run cartridge.)
@@ -295,7 +295,7 @@ run is independent with its own `runNumber` and step progress.
 | **Webhook completion** | Agents call their step's webhook URL (`/api/workflows/webhook/:stepId/complete`) with a result when done. |
 | **Auto-advance** | Most steps start automatically when dependencies complete; some finish and then hold the run until you advance it, so you can read the output first (e.g. Super QA's QA Report, Bug Hunter's fix plan, Feature Validation's test manifest). Decision steps always wait for your choice. |
 | **Parallel steps** | Steps sharing dependencies run simultaneously. |
-| **Per-step tool** | Pick the project once at launch; each step runs on it by default, or choose a specific tool (Claude/Codex/Gridlight) per step. A pinned tool with no live cartridge falls back to the run cartridge. |
+| **Per-step tool** | Pick the project once at launch; each step runs on it by default, or choose a specific tool (Claude/Codex) per step. A pinned tool with no live cartridge falls back to the run cartridge. |
 | **Deferred cartridges** | Agent steps use deferred selection — pick the cartridge/tool at run time. |
 | **Launch attachments** | Files attached in Configure & Run are materialized into each repo the run touches and named in every step's prompt. |
 
@@ -351,7 +351,7 @@ everything it was told. Five rules follow from that.
 
   Full prompts come back whenever the session may have lost them: a new session (restart,
   `/clear`), a compaction (reported from the transcript by the hook reporter), every 10 prompts as
-  a backstop, and always for engines whose compactions NeonCore cannot see (Codex, Gridlight).
+  a backstop, and always for engines whose compactions NeonCore cannot see (Codex).
   A reference is used only when it is shorter than what it replaces. The logic is in
   `server/src/lib/session-ledger.ts`.
 - **A long run moves to a fresh session at phase boundaries** (Claude cartridges). Before a step
@@ -368,7 +368,7 @@ everything it was told. Five rules follow from that.
     as a command. If the turn does not end within 60s, there is no fresh session and the step goes
     into the current one.
   - It is skipped when the run has not yet sent anything into the session (what is there is yours),
-    for a gate retry or a routed redo, for Codex and Gridlight, when the turn ended on a question to
+    for a gate retry or a routed redo, for Codex, when the turn ended on a question to
     you, and for a step with `freshSession: false`.
   - The step waits for Claude's `SessionEnd` with reason `clear`. If no confirmation arrives within
     20s, the step is sent anyway, in full. A `/clear`, whether typed by NeonCore or by you, no

@@ -29,7 +29,7 @@ describe('the agents map', () => {
   it.each(STATUSES)('a %s agent of a project stands in its project\'s pod, at its repo\'s building; one of no project keeps off claimed land', (status) => {
     const scene = build(
       [agent('gl-dev', { status }), agent('gl-mgr', { status }), agent('loner', { status })],
-      [project('gridlight', ['/code/gl-dev', '/code/gl-mgr'])],
+      [project('atlas', ['/code/gl-dev', '/code/gl-mgr'])],
     );
     expect(scene.figures.map((f) => f.key).sort()).toEqual(['m1:gl-dev', 'm1:gl-mgr', 'm1:loner']);
     const pod = PLATE.districts.find((d) => PLATE.structures.some((s) => s.building && s.district === d.id))!.id;
@@ -66,7 +66,7 @@ describe('the agents map', () => {
   });
 
   it('nobody moves or changes character because someone else arrived or left', () => {
-    const projects = [project('gridlight', ['/code/a', '/code/b', '/code/c'])];
+    const projects = [project('atlas', ['/code/a', '/code/b', '/code/c'])];
     const first = build([agent('a'), agent('b')], projects);
     const second = build([agent('a'), agent('b'), agent('c'), agent('d')], projects, [], first.memory);
     const third = build([agent('b'), agent('d')], projects, [], second.memory);

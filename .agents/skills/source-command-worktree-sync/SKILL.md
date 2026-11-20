@@ -116,10 +116,10 @@ Create a table showing sync results:
 
 | Worktree | Branch | Status | Action |
 |----------|--------|--------|--------|
-| gridlight | dev | - | Source/target |
-| gridlight-feature-x | feature/x | ✅ synced | Rebased onto dev |
-| gridlight-feature-y | feature/y | ⚠️ conflicts | Needs manual resolution |
-| gridlight-feature-z | feature/z | ⏭️ skipped | Had uncommitted changes |
+| my-app | dev | - | Source/target |
+| my-app-feature-x | feature/x | ✅ synced | Rebased onto dev |
+| my-app-feature-y | feature/y | ⚠️ conflicts | Needs manual resolution |
+| my-app-feature-z | feature/z | ⏭️ skipped | Had uncommitted changes |
 
 ## Notes
 

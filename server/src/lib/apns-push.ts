@@ -25,8 +25,8 @@ import db from '../db.js';
  * Configure via env (all required for push to be active — otherwise this no-ops cleanly):
  *   APNS_KEY_PATH    path to AuthKey_XXXXXXXXXX.p8
  *   APNS_KEY_ID      the key's 10-char Key ID
- *   APNS_TEAM_ID     Apple Developer Team ID (Gridlight, Inc. = 3AXRJ22S9P)
- *   APNS_BUNDLE_ID   app bundle id (default: ai.gridlight.neoncore)
+ *   APNS_TEAM_ID     Apple Developer Team ID
+ *   APNS_BUNDLE_ID   app bundle id (default: com.mannyhenri.neoncore)
  *   APNS_SANDBOX     set to '1' to target the sandbox gateway (debug builds installed from
  *                    Xcode). TestFlight and App Store builds use PRODUCTION, which is the
  *                    default — this is the single most common cause of "push works in Xcode
@@ -57,7 +57,7 @@ function readConfig(): ApnsConfig | null {
     keyPath,
     keyId,
     teamId,
-    bundleId: process.env.APNS_BUNDLE_ID || 'ai.gridlight.neoncore',
+    bundleId: process.env.APNS_BUNDLE_ID || 'com.mannyhenri.neoncore',
     host: process.env.APNS_SANDBOX === '1' ? SANDBOX_HOST : PROD_HOST,
   };
 }

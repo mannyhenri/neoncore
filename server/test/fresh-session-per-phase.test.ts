@@ -180,7 +180,7 @@ test('never before the run has put anything in the session — what is there is 
   assert.ok(statusOf(id('A')).dispatched_prompt.includes('Write the plan'));
 });
 
-test('never for an engine whose session NeonCore cannot see (Codex, Gridlight)', async () => {
+test('never for an engine whose session NeonCore cannot see (Codex)', async () => {
   db.prepare("UPDATE agents SET agent_type = 'codex' WHERE id = ?").run(app.agent);
   const { id } = await launchThree({ freshSession: true });
   const from = lastRowid();

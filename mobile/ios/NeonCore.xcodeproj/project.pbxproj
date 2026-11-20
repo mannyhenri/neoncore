@@ -271,7 +271,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = NeonCore/NeonCore.entitlements;
 				CURRENT_PROJECT_VERSION = 44;
-				DEVELOPMENT_TEAM = 3AXRJ22S9P;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = NeonCore/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -285,7 +285,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = ai.gridlight.neoncore;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mannyhenri.neoncore;
 				PRODUCT_NAME = NeonCore;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -303,7 +303,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = NeonCore/NeonCore.entitlements;
 				CURRENT_PROJECT_VERSION = 44;
-				DEVELOPMENT_TEAM = 3AXRJ22S9P;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NeonCore/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -316,7 +316,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = ai.gridlight.neoncore;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mannyhenri.neoncore;
 				PRODUCT_NAME = NeonCore;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;

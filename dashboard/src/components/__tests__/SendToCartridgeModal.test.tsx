@@ -47,7 +47,7 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
 }
 
 const AGENT_A = makeAgent({ id: 'agent-a', repoName: 'neoncore', agentType: 'claude' });
-const AGENT_B = makeAgent({ id: 'agent-b', repoName: 'gridlight-app', agentType: 'gridlight', branch: 'feature/x' });
+const AGENT_B = makeAgent({ id: 'agent-b', repoName: 'atlas-app', agentType: 'codex', branch: 'feature/x' });
 const AGENT_C = makeAgent({ id: 'agent-c', repoName: 'offline-project', status: 'offline' });
 const ALL_AGENTS = [AGENT_A, AGENT_B, AGENT_C];
 
@@ -117,7 +117,7 @@ describe('SendToCartridgeModal', () => {
     const optionTexts = options.map((o) => o.textContent);
 
     expect(optionTexts.some((t) => t?.includes('neoncore'))).toBe(true);
-    expect(optionTexts.some((t) => t?.includes('gridlight-app'))).toBe(true);
+    expect(optionTexts.some((t) => t?.includes('atlas-app'))).toBe(true);
     expect(optionTexts.some((t) => t?.includes('offline-project'))).toBe(false);
   });
 
@@ -136,7 +136,7 @@ describe('SendToCartridgeModal', () => {
     const optionTexts = options.map((o) => o.textContent);
 
     expect(optionTexts.some((t) => t?.includes('neoncore'))).toBe(false);
-    expect(optionTexts.some((t) => t?.includes('gridlight-app'))).toBe(true);
+    expect(optionTexts.some((t) => t?.includes('atlas-app'))).toBe(true);
   });
 
   it('shows agent type labels in dropdown options', () => {
@@ -152,7 +152,7 @@ describe('SendToCartridgeModal', () => {
     const options = Array.from(select.querySelectorAll('option'));
 
     expect(options.some((o) => o.textContent?.includes('(Claude CC)'))).toBe(true);
-    expect(options.some((o) => o.textContent?.includes('(Gridlight)'))).toBe(true);
+    expect(options.some((o) => o.textContent?.includes('(Codex)'))).toBe(true);
   });
 
   it('shows branch info in dropdown when available', () => {

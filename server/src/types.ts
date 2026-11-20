@@ -9,7 +9,9 @@ import type { AttentionReason } from './lib/workflow-attention.js';
 export type { AttentionReason };
 
 export type AgentMode = 'manual' | 'trust' | 'plan';
-export type AgentType = 'claude' | 'gridlight' | 'codex';
+export type AgentType = 'claude' | 'codex';
+/** Every engine NeonCore runs. db.ts retires rows naming anything else; /register refuses it. */
+export const SUPPORTED_ENGINES: readonly AgentType[] = ['claude', 'codex'];
 
 // ── Confer (standalone multi-agent collaboration) ──────────────────────────
 export type ConferStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -112,7 +114,7 @@ export interface Activity {
   timestamp: string;
 }
 
-export type TranscriptEngine = 'claude' | 'gridlight' | 'codex';
+export type TranscriptEngine = 'claude' | 'codex';
 export type TranscriptRole = 'user' | 'assistant' | 'tool_result' | 'system';
 
 // A single parsed transcript entry. `content` is a JSON string of content blocks:

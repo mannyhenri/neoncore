@@ -93,7 +93,7 @@ describe('CartridgeGrid — typed prompt survives live activity', () => {
     // Both idle → agent-a is primary (insertion order, equal status priority).
     const agents = [
       makeAgent({ id: 'agent-a', agentType: 'claude' }),
-      makeAgent({ id: 'agent-b', agentType: 'gridlight' }),
+      makeAgent({ id: 'agent-b', agentType: 'codex' }),
     ];
 
     const { rerender, container } = render(renderGrid({}, agents));

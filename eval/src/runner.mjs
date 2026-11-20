@@ -1,11 +1,10 @@
-// Task runner: copy a task fixture to an isolated temp dir, drive the Gridlight
-// terminal headlessly against it, then evaluate the task's assertions against
-// the resulting end-state.
+// Task runner: copy a task fixture to an isolated temp dir, drive an agent CLI
+// headlessly against it, then evaluate the task's assertions against the
+// resulting end-state.
 //
-// Gridlight is a black box here — we spawn the `gridlight` binary (env
-// GRIDLIGHT_BIN) with `-p "<prompt>" --cwd <tmp>` and configure the model via
-// env, exactly as `packages/cli/src/bin/gridlight.ts` documents. Zero Gridlight
-// source is imported.
+// The agent CLI is a black box here — we spawn its binary (env PARITY_AGENT_BIN
+// or --agent-bin) with `-p "<prompt>" --cwd <tmp>` and hand it the model
+// configuration through PARITY_* env vars. No agent source is imported.
 
 import { spawn } from 'node:child_process';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
@@ -32,7 +31,7 @@ export function emergencyCleanup() {
 
 // Env allowlist: the model runs under auto-approve, so it must NOT inherit the
 // developer's third-party secrets (ANTHROPIC/OPENAI/AWS/GITHUB tokens, etc.).
-// Pass only what the CLI/Node need, plus Gridlight's own non-secret config,
+// Pass only what the CLI/Node need, plus the harness's own non-secret PARITY_* config,
 // then the explicit per-run overrides.
 function scrubbedEnv(overrides) {
   const allow = new Set([
@@ -42,17 +41,17 @@ function scrubbedEnv(overrides) {
   ]);
   const env = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (allow.has(k) || k.startsWith('GRIDLIGHT_')) env[k] = v;
+    if (allow.has(k) || k.startsWith('PARITY_')) env[k] = v;
   }
   return { ...env, ...overrides };
 }
 
 /**
  * @typedef {Object} RunEnv
- * @property {string} gridlightBin  binary to spawn (default "gridlight")
- * @property {string} model         GRIDLIGHT_MODEL
- * @property {string} gatewayUrl    GRIDLIGHT_GATEWAY_URL
- * @property {string} backendMode   GRIDLIGHT_BACKEND_MODE (default openai-compatible)
+ * @property {string} agentBin      agent CLI binary to spawn (required)
+ * @property {string} model         PARITY_MODEL
+ * @property {string} gatewayUrl    PARITY_GATEWAY_URL
+ * @property {string} backendMode   PARITY_BACKEND_MODE (default gateway)
  * @property {boolean} neoncore     report to NeonCore during the run (default false = hermetic)
  */
 
@@ -79,16 +78,17 @@ export async function runTask(task, runEnv) {
 
     // detached so we can kill the WHOLE process group on timeout — the model's
     // auto-approve bash may have spawned grandchildren that a single kill misses.
-    child = spawn(runEnv.gridlightBin || 'gridlight', ['-p', task.prompt, '--cwd', work], {
+    if (!runEnv.agentBin) throw new Error('no agent CLI binary configured (agentBin)');
+    child = spawn(runEnv.agentBin, ['-p', task.prompt, '--cwd', work], {
       cwd: work,
       detached: true,
       env: scrubbedEnv({
-        GRIDLIGHT_MODEL: runEnv.model,
-        GRIDLIGHT_GATEWAY_URL: runEnv.gatewayUrl,
-        GRIDLIGHT_BACKEND_MODE: runEnv.backendMode || 'gridlight',
-        GRIDLIGHT_PERMISSION_MODE: 'auto', // never block on approvals headlessly
-        GRIDLIGHT_TUI: '0', // force the plain, capturable path (never the Ink TUI)
-        GRIDLIGHT_NEONCORE_ENABLED: runEnv.neoncore ? 'true' : 'false',
+        PARITY_MODEL: runEnv.model,
+        PARITY_GATEWAY_URL: runEnv.gatewayUrl,
+        PARITY_BACKEND_MODE: runEnv.backendMode || 'gateway',
+        PARITY_PERMISSION_MODE: 'auto', // never block on approvals headlessly
+        PARITY_TUI: '0', // force the plain, capturable path (never an interactive TUI)
+        PARITY_NEONCORE_ENABLED: runEnv.neoncore ? 'true' : 'false',
       }),
     });
     activeChildren.add(child);
@@ -122,7 +122,7 @@ export async function runTask(task, runEnv) {
     // and never execute model-written code (assert verify commands) on a
     // failed/killed run.
     if (error !== null || exitCode !== 0) {
-      return fail([{ name: 'run', pass: false, detail: error || `gridlight exited ${exitCode}` }]);
+      return fail([{ name: 'run', pass: false, detail: error || `agent CLI exited ${exitCode}` }]);
     }
 
     // Clean run — evaluate the task's assertions against the end-state.

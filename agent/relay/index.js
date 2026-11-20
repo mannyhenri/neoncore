@@ -73,7 +73,7 @@ const URL = process.env.NEONCORE_URL || 'http://localhost:4040';
 const AGENT_TYPE = process.env.NEONCORE_AGENT_TYPE || 'claude';
 const PROTECT_RELAY = process.env.NEONCORE_RELAY_PROTECT === '1';
 // When the exact binary isn't pinned via NEONCORE_AGENT_CMD, derive it from the
-// agent type. The relay-launched engines (claude, codex, gridlight) each name
+// agent type. The relay-launched engines (claude, codex) each name
 // their CLI after the type, so a `codex` launch spawns `codex` — not claude.
 // Without this, any non-claude type whose launcher forgot to set AGENT_CMD (e.g.
 // the runner, which only sets AGENT_TYPE) would silently fall back to `claude`.
@@ -206,7 +206,7 @@ async function registerAgent(identity) {
 // plus the token that names us on platforms that require one. The token is never
 // logged — it is a credential with the lifetime of this session, and a log file is
 // plain text that outlives it and gets quoted into bug reports.
-// Only Claude Code binds that socket; Codex and Gridlight have no addressed inbox, and a pid
+// Only Claude Code binds that socket; Codex has no addressed inbox, and a pid
 // reported for them made the server try to deliver there (the server refuses it as well).
 async function reportInbox(pid) {
   if (!pid || AGENT_TYPE !== 'claude') return;
@@ -446,7 +446,7 @@ async function main() {
   // but still clean up the terminal if we're killed directly. SIGHUP means the
   // terminal actually closed. SIGTERM is usually a supervisor stop, but some
   // external cleanup scripts use broad `pkill -f` patterns; protected terminal
-  // relays ignore those so a Gridlight-side cleanup cannot tear down unrelated
+  // relays ignore those so an unrelated cleanup script cannot tear down
   // Claude/Codex sessions.
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {

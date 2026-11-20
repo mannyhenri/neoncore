@@ -18,28 +18,28 @@ test('loadTasks: loads the 6-task suite, skips _lib', async () => {
 
 test('runTask: solver mock passes edit-timeout end-to-end', async () => {
   const [task] = await loadTasks(TASKS, ['edit-timeout']);
-  const r = await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-editfix.mjs') });
+  const r = await runTask(task, { ...baseEnv, agentBin: path.join(MOCKS, 'agent-editfix.mjs') });
   assert.equal(r.error, null, r.error || '');
   assert.equal(r.pass, true, JSON.stringify(r.checks));
 });
 
 test('runTask: noop mock fails edit-timeout (fixture untouched)', async () => {
   const [task] = await loadTasks(TASKS, ['edit-timeout']);
-  const r = await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-noop.mjs') });
+  const r = await runTask(task, { ...baseEnv, agentBin: path.join(MOCKS, 'agent-noop.mjs') });
   assert.equal(r.pass, false);
 });
 
 test('runTask: fixture isolation — the source fixture is never mutated', async () => {
   const { readFileSync } = await import('node:fs');
   const [task] = await loadTasks(TASKS, ['edit-timeout']);
-  await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-editfix.mjs') });
+  await runTask(task, { ...baseEnv, agentBin: path.join(MOCKS, 'agent-editfix.mjs') });
   const original = readFileSync(path.join(task.fixtureDir, 'config.ts'), 'utf8');
   assert.match(original, /timeout:\s*30\b/); // still 30 in the repo fixture
 });
 
 test('runTask: a correct end-state with exit 1 still scores fail (exit-code gating)', async () => {
   const [task] = await loadTasks(TASKS, ['edit-timeout']);
-  const r = await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-editfix-exit1.mjs') });
+  const r = await runTask(task, { ...baseEnv, agentBin: path.join(MOCKS, 'agent-editfix-exit1.mjs') });
   assert.equal(r.exitCode, 1);
   assert.equal(r.pass, false); // edit was correct, but the run reported failure
 });
@@ -47,7 +47,7 @@ test('runTask: a correct end-state with exit 1 still scores fail (exit-code gati
 test('runTask: a hung run is killed and scored fail (timeout gating)', async () => {
   const [base] = await loadTasks(TASKS, ['edit-timeout']);
   const task = { ...base, timeoutMs: 800 };
-  const r = await runTask(task, { ...baseEnv, gridlightBin: path.join(MOCKS, 'gridlight-sleep.mjs') });
+  const r = await runTask(task, { ...baseEnv, agentBin: path.join(MOCKS, 'agent-sleep.mjs') });
   assert.equal(r.pass, false);
   assert.match(String(r.error), /timed out/);
 });

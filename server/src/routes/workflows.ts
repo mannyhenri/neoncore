@@ -4,8 +4,6 @@ import db from '../db.js';
 import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
-import { routeFunction } from '../lib/engine-router.js';
-import { loadProfile, loadDemotions } from '../lib/engine-store.js';
 import { guardBusy, resolveWorkflowTargets } from '../lib/queue-if-busy.js';
 import { unrunnableSteps, applyConferToRun } from '../lib/workflow-launch.js';
 import { CONFER_MODES, isConferMode, CONFER_ISOLATIONS, isConferIsolation, cancelConfer } from '../lib/confer-conductor.js';
@@ -138,7 +136,7 @@ router.post('/start', (req, res) => {
     if (!p.playerType || !Array.isArray(p.roles) || p.roles.length === 0) {
       return res.status(400).json({ error: 'Each player needs playerType and at least one role' });
     }
-    if (p.playerType === 'openai' || p.playerType === 'gridlight-gateway') {
+    if (p.playerType === 'openai' || p.playerType === 'api-gateway') {
       return res.status(400).json({ error: 'API model players have been removed. Use a connected cartridge instead.' });
     }
     if (p.playerType !== 'vscode-agent') {
@@ -936,9 +934,9 @@ router.post('/v2/:id/start', (req, res) => {
   }
 
   // Per-step engine pin: a step whose executor_config.agentType names an engine
-  // (e.g. 'codex', 'gridlight') gets the matching LIVE cartridge in the workflow's
-  // repo — this is what lets a template SAVE "step 1 → Claude, step 2 → Codex,
-  // step 3 → Gridlight" instead of naming raw agent ids at launch. Runs after the
+  // (e.g. 'codex') gets the matching LIVE cartridge in the workflow's
+  // repo — this is what lets a template SAVE "step 1 → Claude, step 2 → Codex"
+  // instead of naming raw agent ids at launch. Runs after the
   // generic runAgentId fill (overrides it for pinned steps) and before
   // agentOverrides (an explicit per-step cartridge still wins).
   {
@@ -959,36 +957,10 @@ router.post('/v2/:id/start', (req, res) => {
         console.warn(`[workflow] step ${s.id}: ${note}`);
         continue;
       }
-      // CAPABILITY ROUTING. Consult the measured profile before honouring a local pin.
-      // Safe by construction: with no stored profile every function is UNMEASURED, and
-      // UNMEASURED routes frontier — which is exactly the behaviour before this existed.
-      // So on an unmeasured machine this block is a no-op.
-      let effectiveType = wantType;
-      let routingNote = '';
-      if (wantType === 'gridlight') {
-        // executor_type IS a registry function id ('claude-code', 'review-gate', ...), so
-        // the step already tells us which function it performs. No new config needed, and
-        // no defaulting every step to 'claude-code' and routing the wrong function.
-        const functionId = s.executor_type || 'claude-code';
-        // The model comes from the cartridge itself. Gridlight reports it at registration;
-        // reading a settings key nobody writes made this whole block inert.
-        const cartridge = db.prepare('SELECT model FROM agents WHERE repo_path = ? AND agent_type = ? AND status != ? ORDER BY last_seen DESC LIMIT 1')
-          .get(workflowRepo, 'gridlight', 'offline') as { model: string } | undefined;
-        const modelId = typeof config.modelId === 'string' ? config.modelId : (cartridge?.model || '');
-        const profile = modelId ? loadProfile(modelId) : null;
-        const decision = routeFunction(functionId, profile, modelId ? loadDemotions(modelId) : []);
-        if (decision.engine === 'frontier') {
-          effectiveType = 'claude';
-          routingNote = `capability routing: ${functionId} -> frontier (${decision.state}: ${decision.reason})`;
-          console.log(`[workflow] step ${s.id}: ${routingNote}`);
-        }
-      }
-
-      const resolved = agentIdForRepoAndType(workflowRepo, effectiveType);
+      const resolved = agentIdForRepoAndType(workflowRepo, wantType);
       if (resolved) {
         db.prepare('UPDATE workflow_steps SET executor_id = ? WHERE id = ?').run(resolved, s.id);
-        if (routingNote) recordStepNote(s.id, routingNote);
-        console.log(`[workflow] step ${s.id}: pinned to ${effectiveType} cartridge ${resolved}`);
+        console.log(`[workflow] step ${s.id}: pinned to ${wantType} cartridge ${resolved}`);
       } else {
         // DO NOT FAIL SILENTLY. Previously this warned and `continue`d, leaving executor_id
         // untouched, so the step ran on whatever agent was already assigned while the run
@@ -998,7 +970,7 @@ router.post('/v2/:id/start', (req, res) => {
         //
         // Keep running (a sleeping cartridge should not fail a workflow) but RECORD the
         // substitution where the UI already renders it, so the user can see it.
-        const note = `Requested ${effectiveType}, ran on the pre-assigned agent — no live ${effectiveType} cartridge in ${workflowRepo}`;
+        const note = `Requested ${wantType}, ran on the pre-assigned agent — no live ${wantType} cartridge in ${workflowRepo}`;
         recordStepNote(s.id, note);
         console.warn(`[workflow] step ${s.id}: ${note}`);
       }

@@ -2276,7 +2276,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
 // WHEN: a step marked `freshSession: true` (a template can mark a phase-opening step so; CE: Full Delivery did until it was removed), or any
 // step once this run has typed FRESH_SESSION_AFTER_RUN_DISPATCHES prompts into the session. Applies
 // to every step that types one prompt into one cartridge: work steps, command steps, and gates.
-// NEVER: for an engine whose session NeonCore cannot see (no ledger: Codex, Gridlight); for a step
+// NEVER: for an engine whose session NeonCore cannot see (no ledger: Codex); for a step
 // the run has not yet put anything into the session for (what is there is the user's own
 // conversation, not ours to clear); for a redo — a gate retry or routed re-run builds on the attempt
 // it is correcting; with `freshSession: false`.

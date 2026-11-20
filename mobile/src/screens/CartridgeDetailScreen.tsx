@@ -27,7 +27,7 @@ export function CartridgeDetailScreen(
   const myPermissions = permissions.filter((p) => p.agentId === agent.id);
 
   // Sibling engines: other live cartridges in the SAME repo on the SAME machine (e.g. this
-  // repo also has a Codex + Gridlight running). The web card multi-selects across them; on
+  // repo also has a Codex running). The web card multi-selects across them; on
   // mobile each is its own card, so we offer the same fan-out from here — send to this
   // engine plus any selected siblings at once.
   const siblings = useMemo(

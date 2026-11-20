@@ -30,7 +30,7 @@ import { withoutSteps } from './stage-steps.js';
  *
  * ── WHY IT IS SCOPED TO THE TEMPLATE AND NOT THE PROJECT ─────────────────────────────
  * It used to take the last 3 learnings for the whole PROJECT. Project membership is not
- * relevance: "Gridlight" holds a Daily AI Research Digest and a CUDA inference engine, and a
+ * relevance: one project held a Daily AI Research Digest and a CUDA inference engine, and a
  * run of one was handed the other's report as the first thing in its prompt. Reported as GPU
  * quantisation notes appearing inside the research digest; measured at 19 runs across 5
  * workflows, 16 step prompts.

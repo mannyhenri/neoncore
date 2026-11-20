@@ -44,7 +44,6 @@ const reap = (db: ReturnType<typeof freshDb>, hasActiveSocket = noSockets) =>
 
 test('agents that CAN report death keep the long, forgiving window', () => {
   assert.equal(zombieThresholdFor('claude'), ZOMBIE_THRESHOLD_MS);
-  assert.equal(zombieThresholdFor('gridlight'), ZOMBIE_THRESHOLD_MS);
 });
 
 test('agents that CANNOT report death get the short window', () => {

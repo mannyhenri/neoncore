@@ -103,8 +103,8 @@ dispatched under the goal through the goal brief. Nothing runs yet.
 ## 4. Repos
 
 The project's repos are pre-selected (the planner's repo first, so it is where stages run by
-default). Untick any the feature does not touch, pick the engine in each (Claude Code, Codex,
-Gridlight…), and — with more than one repo — which stage runs where. The contract's own stages are
+default). Untick any the feature does not touch, pick the engine in each (Claude Code or
+Codex), and — with more than one repo — which stage runs where. The contract's own stages are
 placed like any other: the acceptance tests live (and run) in the repo of stage 0. Every stage's run
 is attached to the feature's project and tagged with the feature (`workflows.goal_id`); a repo
 picked here that the project did not list yet is added to the project. (An old-style goal with no

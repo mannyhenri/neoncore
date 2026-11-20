@@ -535,15 +535,15 @@ describe('WorldScene', () => {
 
   // ── The connections: project → zone, repo → building, feature → gate, confer → table ──────
 
-  const gridlight = {
-    id: 'p1', name: 'Gridlight AI', color: '#2EE6D6', primaryRepo: '/code/gl-dev', createdAt: '2026-01-01T00:00:00Z',
+  const atlas = {
+    id: 'p1', name: 'Atlas', color: '#2EE6D6', primaryRepo: '/code/gl-dev', createdAt: '2026-01-01T00:00:00Z',
     cartridges: ['/code/gl-dev', '/code/license-server'], featureCount: 3, featuresDone: 1, featuresActive: 0,
   };
   const scene = (list: Agent[]) => <WorldScene agents={list} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />;
   const figure = (name: string) => screen.getByRole('button', { name: new RegExp(`^Crew member ${name}\\b`) }).closest<HTMLElement>('.world-member')!;
 
   it('every agent of a project works at its own repo\'s building; the others keep off the project\'s land', () => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     const list = [
       agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status: 'working' }),
       agent({ id: 'license-server', repoPath: '/Code/License-Server/', status: 'working' }),
@@ -562,14 +562,14 @@ describe('WorldScene', () => {
     expect(document.querySelectorAll('[data-building-label]')).toHaveLength(0);
     // The project's name is on its district, with how far its features are.
     const plate = document.querySelector<HTMLElement>('[data-zone-label]')!;
-    expect(plate.textContent).toContain('Gridlight AI');
+    expect(plate.textContent).toContain('Atlas');
     expect(plate.textContent).toContain('1/3');
     expect(plate.dataset.zoneLabel).toBe('nw');
     for (const other of ['neoncore', 'scratch']) expect(siteOf(other).district, other).not.toBe('nw');
   });
 
   it('a building is named only for the repos that have no character on the map — for every mix of present and absent', () => {
-    extras.projects = [{ ...gridlight, cartridges: ['/code/a', '/code/b', '/code/c'] , primaryRepo: '/code/a' }];
+    extras.projects = [{ ...atlas, cartridges: ['/code/a', '/code/b', '/code/c'] , primaryRepo: '/code/a' }];
     const plates = () => [...document.querySelectorAll<HTMLElement>('[data-building-label]')].flatMap((e) => e.textContent!.split(' · ')).sort();
     const repos = ['a', 'b', 'c'];
     for (let mask = 0; mask < 8; mask++) {
@@ -581,7 +581,7 @@ describe('WorldScene', () => {
   });
 
   it.each(CREW_STATUSES)('a %s agent of a project is at its building in its project\'s pod — idle included: there are no benches to go to', (status) => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     render(scene([
       agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status }),
       agent({ id: 'neoncore', repoPath: '/code/neoncore', status }),
@@ -601,7 +601,7 @@ describe('WorldScene', () => {
   });
 
   it('the map has no benches: a whole idle crew stands at its buildings, nobody sits, nobody shares a spot', () => {
-    extras.projects = [{ ...gridlight, cartridges: Array.from({ length: 5 }, (_, i) => `/code/r${i}`), primaryRepo: '/code/r0' }];
+    extras.projects = [{ ...atlas, cartridges: Array.from({ length: 5 }, (_, i) => `/code/r${i}`), primaryRepo: '/code/r0' }];
     const crew = [
       ...Array.from({ length: 5 }, (_, i) => agent({ id: `r${i}`, repoPath: `/code/r${i}`, status: 'idle' })),
       ...Array.from({ length: 7 }, (_, i) => agent({ id: `free${i}`, repoPath: `/code/free${i}`, status: 'idle' })),
@@ -632,13 +632,13 @@ describe('WorldScene', () => {
     try {
       const gates = () => [...document.querySelectorAll<HTMLElement>('[data-gate]')];
       const run = (ms: number) => { for (let t = 0; t < ms; t += 50) act(() => { vi.advanceTimersByTime(50); }); };
-      extras.projects = [gridlight];
+      extras.projects = [atlas];
       const { rerender } = render(scene([]));
       // One gate per gated district, all closed: no project has a feature under way.
       expect(gates()).toHaveLength(OUTPOST.structures.filter((st) => st.gate).length);
       expect(gates().every((g) => g.dataset.gate === 'closed' && g.dataset.frame === '0')).toBe(true);
 
-      extras.projects = [{ ...gridlight, featuresActive: 1 }];
+      extras.projects = [{ ...atlas, featuresActive: 1 }];
       rerender(scene([]));
       const mine = () => gates().filter((g) => g.dataset.gate === 'open');
       expect(mine().map((g) => g.dataset.district), 'only the project\'s own district opens').toEqual(['nw']);
@@ -647,7 +647,7 @@ describe('WorldScene', () => {
       expect([...seen].sort()).toEqual(['0', '1', '2', '3']);
       expect(mine()[0].dataset.frame).toBe('3');
 
-      extras.projects = [gridlight];
+      extras.projects = [atlas];
       rerender(scene([]));
       run(1500);
       expect(gates().every((g) => g.dataset.gate === 'closed' && g.dataset.frame === '0')).toBe(true);
@@ -678,7 +678,7 @@ describe('WorldScene', () => {
   });
 
   it('a confer among agents of ONE project leaves them in their pod; one across projects brings them to the table', () => {
-    extras.projects = [gridlight, { ...gridlight, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x' }];
+    extras.projects = [atlas, { ...atlas, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x' }];
     const list = [
       agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status: 'working' }),
       agent({ id: 'license-server', repoPath: '/code/license-server', status: 'working' }),
@@ -745,7 +745,7 @@ describe('WorldScene', () => {
 
   it.each([[90, 'ok', '0'], [60, 'ok', '1'], [30, 'ok', '2'], [15, 'tight', '3'], [5, 'tight', '4'], [-2, 'overdue', '6']] as const)(
     'with %i days left of 100 the pod\'s oxygen gauge reads %s (frame %s)', (left, state, frame) => {
-      extras.projects = [gridlight];
+      extras.projects = [atlas];
       extras.goals = [dated(left)];
       render(scene([]));
       const gauges = [...document.querySelectorAll<HTMLElement>('[data-deadline]')];
@@ -759,7 +759,7 @@ describe('WorldScene', () => {
   it('a project with no dated open feature has no gauge, and the red light of a tight one blinks', () => {
     vi.useFakeTimers();
     try {
-      extras.projects = [gridlight];
+      extras.projects = [atlas];
       const { rerender } = render(scene([]));
       expect(document.querySelector('[data-deadline]')).toBeNull();
       extras.goals = [dated(5)];
@@ -775,11 +775,11 @@ describe('WorldScene', () => {
   it('the pennant shows how much of the plan is delivered, and a flare goes up for each new delivery', () => {
     vi.useFakeTimers();
     try {
-      const plan = (done: number) => [{ ...gridlight, featureCount: 4, featuresDone: done }];
+      const plan = (done: number) => [{ ...atlas, featureCount: 4, featuresDone: done }];
       const pennant = () => document.querySelector<HTMLElement>('[data-pennant]');
       const flares = () => document.querySelectorAll('[data-burst]').length;
       const settle = () => { for (let t = 0; t < 2500; t += 100) act(() => { vi.advanceTimersByTime(100); }); };
-      extras.projects = [{ ...gridlight, featureCount: 0, featuresDone: 0 }];
+      extras.projects = [{ ...atlas, featureCount: 0, featuresDone: 0 }];
       const { rerender } = render(scene([]));
       expect(pennant(), 'nothing planned: no pole').toBeNull();
       // What is already delivered when the scene opens is simply shown: no flare for old news.
@@ -808,7 +808,7 @@ describe('WorldScene', () => {
 
   it.each([['scoping', 0], ['clarifying', 1], ['planning', 2], ['proposed', 3], ['staffing', 4], ['running', 5], ['completed', 6]] as const)(
     'a feature in %s has earned %i badges on its project\'s banner', (phase, n) => {
-      extras.projects = [gridlight];
+      extras.projects = [atlas];
       extras.goals = [{ id: 'g', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', pilot: { phase } }];
       render(scene([]));
       const row = [...document.querySelectorAll<HTMLElement>('[data-zone-label="nw"] [data-badge]')];
@@ -818,7 +818,7 @@ describe('WorldScene', () => {
     });
 
   it('the banner has no badge row until a feature has been started, shows all seven once one is delivered, and resets when the next starts', () => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     const earned = () => document.querySelectorAll('[data-zone-label="nw"] [data-badge][data-earned="true"]').length;
     const view = render(scene([]));
     expect(document.querySelectorAll('[data-badge]')).toHaveLength(0);
@@ -834,7 +834,7 @@ describe('WorldScene', () => {
   });
 
   it('LAYERS: a project banner is above every character, and every character is above all the scenery — wherever they stand', () => {
-    extras.projects = [gridlight, { ...gridlight, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x', featureCount: 2, featuresDone: 1 }];
+    extras.projects = [atlas, { ...atlas, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x', featureCount: 2, featuresDone: 1 }];
     extras.goals = [{ id: 'g', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', createdAt: new Date(Date.now() - 50 * DAY).toISOString(), targetDate: new Date(Date.now() + 5 * DAY).toISOString(), pilot: { phase: 'running' } }];
     // A crowd, so characters stand at the very top and the very bottom of the map; one finished, one needing you.
     const crowd = [

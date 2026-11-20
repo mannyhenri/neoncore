@@ -9,11 +9,11 @@
  *   real step ids:     '0660cc69-d849-415b-a6c2-20820e0ea240' (390 rows, all uuids)
  *   events attributed: 0 of 9
  *
- * Those particular nine are correctly dropped — they came from gridlight running its OWN
+ * Those particular nine are correctly dropped — they came from a cartridge running its OWN
  * workflow, and that agent owns zero NeonCore steps, so there is genuinely no function to
  * attribute them to. But the mismatch is structural, not incidental: NeonCore never hands
- * its step id to the engine (open-directory.ts sets GRIDLIGHT_SESSION_ID, MACHINE_NAME,
- * NEONCORE_URL and PERMISSION_MODE — no step id), so a gridlight cartridge running a
+ * its step id to the engine (the launch env carries a session id and server URL — no step
+ * id), so a cartridge running a
  * NeonCore step would STILL emit its own label and STILL be dropped. The demotion loop
  * could not fire on production data no matter how many turns failed.
  *
@@ -50,7 +50,7 @@ let seq = 0;
 function makeAgent(): string {
   const id = `agent-${++seq}`;
   db.prepare("INSERT INTO agents (id, name, machine, repo_path, agent_type, status, last_seen) VALUES (?,?,?,?,?,?,?)")
-    .run(id, `test/${id}`, 'test-machine', '/tmp/repo', 'gridlight', 'working', new Date().toISOString());
+    .run(id, `test/${id}`, 'test-machine', '/tmp/repo', 'codex', 'working', new Date().toISOString());
   return id;
 }
 

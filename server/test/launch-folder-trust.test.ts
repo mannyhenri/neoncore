@@ -28,7 +28,7 @@ import path from 'node:path';
  * The launcher half DISCOVERS its members by scanning for the launch-script filename rather than
  * naming the two files, so a third launcher added later fails this test the day it is added —
  * which is the whole reason it is written this way. These two already drifted once: three
- * near-identical engine branches where only gridlight ever built its env properly.
+ * near-identical engine branches that had drifted apart.
  */
 
 process.env.NEONCORE_DB_PATH = path.join(

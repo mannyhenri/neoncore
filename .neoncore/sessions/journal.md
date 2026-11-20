@@ -39,7 +39,7 @@
 
 ## 2026-07-03 — Recovery subsystem design started (via /plan-eng-review)
 - User requirement sharpened across turns: NeonCore must durably keep the full
-  claude/gridlight interaction so a crashed run resumes "as if in terminal".
+  claude/other-project interaction so a crashed run resumes "as if in terminal".
 - Read agent/relay/{launch.js,index.js}. Relay = PTY byte-pipe; does NOT parse
   transcript and registers sessionId=relay-<pid> (NOT native session id).
 - Two explore agents run: (1) run/step recovery [done], (2) transcript-capture
@@ -54,7 +54,7 @@
 
 ## 2026-07-03 — D1 decided: transcript-replay backbone
 - Transcript-capture audit result: messages table (db.ts:352-373) ALREADY stores
-  full turn-by-turn transcript keyed by native session id, unified claude+gridlight,
+  full turn-by-turn transcript keyed by native session id, unified claude+other-project,
   but WRITE-ONLY (nothing SELECTs it). Native session id known via hooks. Blocks
   size-capped (reporter.py:25-27) = lossy copy.
 - User chose A: Transcript replay (NeonCore-owned), NOT native --resume. Rationale:
@@ -203,7 +203,7 @@
 - Earlier this session: tab bar (Workflows was hidden behind an unlabeled ⚡ emoji —
   discoverability bug, not a missing feature), live-only cartridge list,
   tap-to-expand messages, workflow launcher.
-- TestFlight: EAS linked (@gridlight/neoncore-mobile). User running eas build now.
+- TestFlight: EAS linked (@other-project/neoncore-mobile). User running eas build now.
 
 ### ⏱ 2026-07-12T23:39:10Z — heartbeat
 - branch `feature/dual-runtime-parity-eval` — working tree: clean
@@ -383,7 +383,7 @@
   source of "my cartridge vanished"), a single <SERVER> placeholder taking hostname OR IP,
   and the mobile app (mobile/README.md existed but was ORPHANED — zero inbound links).
   Deleted docs/mobile-app-research.md (pre-build proposal reading as current docs).
-- NEXT THREAD: user will test NeonCore driving **Gridlight** — their own AI — "to see how
+- NEXT THREAD: user will test NeonCore driving **other-project** — their own AI — "to see how
   it breathes with our own ai." Nothing started. Awaiting their detail.
 
 ### ⏱ 2026-07-13T19:43:46Z — heartbeat
@@ -1523,76 +1523,76 @@
 - branch `main` — working tree: 5 file(s) dirty
 
 ### ⏱ 2026-07-30T23:22:00Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-30T23:22:47Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T10:07:51Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T10:21:05Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T10:23:50Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T10:24:50Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T10:29:15Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 6 file(s) dirty
+- branch `docs/other-project` — working tree: 6 file(s) dirty
 
 ### ⏱ 2026-07-31T10:30:41Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 6 file(s) dirty
+- branch `docs/other-project` — working tree: 6 file(s) dirty
 
 ### ⏱ 2026-07-31T10:36:20Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 6 file(s) dirty
+- branch `docs/other-project` — working tree: 6 file(s) dirty
 
 ### ⏱ 2026-07-31T10:37:19Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T11:21:39Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T11:26:45Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T11:28:38Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T11:29:30Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T11:46:24Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 7 file(s) dirty
+- branch `docs/other-project` — working tree: 7 file(s) dirty
 
 ### ⏱ 2026-07-31T11:48:21Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 7 file(s) dirty
+- branch `docs/other-project` — working tree: 7 file(s) dirty
 
 ### ⏱ 2026-07-31T12:06:49Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 7 file(s) dirty
+- branch `docs/other-project` — working tree: 7 file(s) dirty
 
 ### ⏱ 2026-07-31T12:08:33Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T12:16:48Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T12:18:44Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T12:19:41Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T12:35:22Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 9 file(s) dirty
+- branch `docs/other-project` — working tree: 9 file(s) dirty
 
 ### ⏱ 2026-07-31T12:51:27Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 17 file(s) dirty
+- branch `docs/other-project` — working tree: 17 file(s) dirty
 
 ### ⏱ 2026-07-31T12:57:12Z — heartbeat
-- branch `docs/gridlight-strategy` — working tree: 3 file(s) dirty
+- branch `docs/other-project` — working tree: 3 file(s) dirty
 
 ### ⏱ 2026-07-31T13:14:40Z — heartbeat
 - branch `main` — working tree: 3 file(s) dirty
@@ -2834,250 +2834,250 @@
 - branch `main` — working tree: 13 file(s) dirty
 
 ### ⏱ 2026-09-26T10:46:55Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 23 file(s) dirty
+- branch `feat/other-project` — working tree: 23 file(s) dirty
 
 ### ⏱ 2026-09-26T14:02:33Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 26 file(s) dirty
+- branch `feat/other-project` — working tree: 26 file(s) dirty
 
 ### ⏱ 2026-09-26T14:04:48Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 26 file(s) dirty
+- branch `feat/other-project` — working tree: 26 file(s) dirty
 
 ### ⏱ 2026-09-26T14:12:26Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 26 file(s) dirty
+- branch `feat/other-project` — working tree: 26 file(s) dirty
 
 ### ⏱ 2026-09-26T14:19:55Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 26 file(s) dirty
+- branch `feat/other-project` — working tree: 26 file(s) dirty
 
 ### ⏱ 2026-09-26T14:27:55Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 28 file(s) dirty
+- branch `feat/other-project` — working tree: 28 file(s) dirty
 
 ### ⏱ 2026-09-26T14:28:20Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 28 file(s) dirty
+- branch `feat/other-project` — working tree: 28 file(s) dirty
 
 ### ⏱ 2026-09-26T14:44:40Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 28 file(s) dirty
+- branch `feat/other-project` — working tree: 28 file(s) dirty
 
 ### ⏱ 2026-09-26T14:54:51Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 28 file(s) dirty
+- branch `feat/other-project` — working tree: 28 file(s) dirty
 
 ### ⏱ 2026-09-27T18:13:24Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 30 file(s) dirty
+- branch `feat/other-project` — working tree: 30 file(s) dirty
 
 ### ⏱ 2026-09-27T18:16:55Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 30 file(s) dirty
+- branch `feat/other-project` — working tree: 30 file(s) dirty
 
 ### ⏱ 2026-09-27T18:16:58Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 30 file(s) dirty
+- branch `feat/other-project` — working tree: 30 file(s) dirty
 
 ### ⏱ 2026-09-27T22:34:05Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 30 file(s) dirty
+- branch `feat/other-project` — working tree: 30 file(s) dirty
 
 ### ⏱ 2026-09-27T22:37:46Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 30 file(s) dirty
+- branch `feat/other-project` — working tree: 30 file(s) dirty
 
 ### ⏱ 2026-09-27T22:45:07Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 36 file(s) dirty
+- branch `feat/other-project` — working tree: 36 file(s) dirty
 
 ### ⏱ 2026-09-27T23:04:00Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 36 file(s) dirty
+- branch `feat/other-project` — working tree: 36 file(s) dirty
 
 ### ⏱ 2026-09-27T23:30:44Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 36 file(s) dirty
+- branch `feat/other-project` — working tree: 36 file(s) dirty
 
 ### ⏱ 2026-09-28T01:18:33Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 36 file(s) dirty
+- branch `feat/other-project` — working tree: 36 file(s) dirty
 
 ### ⏱ 2026-09-28T12:51:37Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 36 file(s) dirty
+- branch `feat/other-project` — working tree: 36 file(s) dirty
 
 ### ⏱ 2026-09-28T16:49:34Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T19:27:31Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T19:34:02Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T20:48:46Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T20:50:38Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T20:58:26Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T21:04:04Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T21:09:25Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-28T21:12:13Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T00:58:36Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T01:00:27Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T01:15:47Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T01:20:28Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T01:30:29Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T01:40:40Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T01:50:28Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T02:00:37Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T02:10:32Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T02:20:27Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 40 file(s) dirty
+- branch `feat/other-project` — working tree: 40 file(s) dirty
 
 ### ⏱ 2026-09-29T02:34:12Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T02:34:41Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T02:40:28Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T02:50:39Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:01:30Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:10:32Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:20:28Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:30:27Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:40:26Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:41:26Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 42 file(s) dirty
+- branch `feat/other-project` — working tree: 42 file(s) dirty
 
 ### ⏱ 2026-09-29T03:50:34Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T03:51:18Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T03:51:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T04:00:58Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T04:10:54Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T04:20:54Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T04:31:29Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T04:40:28Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T04:51:15Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T05:00:27Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T05:11:55Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T05:21:00Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T05:31:09Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T05:46:41Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T05:50:56Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T06:01:04Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T06:10:59Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T06:20:22Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T06:30:22Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T06:40:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T06:50:22Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T07:00:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T07:10:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T07:20:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T07:30:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T07:40:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T07:50:22Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T08:00:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T08:10:23Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 43 file(s) dirty
+- branch `feat/other-project` — working tree: 43 file(s) dirty
 
 ### ⏱ 2026-09-29T08:14:09Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 44 file(s) dirty
+- branch `feat/other-project` — working tree: 44 file(s) dirty
 
 ### ⏱ 2026-09-29T08:20:26Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 44 file(s) dirty
+- branch `feat/other-project` — working tree: 44 file(s) dirty
 
 ### ⏱ 2026-09-29T08:27:57Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 44 file(s) dirty
+- branch `feat/other-project` — working tree: 44 file(s) dirty
 
 ### ⏱ 2026-09-29T08:50:02Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T10:26:26Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ## 2026-09-29 06:43 EDT — GUI crash (WindowServer watchdog), sessions restored
 - No reboot. llama-server (llama.cpp comparator launched by gl-dev `scripts/qa/guided-local-run.sh`,
@@ -3085,110 +3085,110 @@
   under Metal → GPU resets 06:42:50 + 06:43:23 → WindowServer unresponsive 40s → killed → login
   session torn down, all terminals/Claude sessions died.
 - Resumed 7 sessions: neoncore bd098958, gl-dev 91bd96ef, gl-dev-b cd88d23d, gl-dev-lane-ops 86a6fd9f,
-  gl-dev-media eaaa91bf, film-engine 92f2a433, gridlight-manager d2640c3d. Not reopened: backend-interlag
-  74f5c4c3, baseback 68697d58 (cancelled confers, Sep 26), gridlight-work 0cce0da0 (done).
+  gl-dev-media eaaa91bf, film-engine 92f2a433, other-project d2640c3d. Not reopened: backend-interlag
+  74f5c4c3, baseback 68697d58 (cancelled confers, Sep 26), other-project 0cce0da0 (done).
 
 ### ⏱ 2026-09-29T10:52:15Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T11:01:35Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T15:32:35Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T15:36:51Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T16:01:34Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T18:56:29Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T19:20:53Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-29T19:39:12Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-30T01:34:14Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-30T01:36:41Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-09-30T16:00:58Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-10-04T18:54:24Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-10-05T19:30:00Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-10-05T19:58:51Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-10-05T20:00:48Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-10-05T20:05:49Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 47 file(s) dirty
+- branch `feat/other-project` — working tree: 47 file(s) dirty
 
 ### ⏱ 2026-10-08T14:16:29Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 51 file(s) dirty
+- branch `feat/other-project` — working tree: 51 file(s) dirty
 
 ### ⏱ 2026-10-08T15:54:19Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 51 file(s) dirty
+- branch `feat/other-project` — working tree: 51 file(s) dirty
 
 ### ⏱ 2026-10-09T12:05:08Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 51 file(s) dirty
+- branch `feat/other-project` — working tree: 51 file(s) dirty
 
 ### ⏱ 2026-10-09T12:05:24Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 51 file(s) dirty
+- branch `feat/other-project` — working tree: 51 file(s) dirty
 
 ### ⏱ 2026-10-13T21:12:15Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 51 file(s) dirty
+- branch `feat/other-project` — working tree: 51 file(s) dirty
 
 ### ⏱ 2026-10-13T21:15:21Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 51 file(s) dirty
+- branch `feat/other-project` — working tree: 51 file(s) dirty
 
 ### ⏱ 2026-10-13T21:23:58Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 54 file(s) dirty
+- branch `feat/other-project` — working tree: 54 file(s) dirty
 
 ### ⏱ 2026-10-18T09:56:24Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 54 file(s) dirty
+- branch `feat/other-project` — working tree: 54 file(s) dirty
 
 ### ⏱ 2026-10-18T09:58:03Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 54 file(s) dirty
+- branch `feat/other-project` — working tree: 54 file(s) dirty
 
 ### ⏱ 2026-10-18T09:58:58Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 54 file(s) dirty
+- branch `feat/other-project` — working tree: 54 file(s) dirty
 
 ### ⏱ 2026-10-18T10:00:29Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 54 file(s) dirty
+- branch `feat/other-project` — working tree: 54 file(s) dirty
 
 ### ⏱ 2026-10-18T10:17:14Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 56 file(s) dirty
+- branch `feat/other-project` — working tree: 56 file(s) dirty
 
 ### ⏱ 2026-10-18T10:17:24Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 56 file(s) dirty
+- branch `feat/other-project` — working tree: 56 file(s) dirty
 
 ### ⏱ 2026-10-18T12:02:45Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 75 file(s) dirty
+- branch `feat/other-project` — working tree: 75 file(s) dirty
 
 ### ⏱ 2026-10-19T15:52:27Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 75 file(s) dirty
+- branch `feat/other-project` — working tree: 75 file(s) dirty
 
 ### ⏱ 2026-10-19T15:53:36Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 75 file(s) dirty
+- branch `feat/other-project` — working tree: 75 file(s) dirty
 
 ### ⏱ 2026-10-19T15:58:42Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: 77 file(s) dirty
+- branch `feat/other-project` — working tree: 77 file(s) dirty
 
 ### ⏱ 2026-10-20T11:40:45Z — heartbeat
-- branch `feat/gridlight-qa-workflows` — working tree: clean
+- branch `feat/other-project` — working tree: clean
 
 ### ⏱ 2026-10-20T12:09:28Z — heartbeat
 - branch `main` — working tree: clean

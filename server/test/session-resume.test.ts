@@ -122,7 +122,7 @@ test('EVERY relay-backed launch alias forwards a resume session id into the laun
   const aliases = Object.keys(RELAY_LAUNCH_TYPES);
   assert.ok(aliases.length > 0, 'no relay-backed aliases — the table is empty');
   for (const alias of aliases) {
-    const env = relayLaunchEnv(alias, 'neoncore-x-1', SESSION);
+    const env = relayLaunchEnv(alias, SESSION);
     assert.ok(env, `${alias}: expected relay env, got ${env}`);
     assert.equal(env!.NEONCORE_RESUME_SESSION_ID, SESSION,
       `${alias}: the resume id never reaches the relay, so the session starts cold`);
@@ -133,7 +133,7 @@ test('EVERY relay-backed alias omits the resume var entirely on a cold start', (
   // An empty NEONCORE_RESUME_SESSION_ID is indistinguishable from an unset one to the relay,
   // but exporting an empty var into every launch script is noise that reads as a bug.
   for (const alias of Object.keys(RELAY_LAUNCH_TYPES)) {
-    const env = relayLaunchEnv(alias, 'neoncore-x-1', '');
+    const env = relayLaunchEnv(alias, '');
     assert.ok(env, `${alias}: expected relay env`);
     assert.ok(!('NEONCORE_RESUME_SESSION_ID' in env!),
       `${alias}: exported an empty resume var on a cold start`);
@@ -144,7 +144,7 @@ test('EVERY relay-backed alias declares the agent type the relay will spawn', ()
   // The relay derives its binary from NEONCORE_AGENT_TYPE when AGENT_CMD is unset. An alias
   // that forgets it silently spawns `claude` no matter which engine was asked for.
   for (const [alias, type] of Object.entries(RELAY_LAUNCH_TYPES)) {
-    const env = relayLaunchEnv(alias, 'neoncore-x-1', SESSION);
+    const env = relayLaunchEnv(alias, SESSION);
     assert.equal(env!.NEONCORE_AGENT_TYPE, type, `${alias}: wrong or missing NEONCORE_AGENT_TYPE`);
   }
 });

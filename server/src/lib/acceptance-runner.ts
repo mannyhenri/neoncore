@@ -38,7 +38,7 @@ import {
 
 const nowIso = () => new Date().toISOString();
 const MAX_VERIFICATIONS = 40;
-const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', gridlight: 'Gridlight' };
+const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
 
 // ── what is in flight (memory only: a restart re-runs a pending check from the stage's state) ──
 

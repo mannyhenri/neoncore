@@ -1,26 +1,26 @@
 // Gateway reachability probe.
 //
-// Runs BEFORE the suite so we can tell an infra failure (Gridlight gateway
+// Runs BEFORE the suite so we can tell an infra failure (gateway
 // down) apart from a model failure (gateway up, model got the task wrong). A
 // down gateway would make every task fail and be scored as a confident 0%
 // blamed on the model — the exact false signal this probe exists to prevent.
 //
 // Backend-aware:
-//   - gridlight (default): the terminal talks to the local Gridlight gateway
+//   - gateway (default): the agent CLI talks to a local model gateway
 //     (default http://localhost:8080), which selects the model server-side.
 //     We can only check liveness — GET /health (any HTTP response = listening).
-//   - openai-compatible: the terminal talks to an external local server
+//   - openai-compatible: the agent CLI talks to an external local server
 //     (Ollama / LM Studio / vLLM) where the model id is explicit, so we also
-//     verify GRIDLIGHT_MODEL actually appears in GET /v1/models.
+//     verify PARITY_MODEL actually appears in GET /v1/models.
 
 /**
- * @param {string} gatewayUrl  e.g. http://localhost:8080 (Gridlight) or :11434 (Ollama)
+ * @param {string} gatewayUrl  e.g. http://localhost:8080 (gateway) or :11434 (Ollama)
  * @param {string} model       the model id the run will request
- * @param {'gridlight'|'openai-compatible'} backendMode
+ * @param {'gateway'|'openai-compatible'} backendMode
  * @param {number} timeoutMs
  * @returns {Promise<{ok: boolean, detail: string}>}
  */
-export async function probeGateway(gatewayUrl, model, backendMode = 'gridlight', timeoutMs = 4000) {
+export async function probeGateway(gatewayUrl, model, backendMode = 'gateway', timeoutMs = 4000) {
   const base = gatewayUrl.replace(/\/+$/, '');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -41,14 +41,14 @@ export async function probeGateway(gatewayUrl, model, backendMode = 'gridlight',
       return { ok: true, detail: `gateway up at ${url}, serving "${model}"` };
     }
 
-    // gridlight backend: liveness only (model is chosen server-side).
+    // gateway backend: liveness only (model is chosen server-side).
     const url = `${base}/health`;
     const headers = {};
-    if (process.env.GRIDLIGHT_API_TOKEN) headers.Authorization = `Bearer ${process.env.GRIDLIGHT_API_TOKEN}`;
+    if (process.env.PARITY_API_TOKEN) headers.Authorization = `Bearer ${process.env.PARITY_API_TOKEN}`;
     const res = await fetch(url, { method: 'GET', headers, signal: ctrl.signal });
     // Any HTTP status means the gateway is listening (401/404 included) — enough
     // to rule out "server down". Model correctness is what the suite measures.
-    return { ok: true, detail: `Gridlight gateway responded ${res.status} at ${url}` };
+    return { ok: true, detail: `gateway responded ${res.status} at ${url}` };
   } catch (err) {
     const msg = err?.name === 'AbortError' ? `timed out after ${timeoutMs}ms` : String(err?.message || err);
     return { ok: false, detail: `gateway unreachable at ${base}: ${msg}` };

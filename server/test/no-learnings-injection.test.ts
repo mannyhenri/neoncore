@@ -15,7 +15,7 @@
  *
  * SCOPED TO THE CURRENT WORKFLOW, as asked: a run may still be told what previous runs OF THE
  * SAME WORKFLOW learned, which is the useful half. What it must never receive is a different
- * workflow's report. Project membership is not relevance — "Gridlight" holds a research digest
+ * workflow's report. Project membership is not relevance — one project held a research digest
  * and a CUDA inference engine, and nothing about sharing a project makes one relevant to the
  * other.
  *
@@ -64,7 +64,7 @@ test.after(() => server?.close());
 function projectWithLearnings(): string {
   const projectId = `proj-${++n}`;
   db.prepare("INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-    .run(projectId, `Gridlight ${n}`, iso(), iso());
+    .run(projectId, `Atlas ${n}`, iso(), iso());
   return projectId;
 }
 

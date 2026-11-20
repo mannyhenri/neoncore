@@ -22,7 +22,7 @@ interface Props {
 }
 
 // Agent types the remote runner can launch (it spawns the relay, which defaults to claude):
-// the selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+// the selectable engines (SELECTABLE_ENGINES).
 const ENGINE_COLOR: Record<string, string> = {
   claude: 'border border-[#7CC4FF] bg-[#7CC4FF]/[0.14] text-[#DCEFFF]',
   codex: 'border border-gl-teal bg-gl-teal/[0.12] text-[#C9FBF6]',

@@ -200,5 +200,5 @@ export function buildLaunchContext(command: string, options: WorkflowLaunchOptio
     .filter((option) => isLaunchOptionVisible(option, values))
     .map((option) => `- ${option.label}: ${Array.isArray(values[option.key]) ? (values[option.key] as string[]).join(', ') : String(values[option.key])}`)
     .join('\n');
-  return `GRIDLIGHT QA LAUNCH SELECTIONS\n${selected}\n\nRESOLVED COMMAND\n${command}`;
+  return `QA LAUNCH SELECTIONS\n${selected}\n\nRESOLVED COMMAND\n${command}`;
 }

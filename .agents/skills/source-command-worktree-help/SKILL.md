@@ -24,9 +24,9 @@ Git worktrees let you work on **multiple branches simultaneously** in separate f
 ## Directory Structure
 
 ```
-gridlight-marketplace/              → dev (main repo)
-gridlight-marketplace-feature-x/    → feature/x (worktree)
-gridlight-marketplace-feature-y/    → feature/y (worktree)
+my-app/              → dev (main repo)
+my-app-feature-x/    → feature/x (worktree)
+my-app-feature-y/    → feature/y (worktree)
 ```
 
 ## Available Commands

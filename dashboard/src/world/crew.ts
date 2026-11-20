@@ -20,13 +20,12 @@ export type CrewAttention = (typeof ATTENTION_ORDER)[number];
 export const TASK_SOURCES = ['objective', 'task', 'activity', 'none'] as const;
 export type TaskSource = (typeof TASK_SOURCES)[number];
 
-export const ENGINES = ['claude', 'codex', 'gridlight'] as const satisfies readonly AgentType[];
+export const ENGINES = ['claude', 'codex'] as const satisfies readonly AgentType[];
 
 /** Suit colours — the engine colours from docs/DESIGN.md, with a darker shade for shading. */
 export const ENGINE_COLOURS: Record<AgentType, { suit: string; shade: string; label: string }> = {
   claude: { suit: '#7CC4FF', shade: '#4A8FD0', label: 'Claude' },
   codex: { suit: '#2EE6D6', shade: '#17A89C', label: 'Codex' },
-  gridlight: { suit: '#FF7AC0', shade: '#C9508F', label: 'Gridlight' },
 };
 
 export interface CrewMember {

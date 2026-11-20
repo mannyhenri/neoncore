@@ -93,7 +93,7 @@ describe('the metrics report is drillable', () => {
       .not.toMatch(/By cartridge/);
     expect(src, 'the project drill-down no longer lists its cartridges')
       .toMatch(/cartridges:\s*data!\.byCartridge\.filter/);
-    // `name.includes(project)` put gridlight-work and gridlight-manager inside gridlight, under
+    // `name.includes(project)` put atlas-work and atlas-manager inside atlas, under
     // a heading that correctly said "1 cartridge". An equality on the server's own grouping
     // cannot do that.
     expect(src, 'cartridges are still matched by NAME, which over-matches prefixed repo names')

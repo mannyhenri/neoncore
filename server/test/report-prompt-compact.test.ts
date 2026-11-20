@@ -98,6 +98,6 @@ test(`a run of ${SMALL_RUN_STEPS} agent steps or fewer gets the compact spec; a 
 });
 
 test("a template's own report instructions are never swapped for the compact spec", () => {
-  const custom = `${WORKFLOW_REPORT_PROMPT}\n\nAlso attach the Gridlight run id.`;
+  const custom = `${WORKFLOW_REPORT_PROMPT}\n\nAlso attach the Atlas run id.`;
   assert.equal(reportSpecForRun(db, runWith(1, custom), custom), custom);
 });

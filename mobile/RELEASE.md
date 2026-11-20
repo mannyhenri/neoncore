@@ -66,7 +66,7 @@ mkdir -p "$ARCHDIR"
 xcodebuild -workspace ios/NeonCore.xcworkspace -scheme NeonCore -configuration Release \
   -destination "generic/platform=iOS" \
   -archivePath "$ARCHDIR/NeonCore <version> (<build>).xcarchive" \
-  -allowProvisioningUpdates DEVELOPMENT_TEAM=3AXRJ22S9P archive
+  -allowProvisioningUpdates DEVELOPMENT_TEAM=<your team id> archive
 ```
 
 Archiving into `~/Library/Developer/Xcode/Archives/<date>/` is what makes it appear in
@@ -81,7 +81,7 @@ distribution cert during Distribute.
 **TestFlight & App Store** → keep **Automatically manage signing** → **Upload**.
 
 - Sign in first: **Xcode ▸ Settings ▸ Accounts**. An expired session fails the upload.
-- If offered a team, choose **Gridlight, Inc. (3AXRJ22S9P)** — not the personal team.
+- If offered a team, choose your Apple Developer team.
 - Leave **"Manage Version and Build Number" unchecked** so Xcode doesn't override the build
   number set in step 1.
 

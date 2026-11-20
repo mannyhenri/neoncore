@@ -18,7 +18,7 @@ export type TaskStatus = import('@neoncore/client').TaskStatus;
 export type WorkflowReport = import('@neoncore/client').WorkflowReport;
 
 export type AgentMode = 'manual' | 'trust' | 'plan';
-export type AgentType = 'claude' | 'gridlight' | 'codex';
+export type AgentType = 'claude' | 'codex';
 
 // Confer (standalone multi-agent collaboration) — mirrors server/src/types.ts.
 export type ConferStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -118,7 +118,7 @@ export interface TranscriptEvent {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
-  engine: 'claude' | 'gridlight' | 'codex';
+  engine: 'claude' | 'codex';
   ts: string;
 }
 

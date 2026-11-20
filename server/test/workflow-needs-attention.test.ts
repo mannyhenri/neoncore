@@ -4,7 +4,7 @@
  * WHAT HAPPENED. `[P1] Pick Approach` is a `decision` step. It sat `running` with
  * `dispatched_prompt` empty — nothing was ever sent to an agent, because decision steps wait
  * for a person to choose. From every surface it looked identical to a step doing work: the run
- * said "1 running", the bell said nothing. gridlight spent a turn investigating, correctly
+ * said "1 running", the bell said nothing. the cartridge spent a turn investigating, correctly
  * reported that its queue was empty and no step had been dispatched to it, and refused to
  * invent a step id. The agent behaved perfectly; the system told nobody.
  *

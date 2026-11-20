@@ -9,8 +9,8 @@ import {
 } from '../workflowLaunchOptions';
 
 const OPTIONS: WorkflowLaunchOption[] = [
-  { key: 'engine', label: 'Engine', type: 'select', defaultValue: 'gridlight', flag: '--engine',
-    choices: [{ value: 'gridlight', label: 'Gridlight' }, { value: 'llama', label: 'llama.cpp' }] },
+  { key: 'engine', label: 'Engine', type: 'select', defaultValue: 'vllm', flag: '--engine',
+    choices: [{ value: 'vllm', label: 'vLLM' }, { value: 'llama', label: 'llama.cpp' }] },
   { key: 'download', label: 'Download', type: 'boolean', defaultValue: false, enabledArgs: ['--download-model'] },
   { key: 'path', label: 'Environment file', type: 'text', defaultValue: '', flag: '--env-file' },
   { key: 'surfaces', label: 'Surfaces', type: 'multi-select', defaultValue: ['deb', 'docker'],
@@ -46,7 +46,7 @@ describe('workflow launch options', () => {
 
   it('omits empty optional text and disabled flags, but still emits declared defaults', () => {
     expect(renderLaunchCommand({ script: 'scripts/qa/run.sh', fixedArgs: [], options: OPTIONS }, defaultLaunchOptionValues(OPTIONS))).toBe(
-      "scripts/qa/run.sh --engine gridlight --flavours 'deb docker' --provision-build",
+      "scripts/qa/run.sh --engine vllm --flavours 'deb docker' --provision-build",
     );
   });
 
@@ -82,7 +82,7 @@ describe('workflow launch options', () => {
 
   it('rejects an incomplete launch schema at the UI boundary', () => {
     expect(parseWorkflowLaunchConfig({ launchScript: 'run.sh', launchOptions: [{
-      key: 'engine', label: 'Engine', type: 'select', defaultValue: 'gridlight',
+      key: 'engine', label: 'Engine', type: 'select', defaultValue: 'vllm',
     }] })).toBeNull();
     expect(parseWorkflowLaunchConfig({ launchScript: 'run.sh', launchOptions: [{
       key: 'host', label: 'Host', type: 'text', defaultValue: '', flag: 42,

@@ -10,7 +10,7 @@ import { useNeonCore } from '../NeonCoreProvider';
 import type { Machine } from '../types';
 
 // Agent types the runner can launch (it spawns the relay, which defaults to claude): the
-// selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+// selectable engines (SELECTABLE_ENGINES).
 const AGENT_TYPES: string[] = [...SELECTABLE_ENGINES];
 const OS_LABEL: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
 

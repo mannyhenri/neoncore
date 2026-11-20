@@ -441,7 +441,7 @@ db.exec(`
 `);
 
 // Transcript messages table — rich per-turn capture from the session JSONL.
-// Unifies Claude Code and Gridlight sessions (engine column). Unique (session_id, seq)
+// Unifies Claude Code and Codex sessions (engine column). Unique (session_id, seq)
 // makes hook ingestion idempotent on retries/overlapping byte ranges.
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
@@ -713,7 +713,7 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN active_queue_item_id TEXT NOT NULL DEFAULT ''`);
 }
 
-// Gridlight already SENDS its model at registration; the server was dropping it. Without
+// A cartridge's model, when the engine reports one; the server used to drop it. Without
 // this column nothing can say which model a cartridge runs, so the router can never find a
 // profile and every decision is UNMEASURED -> frontier.
 try {
@@ -1728,5 +1728,62 @@ for (const t of db.prepare('SELECT id FROM workflows WHERE template_id IS NULL')
 if (reportStepsAdded > 0) {
   console.log(`[db] Added the completion report step to ${reportStepsAdded} workflow template(s)`);
 }
+
+/**
+ * RETIRED ENGINES. NeonCore runs exactly two engines, `SUPPORTED_ENGINES` in types.ts. A database
+ * that predates that still carries rows naming a retired third engine, and nothing in the code can
+ * launch, label or resume them any more. Idempotent: every statement matches only rows outside the
+ * supported set, so a second boot changes nothing.
+ *
+ *  - agents: DELETED, not relabelled, together with the rows that belong to the cartridge (the
+ *    same set lib/agent-cleanup.ts removes; it cannot be imported here, it imports this module).
+ *    Relabelling one to 'claude' would be worse than useless: /register matches an existing row on
+ *    machine + repo + type in rowid order, so an older relabelled row would capture the real Claude
+ *    cartridge's next registration. Unfinished tasks it held go back to the queue.
+ *  - messages.engine, goal_pilot_stages.agent_type (+ its participants JSON),
+ *    acceptance_contracts.agent_type, workflow_steps.executor_config.agentType: RELABELLED to
+ *    'claude'. These are history and pins; 'claude' is what a stage or step falls back to anyway.
+ */
+export function retireUnsupportedEngines(): { removed: number; relabelled: number } {
+  const SUPPORTED = `('claude', 'codex')`;
+  const run = db.transaction(() => {
+    const retired = db.prepare(`SELECT id FROM agents WHERE agent_type NOT IN ${SUPPORTED}`).all() as { id: string }[];
+    for (const { id } of retired) {
+      db.prepare(`UPDATE tasks SET status = 'queued', assigned_agent_id = NULL, claimed_at = NULL
+                   WHERE assigned_agent_id = ? AND status IN ('queued', 'claimed', 'in_progress')`).run(id);
+      for (const table of ['activity', 'agent_memory', 'commands', 'messages', 'permissions', 'heartbeats', 'session_usage', 'sessions']) {
+        db.prepare(`DELETE FROM ${table} WHERE agent_id = ?`).run(id);
+      }
+      db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+    }
+    const relabelled =
+      db.prepare(`UPDATE messages SET engine = 'claude' WHERE engine NOT IN ${SUPPORTED}`).run().changes
+      + db.prepare(`UPDATE goal_pilot_stages SET agent_type = 'claude' WHERE agent_type NOT IN ${SUPPORTED}`).run().changes
+      + db.prepare(`UPDATE acceptance_contracts SET agent_type = 'claude' WHERE agent_type NOT IN ${SUPPORTED}`).run().changes
+      + db.prepare(`
+          UPDATE goal_pilot_stages
+             SET participants = (
+                   SELECT json_group_array(json(CASE
+                     WHEN json_extract(p.value, '$.agentType') IN ${SUPPORTED} THEN p.value
+                     ELSE json_set(p.value, '$.agentType', 'claude') END))
+                     FROM json_each(goal_pilot_stages.participants) AS p)
+           WHERE json_valid(participants) AND json_type(participants) = 'array'
+             AND EXISTS (SELECT 1 FROM json_each(goal_pilot_stages.participants) AS q
+                          WHERE json_type(q.value, '$.agentType') = 'text'
+                            AND json_extract(q.value, '$.agentType') NOT IN ${SUPPORTED})`).run().changes
+      + db.prepare(`
+          UPDATE workflow_steps SET executor_config = json_set(executor_config, '$.agentType', 'claude')
+           WHERE json_valid(executor_config)
+             AND json_type(executor_config, '$.agentType') = 'text'
+             AND json_extract(executor_config, '$.agentType') NOT IN ('', 'claude', 'codex')`).run().changes;
+    return { removed: retired.length, relabelled };
+  });
+  const { removed, relabelled } = run.immediate();
+  if (removed > 0 || relabelled > 0) {
+    console.log(`[db] Retired engines: removed ${removed} cartridge(s), relabelled ${relabelled} row(s) to claude`);
+  }
+  return { removed, relabelled };
+}
+retireUnsupportedEngines();
 
 export default db;

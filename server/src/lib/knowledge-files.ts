@@ -4,7 +4,7 @@
  *
  * It used to be four: `progress.md`, `decisions.md`, `gotchas.md`, `details.md`. The first
  * three were appended automatically by the session summarizer and read by nobody. The live
- * `progress.md` for gridlight-manager was a list of prompt fragments with "— {}" stapled to
+ * `progress.md` for one live cartridge was a list of prompt fragments with "— {}" stapled to
  * the end of each, and several entries reading "(No user prompt captured)". Their content
  * already exists in a better place: a session's summary lives on the session row, which is
  * what the Sessions tab shows.

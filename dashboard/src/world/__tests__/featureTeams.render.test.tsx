@@ -34,8 +34,8 @@ const agent = (over: Partial<Agent> & { id: string }): Agent => ({
 } as Agent);
 const noop = () => {};
 const handlers = { onDecidePermission: noop, onSetMode: noop, onSendCommand: noop, onDelete: noop, onDismiss: noop, onRestore: noop, onDismissStuck: noop };
-const gridlight = {
-  id: 'p1', name: 'Gridlight AI', color: '#2EE6D6', primaryRepo: '/code/gl-dev', createdAt: '2026-01-01T00:00:00Z',
+const atlas = {
+  id: 'p1', name: 'Atlas', color: '#2EE6D6', primaryRepo: '/code/gl-dev', createdAt: '2026-01-01T00:00:00Z',
   cartridges: ['/code/gl-dev', '/code/license-server'], featureCount: 3, featuresDone: 1, featuresActive: 2,
 };
 const invoice = {
@@ -59,7 +59,7 @@ afterEach(() => { cleanup(); extras.projects = []; extras.goals = []; extras.fea
 
 describe('features on the map', () => {
   it('an agent in a feature\'s worktree works at its real repo\'s building, in the project\'s pod', () => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     extras.features = [invoice];
     render(scene([agent({ id: 'wt-gl', repoPath: '/code/gl-dev-feature-invoice-import', repoName: 'gl-dev-feature-invoice-import' })]));
     expect(siteOf('gl-dev-feature-invoice-import').district).toBe('nw');
@@ -67,7 +67,7 @@ describe('features on the map', () => {
   });
 
   it('every running feature has a plate: its name, its stage, whether it needs you, and its own badges', () => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     extras.features = [invoice, exportCsv];
     extras.goals = goalsFor;
     render(scene([
@@ -86,11 +86,11 @@ describe('features on the map', () => {
   });
 
   it('a project with features running keeps a small caption; with none, its full plate', () => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     extras.features = [invoice];
     const view = render(scene([agent({ id: 'wt-gl', repoPath: '/code/gl-dev-feature-invoice-import', repoName: 'gl-dev-feature-invoice-import' })]));
     let plate = document.querySelector<HTMLElement>('[data-zone-label]')!;
-    expect(plate.textContent).toContain('Gridlight AI');
+    expect(plate.textContent).toContain('Atlas');
     expect(plate.textContent).not.toContain('1/3');
     expect(plate.dataset.caption).toBe('true');
     view.unmount();
@@ -102,7 +102,7 @@ describe('features on the map', () => {
   });
 
   it('a feature with no agent on the map yet still shows its plate, on its project\'s district', () => {
-    extras.projects = [gridlight];
+    extras.projects = [atlas];
     extras.features = [{ ...invoice, agentIds: [] }];
     render(scene([]));
     expect(document.querySelector('[data-feature-plate="pi1"]')).toBeTruthy();

@@ -11,7 +11,7 @@ launch a cartridge there from your phone.
 2. The machine shows up in the portal's **+ Launch** menu (web and mobile), listing its
    allowed folders.
 3. When you launch from the portal, the runner **opens a real terminal on this machine** with
-   **Claude (or Gridlight) running** in the chosen folder, ready to work — and it connects back
+   **Claude (or Codex) running** in the chosen folder, ready to work — and it connects back
    as a cartridge you can also drive from the portal.
 
 Opening a terminal (rather than a hidden background process) is deliberate: it starts a

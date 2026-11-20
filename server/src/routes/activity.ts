@@ -346,7 +346,7 @@ router.get('/burn-rate', (req, res) => {
 // Each cartridge carries its `project`, the SAME expression `byProject` groups on, so a client
 // can split a project into its cartridges by equality. Clients previously matched on the name
 // — `cartridge.name.includes(project)` — which is wrong the moment one repo name contains
-// another: tapping `gridlight` also listed `gridlight-work` and `gridlight-manager`, under a
+// another: tapping `app` also listed `app-work` and `app-manager`, under a
 // heading that correctly said "1 cartridge". Deriving it here is also the only place it CAN be
 // derived, since `session_usage` carries an agent id and nothing else.
 router.get('/usage-series', (req, res) => {

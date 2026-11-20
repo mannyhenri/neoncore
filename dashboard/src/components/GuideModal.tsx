@@ -146,7 +146,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <SectionHeader>Overview</SectionHeader>
             <BodyText>
               NeonCore is a visual AI labor control plane for coding-agent power users. Connect your
-              agents — Claude, Codex, and Gridlight run side by side, even in the same repo — build structured
+              agents — Claude and Codex run side by side, even in the same repo — build structured
               multi-step workflows on a canvas, put two agents on one job with Confer, and track AI work against
               business goals with budget awareness.
             </BodyText>
@@ -163,7 +163,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
           >
             <SectionHeader>Agents</SectionHeader>
             <BodyText>
-              Agents are coding-agent sessions (Claude, Codex, Gridlight, …) registered with NeonCore via
+              Agents are coding-agent sessions (Claude, Codex) registered with NeonCore via
               hooks — e.g. a PreToolUse hook in your{' '}
               <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">~/.claude/settings.json</code>
               {' '}(Codex uses <code className="text-[12px] bg-white/[0.06] text-violet-300 rounded px-1 py-0.5">~/.codex</code>).
@@ -176,7 +176,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             <FeatureCard name="Plan" desc="Agent produces a plan before executing." />
             <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Agent types supported</p>
             <div className="flex flex-wrap gap-2 mb-4">
-              {['Claude Code', 'Codex', 'Gridlight'].map((t) => (
+              {['Claude Code', 'Codex'].map((t) => (
                 <span key={t} className="text-[11px] bg-white/[0.04] border border-white/[0.08] text-gray-400 rounded-md px-2 py-0.5">
                   {t}
                 </span>
@@ -201,7 +201,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               Connect steps with dependency arrows to control execution order. Steps at the same dependency
               level run in parallel. Pick the <strong className="text-gray-300 font-medium">project</strong> once
               at launch; each step runs on that tool by default, or set a per-step{' '}
-              <strong className="text-gray-300 font-medium">Tool</strong> (Claude / Codex / Gridlight) to fan the
+              <strong className="text-gray-300 font-medium">Tool</strong> (Claude / Codex) to fan the
               workflow across engines — with an optional per-step branch (git worktree).
             </BodyText>
             <p className="text-[12px] font-medium text-gray-400 mb-2">Step types</p>
@@ -424,7 +424,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
               Use the <strong className="text-gray-300 font-medium">+ Launch</strong> button in the top bar to
               start a cartridge on any computer running the NeonCore <em>runner</em> — including this one. Pick a
               machine, pick one of its folders, pick a tool, and a real terminal opens on that machine with
-              Claude, Codex, or Gridlight running and connected back as a cartridge.
+              Claude or Codex running and connected back as a cartridge.
             </BodyText>
             <p className="text-[12px] font-medium text-gray-400 mt-4 mb-2">Add a machine</p>
             <BodyText>

@@ -8,12 +8,12 @@
 - **Branch:** `main` (default; `dev` deleted). Working tree clean, pushed.
 
 ## ⚠️ FIRST THING ON RESUME — the relay is probably DEAD
-I started the relay for `gridlight-1.1.4-fixes` as a **background process of the previous
+I started the relay for `another-repo` as a **background process of the previous
 session**. It dies when that session ends. Commands/workflows to that cartridge will go back
 to failing silently until it's restarted:
 
 ```bash
-cd ~/code/gridlight-1.1.4-fixes
+cd ~/code/another-repo
 NEONCORE_URL=http://localhost:4040 node ~/.neoncore/agent/relay/index.js
 ```
 
@@ -48,7 +48,7 @@ big multiline workflow prompt arrives as ONE prompt, not line-by-line. Hooks are
 only; they can never receive.
 
 **`neoncore` cartridge has NO relay** (it's the bare session Claude Code runs in). Testing
-workflows against it will fail the same way. Use `gridlight-1.1.4-fixes`.
+workflows against it will fail the same way. Use `another-repo`.
 
 ## Shipped today (all on main, mobile all OTA'd to runtime 0.2.0)
 - **Expo SDK 52 → 57** — Apple rejected build 4 (ITMS-90725: iOS 18.2 SDK; requires iOS 26).
@@ -107,7 +107,7 @@ produced `docs/fix-plan-2026-07-13.md` (read that for the full findings). Fixed 
   **CORRECTION:** the commit message for 4527a3a (and the first version of the fix plan) claims
   `/api/agents/message` "no longer exists". **That is WRONG** — the endpoint is alive at
   `server/src/routes/agents.ts:290` and the VS Code extension still posts to it
-  (`extension.ts:820`, the Gridlight idle report). A bad grep produced the false claim. The
+  (`extension.ts:820`, the other-project idle report). A bad grep produced the false claim. The
   deletion was still correct (unregistered hook), but do NOT delete that endpoint on its say-so.
 
 Green: 4/4 tsc clean, ruff clean, 20/20 server tests, health OK after hot-reload.
@@ -130,4 +130,4 @@ Green: 4/4 tsc clean, ruff clean, 20/20 server tests, health OK after hot-reload
   hook + the corrected URL). **Also `npm install` in their relay dir** — same bug will hit them.
 - Never fired against live cartridges: mode toggle, Send command (now proven via relay).
 - Parked: crash-recovery P2 (auto-recover Trust-mode agents; mass-crash throttle).
-- User will test NeonCore driving **Gridlight** (their own AI) soon.
+- User will test NeonCore driving **other-project** (their own AI) soon.

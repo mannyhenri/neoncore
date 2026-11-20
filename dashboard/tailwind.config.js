@@ -3,7 +3,7 @@
 /*
  * Night Glass — the NeonCore palette (design: claude.ai/artifact/2UEYxNSgz4RZWyFzSVbTx2).
  *
- * The dashboard is ~19k lines of Tailwind classes written against the old Gridlight palette
+ * The dashboard is ~19k lines of Tailwind classes written against the old palette
  * (gray text, violet/purple accents). Rather than touch every class, the scales those classes
  * name are RE-POINTED here: `gray` becomes the blue-grey text/surface ramp, `violet`/`purple`
  * become the neon blue accent. A component that still says `text-violet-300` renders in the

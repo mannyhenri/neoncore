@@ -1,7 +1,7 @@
 /**
  * A healthy agent must not stay marked dead.
  *
- * WHAT HAPPENED, from the real activity table. gridlight ran `cargo test --bins licensing…`
+ * WHAT HAPPENED, from the real activity table. A cartridge ran `cargo test --bins licensing…`
  * and produced no events between 12:30:25 and 12:37:03 — a 6m38s gap, because PostToolUse
  * only fires when a tool FINISHES. `EXECUTOR_STALE_MS` is 5 minutes, so at 12:36:05 the
  * reconciler judged the executor dead and marked two running workflow steps `interrupted`.
@@ -20,7 +20,7 @@
  *
  * The set below is every way an agent demonstrates it is alive, derived from the call sites
  * that write `last_seen` FROM the agent's own traffic. Clearing on only one of them is the
- * half-fix this test exists to prevent: the gridlight case would be fixed while an agent that
+ * half-fix this test exists to prevent: the cargo-test case would be fixed while an agent that
  * proves itself by asking a permission question stays stranded.
  */
 import './helpers/isolated-db.js';
@@ -66,7 +66,7 @@ const recoveryOf = (id: string) =>
 
 // ─── The exact scenario that happened ───────────────────────────────────────
 
-test('the gridlight case: a long tool call strands a step, and proof of life releases it', () => {
+test('the cargo-test case: a long tool call strands a step, and proof of life releases it', () => {
   // Alive, but silent for longer than the stale window — i.e. mid-`cargo test`.
   const a = agent(EXECUTOR_STALE_MS + 60_000, 'working');
   const s = step(a);

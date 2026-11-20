@@ -49,7 +49,6 @@ export const NO_STANDARD_GATE_TEMPLATES = [
  * Why each one went is recorded where they are deleted.
  */
 export const RETIRED_TEMPLATE_NAMES: readonly string[] = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline',
-  'Gridlight Local QA', 'Gridlight Full Release QA', 'Gridlight Performance Improvement',
   'CE: Full Delivery', 'Spec Intake → Dev Spec', 'Epic: Confer Across Repos', 'Full QA Review', 'Code Review & Audit',
   'Daily AI Research Digest', 'Daily AI Filmmaking Digest'];
 
@@ -81,7 +80,6 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   // Invisible on a fresh database, which is where a rename gets tested.
   // Removed templates: listing them here deletes the template rows from existing databases.
   // Past runs (template_id set) are left alone.
-  //   The three Gridlight templates — unused.
   //   CE: Full Delivery — a hand-copied chain of the seven CE phases whose prompts had drifted
   //     from the phases' own; Phase 3 now continues into Phase 4 itself.
   //   Spec Intake → Dev Spec — covered by Feature Validation.

@@ -10,19 +10,19 @@ function server(handler) {
   });
 }
 
-test('probe (gridlight): up when /health responds', async () => {
+test('probe (gateway): up when /health responds', async () => {
   const { s, url } = await server((req, res) => {
     if (req.url === '/health') { res.end('ok'); } else { res.statusCode = 404; res.end(); }
   });
   try {
-    const p = await probeGateway(url, 'gridlight-default', 'gridlight');
+    const p = await probeGateway(url, 'gateway-default', 'gateway');
     assert.equal(p.ok, true, p.detail);
     assert.match(p.detail, /\/health/);
   } finally { s.close(); }
 });
 
-test('probe (gridlight): down gateway is rejected', async () => {
-  const p = await probeGateway('http://127.0.0.1:1', 'gridlight-default', 'gridlight', 500);
+test('probe (gateway): down gateway is rejected', async () => {
+  const p = await probeGateway('http://127.0.0.1:1', 'gateway-default', 'gateway', 500);
   assert.equal(p.ok, false);
   assert.match(p.detail, /unreachable/);
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mock Gridlight that DOES the edit-timeout task correctly but exits 1
+// Mock agent CLI that DOES the edit-timeout task correctly but exits 1
 // (self-reported failure). Proves runTask gates the verdict on exit code:
 // a correct end-state must still score fail when the run reports failure.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';

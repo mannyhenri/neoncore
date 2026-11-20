@@ -350,7 +350,7 @@ export function TokensScreen() {
                 samples: row.samples,
                 // Matched on the project the SERVER assigned each cartridge, not on its name.
                 // `c.name.includes(row.project)` was wrong whenever one repo name contains
-                // another: `gridlight` also collected `gridlight-work` and `gridlight-manager`.
+                // another: `atlas` also collected `atlas-work` and `atlas-manager`.
                 cartridges: data!.byCartridge.filter((c) => c.project === row.project),
                 subCount: row.cartridges,
                 windowTokens: data!.total.tokens,

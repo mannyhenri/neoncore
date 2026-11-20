@@ -27,7 +27,7 @@ The literature points the other way. NVIDIA's position is that SLMs are "suffici
 powerful, inherently more suitable, and necessarily more economical for many invocations in
 agentic systems", that agentic systems decompose into modular sub-tasks each handled by a
 specialised small model, and that **heterogeneous systems invoking multiple different
-models are the natural choice** — which is exactly the Gridlight + Claude + Codex setup.
+models are the natural choice** — which is exactly a local model beside Claude and Codex.
 Their operational rule is the best one-line statement of the goal here:
 
 > **Reserve the generalist for the decide/plan moments; use small models for the repetitive
@@ -379,8 +379,7 @@ Three dispatch paths, and they are not equal:
   literature; the per-function tiers in §2 come from reasoning about each function. They are
   falsifiable and should be revised once the probe produces real per-function scores.
 - **Claude vs Codex is still unexplored.** This design routes local-vs-frontier. Which
-  frontier engine gets an escalated function remains unasked, and
-  `plans/gridlight-integration.md` still silently answers it in Claude's favour.
+  frontier engine gets an escalated function remains unasked.
 
 ---
 

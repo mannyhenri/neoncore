@@ -119,7 +119,7 @@ Only for the iOS app: **Xcode** — see [mobile/RELEASE.md](mobile/RELEASE.md).
 ### Install and run
 
 ```bash
-git clone https://github.com/GRIDLIGHT-INC/neoncore.git
+git clone https://github.com/mannyhenri/neoncore.git
 cd neoncore
 npm install
 npm run build      # builds the dashboard into server/public/
@@ -417,4 +417,4 @@ It is enforced by hooks, not by good intentions. (This copy ships without the te
 
 ## License
 
-[Apache License 2.0](LICENSE) — Copyright 2026 Gridlight, Inc.
+[Apache License 2.0](LICENSE) — Copyright 2026 Manny Henri

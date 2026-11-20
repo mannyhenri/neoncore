@@ -83,7 +83,7 @@ mcp_servers:
     command: "node"
     args: ["/Users/mannyhenri/code/film-engine/backend/mcp-server.js"]
     env:
-      FILM_DATA_DIR: "/Users/mannyhenri/.gridlight/film-engine/data"
+      FILM_DATA_DIR: "~/film-engine/data"
       # Provider keys MUST be listed explicitly — Hermes does not inherit the shell
       # environment for stdio servers. Missing keys look like a provider outage.
       RUNWAY_API_KEY: "***"
@@ -194,8 +194,7 @@ not in the agent's head.
 Small, but needed:
 
 1. **Accept `hermes` as an agent type.** `NEONCORE_AGENT_TYPE` defaults to `codex`; confirm
-   an unknown type registers cleanly rather than being silently coerced
-   (`docs/gridlight-strategy.md:253` notes both defaults are silent).
+   an unknown type registers cleanly rather than being silently coerced (both defaults are silent).
 2. **A task template for Film Engine work** so a Discord message maps onto a task shape the
    worker can recognise — project id, scene or shot codes, and whether generation is in scope.
 3. **Surface the approval reason.** `neoncore_request_permission` should carry the credit

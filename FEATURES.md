@@ -22,7 +22,7 @@ _(not active)_ have caveats called out inline.
 
   | Transition | Trigger | Note |
   |---|---|---|
-  | `working → idle` | the turn ends (Claude's Stop allowed by the completion check, Codex's Stop hook, Gridlight's own report) | Immediate — queued work starts at once. A 2-minute no-activity sweep is the backstop. **An idle cartridge stays visible.** |
+  | `working → idle` | the turn ends (Claude's Stop allowed by the completion check, Codex's Stop hook) | Immediate — queued work starts at once. A 2-minute no-activity sweep is the backstop. **An idle cartridge stays visible.** |
   | `→ offline` | `SessionEnd` hook (session exited) | The normal path. Requires the hook — re-run the installer on older machines. |
   | `→ offline` | socket disconnect | Relay / VS Code extension. |
   | `→ offline` | relay caught SIGTERM | Fast path; also flags interrupted workflow steps. |
@@ -114,7 +114,7 @@ Each agent runs in one of three modes (per-cartridge selector):
   **quality-gate / review-gate** with typed outputs (e.g. Test Results, Code Review), and
   **connector** steps.
 - **Per-step tool** — pick the **project** once at launch; each step runs on that project's tool by
-  default, or you can set which **tool** (Claude / Codex / Gridlight) runs each step (in the step
+  default, or you can set which **tool** (Claude / Codex) runs each step (in the step
   editor's *Tool* field, or the launch sheet's per-step picker). At launch a pinned tool resolves
   to a live cartridge of that engine in the project; if it isn't running, the step falls back to the
   run cartridge. Optional **per-step branch** spins up a git worktree so parallel steps don't
@@ -128,20 +128,19 @@ Each agent runs in one of three modes (per-cartridge selector):
 
 ## Multi-engine agent support
 
-NeonCore isn't Claude-only. Supported agent types: **claude · gridlight · codex**. All three are
+NeonCore isn't Claude-only. Supported agent types: **claude · codex**. Both are
 first-class, relay-backed engines and can run **side by side in the same repo** (a Claude
 cartridge and a Codex cartridge at once).
 
-- **Relay-backed engines** — Claude, Gridlight, and Codex run inside the NeonCore relay (a PTY), so
+- **Relay-backed engines** — Claude and Codex run inside the NeonCore relay (a PTY), so
   they receive commands over the socket (reliable, addressed to the specific cartridge), and the
-  relay **auto-installs the NeonCore coordination MCP** for them on launch — Claude/Gridlight via a
+  relay **auto-installs the NeonCore coordination MCP** for them on launch — Claude via a
   project `.mcp.json`, Codex via `~/.codex/config.toml` — so they get the confer/coordination tools
   with no extra setup.
 - **Hooks per engine** — install/uninstall NeonCore hooks for each CLI from **Settings → Tools**
   (Claude Code, Codex CLI). This writes each tool's own hook config (`~/.claude/settings.json`,
-  `~/.codex/hooks.json`) and can npm-install the CLI if missing. Gridlight reports to NeonCore
-  directly and needs no hooks.
-- **Command delivery** — Claude/Gridlight/Codex receive commands over the socket (relay/extension),
+  `~/.codex/hooks.json`) and can npm-install the CLI if missing.
+- **Command delivery** — Claude and Codex receive commands over the socket (relay/extension),
   or Claude's addressed inbox socket.
 - The Claude hook installer (`agent/install.py`, used by `bootstrap.sh/.ps1`) wires 7 events:
   `PreToolUse, PostToolUse, Stop, Notification, SubagentStop, UserPromptSubmit, SessionEnd`.
@@ -196,13 +195,13 @@ the machine running NeonCore.
   `neoncore_message_agent`, `neoncore_read_agent`, and the planning submissions
   `neoncore_submit_goal_draft`, `neoncore_submit_goal_decomposition`, `neoncore_submit_goal_pilot`. The last two — message or read another agent's
   transcript — are the primitives behind **Confer**. Registered project-scope (`.mcp.json`) by
-  `install.py` and auto-installed for relay-launched Claude/Gridlight; Codex registers it in
+  `install.py` and auto-installed for relay-launched Claude; Codex registers it in
   `~/.codex/config.toml`. Global scope via `claude mcp add-json neoncore '…' --scope user`.
 
 ## Virtual cartridges
 
 - **Folder workspaces** for directories that don't have a live agent yet — **launch an agent** in
-  that directory picking the type (Claude·Terminal, Claude·VS Code, Gridlight, Codex),
+  that directory picking the type (Claude·Terminal, Claude·VS Code, Codex),
   set a per-project ntfy topic, enable MCP servers, and pin MCP tool buttons.
 
 ## Project memory & journal

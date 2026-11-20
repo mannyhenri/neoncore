@@ -1,9 +1,9 @@
 /**
- * Only three engines are supported: claude, codex, gridlight.
+ * Only two engines are supported: claude and codex.
  *
- * The user asked for this twice ("we should only have gridlight, codex and claude", then
- * "yes remove the others") and it survived three confers unexecuted — because the DATABASE
- * was already clean (claude/codex/gridlight only), so every check anyone ran came back
+ * The user asked for the engine set to be cut down twice ("yes remove the others") and it
+ * survived three confers unexecuted — because the DATABASE was already clean (supported
+ * engines only), so every check anyone ran came back
  * correct while the CODE still shipped six engines, seven hook files, installer entries and
  * UI badges for three of them.
  *
@@ -35,7 +35,7 @@ const REMOVED = [
   { id: 'amazonq', bareSafe: true },
   { id: 'cursor', bareSafe: false },
 ] as const;
-const SUPPORTED = ['claude', 'codex', 'gridlight'] as const;
+const SUPPORTED = ['claude', 'codex'] as const;
 
 /** Source trees that ship. Tests and build output are excluded on purpose: this file names the
  *  removed engines by necessity, and dist/ is regenerated. */
@@ -96,9 +96,9 @@ for (const { id: engine, bareSafe } of REMOVED) {
   });
 }
 
-test('AgentType lists exactly the three supported engines, in BOTH copies', () => {
-  // Two copies exist (server and the shared client package) and they have drifted before.
-  const COPIES = ['server/src/types.ts', 'packages/client/src/types.ts'];
+test('AgentType lists exactly the supported engines, in EVERY copy', () => {
+  // Three copies exist (server, the shared client package, the phone) and they have drifted before.
+  const COPIES = ['server/src/types.ts', 'packages/client/src/types.ts', 'mobile/src/types.ts'];
   const wrong: string[] = [];
   for (const rel of COPIES) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');

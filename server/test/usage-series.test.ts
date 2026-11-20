@@ -237,8 +237,8 @@ test('EVERY dimension reaches EVERY surface that reads this report', () => {
  * Removing the standalone cartridge list made the project drill-down the only path to a
  * per-cartridge number, so its matching had to be right — and it was not. The phone selected a
  * project's cartridges with `cartridge.name.includes(project)`, which is wrong the moment one
- * repo name contains another. Live, `gridlight` collected `gridlight-work` and
- * `gridlight-manager` as well, and displayed them under a heading that correctly read
+ * repo name contains another. Live, `app` collected `app-work` and
+ * `app-manager` as well, and displayed them under a heading that correctly read
  * "1 cartridge in this project" — the count from the server, the rows from the guess.
  *
  * The fix is that `byCartridge` now carries the same `project` expression `byProject` groups on,
@@ -253,7 +253,7 @@ test('the cartridge rows partition the project rows exactly', () => {
   const q = src.slice(src.indexOf('const byCartridge'), src.indexOf('const byProject'));
   assert.match(q, /AS project/,
     'byCartridge carries no project, so a client can only guess from the name — which is how '
-    + 'gridlight-work ended up inside gridlight');
+    + 'app-work ended up inside app');
 
   // The two groupings must use the SAME expression, or they partition differently and the
   // sums below would drift without either query looking wrong on its own.

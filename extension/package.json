@@ -3,19 +3,18 @@
   "displayName": "NeonCore Orchestrator",
   "description": "Multi-agent orchestrator companion for Claude Code — monitor activity, relay commands, manage permissions, and run canvas workflows across VS Code instances.",
   "version": "0.5.3",
-  "publisher": "gridlight",
+  "publisher": "neoncore",
   "author": {
-    "name": "Gridlight",
-    "url": "https://gridlight.ai"
+    "name": "Manny Henri"
   },
   "license": "MIT",
-  "homepage": "https://gridlight.ai",
+  "homepage": "https://github.com/mannyhenri/neoncore",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gridlight-ai/neoncore"
+    "url": "https://github.com/mannyhenri/neoncore"
   },
   "bugs": {
-    "url": "https://github.com/gridlight-ai/neoncore/issues"
+    "url": "https://github.com/mannyhenri/neoncore/issues"
   },
   "icon": "logo.png",
   "galleryBanner": {
@@ -28,7 +27,7 @@
     "agents",
     "claude",
     "claude-code",
-    "gridlight",
+    "codex",
     "multi-agent",
     "mcp",
     "workflow",
@@ -74,13 +73,11 @@
           "enum": [
             "",
             "claude",
-            "gridlight",
             "codex"
           ],
           "enumDescriptions": [
             "Auto-detect (recommended)",
             "Claude Code (Anthropic)",
-            "Gridlight",
             "Codex CLI (OpenAI)"
           ],
           "default": "",

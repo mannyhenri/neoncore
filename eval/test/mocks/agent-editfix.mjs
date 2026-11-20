@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mock Gridlight that "solves" the edit-timeout task: replaces timeout: 30 with
+// Mock agent CLI that "solves" the edit-timeout task: replaces timeout: 30 with
 // 60 in config.ts under --cwd. Lets us exercise the full runner path (fixture
 // copy → spawn → assert → cleanup) deterministically, with no model server.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';

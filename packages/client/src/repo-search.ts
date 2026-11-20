@@ -6,12 +6,12 @@ import type { Machine } from './types.js';
  * "+ Launch" groups folders under the machine that exposes them. At fleet scale that list is
  * too long to scan, but a flat list of matching repo names would answer the wrong question:
  * the same repo is checked out on several machines, and choosing the right copy IS the
- * decision — launching `gridlight` on the Mac Pro when you are sitting at the MacBook puts the
+ * decision — launching `atlas` on the Mac Pro when you are sitting at the MacBook puts the
  * cartridge on the wrong box. So this narrows the tree and never flattens it: machines are
  * dropped or kept, and a kept machine carries only its matching folders.
  *
  * Hostname is part of the haystack as well as the grouping, which is what makes
- * "gridlight macbook" resolve the ambiguity in one query instead of two steps.
+ * "atlas macbook" resolve the ambiguity in one query instead of two steps.
  *
  * Offline machines are searchable on purpose. Their folders are still registered; the row
  * already explains the runner is not connected, and hiding them mid-search would recreate the

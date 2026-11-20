@@ -41,7 +41,7 @@ export const STALE_AFTER_MS = 10 * 60 * 1000;
  * three real epic runs (74 loop gaps):
  *
  *   gl-dev GRD-3412       median 13.9  p90 39.9  max  51.8   ← the 52m loop COMPLETED normally
- *   gridlight-work 3502   median  9.9  p90 17.8  max 173.1   ← 65m legit; 146m+173m = the stall
+ *   app-work 3502        median  9.9  p90 17.8  max 173.1   ← 65m legit; 146m+173m = the stall
  *   film-engine   3598    median 11.3  p90 21.2  max  32.2
  *
  * Longest VERIFIED-LEGITIMATE gap ~65 min; shortest GENUINE stall ~146 min. 90 sits between
@@ -65,7 +65,7 @@ export const STALL_MULTIPLE = 6;
 /**
  * The median gap between this run's loop dispatches, or null when there is not one yet.
  *
- * Median, not mean: the stall itself is in the sample. gridlight-work's 173-minute stall sits in
+ * Median, not mean: the stall itself is in the sample. app-work's 173-minute stall sits in
  * the same series as its 5-minute loops, and a mean would let the anomaly raise the threshold
  * that is supposed to catch it.
  *

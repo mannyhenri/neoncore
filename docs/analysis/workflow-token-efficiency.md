@@ -65,7 +65,7 @@ What changed in this pass (details in WORKFLOWS.md):
      `/clear` now waits for the turn to end: the Stop hook's completion check allowing the stop.
      If the turn does not end within 60s, there is no fresh session. It is also not typed when the
      turn ended on a question to the user.
-   - Skipped for Codex and Gridlight, for a gate retry or routed redo, before the run has put
+   - Skipped for Codex, for a gate retry or routed redo, before the run has put
      anything in the session, and for a step with `freshSession: false`.
    - `SessionEnd` with reason `clear` no longer marks the cartridge offline or offers to resume it.
      That was already wrong when a user typed `/clear`.
@@ -76,7 +76,7 @@ What changed in this pass (details in WORKFLOWS.md):
      because the check now sees the actual work.
    - **Opt-out:** templates that change no code (`NO_STANDARD_GATE_TEMPLATES`: the digests, Deep
      Research, Product Strategy, Architecture Review, Release Documentation, Jira Tasks Validation,
-     the two Gridlight QA runs, and CE Phases 1, 2 and 7) launch without it: 12 fewer dispatches per
+     and CE Phases 1, 2 and 7) launch without it: 12 fewer dispatches per
      catalogue pass. `skipStandardGate` on `/v2/create` is now stored (`workflows.standard_gate`).
      Before, the launch added the check back on every run.
    - **Consistent launch paths:** scheduled and decomposed runs (`cloneTemplateAsRun`) get exactly
@@ -127,7 +127,7 @@ What changed (details in WORKFLOWS.md, *How a step is sent*):
    carry a one-line reference. A result the session reported itself, or was already sent, is
    referred to by its hand-off and first line. Every reference names a fetch path that returns
    the full text. Full prompts come back on a new session, a reported compaction (the reporter
-   now forwards it), every 10 prompts as a backstop, and always for Codex and Gridlight. A
+   now forwards it), every 10 prompts as a backstop, and always for Codex. A
    reference is only used when it is shorter than what it replaces.
 3. **Loops and gate retries** refer to the instructions the session already has, instead of
    re-sending them.
@@ -303,7 +303,7 @@ and 7.6 worst. Loop iterations and gate verdicts are immediate. Stage transition
 
 ### F9. Template-level overhead
 - **Workflow Completion Report:** 22% of all tokens. It is a full 1,676-char spec plus the run record, in
-  every template, on runs as small as the two-step Gridlight QA, where it is about half the run.
+  every template, even on two-step runs, where it is about half the run.
 - **Auto-added Work Standard Check:** 5%. It is inserted after Notify, so its only input is Notify's
   87-char output, and "Done" is notified before the audit runs. It is also added to content
   workflows it does not fit (digests, strategy sessions, QA guides), and to manual launches only:
@@ -340,9 +340,6 @@ Prompt-token measurements, typical context, happy path, 3 tasks for loops:
 | Epic: Two Repos | 19,110 (10 disp.) | 14,888 | 97,807 | 2,975 | 63% | 5 | 6 |
 | Feature Validation | 11,693 (7 disp.) | 8,737 | 37,283 | 3,315 | 45% | 6 | 8 |
 | Full QA Review | 12,848 (8 disp.) | 9,470 | 46,263 | 3,650 | 50% | 7 | 9 |
-| Gridlight Full Release QA | 4,446 (3 disp.) | 3,179 | 4,447 | 2,078 | 31% | 2 | 3 |
-| Gridlight Local QA | 4,419 (3 disp.) | 3,152 | 4,423 | 2,065 | 31% | 2 | 3 |
-| Gridlight Performance Improvement | 17,053 (9 disp.) | 13,253 | 67,331 | 4,098 | 57% | 8 | 9 |
 | Jira Tasks Validation | 7,848 (5 disp.) | 5,737 | 17,303 | 2,611 | 37% | 4 | 6 |
 | Product Strategy Session | 12,780 (8 disp.) | 9,402 | 46,243 | 3,768 | 46% | 7 | 11 |
 | QA Testing Guide | 9,107 (6 disp.) | 6,574 | 22,973 | 2,980 | 48% | 5 | 7 |
@@ -364,8 +361,6 @@ Prompt-token measurements, typical context, happy path, 3 tasks for loops:
 | Epic: Task by Task | The model loop: data-driven count, LOOP-001/003. F5 dominates at scale. |
 | Epic: Two Repos | Two loops in one stage: on one cartridge their first iterations are dispatched in the same tick and merged (F2), and later iterations interleave in one session. Needs two cartridges to work as designed. |
 | Feature Validation, Full QA Review | Long linear reviewer chains. Full QA's independent reviews could run in parallel given separate cartridges. |
-| Gridlight Local / Full Release QA | Two steps. The report (2.5k custom spec) is about half the run. |
-| Gridlight Performance Improvement | Steps depend on 3–4 upstream steps each, so upstream results are 50% of prompts, at the 4,000-char cap. |
 | Jira Tasks Validation | **The pattern to copy:** steps write to files and return only a path and a count, so hand-offs stay tiny and nothing is truncated. |
 | QA Testing Guide, Release Documentation, Spec Intake | Release Documentation's 4-way fan-out merges (F2). The others are linear and reasonable. |
 

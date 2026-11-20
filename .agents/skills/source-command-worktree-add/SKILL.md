@@ -32,13 +32,13 @@ Use AskUserQuestion to collect:
 ## Step 2: Determine Worktree Location
 
 Worktrees will be created as sibling directories:
-- Main repo: `/path/to/gridlight-marketplace`
-- Worktree: `/path/to/gridlight-marketplace-<branch-suffix>`
+- Main repo: `/path/to/my-app`
+- Worktree: `/path/to/my-app-<branch-suffix>`
 
 Extract a short suffix from the branch name:
-- `feature/new-dashboard` → `gridlight-marketplace-new-dashboard`
-- `GRD-205-add-settings` → `gridlight-marketplace-GRD-205`
-- `fix/login-bug` → `gridlight-marketplace-login-bug`
+- `feature/new-dashboard` → `my-app-new-dashboard`
+- `GRD-205-add-settings` → `my-app-GRD-205`
+- `fix/login-bug` → `my-app-login-bug`
 
 ## Step 3: Check Prerequisites
 

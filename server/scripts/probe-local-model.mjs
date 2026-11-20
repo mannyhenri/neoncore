@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Capability probe — measures a local model through the Gridlight CLI.
+ * Capability probe — measures a model through an agent CLI (claude or codex).
  *
  * Design constraints, all load-bearing:
  *
@@ -22,7 +22,7 @@
  *
  * The bars live in engine-capability.ts and were fixed BEFORE any model was measured.
  *
- * Usage: node server/scripts/probe-local-model.mjs [--trials 5] [--model <id>] [--only dim]
+ * Usage: node server/scripts/probe-local-model.mjs [--engine claude|codex] [--trials 5] [--model <id>] [--only dim]
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -31,9 +31,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 const exec = promisify(execFile);
-
-const GRIDLIGHT = process.env.GRIDLIGHT_BIN
-  || path.resolve(os.homedir(), 'code/vscode-extension/packages/cli/dist/bin/gridlight.js');
 
 /**
  * How to run one headless turn, per engine.
@@ -44,17 +41,12 @@ const GRIDLIGHT = process.env.GRIDLIGHT_BIN
  * "is local good enough" and never "is frontier actually better". Same prompts, same seeds,
  * same pass predicate is the only way that comparison is honest.
  *
- * All three run with permissions pre-granted, inside a fresh temp directory that is deleted
+ * Both run with permissions pre-granted, inside a fresh temp directory that is deleted
  * after each trial. Auto-approval is safe HERE precisely because the blast radius is one
  * throwaway dir, and it is required — a probe that stops to ask scores a permission prompt
  * rather than a model.
  */
 const ENGINES = {
-  gridlight: (dir, prompt) => ({
-    cmd: process.execPath,
-    args: [GRIDLIGHT, '--cwd', dir, '-p', prompt],
-    env: { GRIDLIGHT_NEONCORE_ENABLED: 'false', GRIDLIGHT_TUI: '0', GRIDLIGHT_PERMISSION_MODE: 'auto' },
-  }),
   claude: (dir, prompt) => ({
     cmd: 'claude',
     args: ['-p', prompt, '--dangerously-skip-permissions'],
@@ -76,14 +68,14 @@ const arg = (name, dflt) => {
   return i >= 0 ? argv[i + 1] : dflt;
 };
 const TRIALS = Number(arg('trials', 5));
-const ENGINE = arg('engine', 'gridlight');
+const ENGINE = arg('engine', 'claude');
 if (!ENGINES[ENGINE]) {
   console.error(`unknown --engine ${ENGINE}; expected one of ${Object.keys(ENGINES).join(', ')}`);
   process.exit(1);
 }
 // The model id must be explicit per engine, or two engines' profiles collide under one key —
 // and a profile stored under the wrong id is invisible to the router that needs it.
-const MODEL_ID = arg('model', process.env.GRIDLIGHT_MODEL || (ENGINE === 'gridlight' ? 'local-default' : ENGINE));
+const MODEL_ID = arg('model', process.env.PROBE_MODEL || ENGINE);
 const ONLY = arg('only', '');
 
 // ---------------------------------------------------------------------------
@@ -209,7 +201,7 @@ function readIf(dir, name) {
 }
 
 async function runTrial(probe) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glprobe-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'neonprobe-'));
   try {
     for (const [name, content] of Object.entries(probe.seed)) {
       fs.writeFileSync(path.join(dir, name), content);
@@ -241,10 +233,6 @@ async function runTrial(probe) {
 }
 
 async function main() {
-  if (ENGINE === 'gridlight' && !fs.existsSync(GRIDLIGHT)) {
-    console.error(`gridlight CLI not found at ${GRIDLIGHT} — build it or set GRIDLIGHT_BIN`);
-    process.exit(2);
-  }
   const dims = Object.keys(PROBES).filter((d) => !ONLY || d === ONLY);
   const vector = {};
   const trials = {};

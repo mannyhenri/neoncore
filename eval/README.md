@@ -1,7 +1,7 @@
 # @neoncore/parity-eval
 
-Behavioral parity eval for the **Gridlight terminal**. It runs a fixed suite of
-coding tasks through Gridlight pointed at a local model, scores each by **hard
+Behavioral parity eval for a **headless agent CLI**. It runs a fixed suite of
+coding tasks through that CLI pointed at a local model, scores each by **hard
 outcome assertions** (file end-state, verify-command exit code, expected output),
 and reports a per-capability score for that model.
 
@@ -10,8 +10,11 @@ This is **Step 0 (the spike)** of the dual-runtime effort — see
 model ever clear the bar on real code changes without a quality cliff?* The
 score is the trust signal that later gates hardware-aware routing (Task 1).
 
-Zero Gridlight source is imported — the harness drives the `gridlight` binary as
-a black box (`gridlight -p "<prompt>" --cwd <fixture>`), configured by env.
+No agent source is imported — the harness drives the agent binary as a black
+box (`<agent-bin> -p "<prompt>" --cwd <fixture>`), configured by `PARITY_*` env
+vars (`PARITY_MODEL`, `PARITY_GATEWAY_URL`, `PARITY_BACKEND_MODE`,
+`PARITY_PERMISSION_MODE`, `PARITY_TUI`, `PARITY_NEONCORE_ENABLED`). The gateway probe sends
+`PARITY_API_TOKEN` as a bearer token when it is set.
 
 ## Run it
 
@@ -23,21 +26,22 @@ Prerequisites:
    ollama serve                      # starts the server on :11434
    ollama pull qwen2.5-coder:7b      # or :14b (16GB VRAM) / :32b (24GB VRAM)
    ```
-2. The `gridlight` binary on PATH, built from the CLI package **with the headless
-   fixes** (multi-step continuation + honest exit code):
+2. An agent CLI that accepts `-p "<prompt>" --cwd <dir>`, reads the `PARITY_*`
+   env vars above, continues across steps headlessly and exits non-zero on
+   failure:
    ```
-   cd ../vscode-extension/packages/cli && npm run build
-   export GRIDLIGHT_BIN=$(pwd)/dist/bin/gridlight.js
+   export PARITY_AGENT_BIN=/path/to/your/agent-cli
    ```
 
 Then:
 ```
-node src/cli.mjs run --model qwen2.5-coder:7b --gateway http://localhost:11434 --k 3
+node src/cli.mjs run --model qwen2.5-coder:7b --agent-bin "$PARITY_AGENT_BIN" --gateway http://localhost:11434 --backend openai-compatible --k 3
 ```
 
-Options: `--model` (required), `--gateway` (default `http://localhost:11434`),
-`--backend` (default `openai-compatible`), `--k` runs per task for pass@k
-(default 3), `--only a,b`, `--tasks-dir`, `--gridlight-bin`, `--neoncore` (report
+Options: `--model` (required), `--agent-bin` (required, or `PARITY_AGENT_BIN`),
+`--gateway` (default `http://localhost:8080`), `--backend` (`gateway` = liveness
+probe only, the default; or `openai-compatible`), `--k` runs per task for pass@k
+(default 3), `--only a,b`, `--tasks-dir`, `--neoncore` (report
 to NeonCore during runs; default off/hermetic), `--no-probe`.
 
 The gateway is probed first: a down server would score every task as a false
@@ -68,7 +72,7 @@ npm test
 ```
 Validates the scorer (Wilson bounds, aggregation), every assertion against both a
 correct and a deliberately-wrong end-state (assertions must fail when they
-should), and the full runner path with a mock Gridlight (fixture copy → spawn →
+should), and the full runner path with a mock agent CLI (fixture copy → spawn →
 assert → cleanup, plus fixture isolation).
 
 ## Status

@@ -1,7 +1,7 @@
 /**
  * Turning a permission request into something you can ANSWER from a phone.
  *
- * REPORTED: the notice showed only "gridlight — Question / AskUserQuestion" and "gridlight — Plan
+ * REPORTED: the notice showed only "<cartridge> — Question / AskUserQuestion" and "<cartridge> — Plan
  * Ready / Agent completed planning and is waiting for your review." No question text, no
  * options, no way to reply. The request carried all of it — `tool_input` holds the question,
  * the header, and every option with its description — and the notice threw it away.

@@ -1,7 +1,7 @@
 /**
  * ENDING A RUN ENDS THE CONFERS IT STARTED.
  *
- * Reported as "make sure gl-dev-lane-c and gridlight-manager are working together on run 80".
+ * Reported as "make sure gl-dev-lane-c and app-manager are working together on run 80".
  * They weren't. Run 79 had been cancelled 30s after its "Load Epic" confer started, but
  * cancelling a run only flipped `workflows.status`. The confer it owned (422d7775) kept
  * dispatching milestones, both cartridges kept working on it, and run 80's own confer waited

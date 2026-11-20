@@ -41,7 +41,7 @@ function emitRecovery(stepId: string): void {
  * `detectInterruptedSteps` infers "the executor died" from the absence of tool events for
  * EXECUTOR_STALE_MS. That signal cannot tell a dead agent from one in the middle of a single
  * long tool call: PostToolUse only fires when a tool COMPLETES, so a `cargo test` or an
- * `npm install` produces a silence indistinguishable from a crash. gridlight was marked dead
+ * `npm install` produces a silence indistinguishable from a crash. A cartridge was marked dead
  * during a 6m38s cargo build and posted activity 58 seconds later; nothing un-marked it, so
  * two live workflow steps sat stranded behind a "Session interrupted" banner.
  *

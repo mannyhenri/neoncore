@@ -382,11 +382,11 @@ export function ActivityDetailModal({ activity, agent, agents, onClose }: Activi
               <SectionHeading>Agent</SectionHeading>
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`text-[13px] px-1.5 py-0.5 rounded font-medium tracking-wide ${
-                  agent.agentType === 'gridlight'
-                    ? 'bg-pink-900/60 text-pink-300'
+                  agent.agentType === 'codex'
+                    ? 'bg-teal-900/60 text-teal-300'
                     : 'bg-blue-900/60 text-blue-300'
                 }`}>
-                  {agent.agentType === 'gridlight' ? 'Gridlight' : 'Claude CC'}
+                  {agent.agentType === 'codex' ? 'Codex CLI' : 'Claude CC'}
                 </span>
                 <span className="text-sm text-gray-200 font-medium">{agent.name}</span>
                 {agent.repoName && (

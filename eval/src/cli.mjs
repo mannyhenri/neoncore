@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// parity-eval — behavioral parity eval for a Gridlight-served local model.
+// parity-eval — behavioral parity eval for a gateway-served local model, driven through an agent CLI.
 //
 //   parity-eval run --model qwen2.5-coder:7b [options]
 //
 // Options:
-//   --model <id>         (required) GRIDLIGHT_MODEL to test
+//   --model <id>         (required) PARITY_MODEL to test
 //   --gateway <url>      OpenAI-compatible gateway (default http://localhost:11434, Ollama)
-//   --backend <mode>     GRIDLIGHT_BACKEND_MODE (default openai-compatible)
+//   --backend <mode>     PARITY_BACKEND_MODE (default gateway)
 //   --k <n>              runs per task for pass@k (default 3)
 //   --tasks-dir <dir>    task suite dir (default ./tasks)
-//   --gridlight-bin <b>  gridlight binary (default env GRIDLIGHT_BIN or "gridlight")
+//   --agent-bin <b>      (required) agent CLI binary (or env PARITY_AGENT_BIN)
 //   --only <a,b,c>       run only these task ids
 //   --neoncore           report to NeonCore during runs (default off = hermetic)
 //   --no-probe           skip the gateway reachability probe
@@ -33,9 +33,9 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-/** Preflight the Gridlight binary so a missing driver is a clear fatal, not
+/** Preflight the agent CLI binary so a missing driver is a clear fatal, not
  *  every task failing with spawn ENOENT (which reads as "model failed all"). */
-function gridlightResolvable(bin) {
+function agentResolvable(bin) {
   if (bin.includes('/') || bin.includes('\\')) return existsSync(bin);
   const r = spawnSync(bin, ['--version'], { stdio: 'ignore' });
   return !(r.error && r.error.code === 'ENOENT');
@@ -45,7 +45,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(HERE, '..');
 
 function parseArgs(argv) {
-  const out = { _: [], k: 3, gateway: 'http://localhost:8080', backend: 'gridlight', probe: true, neoncore: false };
+  const out = { _: [], k: 3, gateway: 'http://localhost:8080', backend: 'gateway', probe: true, neoncore: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--model') out.model = argv[++i];
@@ -53,7 +53,7 @@ function parseArgs(argv) {
     else if (a === '--backend') out.backend = argv[++i];
     else if (a === '--k') out.k = Number(argv[++i]);
     else if (a === '--tasks-dir') out.tasksDir = argv[++i];
-    else if (a === '--gridlight-bin') out.gridlightBin = argv[++i];
+    else if (a === '--agent-bin') out.agentBin = argv[++i];
     else if (a === '--only') out.only = argv[++i].split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--neoncore') out.neoncore = true;
     else if (a === '--no-probe') out.probe = false;
@@ -67,7 +67,7 @@ function pct(n) { return `${Math.round(n * 100)}%`; }
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args._[0] !== 'run') {
-    process.stderr.write('usage: parity-eval run --model <id> [--gateway url] [--k n] [--only a,b]\n');
+    process.stderr.write('usage: parity-eval run --model <id> --agent-bin <bin> [--gateway url] [--k n] [--only a,b]\n');
     process.exit(2);
   }
   if (!args.model) {
@@ -79,13 +79,17 @@ async function main() {
     process.exit(2);
   }
 
-  const gridlightBin = args.gridlightBin || process.env.GRIDLIGHT_BIN || 'gridlight';
+  const agentBin = args.agentBin || process.env.PARITY_AGENT_BIN || '';
+  if (!agentBin) {
+    process.stderr.write('error: --agent-bin (or PARITY_AGENT_BIN) is required\n');
+    process.exit(2);
+  }
   const tasksDir = args.tasksDir || path.join(PKG_ROOT, 'tasks');
 
-  // Driver preflight: a missing gridlight binary would ENOENT every task and
+  // Driver preflight: a missing agent binary would ENOENT every task and
   // read as "model failed everything" — the exact ambiguity the probe prevents.
-  if (!gridlightResolvable(gridlightBin)) {
-    process.stderr.write(`error: gridlight binary not found: "${gridlightBin}" (set GRIDLIGHT_BIN or --gridlight-bin)\n`);
+  if (!agentResolvable(agentBin)) {
+    process.stderr.write(`error: agent CLI binary not found: "${agentBin}" (set PARITY_AGENT_BIN or --agent-bin)\n`);
     process.exit(1);
   }
 
@@ -112,7 +116,7 @@ async function main() {
   const results = [];
   for (const task of tasks) {
     const r = await runTaskK(task, {
-      gridlightBin,
+      agentBin,
       model: args.model,
       gatewayUrl: args.gateway,
       backendMode: args.backend,

@@ -5,8 +5,7 @@
 **Please do not open a public issue.**
 
 Report privately through
-[GitHub Security Advisories](https://github.com/GRIDLIGHT-INC/neoncore/security/advisories/new),
-or email **security@gridlight.ai**.
+[GitHub Security Advisories](https://github.com/mannyhenri/neoncore/security/advisories/new).
 
 Please include what an attacker can do, the steps to reproduce it, and the affected version. We
 aim to acknowledge within 3 working days and to agree a disclosure timeline with you.

@@ -85,7 +85,7 @@ const B = repo('beta');
 const C = repo('gamma');   // in the project, NOT part of the feature
 const ISO = new Date().toISOString();
 db.prepare(`INSERT INTO projects (id, goal_id, name, description, primary_repo, color, created_at, updated_at)
-            VALUES ('proj', NULL, 'Gridlight', '', ?, '#fff', ?, ?)`).run(A, ISO, ISO);
+            VALUES ('proj', NULL, 'Atlas', '', ?, '#fff', ?, ?)`).run(A, ISO, ISO);
 setProjectCartridges('proj', [A, B, C]);
 const TEMPLATE = availableTemplates()[0].name;
 

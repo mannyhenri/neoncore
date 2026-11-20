@@ -5,7 +5,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // The tool to launch in the new folder. Values map to open-directory.ts relay-terminal
 // launchers, which self-register a cartridge so it shows up in the grid immediately.
-// The selectable engines (SELECTABLE_ENGINES — Gridlight is no longer offered).
+// The selectable engines (SELECTABLE_ENGINES).
 const TOOLS: { value: string; label: string }[] = SELECTABLE_ENGINES.map((e) => ({ value: `${e}-cli`, label: ENGINE_NAME[e] }));
 
 interface Props {

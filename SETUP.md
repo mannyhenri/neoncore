@@ -78,7 +78,7 @@ The current, cross-platform installer is **`agent/install.py`** (Python 3). The 
 ### Option A: Clone the repo and run the installer
 
 ```bash
-git clone git@github.com:GRIDLIGHT-INC/neoncore.git
+git clone git@github.com:mannyhenri/neoncore.git
 cd neoncore
 
 # Install with the orchestrator's network URL (Mac/Linux/Windows)
@@ -181,7 +181,7 @@ You can also check the NeonCore output channel: **View → Output → NeonCore**
 ### Option B — Terminal relay (headless / no editor)
 
 Instead of the VS Code extension, you can launch Claude Code inside the **NeonCore
-relay** — a PTY wrapper (the "Gridlight terminal") that owns the session and types
+relay** — a PTY wrapper that owns the session and types
 dispatched commands and tasks straight into it. One relay = one agent = one
 terminal, so delivery is perfectly addressed.
 

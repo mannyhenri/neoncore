@@ -1,7 +1,7 @@
 /**
  * A launch pinned to a cartridge that no longer exists must be refused at the door.
  *
- * WHAT HAPPENED. "New Feature" (run 9bdca436, 2026-08-19) was launched against gridlight. Step 1
+ * WHAT HAPPENED. "New Feature" (run 9bdca436, 2026-08-19) was launched against one cartridge. Step 1
  * "Research" died 11 seconds later with:
  *
  *     Command not delivered: agent 6b382c3d-b4a8-42d5-a735-c3f16005efc7 not found

@@ -12,12 +12,12 @@ import { filterMachinesByRepo, countRepos } from '@neoncore/client';
  * repo is checked out on several machines and picking the right copy is the entire decision.
  *
  * WHY THE MACHINE MUST SURVIVE THE FILTER. A flat list of matching repo names answers the
- * wrong question: `gridlight` exists on the Mac Pro and the MacBook, and launching in the
+ * wrong question: `atlas` exists on the Mac Pro and the MacBook, and launching in the
  * wrong one puts the cartridge on a box the user is not sitting at. So hostname is BOTH a
- * search term (type "gridlight macbook") and a required part of every rendered result.
+ * search term (type "atlas macbook") and a required part of every rendered result.
  *
  * THE SET. Not "does search work" — every rule the matcher has to obey, iterated. An
- * example-based test ("searching gridlight finds gridlight") passes on a matcher that ignores
+ * example-based test ("searching atlas finds atlas") passes on a matcher that ignores
  * paths, drops offline machines, or silently loses the hostname, which are exactly the
  * half-done versions this prevents.
  */
@@ -44,20 +44,20 @@ const m = (hostname: string, status: 'online' | 'offline', repos: [string, strin
 
 /**
  * The fleet under test. Deliberately contains the shape that motivates the feature: ONE repo
- * name (`gridlight`) checked out on two different machines, at two different paths.
+ * name (`atlas`) checked out on two different machines, at two different paths.
  */
 const FLEET: Machine[] = [
   m('mac-pro', 'online', [
-    ['gridlight', '/Users/e/code/gridlight'],
+    ['atlas', '/Users/e/code/atlas'],
     ['neoncore', '/Users/e/code/neoncore'],
     ['film-engine', '/Users/e/code/film-engine'],
   ]),
   m('macbook', 'online', [
-    ['gridlight', '/Users/e/Documents/Git/gridlight'],
+    ['atlas', '/Users/e/Documents/Git/atlas'],
     ['baseback', '/Users/e/Documents/Git/baseback'],
   ]),
   m('build-box', 'offline', [
-    ['gridlight-work', '/srv/gridlight-work'],
+    ['atlas-work', '/srv/atlas-work'],
   ]),
   m('empty-box', 'online', []),
 ];
@@ -72,42 +72,42 @@ const CASES: {
   {
     label: 'empty query changes nothing — every machine, every repo, empty one included',
     query: '',
-    expect: { 'mac-pro': ['gridlight', 'neoncore', 'film-engine'], macbook: ['gridlight', 'baseback'], 'build-box': ['gridlight-work'], 'empty-box': [] },
+    expect: { 'mac-pro': ['atlas', 'neoncore', 'film-engine'], macbook: ['atlas', 'baseback'], 'build-box': ['atlas-work'], 'empty-box': [] },
   },
   {
     label: 'whitespace-only is the same as empty, not a search for nothing',
     query: '   ',
-    expect: { 'mac-pro': ['gridlight', 'neoncore', 'film-engine'], macbook: ['gridlight', 'baseback'], 'build-box': ['gridlight-work'], 'empty-box': [] },
+    expect: { 'mac-pro': ['atlas', 'neoncore', 'film-engine'], macbook: ['atlas', 'baseback'], 'build-box': ['atlas-work'], 'empty-box': [] },
   },
   {
     label: 'a repo name on two machines keeps BOTH — this is the whole point',
-    query: 'gridlight',
-    expect: { 'mac-pro': ['gridlight'], macbook: ['gridlight'], 'build-box': ['gridlight-work'] },
+    query: 'atlas',
+    expect: { 'mac-pro': ['atlas'], macbook: ['atlas'], 'build-box': ['atlas-work'] },
   },
   {
     label: 'case-insensitive',
-    query: 'GRIDLIGHT',
-    expect: { 'mac-pro': ['gridlight'], macbook: ['gridlight'], 'build-box': ['gridlight-work'] },
+    query: 'ATLAS',
+    expect: { 'mac-pro': ['atlas'], macbook: ['atlas'], 'build-box': ['atlas-work'] },
   },
   {
     label: 'matches on PATH, not just name — how you tell two checkouts apart',
     query: 'Documents/Git',
-    expect: { macbook: ['gridlight', 'baseback'] },
+    expect: { macbook: ['atlas', 'baseback'] },
   },
   {
     label: 'hostname is a search term — "everything on the macbook"',
     query: 'macbook',
-    expect: { macbook: ['gridlight', 'baseback'] },
+    expect: { macbook: ['atlas', 'baseback'] },
   },
   {
     label: 'multi-word narrows across repo AND machine — the disambiguating search',
-    query: 'gridlight macbook',
-    expect: { macbook: ['gridlight'] },
+    query: 'atlas macbook',
+    expect: { macbook: ['atlas'] },
   },
   {
     label: 'an OFFLINE machine still matches — its folders are registered, just not launchable',
-    query: 'gridlight-work',
-    expect: { 'build-box': ['gridlight-work'] },
+    query: 'atlas-work',
+    expect: { 'build-box': ['atlas-work'] },
   },
   {
     label: 'a machine with no folders cannot match anything',
@@ -152,7 +152,7 @@ describe('+ Launch, repo search (the matcher)', () => {
 
   it('never mutates the fleet it was given', () => {
     const before = JSON.stringify(FLEET);
-    filterMachinesByRepo(FLEET, 'gridlight');
+    filterMachinesByRepo(FLEET, 'atlas');
     expect(JSON.stringify(FLEET), 'filtering mutated the source machines').toEqual(before);
   });
 });

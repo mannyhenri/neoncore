@@ -75,7 +75,7 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   // Asked for: the whole "Show" section sits with the cartridges. Both filters ask
   // "which of these am I looking at", which is a question about the grid — my first
   // pass split them, keeping status in the rail, and that was wrong.
-  { name: 'Type filter (All/Gridlight/Claude)', marker: /setTypeFilter\(/, region: 'main' },
+  { name: 'Type filter (All/Claude/Codex)', marker: /setTypeFilter\(/, region: 'main' },
   { name: 'Status filter (Working/Waiting/Idle)', marker: /setStatusFilter\(/, region: 'main' },
 
   // Asked for: Launch and New Repo come back to the top bar. They are how you START a
@@ -311,8 +311,8 @@ describe('dashboard chrome placement', () => {
     expect(R.nav.indexOf('setSettingsOpen(true)')).toBeGreaterThan(lastView);
   });
 
-  it('the chrome carries no Gridlight logo or wordmark — asked to be removed', () => {
-    expect(SRC).not.toMatch(/logo\.png|alt="Gridlight"/);
+  it('the chrome carries no logo or wordmark — asked to be removed', () => {
+    expect(SRC).not.toMatch(/logo\.png/);
     expect(SRC).not.toMatch(/font-pixel/);
   });
 

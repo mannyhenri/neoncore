@@ -123,7 +123,7 @@ describe('buildCrew — who is on site', () => {
   });
 
   it('every engine has a suit colour, and a crew member carries its engine', () => {
-    const engines: AgentType[] = ['claude', 'gridlight', 'codex'];
+    const engines: AgentType[] = ['claude', 'codex'];
     expect([...ENGINES].sort()).toEqual([...engines].sort());
     for (const e of ENGINES) {
       expect(ENGINE_COLOURS[e].suit, e).toMatch(/^#[0-9A-F]{6}$/i);

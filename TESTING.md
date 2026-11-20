@@ -2,9 +2,9 @@
 
 How to test the features added in the transcript-pipeline + MCP-coordination work:
 
-1. **Rich transcript pipeline** — full Claude/Gridlight output (text, thinking, tool I/O) + token usage captured into NeonCore
+1. **Rich transcript pipeline** — full Claude output (text, thinking, tool I/O) + token usage captured into NeonCore
 2. **Hook consolidation** — `Stop` now flows through the reporter; token tracking fixed
-3. **Gridlight extension** — displays Claude sessions + unifies its own into the pipeline
+3. **VS Code extension** — displays Claude sessions and feeds them into the pipeline
 4. **MCP coordination server** — `report_step_done` + agent task-queue tools
 5. **Task queue** — REST + MCP + dashboard UI
 6. **Workflow step-gating** — MCP-first completion with fallbacks
@@ -114,11 +114,11 @@ Rebuild + reload first:
 ```bash
 npm run extension:package     # builds extension/ ; then reload the VS Code window
 ```
-- **Config keys:** the extension exposes `neoncore.orchestratorUrl`, `neoncore.autoConnect`, and `neoncore.agentType` (no `gridlight.*` keys). Point `neoncore.orchestratorUrl` at the server and connect via the status-bar item.
+- **Config keys:** the extension exposes `neoncore.orchestratorUrl`, `neoncore.autoConnect`, and `neoncore.agentType`. Point `neoncore.orchestratorUrl` at the server and connect via the status-bar item.
 - **Display:** with the extension connected, run a Claude Code session in another window — its turns should appear read-only in the panel (text/thinking/tool blocks + a per-turn token line).
-- **Unify:** confirm transcript rows appear in `messages` (Claude sessions use `engine='claude'`; Gridlight sessions use `engine='gridlight'`):
+- **Unify:** confirm transcript rows appear in `messages` (Claude sessions use `engine='claude'`):
 ```bash
-node -e "const d=require('better-sqlite3')('./neoncore.db',{readonly:true});console.log(d.prepare(\"SELECT COUNT(*) n FROM messages WHERE engine='gridlight'\").get());"
+node -e "const d=require('better-sqlite3')('./neoncore.db',{readonly:true});console.log(d.prepare(\"SELECT COUNT(*) n FROM messages WHERE engine='claude'\").get());"
 ```
 
 ---

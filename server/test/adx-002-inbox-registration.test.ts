@@ -261,15 +261,15 @@ test('the pid cannot go stale when the relay replaces its child', () => {
 
 /* ── 5. Only an engine that HAS an addressed inbox records one ───────────── */
 
-test('an engine with no addressed inbox (codex, gridlight) never records one', async () => {
+test('an engine with no addressed inbox (codex) never records one', async () => {
   /*
    * Only Claude Code binds /tmp/cc-socks/<pid>.sock. The relay used to report its child's pid
-   * for every engine, so a Codex or Gridlight row carried an "inbox". A command dispatched in
+   * for every engine, so a Codex row carried an "inbox". A command dispatched in
    * the second before the relay's socket joined its room took the inbox branch, found no
    * socket, and marked the live cartridge interrupted and offline.
    */
   await boot();
-  for (const agentType of ['codex', 'gridlight']) {
+  for (const agentType of ['codex']) {
     const { repoPath } = await register({ agentType, inboxPid: 5151, inboxToken: 'tok-not-an-inbox-xx' });
     const row = rowFor(repoPath);
     assert.equal(Number(row.inbox_pid), 0, `${agentType} recorded an inbox pid it cannot have`);

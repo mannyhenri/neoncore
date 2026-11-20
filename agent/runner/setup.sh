@@ -110,7 +110,7 @@ pick_folders_interactive() {
 }
 
 INSTALL_DIR="$HOME/.neoncore/runner"
-SERVICE_LABEL="ai.gridlight.neoncore.runner"
+SERVICE_LABEL="com.mannyhenri.neoncore.runner"
 PLIST="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/neoncore-runner.service"

@@ -64,10 +64,6 @@ export function writeVscodeSettings(repoPath: string, agentType: string): void {
       try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch { /* overwrite */ }
     }
     settings['neoncore.agentType'] = agentType;
-    if (agentType === 'gridlight') {
-      settings['gridlight.neoncore.enabled'] = true;
-      settings['gridlight.neoncore.serverUrl'] = getServerBaseUrl();
-    }
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   } catch { /* best-effort */ }
 }
@@ -280,40 +276,15 @@ function buildRelayLaunchCommand(): string[] {
 }
 
 /**
- * Env handed to the relay (and through it, to the spawned `gridlight` CLI) for a
- * Gridlight terminal launch. NEONCORE_AGENT_CMD/TYPE tell the relay to spawn
- * gridlight and register it as a gridlight agent; the GRIDLIGHT_* vars are the
- * CLI's own contract for correlating transcript/permission reporting. Gateway
- * URL and API token are passed through only when configured on the server env,
- * so secrets are never hardcoded here.
- */
-function buildGridlightEnv(sessionId: string): Record<string, string> {
-  const neonUrl = getServerBaseUrl();
-  const env: Record<string, string> = {
-    NEONCORE_AGENT_CMD: process.platform === 'win32' ? 'gridlight.cmd' : 'gridlight',
-    NEONCORE_AGENT_TYPE: 'gridlight',
-    GRIDLIGHT_SESSION_ID: sessionId,
-    GRIDLIGHT_MACHINE_NAME: os.hostname(),
-    GRIDLIGHT_NEONCORE_URL: neonUrl,
-    GRIDLIGHT_PERMISSION_MODE: process.env.GRIDLIGHT_PERMISSION_MODE || 'auto',
-  };
-  if (process.env.GRIDLIGHT_GATEWAY_URL) env.GRIDLIGHT_GATEWAY_URL = process.env.GRIDLIGHT_GATEWAY_URL;
-  if (process.env.GRIDLIGHT_API_TOKEN) env.GRIDLIGHT_API_TOKEN = process.env.GRIDLIGHT_API_TOKEN;
-  return env;
-}
-
-/**
  * The agent-type aliases that launch through the relay, and the engine each one spawns.
  *
  * THE registry: `relayLaunchEnv` and the set-based test both iterate it, so a new engine wired
  * into `openDirectory` without an entry here fails the test rather than silently launching a
  * cartridge that can never be resumed.
  */
-export const RELAY_LAUNCH_TYPES: Record<string, 'claude' | 'gridlight' | 'codex'> = {
+export const RELAY_LAUNCH_TYPES: Record<string, 'claude' | 'codex'> = {
   'claude-terminal': 'claude',
   'claude-cli': 'claude',
-  'gridlight-terminal': 'gridlight',
-  'gridlight-cli': 'gridlight',
   'codex-terminal': 'codex',
   'codex-cli': 'codex',
 };
@@ -328,19 +299,16 @@ export const RELAY_LAUNCH_TYPES: Record<string, 'claude' | 'gridlight' | 'codex'
  */
 export function relayLaunchEnv(
   alias: string,
-  sessionId: string,
   resumeSessionId = '',
 ): Record<string, string> | null {
   // Own keys only: an agentType of 'constructor' or 'toString' arrives from request bodies.
   const type = Object.hasOwn(RELAY_LAUNCH_TYPES, alias) ? RELAY_LAUNCH_TYPES[alias] : undefined;
   if (!type) return null;
 
-  const env: Record<string, string> = type === 'gridlight'
-    ? buildGridlightEnv(sessionId)
-    : {
-      NEONCORE_AGENT_CMD: process.platform === 'win32' ? `${type}.cmd` : type,
-      NEONCORE_AGENT_TYPE: type,
-    };
+  const env: Record<string, string> = {
+    NEONCORE_AGENT_CMD: process.platform === 'win32' ? `${type}.cmd` : type,
+    NEONCORE_AGENT_TYPE: type,
+  };
 
   // A user's own terminal session must survive a broad `pkill -f agent` from an unrelated
   // cleanup script; see relayInstallDir() for the other half of that defence.
@@ -360,29 +328,21 @@ export function openDirectory(
 ): string | null {
   if (!fs.existsSync(dirPath)) return 'Path does not exist';
 
-  // Any engine that runs in a plain terminal behind the agent relay: claude, gridlight, codex.
-  // These were three near-identical branches that drifted — only gridlight ever got its engine
-  // env built properly — so they are now one lookup through RELAY_LAUNCH_TYPES. The relay
-  // self-registers and opens the addressed socket, so we don't pre-register here (that would
-  // just churn the agent's session id).
-  const relayEnv = relayLaunchEnv(
-    agentType,
-    `neoncore-${RELAY_LAUNCH_TYPES[agentType] ?? 'agent'}-${Date.now()}`,
-    opts.resumeSessionId || '',
-  );
+  // Any engine that runs in a plain terminal behind the agent relay: claude, codex.
+  // These were near-identical branches that drifted, so they are now one lookup through
+  // RELAY_LAUNCH_TYPES. The relay self-registers and opens the addressed socket, so we don't
+  // pre-register here (that would just churn the agent's session id).
+  const relayEnv = relayLaunchEnv(agentType, opts.resumeSessionId || '');
   if (relayEnv) {
-    const sessionId = relayEnv.GRIDLIGHT_SESSION_ID
-      || `neoncore-${RELAY_LAUNCH_TYPES[agentType]}-${Date.now()}`;
+    const sessionId = `neoncore-${RELAY_LAUNCH_TYPES[agentType]}-${Date.now()}`;
     // Before the terminal exists: a first-ever launch into this directory would otherwise stop
     // on Claude's folder-trust prompt, which defaults to "No, exit".
     ensureFolderTrusted(dirPath);
     return openInTerminal(dirPath, buildRelayLaunchCommand(), sessionId, relayEnv);
   }
 
-  // VS Code-based tools (claude, gridlight, codex)
-  const resolvedType = agentType === 'gridlight' ? 'gridlight'
-    : agentType === 'codex' ? 'codex'
-    : 'claude';
+  // VS Code-based tools (claude, codex)
+  const resolvedType = agentType === 'codex' ? 'codex' : 'claude';
   writeVscodeSettings(dirPath, resolvedType);
 
   return openInVsCode(dirPath) ? null : 'Failed to open VS Code. Is the "code" CLI installed?';

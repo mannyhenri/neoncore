@@ -5,7 +5,7 @@ Reference canvas (all 14 screens): https://claude.ai/artifact/2UEYxNSgz4RZWyFzSV
 reference images: `design/`.
 
 Enforced by `dashboard/src/__tests__/designGuard.test.ts`. That test fails if the retired
-Gridlight look comes back. Run it with `cd dashboard && npx vitest run designGuard`.
+violet/pink look comes back. Run it with `cd dashboard && npx vitest run designGuard`.
 
 **The iOS app follows the same design** (`mobile/src/theme.ts` holds the same tokens;
 `mobile/src/__tests__/night-glass.test.ts` is its guard). It draws the same map and deck figures
@@ -31,7 +31,7 @@ font, no sprites, no pink/purple gradients — with one exception, the World vie
 | Needs you | `ember-*` (`ember-500` = `#FF8A3D`) | |
 | Done / ok | `emerald-*` / `green-*` | `#4ADE80` |
 | Failed / danger | `red-*` | `#FF6B6B` tints |
-| Engines | Claude `#7CC4FF` · Codex `#2EE6D6` · Gridlight `#FF7AC0` | engine pills only |
+| Engines | Claude `#7CC4FF` · Codex `#2EE6D6` | engine pills only |
 
 `gray`, `violet` and `purple` are re-pointed, so code written in the old palette renders in the
 new colours. Prefer the semantic names (`neon`, `ember`, `gl-*`) in new code anyway.

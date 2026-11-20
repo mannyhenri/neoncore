@@ -5,6 +5,7 @@ import db from '../db.js';
 import { closeQuestionsAnsweredElsewhere } from './permissions.js';
 import { getIO, upgradeSocketsToAgentRoom, hasActiveSocket } from '../ws.js';
 import type { Agent, AgentType, Activity } from '../types.js';
+import { SUPPORTED_ENGINES } from '../types.js';
 import { startSession, endSession } from '../lib/session-manager.js';
 import { injectProjectContext, buildSelectiveContext } from '../lib/context-injector.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
@@ -95,7 +96,7 @@ router.post('/:id/restore', (req, res) => {
  * The precise signal exists: Claude's Stop hook asks the completion check LAST (after its
  * register / activity / transcript posts), and an ALLOWED stop means the turn is really over — a
  * blocked one keeps the agent working. Codex has no stop gate; its Stop hook posts
- * /turn-ended below as its last call. Gridlight reports `idle` itself. The idle sweep remains as
+ * /turn-ended below as its last call. The idle sweep remains as
  * the backstop for anything that never says so.
  *
  * Only `working` moves: a cartridge the completion check just marked `waiting` (it ended its turn
@@ -183,7 +184,10 @@ function normalizeRepoPath(p: string): string {
 router.post('/register', (req, res) => {
   const { name, machine, repoPath, repoName, branch, currentTask, sessionId, agentType, status: reqStatus, pendingQuestion, trustMode, model, inboxPid, inboxToken } = req.body;
   const resolvedType = agentType || 'claude';
-  // Gridlight sends its model id; persisting it is what lets the router find a profile.
+  if (!(SUPPORTED_ENGINES as readonly string[]).includes(resolvedType)) {
+    return res.status(400).json({ error: `Unsupported agent type: ${String(resolvedType)}` });
+  }
+  // An engine that sends its model id gets it persisted; that is what lets the router find a profile.
   const reportedModel = typeof model === 'string' ? model : '';
 
   /*
@@ -205,10 +209,10 @@ router.post('/register', (req, res) => {
     : null;
   const reportedInboxToken = typeof inboxToken === 'string' && inboxToken !== '' ? inboxToken : null;
   /*
-   * Only Claude Code binds that socket. Codex and Gridlight have no addressed inbox, so a pid
+   * Only Claude Code binds that socket. Codex has no addressed inbox, so a pid
    * reported for them is refused and any recorded one cleared (0 / ''): a dispatch that found no
    * relay socket would otherwise try the "inbox", find nothing, and mark the live cartridge
-   * offline — which happened to every Codex/Gridlight cartridge dispatched to while starting.
+   * offline — which happened to every Codex cartridge dispatched to while starting.
    */
   const inboxFor = (type: string) => INBOX_ENGINES.has(type)
     ? { pid: reportedInboxPid, token: reportedInboxToken }
@@ -232,9 +236,9 @@ router.post('/register', (req, res) => {
         && (a.agent_type as string) === resolvedType
     );
 
-    // No fuzzy match across agent types — each type (claude, gridlight) gets its
+    // No fuzzy match across agent types — each type (claude, codex) gets its
     // own DB record.  Hooks that omit agentType default to resolvedType='claude'
-    // and will exact-match or create a new Claude agent, never hijack a Gridlight one.
+    // and will exact-match or create a new Claude agent, never hijack a Codex one.
   }
 
   // Fallback: find by sessionId (for backward compat)
@@ -259,7 +263,7 @@ router.post('/register', (req, res) => {
         : (existing.pending_question as string) || '';  // no status provided → preserve
 
     // Preserve existing agent_type when the caller didn't explicitly set one
-    // (hooks default to 'claude' but shouldn't overwrite 'gridlight')
+    // (hooks default to 'claude' but shouldn't overwrite 'codex')
     const typeToSet = agentType ? resolvedType : (existing.agent_type as string) || resolvedType;
 
     // Auto-revive: any hook firing means this session is in use again, so a cartridge the
@@ -485,8 +489,7 @@ router.post('/message', (req, res) => {
 });
 
 // Ingest a batch of parsed transcript events (sent by the reporter hook on
-// PostToolUse/Stop/SubagentStop, and by the Gridlight extension for its own
-// sessions). Idempotent: INSERT OR IGNORE on the unique (session_id, seq) index
+// PostToolUse/Stop/SubagentStop, and by the Codex hooks for Codex sessions). Idempotent: INSERT OR IGNORE on the unique (session_id, seq) index
 // means retries / overlapping byte ranges never create duplicates.
 router.post('/transcript', (req, res) => {
   const { sessionId, machine, repoPath, engine, events: incoming, triggeredBy } = req.body as {
@@ -528,7 +531,7 @@ router.post('/transcript', (req, res) => {
   events = events.filter((e) => e?.role !== 'system');
   if (events.length === 0) return res.json({ inserted: 0 });
 
-  const KNOWN_ENGINES: TranscriptEngine[] = ['gridlight', 'codex'];
+  const KNOWN_ENGINES: TranscriptEngine[] = ['codex'];
   const resolvedEngine: TranscriptEngine = KNOWN_ENGINES.includes(engine as TranscriptEngine)
     ? (engine as TranscriptEngine)
     : 'claude';

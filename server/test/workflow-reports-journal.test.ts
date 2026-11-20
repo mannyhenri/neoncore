@@ -101,7 +101,7 @@ const SAMPLE = {
 // ── The return path ────────────────────────────────────────────────────────────────────
 
 test('a posted report is stored and readable from the journal for that repo', async () => {
-  const { stepId, runId } = runWithReportStep('gridlight-manager');
+  const { stepId, runId } = runWithReportStep('app-manager');
 
   const post = await fetch(`${base}/api/workflows/webhook/${stepId}/report`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -109,7 +109,7 @@ test('a posted report is stored and readable from the journal for that repo', as
   });
   assert.equal(post.status, 201, await post.text());
 
-  const list = await (await fetch(`${base}/api/journal/projects/gridlight-manager/reports`)).json() as
+  const list = await (await fetch(`${base}/api/journal/projects/app-manager/reports`)).json() as
     { id: string; workflowName: string; runNumber: number; status: string; report: unknown }[];
   assert.equal(list.length, 1, 'the report did not reach the journal');
   assert.equal(list[0].workflowName, 'Bug Hunter');

@@ -9,7 +9,6 @@
  * SCOPE — the signals that END a turn, one per engine that has one:
  *   · claude — the Stop hook's completion check ALLOWS the stop   (agent/hooks/reporter.py)
  *   · codex  — its Stop hook posts /api/agents/turn-ended, last   (agent/hooks/codex-reporter.py)
- *   (gridlight reports `idle` itself on register.)
  * …and the cases where the cartridge must NOT be called free: a BLOCKED stop (it keeps working),
  * a turn that ended on a question (it waits for a person), and a prompt typed by hand after the
  * turn ended (the hooks mark it working again — nothing may be typed on top of it).

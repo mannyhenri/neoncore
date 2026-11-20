@@ -29,7 +29,7 @@ unzip neoncore-full.zip && cd neoncore
 ./install-neoncore.sh
 
 # ...or from a clone:
-git clone git@github.com:GRIDLIGHT-INC/neoncore.git && cd neoncore
+git clone git@github.com:mannyhenri/neoncore.git && cd neoncore
 ./install-neoncore.sh
 ```
 

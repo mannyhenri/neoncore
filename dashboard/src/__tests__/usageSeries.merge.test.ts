@@ -171,10 +171,10 @@ describe('byProject across servers', () => {
   });
 
   it('keeps distinct repos distinct, and orders by spend', () => {
-    const a = srv([pt(0, 1)], [{ project: 'gridlight', tokens: 10, samples: 1, cartridges: 1 }]);
+    const a = srv([pt(0, 1)], [{ project: 'zephyr', tokens: 10, samples: 1, cartridges: 1 }]);
     const b = srv([pt(0, 1)], [{ project: 'neoncore', tokens: 90, samples: 1, cartridges: 1 }]);
     const merged = mergeSeries([from('a', a), from('b', b)], 'hour', 7);
-    expect(merged.byProject.map((p) => p.project)).toEqual(['neoncore', 'gridlight']);
+    expect(merged.byProject.map((p) => p.project)).toEqual(['neoncore', 'zephyr']);
   });
 
   it('a server that answered with no projects contributes nothing rather than breaking', () => {

@@ -389,7 +389,7 @@ function getLocalIP(): string {
   return 'localhost';
 }
 
-// Graceful port-conflict handling for Gridlight deployment
+// Graceful port-conflict handling
 server.on('error', async (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     try {

@@ -1164,7 +1164,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           {(deferredPopup.launchConfig?.options.length ?? 0) > 0 && (
             <div className="space-y-3 border border-emerald-500/20 bg-emerald-500/[0.04] rounded-lg p-3">
               <div>
-                <span className="text-[13px] text-emerald-300 font-medium">Gridlight QA options</span>
+                <span className="text-[13px] text-emerald-300 font-medium">QA launch options</span>
                 <p className="text-[12px] text-gray-500 mt-0.5">These selections are passed directly to the QA script.</p>
               </div>
               {deferredPopup.launchConfig!.options
@@ -1767,16 +1767,16 @@ function PhaseDetails({ phase, players, agents }: { phase: Workflow['phases'][0]
         const hasResult = !!result;
         const hasError = result?.error;
         const agentData = player.agentId ? agents?.find((a) => a.id === player.agentId) : undefined;
-        const isGridlight = agentData?.agentType === 'gridlight';
+        const isCodex = agentData?.agentType === 'codex';
 
         const badge = player.playerType === 'vscode-agent'
-          ? (isGridlight ? 'GL' : 'CC')
-          : player.playerType === 'openai' ? 'OAI' : 'GL';
+          ? (isCodex ? 'CX' : 'CC')
+          : player.playerType === 'openai' ? 'OAI' : 'API';
 
         const badgeColor = player.playerType === 'vscode-agent'
-          ? (isGridlight ? 'text-pink-400' : 'text-blue-400')
+          ? (isCodex ? 'text-teal-400' : 'text-blue-400')
           : player.playerType === 'openai' ? 'text-green-400'
-          : 'text-pink-400';
+          : 'text-gray-400';
 
         return (
           <div key={player.id} className="flex items-center gap-2 text-xs">

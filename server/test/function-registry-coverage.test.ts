@@ -6,7 +6,7 @@ import path from 'path';
 /**
  * The routing design is only as good as its coverage of what agents ACTUALLY do.
  *
- * This derives the function set from SOURCE — the tool registry, the executor-type
+ * This derives the function set from SOURCE — the executor-type
  * union, the confer milestone definitions, the MCP tool list — and asserts that
  * docs/local-model-routing.md assigns every member a capability tier. It does NOT
  * read the expected set from the document, because a document that lists its own
@@ -22,18 +22,10 @@ import path from 'path';
  */
 
 const NEONCORE = path.resolve(import.meta.dirname, '../..');
-const GRIDLIGHT = path.resolve(NEONCORE, '../vscode-extension');
 const DOC = path.join(NEONCORE, 'docs/local-model-routing.md');
 
 const read = (p: string) => fs.readFileSync(p, 'utf8');
 const exists = (p: string) => fs.existsSync(p);
-
-/** Gridlight's agent tools — what the model can actually invoke. */
-function gridlightTools(): string[] {
-  const f = path.join(GRIDLIGHT, 'packages/core/src/agent/agentTools.ts');
-  if (!exists(f)) return [];
-  return [...new Set([...read(f).matchAll(/^\s+name: '([a-z_]+)'/gm)].map((m) => m[1]))];
-}
 
 /** Workflow step executor types — what a workflow node can be. */
 function executorTypes(): string[] {
@@ -78,7 +70,6 @@ interface Fn { id: string; source: string }
 
 function registry(): Fn[] {
   return [
-    ...gridlightTools().map((id) => ({ id, source: 'agentTools.ts' })),
     ...executorTypes().map((id) => ({ id, source: 'types.ts StepExecutorType' })),
     ...conferMilestones().map((id) => ({ id, source: 'confer-conductor.ts' })),
     ...mcpTools().map((id) => ({ id, source: 'mcp-server.ts' })),
@@ -103,11 +94,10 @@ function coveredTier(doc: string, id: string): string | null {
 
 test('the function registry is non-empty and derived from source', () => {
   const r = registry();
-  assert.ok(gridlightTools().length >= 10, `expected gridlight tools, got ${gridlightTools().length}`);
   assert.ok(executorTypes().length >= 5, `expected executor types, got ${executorTypes().length}`);
   assert.ok(conferMilestones().length >= 5, `expected confer milestones, got ${conferMilestones().length}`);
   assert.ok(mcpTools().length >= 5, `expected mcp tools, got ${mcpTools().length}`);
-  console.log(`\nfunction registry: ${r.length} functions from 4 source registries`);
+  console.log(`\nfunction registry: ${r.length} functions from 3 source registries`);
 });
 
 test('every function in the registry has a capability tier in the routing table', () => {

@@ -16,7 +16,6 @@ interface Props {
 const LAUNCH_OPTIONS: { type: string; label: string }[] = [
   { type: 'claude-terminal', label: 'Claude · Terminal' },
   { type: 'claude',    label: 'Claude · VS Code' },
-  { type: 'gridlight', label: 'Gridlight' },
   { type: 'codex-terminal', label: 'Codex · Terminal' },
   { type: 'codex',    label: 'Codex · VS Code' },
 ];

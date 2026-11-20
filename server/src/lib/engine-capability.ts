@@ -207,7 +207,7 @@ const f = (id: string, tier: Tier, latency: Latency, source: AgentFunction['sour
   ({ id, tier, latency, source });
 
 export const FUNCTIONS: AgentFunction[] = [
-  // --- Gridlight agent tools (packages/core/src/agent/agentTools.ts) ---
+  // --- Local agent tools ---
   f('read_file', 'T1-READ', 'interactive', 'agentTools'),
   f('list_files', 'T1-READ', 'interactive', 'agentTools'),
   f('search_code', 'T1-READ', 'interactive', 'agentTools'),

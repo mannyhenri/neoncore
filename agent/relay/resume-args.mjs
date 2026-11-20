@@ -20,10 +20,10 @@
  * Reading it would turn every cold launch into `claude --resume neoncore-claude-1757...` and
  * break them all. `NEONCORE_RESUME_SESSION_ID` means one thing only: resume THIS real session.
  *
- * A NULL ENTRY IS A DECISION, NOT A GAP. `gridlight` is listed and set to null because its CLI
- * has no resume flag — not because nobody got to it. Inventing a flag opens a terminal that
- * dies on an unknown argument, which is worse than a cold start, and a missing key would let a
- * future engine fall through to claude's flags by accident.
+ * A NULL ENTRY IS A DECISION, NOT A GAP. An engine whose CLI has no resume flag is listed and
+ * set to null — not left out. Inventing a flag opens a terminal that dies on an unknown
+ * argument, which is worse than a cold start, and a missing key would let a future engine fall
+ * through to claude's flags by accident.
  */
 
 /**
@@ -41,11 +41,6 @@ export const RESUME_ARGS = {
   // `--resume` here would be an unknown-option exit, so the shape genuinely differs per engine
   // and this table cannot collapse into a single string.
   codex: (id) => ['resume', id],
-
-  // The gridlight CLI has no resume of any kind. Verified: no `--resume` anywhere in its source
-  // tree, and its `agent/` is a Rust inference binary rather than a resumable coding session.
-  // A gridlight cartridge therefore falls back to transcript replay, which still works.
-  gridlight: null,
 };
 
 /**
@@ -113,8 +108,6 @@ export const TRANSCRIPT_LOCATORS = {
   // guessing a path that silently never matches would downgrade every codex resume to cold
   // while looking like it worked. Explicit resume still passes through.
   codex: null,
-  // No resume at all, so nothing to locate. See RESUME_ARGS above.
-  gridlight: null,
 };
 
 /** True only when this engine's transcript for `sessionId` is confirmed present on this disk. */

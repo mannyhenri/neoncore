@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join, relative } from 'node:path';
 
 /**
- * THE RETIRED GRIDLIGHT LOOK MUST NOT COME BACK.
+ * THE RETIRED PRE-NIGHT-GLASS LOOK MUST NOT COME BACK.
  *
  * The dashboard moved to Night Glass (docs/DESIGN.md) on 2026-11-18. Feature drops from other
  * developers are still written against the old look, and applying one is exactly how the old
@@ -34,13 +34,13 @@ function walk(dir: string, out: string[] = []): string[] {
 const FILES = [...walk(resolve(DASH, 'src')), resolve(DASH, 'index.html')];
 
 const RULES: { name: string; pattern: RegExp; instead: string }[] = [
-  { name: 'Gridlight logo / wordmark image', pattern: /logo\.png|name_grid\.png|alt="Gridlight"/, instead: 'no logo in the chrome — the view title leads the top bar' },
+  { name: 'old logo / wordmark image', pattern: /logo\.png|name_grid\.png/, instead: 'no logo in the chrome — the view title leads the top bar' },
   { name: 'blurred background image', pattern: /background\.png/, instead: 'the page is plain bg-ink (#04060C)' },
   { name: 'pixel font', pattern: /font-pixel|Press Start 2P/, instead: 'font-display (Space Grotesk) for titles, font-mono for code' },
   { name: 'cartridge sprites', pattern: /lib\/sprites|drawSprite|SPRITES\b/, instead: 'Night Glass cartridge cards have no sprites' },
   { name: 'CRT scanlines', pattern: /repeating-linear-gradient\(\s*0deg/, instead: 'no scanline overlay' },
   { name: 'old gl background / surface hex', pattern: /#0f0f23|#1a1a2e|#252542|#12121a|#0d0d14/i, instead: 'bg-ink, bg-gl-surface, bg-gl-elevated, bg-gl-code' },
-  { name: 'old pink / purple / brand hex', pattern: /#ec4899|#a855f7|#c084fc|#9333ea|#e91e63|#2196f3/i, instead: 'neon-* for accents, ember-* for needs-you; Gridlight pink #FF7AC0 only on engine pills' },
+  { name: 'old pink / purple / brand hex', pattern: /#ec4899|#a855f7|#c084fc|#9333ea|#e91e63|#2196f3/i, instead: 'neon-* for accents, ember-* for needs-you' },
 ];
 
 describe('Night Glass design guard', () => {

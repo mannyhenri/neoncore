@@ -134,7 +134,7 @@ approval id. It never validates a requester's payload and never re-checks whethe
 still valid for its inputs: only the requester knows what its inputs are.
 
 Also: **stop coercing unknown agent types.** `NEONCORE_AGENT_TYPE` defaults to `codex` and an
-unrecognised value is silently accepted (`docs/gridlight-strategy.md:253`), which is how any
+unrecognised value is silently accepted, which is how any
 non-Claude, non-Codex worker ends up mislabelled on the grid. Accept arbitrary types and record
 them as given.
 

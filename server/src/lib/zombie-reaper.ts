@@ -52,12 +52,11 @@ export const SILENT_ZOMBIE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
  *  - claude    → agent/hooks/reporter.py posts /api/agents/session-end on SessionEnd.
  *                (The reporter.sh fallback does not, so claude stays on the LONG window:
  *                when unsure, never reap early.)
- *  - gridlight → holds a socket; ws.ts marks it offline on disconnect.
  *
  * Everything else is hooks-only with no session-end path. Verify before adding a type
  * here: `grep -l session-end agent/hooks/*`.
  */
-export const DEATH_REPORTING_TYPES = new Set(['claude', 'gridlight']);
+export const DEATH_REPORTING_TYPES = new Set(['claude']);
 
 export function zombieThresholdFor(agentType: string | null | undefined): number {
   const type = (agentType || 'claude').toLowerCase();
@@ -68,7 +67,7 @@ export function zombieThresholdFor(agentType: string | null | undefined): number
     : SILENT_ZOMBIE_THRESHOLD_MS;
 }
 
-const KNOWN_TYPES = new Set(['claude', 'gridlight', 'codex']);
+const KNOWN_TYPES = new Set(['claude', 'codex']);
 function isKnownType(type: string): boolean {
   return KNOWN_TYPES.has(type);
 }

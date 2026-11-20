@@ -35,7 +35,6 @@ route by design, and APNs keys are environment paths that are never read into th
 |---|---|
 | `.neoncore/sessions/journal.md` | 1,844 lines of session forensics |
 | `.neoncore/unsupervised-log.md` | 476 lines of decisions made autonomously while you were out |
-| `docs/gridlight-strategy.md` | 364 lines of business strategy |
 | `todos/`, `docs/plans/`, `docs/brainstorms/`, `docs/research/` | in-flight planning |
 | `eval/` (42 files), `.agents/` (28 files) | internal harness and agent skills |
 
@@ -60,17 +59,16 @@ It still instructs `npx expo install`, `npx expo start`, Expo Go and EAS/OTA upd
 Two docs in the same folder contradict each other, and a contributor following the README will hit
 a wall immediately. **Rewrite it against RELEASE.md.**
 
-### 3. `DEVELOPMENT_TEAM = 3AXRJ22S9P` is hardcoded
+### 3. `DEVELOPMENT_TEAM` is empty
 
-In `mobile/ios/NeonCore.xcodeproj/project.pbxproj` (2 configurations). Not a secret — Team IDs are
-public — but every contributor's build fails until they change it. Move it to a local xcconfig, or
-document it prominently as a required one-line edit.
+In `mobile/ios/NeonCore.xcodeproj/project.pbxproj` (2 configurations). Every builder picks their own
+Apple team in Xcode before building to a device; document that as a required step.
 
 ---
 
 ## ⚠️ Should fix before launch
 
-- **Bundle identifier** `ai.gridlight.neoncore` is yours. Contributors need their own to build to
+- **Bundle identifier** `com.mannyhenri.neoncore` is yours. Contributors need their own to build to
   a device; document it next to the team ID.
 - **README/docs currency** — the root README has been rewritten; `FEATURES.md`, `INSTALL.md`,
   `SETUP.md` and `TESTING.md` still reference the old structure in places. Read them once each.
@@ -78,8 +76,6 @@ document it prominently as a required one-line edit.
   be your most common report; prompt for the baked-in URL and `/api/health` output up front.
 - **CI** — nothing runs on PRs today. A minimal GitHub Action (`npm test` in each workspace plus
   `tsc --noEmit`) means a stranger's PR proves itself.
-- **`gridlight.json`** packages NeonCore as a Gridlight desktop app. Harmless, but explain it or
-  drop it from the public tree — it reads as a stray file otherwise.
 - **A `CHANGELOG.md`** — you're at 0.7.0 with no public record of what changed.
 
 ---
