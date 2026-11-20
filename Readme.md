@@ -398,8 +398,6 @@ docs/          Feature docs, images, the work standard
 
 ## Contributing
 
-Contributions welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
-
 Every change follows **[docs/WORK-STANDARD.md](docs/WORK-STANDARD.md)**: enumerate the complete set
 from the code, write a test that fails on a partial fix, fix the whole set, and paste real output.
 It is enforced by hooks, not by good intentions. (This copy ships without the test suites.)
