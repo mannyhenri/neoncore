@@ -754,7 +754,7 @@ export function createClient(config: ClientConfig = {}) {
   removeFeatureFile: (goalId: string, fileId: string) => request<void>(`/goals/${goalId}/files/${fileId}`, { method: 'DELETE' }),
   /** A cartridge's full final answer, read from its transcript (server lib/final-answer.ts). */
   getFinalAnswer: (agentId: string) => request<import('./types').FinalAnswer>(`/agents/${agentId}/final-answer`),
-  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; projectId?: string; replace?: boolean; files?: import('./types').CommandAttachmentInput[] }) =>
+  createGoalPilot: (data: { intake: Record<string, string>; plannerAgentId: string; goalId?: string; projectId?: string; replace?: boolean; files?: import('./types').CommandAttachmentInput[]; repos?: string[] }) =>
     request<{ pilot: import('./types').GoalPilot; goalId: string; queued: boolean; error: string | null }>(
       '/goal-pilots', { method: 'POST', body: JSON.stringify(data) },
     ),
@@ -775,8 +775,15 @@ export function createClient(config: ClientConfig = {}) {
   reviseGoalPilotPlan: (id: string) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/revise`, { method: 'POST' }),
   /** `assignments`: stage key → repo path, or → several repo paths for a stage worked together (Confer). */
-  startGoalPilot: (id: string, data: { repos: { repoPath: string; agentType: string }[]; assignments: Record<string, string | string[]> }) =>
+  startGoalPilot: (id: string, data: { repos: { repoPath: string; agentType: string }[]; assignments: Record<string, string | string[]>; isolate?: boolean }) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/start`, { method: 'POST', body: JSON.stringify(data) }),
+  /** Every running or paused feature, as the world map draws it. */
+  getActiveFeatures: () => request<import('./types').ActiveFeature[]>('/goal-pilots/active'),
+  /** Push a feature's branches and open its PRs now (server lib/feature-workspace.ts). */
+  openFeaturePrs: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace/prs`, { method: 'POST' }),
+  /** After merge: end the feature's worktree cartridges and remove the worktrees (`force` = even unmerged). */
+  cleanupFeatureWorkspace: (id: string, force = false) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace/cleanup`, { method: 'POST', body: JSON.stringify({ force }) }),
   pauseGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/pause`, { method: 'POST' }),
   resumeGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/resume`, { method: 'POST' }),
   cancelGoalPilot: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/cancel`, { method: 'POST' }),

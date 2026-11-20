@@ -13,6 +13,7 @@ import { seedInvestigation } from './investigation.js';
 import { seedEpics } from './epics.js';
 import { seedReviews } from './reviews.js';
 import { seedCompoundEngineering } from './compound-engineering.js';
+import { seedPrConflicts } from './pr-conflicts.js';
 
 /**
  * The standard templates, by name. Exported so the id-stability test iterates the real
@@ -23,7 +24,7 @@ import { seedCompoundEngineering } from './compound-engineering.js';
 // (the executor falls back to `description || name`). They looked like the real templates in the
 // picker, which is most of why the list read as convoluted. Both are in `deprecatedNames` below
 // so they are deleted from existing databases too, not merely unlisted.
-export const STANDARD_TEMPLATE_NAMES = ['Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Super QA', 'Bug Investigation', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound'] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Super QA', 'Bug Investigation', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'Resolve PR Conflicts'] as const;
 
 /**
  * Templates launched WITHOUT the auto-added Work Standard Check (workflows.standard_gate = 'off').
@@ -149,6 +150,7 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   seedEpics(kit);
   seedReviews(kit);
   seedCompoundEngineering(kit);
+  seedPrConflicts(kit);
 
   const noGate = db.prepare("UPDATE workflows SET standard_gate = 'off' WHERE name = ? AND template_id IS NULL");
   for (const name of NO_STANDARD_GATE_TEMPLATES) noGate.run(name);

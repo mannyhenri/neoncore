@@ -11,6 +11,8 @@
  */
 import { Router, type Response } from 'express';
 import { addFeatureFiles, FeatureFileError } from '../lib/feature-files.js';
+import { featureWorktreePaths, cleanupWorkspace } from '../lib/feature-workspace.js';
+import { activeFeatures } from '../lib/active-features.js';
 import db from '../db.js';
 import { cartridgeExists } from '../lib/cartridge-exists.js';
 import { normalizeRepoPath } from '../lib/resolve-agent.js';
@@ -21,7 +23,7 @@ import {
 } from '../lib/goal-pilot.js';
 import {
   PILOT_ENGINES, dispatchPlannerRequest, retryPlannerRequest, startPilot, pausePilot, resumePilot, cancelPilot,
-  retryStage, skipStage, pilotView, emitPilotUpdate, announcePilot, ACCEPTANCE_STAGE_KEY, REVIEW_STAGE_KEY,
+  retryStage, skipStage, pilotView, emitPilotUpdate, announcePilot, ACCEPTANCE_STAGE_KEY, REVIEW_STAGE_KEY, openPrsAndTell,
 } from '../lib/goal-pilot-runner.js';
 import { templateCatalogue } from '../lib/goal-pilot-prompts.js';
 import { availableTemplates } from '../lib/goal-decomposition.js';
@@ -90,7 +92,10 @@ router.get('/candidates', (req, res) => {
     if (!byRepo.has(key)) byRepo.set(key, { repoPath, repoName: repoName || repoPath.split(/[\\/]/).pop() || repoPath, machine, owned: false, engines: [] });
     return byRepo.get(key)!;
   };
+  // A feature's worktree is where THAT feature works, not a repo to build the next one in.
+  const worktrees = featureWorktreePaths();
   for (const a of agents) {
+    if (worktrees.has(normalizeRepoPath(a.repo_path))) continue;
     const e = entry(a.repo_path, a.repo_name, a.machine);
     if (e.engines.some((x) => x.agentType === a.agent_type)) continue;   // newest per engine wins (ORDER BY last_seen)
     e.engines.push({ agentType: a.agent_type, agentId: a.id, status: a.status, name: a.name });
@@ -104,6 +109,11 @@ router.get('/candidates', (req, res) => {
     Number(b.owned) - Number(a.owned)
     || Number(b.engines.some((e) => e.status !== 'offline')) - Number(a.engines.some((e) => e.status !== 'offline'))
     || a.repoName.localeCompare(b.repoName)));
+});
+
+/** Every running or paused feature, as the world map draws it (lib/active-features.ts). */
+router.get('/active', (_req, res) => {
+  res.json(activeFeatures());
 });
 
 router.get('/', (req, res) => {
@@ -210,8 +220,10 @@ router.get('/:id', (req, res) => {
  * Dispatches the first scoping request to the planner cartridge.
  */
 router.post('/', (req, res) => {
-  const { intake: rawIntake, goalId, projectId, plannerAgentId, replace, files } = (req.body ?? {}) as {
+  const { intake: rawIntake, goalId, projectId, plannerAgentId, replace, files, repos: rawRepos } = (req.body ?? {}) as {
     intake?: unknown; goalId?: string; projectId?: string; plannerAgentId?: string; replace?: boolean;
+    /** The project's repos this feature involves ([] or absent = all of them). */
+    repos?: unknown;
     /** Files for the feature (lib/feature-files.ts) — stored before the first scoping request, so it carries them. */
     files?: unknown;
   };
@@ -258,7 +270,8 @@ router.post('/', (req, res) => {
       }
     }
 
-    const pilot = createPilotRow({ goalId: gid, plannerAgentId, intake });
+    const featureRepos = Array.isArray(rawRepos) ? [...new Set(rawRepos.map((r) => String(r ?? '').trim()).filter(Boolean))] : [];
+    const pilot = createPilotRow({ goalId: gid, plannerAgentId, intake, featureRepos });
     const out = dispatchPlannerRequest(pilot.id, 'scope');
     res.status(201).json({ pilot: view(pilot.id), goalId: gid, queued: out.queued, error: out.error ?? null });
   } catch (err) { fail(res, err); }
@@ -301,11 +314,25 @@ router.post('/:id/revise', (req, res) => {
 
 router.post('/:id/start', (req, res) => {
   try {
-    const { repos, assignments } = (req.body ?? {}) as { repos?: unknown; assignments?: unknown };
-    const pilot = startPilot(req.params.id, { repos, assignments });
+    const { repos, assignments, isolate } = (req.body ?? {}) as { repos?: unknown; assignments?: unknown; isolate?: unknown };
+    const pilot = startPilot(req.params.id, { repos, assignments, isolate });
     res.json(view(pilot.id));
   } catch (err) { fail(res, err); }
 });
+
+/** Push the feature's branches and open its PRs now (they open by themselves when the pipeline ends). */
+router.post('/:id/workspace/prs', asyncRoute(async (req, res) => {
+  if (!getPilot(req.params.id)?.workspace) return res.status(404).json({ error: 'this feature does not run on its own branch' });
+  await openPrsAndTell(req.params.id);
+  res.json(view(req.params.id));
+}));
+
+/** After a merge: end the worktrees' cartridges and remove the worktrees (`force` = even unmerged). */
+router.post('/:id/workspace/cleanup', asyncRoute(async (req, res) => {
+  if (!getPilot(req.params.id)?.workspace) return res.status(404).json({ error: 'this feature does not run on its own branch' });
+  await cleanupWorkspace(req.params.id, { force: req.body?.force === true });
+  res.json(view(req.params.id));
+}));
 
 router.post('/:id/pause', (req, res) => {
   try { res.json(view(pausePilot(req.params.id).id)); } catch (err) { fail(res, err); }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-NeonCore seeds **21 workflow templates** on every server boot (`server/src/lib/templates/`). They
+NeonCore seeds **22 workflow templates** on every server boot (`server/src/lib/templates/`). They
 appear in the **Workflows** panel under **Templates**, filed under six tabs: Strategy, Plan, Dev,
 Quality, Delivery and Learn. Run any of them as many times as you like on any cartridge or project,
 or build your own with **+ New Workflow** in the canvas editor.
@@ -88,6 +88,10 @@ Standard Check** — see [below](#the-work-standard-check-and-the-completion-rep
   and configuration, support runbook, in `docs/release/<version>/`.
 - **CE: Phase 6 — Ship** — document the release → merge approval → land and deploy → 10-minute
   canary → your decision (all clear, roll back or hotfix).
+- **Resolve PR Conflicts** — run it on its own on a feature branch whose PR conflicts with its base
+  (features built side by side, then merged one after the other): bring the base in → resolve
+  keeping both sides' intent → re-test (failures loop back) → push and comment on the PR. Never
+  force-pushes, never merges.
 
 **Learn**
 - **CE: Phase 7 — Compound** — capture what the feature taught: compound doc, `CLAUDE.md` updates,
@@ -128,14 +132,25 @@ Scope the Work → Confer & Build → Verify Coverage → Work Standard Check �
 2. **Confer & Build.** The participants agree one plan, give every task exactly one owner, agree the
    interface between repos first, and build in rounds, each in its own repo, one commit per task,
    marking each task DONE in the progress document. **The number of build rounds comes from the
-   task count**: two tasks per participant per round, up to 20 (three only when no count could be
-   read). A 40-task epic on two cartridges gets 10 rounds, not 3.
+   task count**: two tasks per participant per round, **capped at 2** (a step can raise the cap
+   with `maxBuildRounds`); what two rounds leave open, the coverage check sends back.
+   **Each participant does only its own part**: a task that is a day of backend work and one line
+   of frontend is a day for one and one line for the other, and a participant with nothing in a
+   step says so and signals at once rather than waiting.
+   **The confer runs only the steps that are its job**: agree → build → land. The merge step
+   (Converge) runs only when two participants share one repo; the Cross-review step is left out
+   when the run is a stage of a feature pipeline that has a QA or review stage after it.
+   **Nobody is waited on in silence**: a cartridge that is working, or waiting on you, is left
+   alone; one that is idle and has not signalled is reminded every 8 minutes, and after two
+   reminders with no answer it is *presumed done* — the confer moves on, the session says so, and
+   the coverage check catches anything it did not finish.
 3. **Verify Coverage** (one cartridge) checks every task is owned and done, every suite is green and
    the shared interface matches on both sides, and reports `COVERAGE: <done>/<total>` with the
    open tasks. A task whose suite is red or whose interface does not match is not done. The engine
    reads that line — see [Task-list runs](#task-list-runs-every-task-and-where-to-watch): tasks
    open → a **fresh confer session on what is left**, handed the open list, its rounds sized to
-   it; no progress → the run waits for you.
+   it — or, when only **one or two tasks** are open, no confer at all: they go as a single step
+   straight to the cartridge whose repo owns them. No progress → the run waits for you.
 
 ### Super QA
 

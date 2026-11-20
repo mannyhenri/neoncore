@@ -114,6 +114,14 @@ project still gets a project per repo created under it, as before.)
 leaves its participants to the launch) are staffed with two or more of the chosen repos; by default
 every chosen repo. The stage starts once every participant's cartridge is running and free.
 
+**One job per stage, each job once.** A build stage builds and a QA stage (Super QA) tests and
+reviews; the planner is told not to plan two stages for the same job. Each stage's context says
+which job is its own ("this stage builds" / "this stage reviews"), and a Confer stage that has a
+QA, review or audit stage after it runs **without its Cross-review step** — the later stage reads
+the diff, once (`stage-steps.ts laterStageReviews`). See WORKFLOWS.md → Confer for the rest of how a
+Confer stage is kept short (two build rounds at most, leftover tasks straight to their owner, no
+waiting on a silent cartridge).
+
 A stage names a **repo + engine, not a cartridge id**: cartridge ids change every time a
 cartridge restarts, and a pipeline outlives many restarts. The live cartridge is resolved when
 each stage starts.
@@ -153,6 +161,39 @@ stage is waiting for a cartridge that is not running — and once when everythin
 stage waiting on a decision or a held step is announced by the same attention notices every run
 gets; a held step can be released with **Advance** right in the pipeline, and under Balanced or
 Hands-off it is released at once by the run's posture.
+
+## Features side by side — a branch, a worktree and a cartridge per repo
+
+**Which repos.** The questions that start a feature list the project's repos, all ticked: untick the
+ones this feature does not touch. The planner is told only those ("Repos for THIS feature", the rest
+"not part of this feature, leave them alone"), and staffing starts from the same choice.
+
+**Its own branch** (staffing → *Work on its own branch*, ticked by default). When the pipeline starts,
+every chosen repo gets:
+
+| | |
+|---|---|
+| a branch | `feature/<slug>`, started from the repo's default branch (origin's HEAD, else `main`/`master`); a slug another feature already uses gets a suffix |
+| a worktree | `../<repo>-feature-<slug>`, on that branch |
+| a cartridge | launched in the worktree (the same launcher as New Repo). Every stage, the acceptance tests and the review of this feature run there — so a second feature on the same repos runs at the same time, in its own worktrees, with its own cartridges |
+
+Each stage is told its branch: commit there, do not switch branches, do not merge, do not open a PR.
+The project keeps listing the real repos; feature worktrees are never offered as repos to build in.
+
+**PRs.** When the pipeline finishes, NeonCore pushes the branch and opens a PR into the base in every
+repo that has commits on it (with `gh`); each PR names its sibling PRs in the other repos. A repo with
+nothing on the branch is named, not given an empty PR; uncommitted changes left in a worktree are
+reported, never committed for the agent. **It never merges** — you do. *Open PRs now* on the pipeline
+does it early (or again).
+
+**After merging.** *Clean up merged* ends each merged repo's worktree cartridge (`/exit`) and removes
+its worktree; an unmerged one is left alone.
+
+**Conflicts.** The second feature to merge can conflict with the first: run the **Resolve PR
+Conflicts** workflow on its branch — base in → resolve keeping both sides → re-test → push and comment
+on the PR (never force-pushes, never merges).
+
+Through the API, isolation is opt-in: `POST /api/goal-pilots/:id/start` with `isolate: true`.
 
 ## The acceptance contract
 
@@ -274,12 +315,12 @@ A rejected submission is answered with the reason so the planner can submit agai
 | `GET /api/goal-pilots/meta` | The registries: intake questions, involvement levels, brief fields, engines, limits, templates |
 | `GET /api/goal-pilots?goalId=` | Pilots (with stages, current request, live run progress and attention) |
 | `GET /api/goal-pilots/candidates?goalId=` | Repos a pipeline can run in, with the engines seen there |
-| `POST /api/goal-pilots` | `{ intake, plannerAgentId, goalId?, replace?, files? }` — start; creates the goal when `goalId` is absent; `files` are kept with the feature before the first scoping request |
+| `POST /api/goal-pilots` | `{ intake, plannerAgentId, goalId?, replace?, files?, repos? }` — start; creates the goal when `goalId` is absent; `files` are kept with the feature before the first scoping request |
 | `POST /api/goal-pilots/:id/answers` | `{ answers: { [questionId]: { value, delegated? } } }` |
 | `POST /api/goal-pilots/:id/retry` | `{ agentId? }` — ask the planner again (optionally another one) |
 | `POST /api/goal-pilots/:id/accept-plan` | `{ brief, stages, criteria }` — the only write from planner output to the goal; freezes the criteria |
 | `POST /api/goal-pilots/:id/revise` | back from staffing to the plan |
-| `POST /api/goal-pilots/:id/start` | `{ repos: [{ repoPath, agentType }], assignments: { [stageKey]: repoPath } }` |
+| `POST /api/goal-pilots/:id/start` | `{ repos: [{ repoPath, agentType }], assignments: { [stageKey]: repoPath }, isolate? }` — `isolate: true` = its own branch, a worktree + cartridge per repo |
 | `POST /api/goal-pilots/:id/pause` · `/resume` · `/cancel` | steer the pipeline (and its current run) |
 | `POST /api/goal-pilots/:id/stages/:stageId/retry` · `/skip` | recover a stage |
 | `GET /api/goal-pilots/requests/:requestId` | a planner request, including the prompt it was sent |
@@ -297,6 +338,8 @@ A rejected submission is answered with the reason so the planner can submit agai
 | `DELETE /api/goal-pilots/:id` | delete the record (a live pipeline is cancelled first) |
 | `GET/POST /api/goals/:id/files` | The feature's files; add `{ files: [{ name, mimeType, size, dataBase64 }] }` |
 | `GET/DELETE /api/goals/:id/files/:fileId` | Download / remove one |
+| `POST /api/goal-pilots/:id/workspace/prs` | Push the feature's branches and open its PRs now |
+| `POST /api/goal-pilots/:id/workspace/cleanup` | `{ force? }` — end the worktree cartridges and remove the worktrees whose PRs merged |
 
 Socket event: `goal_pilot_updated { id }` whenever a pilot changes.
 

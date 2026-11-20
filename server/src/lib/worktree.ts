@@ -16,6 +16,8 @@ export function createWorktree(
   repoPath: string,
   branch: string,
   worktreePath?: string,
+  /** Where a NEW branch starts (e.g. 'main'); absent = the repo's current HEAD. */
+  base?: string,
 ): { path: string; branch: string } {
   const repoName = path.basename(repoPath);
   const sanitizedBranch = branch.replace(/[^a-zA-Z0-9._-]/g, '-');
@@ -30,7 +32,8 @@ export function createWorktree(
   try {
     execFileSync('git', ['worktree', 'add', targetPath, branch], opts);
   } catch {
-    execFileSync('git', ['worktree', 'add', '-b', branch, targetPath], opts);
+    if (base?.startsWith('-')) throw new Error(`invalid base: ${base}`);
+    execFileSync('git', ['worktree', 'add', '-b', branch, targetPath, ...(base ? [base] : [])], opts);
   }
   return { path: targetPath, branch };
 }
