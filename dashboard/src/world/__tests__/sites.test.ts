@@ -97,19 +97,9 @@ describe('world plates and placement', () => {
     expect(tooClose).toEqual([]);
   });
 
-  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: has rest spots on the plate, clear of each other and of every work site', ({ plate }) => {
-    expect(plate.rest.length).toBeGreaterThanOrEqual(3);
-    expect(new Set(plate.rest.map((r) => r.id)).size).toBe(plate.rest.length);
-    const tooClose: string[] = [];
-    for (const [i, r] of plate.rest.entries()) {
-      expect(r.x).toBeGreaterThan(0.03); expect(r.x).toBeLessThan(0.97);
-      expect(r.y).toBeGreaterThan(0.2); expect(r.y).toBeLessThan(0.95);
-      for (const other of [...plate.sites, ...plate.rest.slice(i + 1)]) {
-        const gap = Math.hypot((r.x - other.x) / plate.spacing.x, (r.y - other.y) / plate.spacing.y);
-        if (gap < 0.7) tooClose.push(`${r.id}/${other.id} (${gap.toFixed(2)})`);
-      }
-    }
-    expect(tooClose).toEqual([]);
+  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: no benches and no seats — an idle agent stays at its building', ({ plate }) => {
+    expect(plate.structures.filter((st) => st.sprite === 'bench' || /bench/.test(st.id)).map((st) => st.id)).toEqual([]);
+    expect(plate.rest.map((r) => r.id)).toEqual([]);
   });
 
   it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: every district has somewhere to work, and every placed thing names a real district', ({ plate }) => {
@@ -124,7 +114,6 @@ describe('world plates and placement', () => {
       expect(plate.sites.filter((s) => s.district === d).length, `${d} sites`).toBeGreaterThanOrEqual(2);
       expect(plate.structures.filter((s) => s.district === d).length, `${d} buildings`).toBeGreaterThanOrEqual(1);
     }
-    expect(plate.rest.every((r) => r.district === 'commons'), 'idle agents rest in the commons').toBe(true);
     expect(plate.structures.filter((s) => s.sprite === 'pad').length, 'one landing pad — this machine (servers are not linked)').toBe(1);
     expect(plate.figureScale).toBeGreaterThan(0.3);
   });

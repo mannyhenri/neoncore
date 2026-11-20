@@ -14,15 +14,15 @@ vi.mock('../../hooks/useLiveWork', () => ({ useLiveWork: () => live }));
 const extras = vi.hoisted(() => ({ queue: { items: [], lanes: [] } as { items: unknown[]; lanes: unknown[] }, burn: new Map<string, number>(), machines: [] as { hostname: string; status: 'online' | 'offline' }[], projects: [] as Record<string, unknown>[], goals: [] as Record<string, unknown>[], ready: true }));
 vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 
-import { WorldScene } from '../WorldScene';
+import { WorldScene, FIGURE_DRAG_Z } from '../WorldScene';
 import { api } from '../../lib/api';
 import { CREW_STATUSES } from '../crew';
 import { WORK_CYCLE } from '../anim';
 import { OUTPOST } from '../sites';
-import { rewardsFor } from '../milestones';
+import { FEATURE_BADGES } from '../milestones';
 import { KIT } from '../kit';
 import { AMBIENT_GROUND, AMBIENT_PROPS } from '../ambient.generated';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -419,7 +419,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it('status drives movement: finishing jumps then walks off to rest; starting work walks back to the site', () => {
+  it('status drives the look, not the place: finishing jumps, then the agent stands idle where it is; starting work is the work cycle on the same spot', () => {
     vi.useFakeTimers();
     try {
       const at = (st: Agent['status']) => [agent({ id: 'mover', status: st })];
@@ -435,24 +435,21 @@ describe('WorldScene', () => {
       rerender(scene('idle'));
       expect(anim()).toBe('jump');
       expect(where()).toBe(site);
-      // …then the walk to the rest spot…
+      // …then it stands still, right where it worked: there is nowhere else for an idle agent to go.
       act(() => { vi.advanceTimersByTime(1400); });
-      expect(anim()).toBe('walk');
-      // …and it sits when it gets there, somewhere other than its site.
       act(() => { vi.advanceTimersByTime(20_000); });
-      expect(anim()).toBe('idle');
-      expect(figure().getAttribute('data-resting')).toBe('true');
-      const rest = where();
-      expect(rest).not.toBe(site);
+      expect(anim(), 'idle: standing still').toBe('idle');
+      expect(figure().getAttribute('data-resting')).toBeNull();
+      expect(figure().getAttribute('data-seat')).toBeNull();
+      expect(where()).toBe(site);
 
-      // Work starts again: back to the site, then the work cycle.
+      // Work starts again: the work cycle, same spot.
       rerender(scene('working'));
-      expect(anim()).toBe('walk');
       act(() => { vi.advanceTimersByTime(20_000); });
       expect(Object.values(WORK_CYCLE)).toContain(anim());
       expect(where()).toBe(site);
 
-      // Needing you is not resting: an idle agent with an approval stays at its site and waves.
+      // Needing you: an idle agent with an approval stays at its site and waves.
       rerender(<WorldScene agents={at('idle')} activitiesByAgent={{}} pendingPermissions={[{ id: 'pz', agentId: 'mover', toolName: 'Bash', toolInput: '', description: 'x', status: 'pending', createdAt: iso(), decidedAt: null, response: '' }]} stuckAlerts={[]} {...handlers} />);
       act(() => { vi.advanceTimersByTime(20_000); });
       expect(anim()).toBe('alert');
@@ -583,7 +580,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it.each(CREW_STATUSES)('a %s agent of a project is in its project\'s pod — idle ones rest there, not in the commons', (status) => {
+  it.each(CREW_STATUSES)('a %s agent of a project is at its building in its project\'s pod — idle included: there are no benches to go to', (status) => {
     extras.projects = [gridlight];
     render(scene([
       agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status }),
@@ -591,16 +588,31 @@ describe('WorldScene', () => {
     ]));
     const pct = (v: number) => `${v * 100}%`;
     const mine = figure('gl-dev');
-    const site = OUTPOST.sites.find((x) => x.id === mine.dataset.site)!;
-    expect(site.district).toBe('nw');
-    // Wherever its status puts it, it STANDS in the pod: at its building's spot.
-    expect([mine.style.left, mine.style.top]).toEqual([pct(site.x), pct(site.y)]);
-    expect(mine.dataset.resting).toBe(status === 'idle' ? 'true' : undefined);
-    if (status === 'idle') expect(mine.dataset.anim).toBe('idle');
-    // An agent of no project still rests in the commons when idle.
     const other = figure('neoncore');
-    const commons = OUTPOST.rest.some((r) => other.style.left === pct(r.x) && other.style.top === pct(r.y));
-    expect(commons).toBe(status === 'idle');
+    expect(OUTPOST.sites.find((x) => x.id === mine.dataset.site)!.district).toBe('nw');
+    for (const el of [mine, other]) {
+      const site = OUTPOST.sites.find((x) => x.id === el.dataset.site)!;
+      expect([el.style.left, el.style.top], `${status}: not at its site`).toEqual([pct(site.x), pct(site.y)]);
+      expect(el.dataset.anim).not.toBe('sit');
+      expect(el.dataset.seat).toBeUndefined();
+      expect(el.dataset.resting).toBeUndefined();
+      if (status === 'idle') expect(el.dataset.anim).toBe('idle');
+    }
+  });
+
+  it('the map has no benches: a whole idle crew stands at its buildings, nobody sits, nobody shares a spot', () => {
+    extras.projects = [{ ...gridlight, cartridges: Array.from({ length: 5 }, (_, i) => `/code/r${i}`), primaryRepo: '/code/r0' }];
+    const crew = [
+      ...Array.from({ length: 5 }, (_, i) => agent({ id: `r${i}`, repoPath: `/code/r${i}`, status: 'idle' })),
+      ...Array.from({ length: 7 }, (_, i) => agent({ id: `free${i}`, repoPath: `/code/free${i}`, status: 'idle' })),
+    ];
+    const { container } = render(scene(crew));
+    const figures = [...document.querySelectorAll<HTMLElement>('.world-member')];
+    expect(figures).toHaveLength(12);
+    expect(new Set(figures.map((f) => `${f.style.left},${f.style.top}`)).size, 'two agents in exactly the same place').toBe(12);
+    expect(figures.every((f) => f.dataset.anim === 'idle' && f.dataset.seat === undefined)).toBe(true);
+    // Not one bench drawn, of all the things on the map.
+    expect([...container.querySelectorAll('img')].filter((img) => /bench/.test(img.getAttribute('src') ?? ''))).toHaveLength(0);
   });
 
   it('nothing is drawn until the records have loaded, so nobody walks across the map on opening', () => {
@@ -663,6 +675,24 @@ describe('WorldScene', () => {
       expect(meet).not.toContain(figure(name).dataset.site);
       expect(figure(name).dataset.meeting).toBeUndefined();
     }
+  });
+
+  it('a confer among agents of ONE project leaves them in their pod; one across projects brings them to the table', () => {
+    extras.projects = [gridlight, { ...gridlight, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x' }];
+    const list = [
+      agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status: 'working' }),
+      agent({ id: 'license-server', repoPath: '/code/license-server', status: 'working' }),
+      agent({ id: 'x', repoPath: '/code/x', status: 'working' }),
+    ];
+    const meet = OUTPOST.meet.map((m) => m.id);
+    live.confers = [{ id: 'k', status: 'running', participantIds: ['gl-dev', 'license-server'] }];
+    const view = render(scene(list));
+    for (const name of ['gl-dev', 'license-server', 'x']) expect(meet, `${name} left its pod for a confer inside one project`).not.toContain(figure(name).dataset.site);
+    expect(OUTPOST.sites.find((st) => st.id === figure('gl-dev').dataset.site)!.district).toBe('nw');
+    live.confers = [{ id: 'k', status: 'running', participantIds: ['gl-dev', 'x'] }];
+    view.rerender(scene(list));
+    for (const name of ['gl-dev', 'x']) expect(meet, name).toContain(figure(name).dataset.site);
+    expect(meet).not.toContain(figure('license-server').dataset.site);
   });
 
   it('a new agent arrives on its own machine\'s pad; one whose session ends walks back to that pad, the shuttle collects it, and both are gone', () => {
@@ -742,7 +772,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it('the pennant shows how much of the plan is delivered, a flare goes up for each new delivery, and a finished project wears its medal', () => {
+  it('the pennant shows how much of the plan is delivered, and a flare goes up for each new delivery', () => {
     vi.useFakeTimers();
     try {
       const plan = (done: number) => [{ ...gridlight, featureCount: 4, featuresDone: done }];
@@ -765,7 +795,6 @@ describe('WorldScene', () => {
         settle();
         expect(flares(), 'the flare burns out').toBe(0);
         seen.push(pennant()!.dataset.frame!);
-        expect(document.querySelectorAll('[data-medal]').length).toBe(done === 4 ? 1 : 0);
       }
       expect(seen).toEqual(['1', '2', '2', '3']);
       // Fewer delivered (a feature reopened) is not a celebration.
@@ -777,11 +806,115 @@ describe('WorldScene', () => {
     }
   });
 
-  it.each([0, 1, 2, 3, 6, 10, 15, 25, 40, 99])('with %i features delivered across all projects, the commons shows exactly the fixtures earned', (n) => {
-    extras.projects = [{ ...gridlight, featureCount: 200, featuresDone: Math.floor(n / 2) }, { ...gridlight, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x', featureCount: 200, featuresDone: n - Math.floor(n / 2) }];
-    render(scene([]));
-    const shown = [...document.querySelectorAll<HTMLElement>('[data-reward]')].map((e) => e.dataset.reward).sort();
-    expect(shown).toEqual(rewardsFor(n).sort());
+  it.each([['scoping', 0], ['clarifying', 1], ['planning', 2], ['proposed', 3], ['staffing', 4], ['running', 5], ['completed', 6]] as const)(
+    'a feature in %s has earned %i badges on its project\'s banner', (phase, n) => {
+      extras.projects = [gridlight];
+      extras.goals = [{ id: 'g', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', pilot: { phase } }];
+      render(scene([]));
+      const row = [...document.querySelectorAll<HTMLElement>('[data-zone-label="nw"] [data-badge]')];
+      // Seven places, in the order of the process; the earned ones are lit, the rest are faint.
+      expect(row.map((e) => e.dataset.badge)).toEqual(FEATURE_BADGES.map((b) => b.step));
+      expect(row.filter((e) => e.dataset.earned === 'true').map((e) => e.dataset.badge)).toEqual(FEATURE_BADGES.slice(0, n).map((b) => b.step));
+    });
+
+  it('the banner has no badge row until a feature has been started, shows all seven once one is delivered, and resets when the next starts', () => {
+    extras.projects = [gridlight];
+    const earned = () => document.querySelectorAll('[data-zone-label="nw"] [data-badge][data-earned="true"]').length;
+    const view = render(scene([]));
+    expect(document.querySelectorAll('[data-badge]')).toHaveLength(0);
+    const done = { id: 'd', projectId: 'p1', status: 'achieved', origin: '', updatedAt: '2026-11-19T09:00:00Z', doneAt: '2026-11-19T09:00:00Z', pilot: { phase: 'completed' } };
+    extras.goals = [done];
+    view.rerender(scene([]));
+    expect(earned()).toBe(7);
+    extras.goals = [done, { id: 'n', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T12:00:00Z', pilot: { phase: 'clarifying' } }];
+    view.rerender(scene([]));
+    expect(earned()).toBe(1);
+    // The earlier design is gone: nothing is placed in the commons, and there is no separate medal.
+    expect(document.querySelectorAll('[data-reward], [data-medal]')).toHaveLength(0);
+  });
+
+  it('LAYERS: a project banner is above every character, and every character is above all the scenery — wherever they stand', () => {
+    extras.projects = [gridlight, { ...gridlight, id: 'p2', name: 'Other', cartridges: ['/code/x'], primaryRepo: '/code/x', featureCount: 2, featuresDone: 1 }];
+    extras.goals = [{ id: 'g', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', createdAt: new Date(Date.now() - 50 * DAY).toISOString(), targetDate: new Date(Date.now() + 5 * DAY).toISOString(), pilot: { phase: 'running' } }];
+    // A crowd, so characters stand at the very top and the very bottom of the map; one finished, one needing you.
+    const crowd = [
+      ...OUTPOST.sites.map((_, i) => agent({ id: `w${String(i).padStart(2, '0')}`, status: i % 3 === 0 ? 'idle' : 'working', lastMessage: i === 0 ? 'All done.' : '' })),
+      agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status: 'waiting' }),
+    ];
+    render(scene(crowd));
+    const z = (el: Element) => Number((el as HTMLElement).style.zIndex || 0);
+    const banners = [...document.querySelectorAll('[data-zone-label]')];
+    const characters = [...document.querySelectorAll('.world-member')];
+    const scenery = [...document.querySelectorAll('[data-structure], [data-ambient], [data-deadline], [data-pennant], [data-building-label], [data-pad-label]')];
+    expect(banners.length).toBe(2);
+    expect(characters.length).toBe(crowd.length);
+    expect(scenery.length).toBeGreaterThan(15);
+    const lowestCharacter = Math.min(...characters.map(z));
+    const highestCharacter = Math.max(...characters.map(z));
+    expect(Math.max(...scenery.map(z)), 'something in the scenery is drawn over a character').toBeLessThan(lowestCharacter);
+    // Above a character at rest, one being hovered (index.css) and one being dragged.
+    const css = readFileSync(resolve(PUBLIC, '../src/index.css'), 'utf8');
+    const hover = Number(/\.world-member:hover[^{]*\{\s*z-index:\s*(\d+)/.exec(css)![1]);
+    for (const b of banners) expect(z(b), 'a character is drawn over a project banner').toBeGreaterThan(Math.max(highestCharacter, hover, FIGURE_DRAG_Z));
+    // Among themselves, characters still sort by where they stand: nearer the bottom, nearer the front.
+    const byY = characters.map((c) => ({ y: parseFloat((c as HTMLElement).style.top), z: z(c), bubble: c.querySelector('[data-finished-bubble]') !== null })).filter((c) => !c.bubble).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < byY.length; i++) expect(byY[i].z).toBeGreaterThanOrEqual(byY[i - 1].z);
+  });
+
+  it('dragging is yours to keep: the spot you drop an agent on is where it works from then on — idle or not', () => {
+    vi.useFakeTimers();
+    const w = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1200, height: 671, right: 1200, bottom: 671, x: 0, y: 0, toJSON: () => ({}) });
+    try {
+      localStorage.clear();
+      const pct = (v: number) => `${v * 100}%`;
+      const settle = () => { for (let t = 0; t < 9000; t += 100) act(() => { vi.advanceTimersByTime(100); }); };
+      const view = render(scene([agent({ id: 'mover', status: 'working' })]));
+      const fig = () => figure('mover');
+      const at = () => [fig().style.left, fig().style.top];
+      const drag = (toX: number, toY: number) => {
+        const handle = fig().querySelector<HTMLElement>('[data-drag-handle]')!;
+        fireEvent.pointerDown(handle, { clientX: 300, clientY: 300, pointerId: 1, button: 0 });
+        fireEvent.pointerMove(handle, { clientX: toX, clientY: toY, pointerId: 1 });
+        fireEvent.pointerUp(handle, { clientX: toX, clientY: toY, pointerId: 1 });
+      };
+      const go = (status: 'working' | 'waiting' | 'idle') => { view.rerender(scene([agent({ id: 'mover', status })])); settle(); };
+      const home = at();
+      drag(500, 420);
+      const mine = at();
+      expect(mine).not.toEqual(home);
+      // Through every status and back, twice: it never leaves the spot I put it on.
+      for (let round = 0; round < 2; round++) {
+        for (const status of ['waiting', 'idle', 'working', 'idle', 'waiting', 'working'] as const) {
+          go(status);
+          expect(at(), `round ${round}: ${status} left the spot I put it on`).toEqual(mine);
+          if (status === 'idle') expect(fig().dataset.anim).toBe('idle');
+        }
+      }
+      // The spot is still remembered — it was never thrown away.
+      expect(Object.keys(JSON.parse(localStorage.getItem('neoncore.world.spots.base') ?? '{}'))).toEqual(['m1:mover']);
+      // Dragged WHILE idle: that is its spot too, and it works from there afterwards.
+      go('idle');
+      drag(700, 200);
+      settle();
+      const lounge = at();
+      expect(lounge).not.toEqual(mine);
+      go('working');
+      expect(at()).toEqual(lounge);
+      go('idle');
+      expect(at()).toEqual(lounge);
+      // Double-click sends it home for good; a spot saved by an older version is honoured as a work spot.
+      go('working');
+      fireEvent.doubleClick(fig().querySelector<HTMLElement>('[data-drag-handle]')!);
+      settle();
+      expect(at()).toEqual(home);
+      view.unmount();
+      localStorage.setItem('neoncore.world.spots.base', JSON.stringify({ 'm1:mover': { x: 0.5, y: 0.5 } }));
+      render(scene([agent({ id: 'mover', status: 'working' })]));
+      expect(at()).toEqual([pct(0.5), pct(0.5)]);
+    } finally {
+      rect.mockRestore(); w.mockRestore(); vi.useRealTimers(); localStorage.clear();
+    }
   });
 });
 

@@ -26,15 +26,16 @@ import { planZones, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
 import type { PoolSlots } from './zones';
 import { padsFor, padOf } from './fleet';
 import { meetingKeys } from './meeting';
-import { deadlineFor, pennantFrame, rewardsFor } from './milestones';
+import { deadlineFor, pennantFrame, badgesFor, FEATURE_BADGES } from './milestones';
+import { FeaturePlates, worktreeRepos } from './FeaturePlates';
 import type { Deadline } from './milestones';
-import type { WorldPlate, WorldSite, WorldStructure } from './sites';
+import type { Placement, WorldPlate, WorldSite, WorldStructure } from './sites';
 import type { KitName } from './kit';
 import { Avatar } from './Avatar';
 import { animationFor } from './anim';
 import { CHARACTERS, assignCharacters } from './sheets';
 import { clampSpot, loadCustomSpots, saveCustomSpots } from './customSpots';
-import type { Spot } from './customSpots';
+import type { Spot, HeldSpot } from './customSpots';
 import { queueFor, burnShares, formatRate } from './extras';
 import type { CrewQueue, CrewBurn } from './extras';
 import { useCrewExtras } from './useCrewExtras';
@@ -89,6 +90,14 @@ const WALK_SECONDS_PER_PLATE = 9;
 const CHEER_MS = 1300;
 /** Above this many figures the panels shrink to a name; the rest shows on hover, selection or alert. */
 const COMPACT_ABOVE = 8;
+/**
+ * LAYERS, bottom to top. Scenery (buildings, props, name plates on them) sorts by where it
+ * stands, 0–1000. Characters are ALWAYS above all of it, sorted among themselves the same way.
+ * A project's banner is above every character — at rest, hovered (index.css, 5000) or dragged.
+ */
+const FIGURE_Z = 2000;
+export const FIGURE_DRAG_Z = 6000;
+const BANNER_Z = 8000;
 /** How far the pointer must travel before a press on a figure counts as a drag, in pixels. */
 const DRAG_THRESHOLD = 5;
 
@@ -182,6 +191,13 @@ export function WorldScene({
   const projectsSig = JSON.stringify((extras.projects ?? []).map((p) => [p.id, p.name, p.color, p.primaryRepo, p.cartridges, p.createdAt, p.featureCount, p.featuresDone, p.featuresActive]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const zones = useMemo(() => planZones(extras.projects ?? [], plate), [projectsSig, plate]);
+  // FEATURES (FeaturePlates.tsx): an agent in a feature's worktree works at its REAL repo's
+  // building — the worktree folder belongs to no project, and would otherwise land on open ground.
+  const features = extras.features ?? [];
+  const worktreeSig = JSON.stringify(features.map((f) => f.worktrees));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const worktreeOf = useMemo(() => worktreeRepos(features, normRepo), [worktreeSig]);
+  const realRepo = (p: string) => worktreeOf.get(normRepo(p)) ?? p;
   useEffect(() => {
     onStatusCounts?.({ all: counts.all, working: counts.working, waiting: counts.waiting, idle: counts.idle });
   }, [counts.all, counts.working, counts.waiting, counts.idle, onStatusCounts]);
@@ -205,17 +221,14 @@ export function WorldScene({
     if (fresh.length > 0) setBursts((b) => [...b, ...fresh.map((z) => ({ key: `${z.projectId}-${now.get(z.projectId)}-${Date.now()}`, district: z.districts[0] }))]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doneSig, ready]);
-  /** REWARDS: what the base has earned from every feature delivered, in any project. */
-  const earned = rewardsFor((extras.projects ?? []).reduce((n, p) => n + (p.featuresDone ?? 0), 0));
-
   // An agent works at its repo's building; one whose repo no project owns uses unclaimed land.
   const wants = crew.map((m) => {
     const paths = m.agentIds.map((id) => agents.find((a) => a.id === id)?.repoPath ?? '');
-    const home = paths.map((path) => zoneFor(zones, path)).find((z) => z !== null);
+    const home = paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null);
     return { key: m.key, pool: home?.building ?? OPEN_POOL };
   });
   /** Repos (normalised paths) that have a character on the map right now. */
-  const manned = new Set(crew.flatMap((m) => m.agentIds.map((id) => normRepo(agents.find((a) => a.id === id)?.repoPath ?? ''))));
+  const manned = new Set(crew.flatMap((m) => m.agentIds.map((id) => normRepo(realRepo(agents.find((a) => a.id === id)?.repoPath ?? '')))));
   const wantsSig = wants.map((w) => `${w.key}>${w.pool}`).join('|');
   const claimedSig = zones.flatMap((z) => z.districts).join('|');
   const poolSlotsRef = useRef<PoolSlots>(new Map());
@@ -227,22 +240,45 @@ export function WorldScene({
   }, [wantsSig, claimedSig, plate]);
 
   // CONFER → THE COMMONS TABLE (meeting.ts): participants of a running confer stand together.
-  const meetSig = meetingKeys(confers, crew).join('|');
+  const meetSig = meetingKeys(confers, crew.map((m) => {
+    const paths = m.agentIds.map((id) => agents.find((x) => x.id === id)?.repoPath ?? '');
+    return { key: m.key, agentIds: m.agentIds, pod: paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null)?.zone.districts[0] };
+  })).join('|');
   const meetSlotsRef = useRef<Map<string, number>>(new Map());
   const meetSpots = useMemo(() => {
     meetSlotsRef.current = assignSlots(meetSlotsRef.current, meetSig ? meetSig.split('|') : []);
     return plate.meet.length > 0 ? spotsFor(meetSlotsRef.current, { sites: plate.meet, figureScale: plate.figureScale }) : new Map<string, Spot & { siteId: string }>();
   }, [meetSig, plate]);
 
-  // WHERE THE IDLE ONES SIT. An agent of a project never leaves its pod: idle, it rests right
-  // where it works. Only agents of no project go to the commons — a rest spot each, sticky.
-  const inPod = new Set(wants.filter((w) => w.pool !== OPEN_POOL).map((w) => w.key));
-  const idleKeys = crew.filter((m) => m.status === 'idle' && !inPod.has(m.key)).map((m) => m.key).join('|');
-  const restSlotsRef = useRef<Map<string, number>>(new Map());
+  // WHERE THE IDLE ONES SIT: on a bench. An agent of a project sits on the bench in its own
+  // pod; an agent of no project sits on a commons bench. A seat each, sticky like the work sites.
+  const podOf = new Map(crew.map((m) => {
+    const paths = m.agentIds.map((id) => agents.find((a) => a.id === id)?.repoPath ?? '');
+    return [m.key, paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null)?.zone.districts[0] ?? 'commons'] as const;
+  }));
+  const idleSig = crew.filter((m) => m.status === 'idle').map((m) => `${m.key}>${podOf.get(m.key)}`).join('|');
+  const restSlotsRef = useRef<Map<string, Map<string, number>>>(new Map());
   const restSpots = useMemo(() => {
-    restSlotsRef.current = assignSlots(restSlotsRef.current, idleKeys ? idleKeys.split('|') : []);
-    return plate.rest.length > 0 ? spotsFor(restSlotsRef.current, { sites: plate.rest, figureScale: plate.figureScale }) : new Map<string, Spot>();
-  }, [idleKeys, plate]);
+    const out = new Map<string, Placement>();
+    const byBench = new Map<string, string[]>();
+    for (const entry of idleSig ? idleSig.split('|') : []) {
+      const [key, pod] = entry.split('>');
+      byBench.set(pod, [...(byBench.get(pod) ?? []), key]);
+    }
+    const next = new Map<string, Map<string, number>>();
+    for (const [pod, keys] of byBench) {
+      // A pod with no bench of its own falls back to the commons benches.
+      const seats = plate.rest.filter((r) => r.district === pod);
+      const here = seats.length > 0 ? seats : plate.rest.filter((r) => r.district === 'commons');
+      if (here.length === 0) continue;
+      const slots = assignSlots(restSlotsRef.current.get(pod) ?? new Map(), keys);
+      next.set(pod, slots);
+      for (const [key, spot] of spotsFor(slots, { sites: here, figureScale: plate.figureScale * 0.5 })) out.set(key, spot);
+    }
+    restSlotsRef.current = next;
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idleSig, plate]);
 
   // WHO LOOKS LIKE WHOM: a character per agent (not per engine), sticky like the slots.
   const castRef = useRef<Map<string, string>>(new Map());
@@ -252,15 +288,30 @@ export function WorldScene({
   }, [crewKeys]);
 
   // WHERE YOU PUT THEM: agents dragged off their site stay where they were dropped.
-  const [customSpots, setCustomSpots] = useState<Map<string, Spot>>(() => loadCustomSpots(plate.id));
+  const [customSpots, setCustomSpots] = useState<Map<string, HeldSpot>>(() => loadCustomSpots(plate.id));
   const moveMember = (key: string, spot: Spot | null) => {
+    const idle = crew.find((m) => m.key === key)?.status === 'idle';
     setCustomSpots((prev) => {
       const next = new Map(prev);
-      if (spot) next.set(key, clampSpot(spot)); else next.delete(key);
+      if (spot) next.set(key, idle ? { ...clampSpot(spot), idle: true } : clampSpot(spot)); else next.delete(key);
       saveCustomSpots(plate.id, next);
       return next;
     });
   };
+  // A spot dropped while the agent was idle keeps it off its bench only for THAT idle spell:
+  // once the agent is doing anything else, the spot is an ordinary work spot.
+  const statusSig = crew.map((m) => `${m.key}=${m.status}`).join('|');
+  useEffect(() => {
+    setCustomSpots((prev) => {
+      const over = [...prev].filter(([key, held]) => { const m = crew.find((x) => x.key === key); return held.idle === true && m !== undefined && m.status !== 'idle'; });
+      if (over.length === 0) return prev;
+      const next = new Map(prev);
+      for (const [key, held] of over) next.set(key, { x: held.x, y: held.y });
+      saveCustomSpots(plate.id, next);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusSig]);
   const resetSpots = () => { setCustomSpots(new Map()); saveCustomSpots(plate.id, new Map()); };
 
   // WHAT THEY SAID WHEN THEY FINISHED: shown over an idle agent until it is clicked.
@@ -477,16 +528,36 @@ export function WorldScene({
             const at = plate.districts.find((x) => x.id === d);
             if (at?.x === undefined || at.y === undefined) return null;
             return (
-              <div key={`${z.projectId}-${d}`} data-zone-label={d} className={PROJECT_PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: 1 }}>
+              // A project with features running keeps a small caption: its features' plates say the rest.
+              features.some((f) => f.projectId === z.projectId) ? (
+                <div key={`${z.projectId}-${d}`} data-zone-label={d} data-caption="true" className={PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: BANNER_Z }}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: z.color || ENGINE_COLOURS.claude.suit }} />
+                  {z.name}
+                </div>
+              ) :
+              <div key={`${z.projectId}-${d}`} data-zone-label={d} className={PROJECT_PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: BANNER_Z }}>
                 <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: z.color || ENGINE_COLOURS.claude.suit }} />
                 <span className="font-semibold text-gray-100">{z.name}</span>
                 {z.features.total > 0 && <span className="text-gray-400"> · {z.features.done}/{z.features.total} features</span>}
                 {z.features.active > 0 && <span className="text-emerald-300"> · {z.features.active} under way</span>}
-                {/* Everything it planned is delivered: the project wears its medal. */}
-                {z.features.total > 0 && z.features.done >= z.features.total && <img data-medal src={KIT.medal.src} alt="All features delivered" className="inline-block h-4 ml-1.5 align-[-3px]" />}
+                {/* BADGES: one per step of the feature under way; lit once earned (milestones.ts). */}
+                {(() => {
+                  const feats = (extras.goals ?? []).filter((g) => g.projectId === z.projectId && g.origin !== 'imported' && g.pilot);
+                  if (feats.length === 0) return null;
+                  const n = badgesFor(extras.goals ?? [], z.projectId);
+                  return (
+                    <span className="inline-flex items-center gap-0.5 ml-2 align-[-4px]" aria-label={`${n} of ${FEATURE_BADGES.length} steps earned`}>
+                      {FEATURE_BADGES.map((b, i) => (
+                        <img key={b.step} data-badge={b.step} data-earned={i < n} src={KIT[b.sprite as KitName].src} alt={i < n ? b.label : ''}
+                          className="h-[18px] w-[18px] object-contain" style={{ opacity: i < n ? 1 : 0.18, filter: i < n ? undefined : 'grayscale(1)' }} />
+                      ))}
+                    </span>
+                  );
+                })()}
               </div>
             );
           }))}
+          <FeaturePlates features={features} crew={crew} placement={placement} zones={zones} districts={plate.districts} goals={extras.goals ?? []} z={BANNER_Z} />
           {zones.flatMap((z) => [...z.buildings].map(([repo, id]) => {
             const st = plate.structures.find((x) => x.id === id);
             // Two repos can share a building when a project has more repos than buildings.
@@ -502,7 +573,7 @@ export function WorldScene({
             );
           }))}
           {/* DEADLINE, DELIVERY, REWARDS (milestones.ts): the pod's oxygen gauge and pennant stand
-              just above its name plate; the flare goes up over the pod; rewards stand in the commons. */}
+              just above its name plate; the flare goes up over the pod. */}
           {ready && zones.map((z) => {
             const at = plate.districts.find((x) => x.id === z.districts[0]);
             if (at?.x === undefined || at.y === undefined) return null;
@@ -521,17 +592,6 @@ export function WorldScene({
             if (at?.x === undefined || at.y === undefined) return null;
             return <Burst key={b.key} style={{ left: `${at.x * 100}%`, top: `${(at.y - 0.1) * 100}%`, width: '9%', transform: 'translate(-50%, -100%)', zIndex: 6500 }} onDone={() => setBursts((all) => all.filter((x) => x.key !== b.key))} />;
           })}
-          {plate.rewards.filter((r) => earned.includes(r.sprite)).map((r) => (
-            <img
-              key={r.id}
-              data-reward={r.sprite}
-              src={KIT[r.sprite].src}
-              alt=""
-              draggable={false}
-              className="absolute select-none pointer-events-none max-w-none"
-              style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, transform: 'translate(-50%, -100%)', zIndex: Math.round(r.y * 1000) }}
-            />
-          ))}
           {pads.map((pd) => {
             const st = plate.structures.find((x) => x.id === pd.pad);
             if (!st || pd.host === null) return null;
@@ -547,14 +607,17 @@ export function WorldScene({
           {shown.map((m) => {
             const home = placement.get(m.key)!;
             const custom = customSpots.get(m.key) ?? null;
+            // Dropped during this idle spell: it stays there instead of going to its bench.
+            const keptOffBench = custom?.idle === true && m.status === 'idle';
             const said = messageId(m.sessionId, m.lastMessage);
             // "Finished" = idle. A working agent is not done, and one waiting on you already
             // has its question on the panel.
             const finished = m.status === 'idle' && isUnread(read, m.key, said) ? summarize(m.lastMessage) : [];
             // In a running confer it stands at the table, whatever its own status.
             const meet = custom ? null : meetSpots.get(m.key) ?? null;
-            const rest = meet ? null : inPod.has(m.key) ? home : restSpots.get(m.key) ?? null;
-            const stands = custom ?? meet ?? (m.status === 'idle' && m.attention === null && rest ? rest : home);
+            const rest = meet || keptOffBench ? null : restSpots.get(m.key) ?? null;
+            // Idle with nothing to ask → its bench, wherever you may have put it for work.
+            const stands = m.status === 'idle' && m.attention === null && rest ? rest : custom ?? meet ?? home;
             standsAt.set(m.key, { x: stands.x, y: stands.y });
             lastSeenRef.current.set(m.key, { key: m.key, name: m.name, character: cast.get(m.key) ?? '', from: { x: stands.x, y: stands.y }, to: doorFor(m.agent.machine), pad: padFor(m.agent.machine) });
             return (
@@ -997,7 +1060,7 @@ function DepartingFigure({ ghost, avatarHeight, onGone }: { ghost: Ghost; avatar
         left: `${pos.x * 100}%`,
         top: `${pos.y * 100}%`,
         transform: 'translate(-50%, -100%)',
-        zIndex: Math.round(pos.y * 1000),
+        zIndex: FIGURE_Z + Math.round(pos.y * 1000),
         transition: `left ${seconds}s linear, top ${seconds}s linear`,
       }}
     >
@@ -1064,9 +1127,9 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
     return () => clearTimeout(t);
   }, [cheering]);
 
-  // WHERE IT BELONGS: an idle agent with nothing to ask sits at its rest spot; anyone else is
-  // at its work site. One you dragged stays where you put it.
-  const resting = member.status === 'idle' && member.attention === null && restSpot !== null && !moved && !cheering;
+  // WHERE IT BELONGS: an idle agent with nothing to ask sits on its bench; anyone else is at its
+  // work site — or at the spot you dragged it to, which is its work spot from then on.
+  const resting = member.status === 'idle' && member.attention === null && restSpot !== null && !cheering;
   const target: Spot = resting ? restSpot : spot;
 
   const [pos, setPos] = useState<Spot>(startAt ?? target);
@@ -1135,7 +1198,9 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
   };
 
   const posture = resting ? 'stand' : site?.work ?? 'stand';
-  const anim = animationFor(member, walk !== null, posture, { cheering });
+  // Seated once it has ARRIVED at its bench: on the way there it walks.
+  const seated = resting && walk === null && Math.hypot(pos.x - target.x, pos.y - target.y) < 0.002;
+  const anim = animationFor(member, walk !== null, posture, { cheering, seated });
   const crates = crateSpriteFor(queue.waiting);
   const facing = walk?.facing ?? (resting ? 1 : site?.faces ?? 1);
 
@@ -1149,11 +1214,12 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
       data-moved={moved || undefined}
       data-meeting={meeting || undefined}
       data-resting={resting || undefined}
+      data-seat={resting && restSpot && 'siteId' in restSpot ? (restSpot as Placement).siteId : undefined}
       style={{
         left: `${pos.x * 100}%`,
         top: `${pos.y * 100}%`,
         transform: 'translate(-50%, -100%)',
-        zIndex: dragging ? 6000 : Math.round(pos.y * 1000) + (finished.length > 0 ? 1000 : 0),
+        zIndex: dragging ? FIGURE_DRAG_Z : FIGURE_Z + Math.round(pos.y * 1000) + (finished.length > 0 ? 1000 : 0),
         transition: walk && !dragging ? `left ${walk.seconds}s linear, top ${walk.seconds}s linear` : undefined,
       }}
     >
@@ -1175,7 +1241,7 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
           <span aria-hidden="true" className="absolute left-1/2 -bottom-[5px] -ml-[5px] w-[10px] h-[10px] rotate-45 border-r border-b border-emerald-400/70 bg-[rgba(8,20,22,0.95)]" />
         </button>
       )}
-      <CrewPanel member={member} selected={selected} compact={compact} progress={progress} queue={queue} burn={burn} onDecide={onDecide} onSelect={onSelect} onOpenAnswer={onOpenAnswer} />
+      <CrewPanel member={member} selected={selected} compact={compact || resting} progress={progress} queue={queue} burn={burn} onDecide={onDecide} onSelect={onSelect} onOpenAnswer={onOpenAnswer} />
       <div
         data-drag-handle
         onPointerDown={onPointerDown}

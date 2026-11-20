@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { deadlineFor, pennantFrame, rewardsFor, REWARD_STEPS, GAUGE_STEPS, GAUGE_OVERDUE } from '../milestones';
-import type { DatedFeature } from '../milestones';
+import { deadlineFor, pennantFrame, badgesFor, FEATURE_BADGES, GAUGE_STEPS, GAUGE_OVERDUE } from '../milestones';
+import type { DatedFeature, BadgeFeature } from '../milestones';
 import { PLATES } from '../sites';
 import { KIT } from '../kit';
 
@@ -60,27 +60,36 @@ describe('delivery', () => {
     for (let i = 0; i < 4; i++) { expect(KIT[`pennant-${i}` as keyof typeof KIT]).toBeTruthy(); expect(KIT[`burst-${i}` as keyof typeof KIT]).toBeTruthy(); }
   });
 
-  it('the commons earns each fixture once, in order, and keeps it', () => {
-    let last: string[] = [];
-    for (let n = 0; n <= 60; n++) {
-      const got = rewardsFor(n);
-      expect(got.slice(0, last.length), `${n} delivered must not lose a reward`).toEqual(last);
-      last = got;
-      expect(got).toEqual(REWARD_STEPS.filter((s) => n >= s.at).map((s) => s.reward));
+  it('every step of the feature process earns one badge, in order — for every phase a feature can be in', () => {
+    expect(FEATURE_BADGES.map((b) => b.step)).toEqual(['scoped', 'answered', 'planned', 'accepted', 'staffed', 'built', 'delivered']);
+    const PHASES = ['scoping', 'clarifying', 'planning', 'proposed', 'staffing', 'running', 'paused', 'completed'] as const;
+    const want: Record<(typeof PHASES)[number], number> = { scoping: 0, clarifying: 1, planning: 2, proposed: 3, staffing: 4, running: 5, paused: 5, completed: 6 };
+    const goal = (over: Record<string, unknown>) => ({ projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', doneAt: '', pilot: null, ...over }) as BadgeFeature;
+    for (const phase of PHASES) expect(badgesFor([goal({ pilot: { phase } })], 'p1'), phase).toBe(want[phase]);
+    // Delivered: all seven. Never started, cancelled, imported, or another project's: none.
+    expect(badgesFor([goal({ status: 'achieved', doneAt: '2026-11-19T11:00:00Z', pilot: { phase: 'completed' } })], 'p1')).toBe(7);
+    for (const none of [{ pilot: null }, { pilot: { phase: 'cancelled' } }, { origin: 'imported', status: 'achieved' }, { projectId: 'p2', pilot: { phase: 'running' } }]) {
+      expect(badgesFor([goal(none)], 'p1'), JSON.stringify(none)).toBe(0);
     }
-    expect(rewardsFor(0)).toEqual([]);
-    expect(last).toHaveLength(REWARD_STEPS.length);
-    expect(new Set(REWARD_STEPS.map((s) => s.reward)).size).toBe(REWARD_STEPS.length);
+    expect(badgesFor([], 'p1')).toBe(0);
+    // Each badge has drawn art, and no two steps share one.
+    for (const b of FEATURE_BADGES) expect(KIT[b.sprite as keyof typeof KIT], b.sprite).toBeTruthy();
+    expect(new Set(FEATURE_BADGES.map((b) => b.sprite)).size).toBe(FEATURE_BADGES.length);
   });
 
-  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: every reward has drawn art and its own place on the map', ({ plate }) => {
-    for (const s of REWARD_STEPS) {
-      const spot = plate.rewards.find((r) => r.sprite === s.reward);
-      expect(spot, `${s.reward} has no place on ${plate.id}`).toBeTruthy();
-      expect(KIT[s.reward as keyof typeof KIT], `${s.reward} has no art`).toBeTruthy();
-    }
-    expect(new Set(plate.rewards.map((r) => r.id)).size).toBe(plate.rewards.length);
-    // A project district needs somewhere for its gauge and its pennant.
+  it('the badges belong to the feature under way: they RESET when a new one starts, and stay full after a delivery until then', () => {
+    const goal = (over: Record<string, unknown>) => ({ projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', doneAt: '', pilot: null, ...over }) as BadgeFeature;
+    const delivered = goal({ status: 'achieved', doneAt: '2026-11-19T09:00:00Z', pilot: { phase: 'completed' } });
+    // The last feature was delivered and nothing new has started: the full row stays up.
+    expect(badgesFor([delivered, goal({ pilot: null })], 'p1')).toBe(7);
+    // A new feature starts: back to what THAT feature has earned.
+    expect(badgesFor([delivered, goal({ pilot: { phase: 'scoping' } })], 'p1')).toBe(0);
+    expect(badgesFor([delivered, goal({ pilot: { phase: 'proposed' } })], 'p1')).toBe(3);
+    // Two under way: the one touched most recently is the one on the banner.
+    expect(badgesFor([goal({ pilot: { phase: 'running' }, updatedAt: '2026-11-19T08:00:00Z' }), goal({ pilot: { phase: 'clarifying' }, updatedAt: '2026-11-19T12:00:00Z' })], 'p1')).toBe(1);
+  });
+
+  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: every project district has an anchor for its gauge, pennant and banner', ({ plate }) => {
     for (const d of plate.districts.filter((x) => plate.structures.some((st) => st.building && st.district === x.id))) {
       expect(d.x, `${d.id} has no anchor`).toBeGreaterThan(0);
     }

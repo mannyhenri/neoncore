@@ -6,8 +6,8 @@
  *              project's features that are still open. No dated open feature, no gauge.
  *   delivery   a pennant climbs its pole as the project's planned features are delivered,
  *              and a flare goes up each time one more is.
- *   rewards    the commons collects a new fixture as features are delivered across ALL
- *              projects (REWARD_STEPS). Cosmetic only, never taken away by a late date.
+ *   badges     the project's banner earns a badge for each step of the feature under way
+ *              (FEATURE_BADGES below).
  */
 import type { Goal } from '../types';
 
@@ -58,17 +58,44 @@ export function pennantFrame(done: number, total: number): 0 | 1 | 2 | 3 | null 
   return done / total < 0.5 ? 1 : 2;
 }
 
-/** Features delivered (across every project) at which the commons earns each fixture, in order. */
-export const REWARD_STEPS: readonly { at: number; reward: string }[] = [
-  { at: 1, reward: 'crew-banners' },
-  { at: 3, reward: 'garden' },
-  { at: 6, reward: 'light-arch' },
-  { at: 10, reward: 'fountain' },
-  { at: 15, reward: 'signal-tower' },
-  { at: 25, reward: 'statue' },
-  { at: 40, reward: 'trophy' },
+/**
+ * BADGES — one per step of the feature process, shown on the project's banner for the feature
+ * that is under way. They RESET when a new feature starts; after a delivery the full row stays
+ * up until then.
+ *
+ *   scoped     the planner has scoped it          (past `scoping`)
+ *   answered   its questions are answered         (past `clarifying`)
+ *   planned    the workflows are chosen           (past `planning`)
+ *   accepted   you accepted the plan              (past `proposed`)
+ *   staffed    repos are picked and it is running (past `staffing`)
+ *   built      its pipeline has finished          (`completed`)
+ *   delivered  it is marked done                  (status `achieved`)
+ */
+export const FEATURE_BADGES: readonly { step: string; label: string; sprite: string }[] = [
+  { step: 'scoped', label: 'Scoped', sprite: 'insignia' },
+  { step: 'answered', label: 'Questions answered', sprite: 'crew-banners' },
+  { step: 'planned', label: 'Planned', sprite: 'signal-tower' },
+  { step: 'accepted', label: 'Plan accepted', sprite: 'light-arch' },
+  { step: 'staffed', label: 'Staffed and running', sprite: 'garden' },
+  { step: 'built', label: 'Built', sprite: 'medal' },
+  { step: 'delivered', label: 'Delivered', sprite: 'trophy' },
 ];
 
-export function rewardsFor(delivered: number): string[] {
-  return REWARD_STEPS.filter((s) => delivered >= s.at).map((s) => s.reward);
+/** Steps already passed, by where the feature's pipeline stands. */
+const PASSED: Record<string, number> = { scoping: 0, clarifying: 1, planning: 2, proposed: 3, staffing: 4, running: 5, paused: 5, completed: 6 };
+
+export type BadgeFeature = Pick<Goal, 'projectId' | 'status' | 'origin' | 'updatedAt' | 'doneAt' | 'pilot'>;
+
+/**
+ * How many badges the project's banner shows (0–7): those of the feature under way — the one
+ * touched most recently, if several are — or, when none is, all seven for the last one delivered.
+ */
+export function badgesFor(features: readonly BadgeFeature[], projectId: string): number {
+  const mine = features.filter((f) => f.projectId === projectId && f.origin !== 'imported');
+  const stamp = (f: BadgeFeature) => new Date(f.updatedAt || 0).getTime() || 0;
+  const underWay = mine
+    .filter((f) => f.status !== 'achieved' && f.pilot && f.pilot.phase !== 'cancelled')
+    .sort((a, b) => stamp(b) - stamp(a))[0];
+  if (underWay) return PASSED[underWay.pilot!.phase] ?? 0;
+  return mine.some((f) => f.status === 'achieved' && f.pilot) ? FEATURE_BADGES.length : 0;
 }
