@@ -8,7 +8,7 @@
 import { emitRunFinished, emitRunHeld } from './run-events.js';
 import { parseCoverage, recordCoverage, recordDispatch, noteProgressDoc, type Coverage } from './run-progress.js';
 import { coverageConfigOf, decideCoverage, holdDetail, loopBackFeedback, MAX_COVERAGE_PASSES } from './coverage-loop.js';
-import { resolveBuildRounds } from './confer-sizing.js';
+import { resolveBuildRounds, leftoverOwners, LEFTOVER_MAX_TASKS } from './confer-sizing.js';
 import { noteTurnEnded, turnIsOver } from './turn-state.js';
 import db from '../db.js';
 import { getIO } from '../ws.js';
@@ -994,12 +994,25 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
   // Sized from the work (lib/confer-sizing.ts): the task count upstream, or what is still open
   // when a coverage pass sent the run back here.
   const sizing = resolveBuildRounds(cfg, participantIds.length, dependencyResultsByName(step));
-  emitStepLog(step.workflowId, step.id, step.name, sizing.note, 'info');
+
+  // ONE OR TWO TASKS LEFT are not worth a confer (lib/confer-sizing.ts LEFTOVER_MAX_TASKS): they go,
+  // as a single milestone, to the cartridge(s) whose repo the coverage check named.
+  const left = Number(cfg._coverageRemaining);
+  const leftover = Number.isFinite(left) && left > 0 && left <= LEFTOVER_MAX_TASKS;
+  const sessionIds = leftover
+    ? leftoverOwners(String(cfg._routingFeedback || ''), rows.map((r) => ({ id: r.id, repoName: r.repo_name || '' })))
+    : participantIds;
+  emitStepLog(step.workflowId, step.id, step.name, leftover
+    ? `${left} task(s) still open — not a full confer: sent straight to ${cartridgeLabels(sessionIds)} as one step.`
+    : sizing.note, 'info');
 
   const session = startConfer({
     repoName: home.repo_name || '',
     repoPath: home.repo_path || '',
-    participantIds,
+    participantIds: sessionIds,
+    leftover,
+    // A QA / review stage later in the pipeline does the reviewing (lib/stage-steps.ts laterStageReviews).
+    peerReview: cfg.conferPeerReview !== false,
     task,
     attachmentBlocks: parseAttachmentBlocks(wfRow?.attachments),
     mode: (cfg.conferMode as 'divide' | 'collaborate') === 'collaborate' ? 'collaborate' : 'divide',
@@ -1009,7 +1022,7 @@ async function executeConfer(step: WorkflowStep): Promise<void> {
 
   const repos = [...new Set(rows.map((r) => r.repo_name).filter(Boolean))];
   emitStepLog(step.workflowId, step.id, step.name,
-    `Confer ${session.id.slice(0, 8)} started — ${participantIds.length} cartridges across `
+    `Confer ${session.id.slice(0, 8)} started — ${sessionIds.length} cartridge(s) across `
     + `${repos.length} repo(s): ${repos.join(', ') || 'unnamed'}`, 'info');
 
   db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?')

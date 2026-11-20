@@ -121,6 +121,8 @@ test('measure: deliberation panel members and the synthesis', () => {
 test('measure: confer milestones — every milestone of every mode', async () => {
   for (const mode of ['divide', 'collaborate'] as const) {
     const [a, b] = [agent(), agent()];
+    // In ONE repo, so the session runs the full plan (a confer across repos has no merge step).
+    db.prepare('UPDATE agents SET repo_path = ? WHERE id IN (?, ?)').run(`/tmp/${a}`, a, b);
     const session = startConfer({ repoName: 'repo', repoPath: `/tmp/${a}`, participantIds: [a, b], task: CONTENT, mode });
     const plan = conferPlan(mode, 1);
     for (let i = 0; i < plan.length; i++) {
@@ -134,6 +136,11 @@ test('measure: confer milestones — every milestone of every mode', async () =>
       recordMilestoneDone(session.id, b, 'ok');
     }
   }
+  // The leftover pass: one milestone, to one cartridge.
+  const solo = agent();
+  startConfer({ repoName: 'repo', repoPath: `/tmp/${solo}`, participantIds: [solo], task: CONTENT, leftover: true });
+  await new Promise((r) => setTimeout(r, 20));
+  record('confer-milestone', 'leftover', received(solo)[0], CONTENT);
 });
 
 test('EVERY dispatch kind was measured, and every kind has a budget', () => {

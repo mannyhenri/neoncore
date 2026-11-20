@@ -37,6 +37,24 @@ export type ConferWorktrees = Record<string, { path: string; branch: string }>;
  */
 
 const STALL_MS = 8 * 60 * 1000;   // re-nudge a participant that hasn't reported in this long
+/**
+ * SILENCE IS NOT WORK. Who gets a reminder, and when the conductor stops waiting.
+ *
+ *   working, or waiting on a person   → left alone. A reminder lands in the middle of its turn
+ *                                        and changes nothing; it will signal when it is done.
+ *   idle and silent                   → reminded once per STALL_MS. After PRESUME_AFTER_REMINDERS
+ *                                        reminders and PRESUME_IDLE_MS without a tool call it is
+ *                                        PRESUMED DONE: its signal is recorded for it, the session
+ *                                        says so, and the confer moves on. The coverage check that
+ *                                        follows the confer is what catches work it did not do.
+ *
+ * (2026-11-19: "Build 1/2" stayed open 344 min through 43 reminders, and "Build 2/2" never closed
+ * because one idle cartridge did not send its signal.)
+ */
+const QUIET_MS = 3 * 60 * 1000;   // no tool call for this long, and idle: it has stopped
+export const PRESUME_AFTER_REMINDERS = 2;
+export const PRESUME_IDLE_MS = 2.5 * STALL_MS;   // the second reminder, plus time to answer it
+export const PRESUMED_PREFIX = 'Presumed done';
 const FAIL_MS = 20 * 60 * 1000;   // past this, a milestone only survives if its participants are ALIVE
 /**
  * How long a participant may go unseen before it counts as gone.
@@ -91,6 +109,17 @@ export function participantIsAlive(agentId: string, now: number): boolean {
   return agentHasLiveSocket(agentId) || (process.platform !== 'win32' && inboxReachable(a.inbox_pid || 0));
 }
 
+/**
+ * Idle AND silent: its status says it stopped, and it has not used a tool for QUIET_MS. A
+ * cartridge that is `working` (a long test run makes no tool call for an hour) or `waiting` (it
+ * needs a person) is neither reminded nor presumed done.
+ */
+export function participantIsQuiet(agentId: string, now: number): boolean {
+  const a = db.prepare('SELECT status FROM agents WHERE id = ?').get(agentId) as { status?: string } | undefined;
+  if (!a || a.status !== 'idle') return false;
+  return now - lastToolCallMs([agentId]) > QUIET_MS;
+}
+
 /** Ceiling on build rounds. High enough for a 20-bug list, low enough that a typo'd 500 can't
  * dispatch 500 milestones to a live fleet. */
 export const MAX_BUILD_ROUNDS = 20;
@@ -125,6 +154,10 @@ interface MilestoneDef {
    * round numbering (and the UI stepper) has no way to express two nested repeats.
    */
   iterates?: boolean;
+  /** A step in which participants review each other — left out when a later QA stage reviews. */
+  peerReview?: boolean;
+  /** A step that merges slices of ONE repo — left out when every participant is in its own repo. */
+  merge?: boolean;
   /** The body of the instruction for this milestone (coordination + done-signal are appended). */
   body: (ctx: MilestoneContext) => string;
 }
@@ -158,6 +191,16 @@ function roundsLeftLine(round: number, rounds: number): string {
     : 'This is the LAST build round.';
 }
 
+/**
+ * ONLY YOUR PART. A task that needs a day in the backend and one line in the frontend is a day
+ * for one participant and one line for the other — not a shared task both work through.
+ */
+const OWN_PART_LINE = 'Take only your part: what sits in your own repo/area — if that is one line, it is one line. Never redo a peer\'s part.';
+/** The fast exit: a participant with nothing to do says so and signals, instead of waiting. */
+const NOTHING_LINE = 'NOTHING OF YOURS here? Tell your peer(s) in one line and signal done at once — do not wait.';
+/** Building is building (review and QA have their own step or stage) — and the fast exit, in one line. */
+const BUILD_ONLY_LINE = 'Build only your part; do not redo or review a peer\'s. NOTHING OF YOURS? Say so and signal at once.';
+
 // ── `divide` mode: split the task into per-agent slices, then merge ──────────────
 // Each milestone dispatches to ALL participants and only advances when ALL signal done.
 const DIVIDE_MILESTONES: MilestoneDef[] = [
@@ -169,7 +212,9 @@ const DIVIDE_MILESTONES: MilestoneDef[] = [
       '1. Read your peer\'s recent work with neoncore_read_agent, and read the task carefully.',
       '2. Message your peer (neoncore_message_agent) with your proposed approach + assumptions.',
       '3. Converge on ONE plan and split the work by area/files so you will not collide (state who owns what).',
+      `   ${OWN_PART_LINE}`,
       ...(buildRounds > 1 ? [batchPlanLine(buildRounds)] : []),
+      NOTHING_LINE,
       'DO NOT start implementing yet. Signal done only once you and your peer have agreed on the plan AND the split.',
     ].join('\n'),
   },
@@ -185,6 +230,7 @@ const DIVIDE_MILESTONES: MilestoneDef[] = [
       '2. If you must touch a shared file, message your peer FIRST to coordinate.',
       '3. Keep your peer posted on meaningful progress via neoncore_message_agent.',
       ...(rounds > 1 ? [batchLine(round, rounds)] : []),
+      BUILD_ONLY_LINE,
       rounds > 1
         ? `Signal done once this round's items are implemented, verified, committed and PUSHED. ${roundsLeftLine(round, rounds)}`
         : 'Signal done when your slice is implemented and it builds/works on its own.',
@@ -193,6 +239,7 @@ const DIVIDE_MILESTONES: MilestoneDef[] = [
   {
     key: 'review',
     name: 'Cross-review',
+    peerReview: true,
     body: () => [
       'GOAL: Review your PEER\'s work, not your own.',
       '1. Read what your peer built (neoncore_read_agent, and the git diff).',
@@ -204,9 +251,10 @@ const DIVIDE_MILESTONES: MilestoneDef[] = [
   {
     key: 'converge',
     name: 'Converge',
+    merge: true,
     body: () => [
       'GOAL: Merge all slices into one coherent, working whole — and prove there are no conflicts.',
-      '1. Address the review feedback you received.',
+      '1. Address any review feedback you received.',
       '2. Agree on ONE of you to integrate all slices; the other(s) verify it builds/passes.',
       '3. Resolve any conflicts together via neoncore_message_agent.',
       'Signal done once the combined work is integrated and EVERYONE has verified it works.',
@@ -216,11 +264,10 @@ const DIVIDE_MILESTONES: MilestoneDef[] = [
     key: 'finalize',
     name: 'Finalize',
     body: () => [
-      'GOAL: Land the combined result.',
-      '1. The agreed integrator commits the combined work with a clear message.',
-      '2. That agent posts a short summary (what was built + who did what) to the peer.',
-      '3. The other confirms the summary is accurate.',
-      'Signal done to close out the confer.',
+      'GOAL: Land the result. This step is bookkeeping — no new work, no new review.',
+      '1. Make sure YOUR part is committed and pushed (if you merged slices, the agreed integrator commits the combined work).',
+      '2. Send your peer(s) ONE short summary of what you built and anything of yours still open.',
+      'Signal done as soon as you have done those two things — do not wait for a reply.',
     ].join('\n'),
   },
 ];
@@ -236,7 +283,9 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
       '1. Read your peers\' recent work (neoncore_read_agent) and the task carefully.',
       '2. Message the group (neoncore_message_agent) with your proposed approach + assumptions.',
       '3. Converge on ONE approach you will all build together (same solution, same files), and decide who drives the first draft.',
+      `   ${OWN_PART_LINE}`,
       ...(buildRounds > 1 ? [batchPlanLine(buildRounds)] : []),
+      NOTHING_LINE,
       'DO NOT carve the task into separate slices — you are solving one problem together. Signal done once you agree on the single approach AND who drafts first.',
     ].join('\n'),
   },
@@ -254,6 +303,7 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
       '2. The other(s) contribute directly (suggest concrete edits, add missing pieces) via neoncore_message_agent — do NOT build a competing version.',
       '3. Stick to the ONE agreed approach; coordinate before changing direction.',
       ...(rounds > 1 ? [batchLine(round, rounds)] : []),
+      BUILD_ONLY_LINE,
       rounds > 1
         ? `Signal done once this round's items are in the shared solution, verified, committed and PUSHED. ${roundsLeftLine(round, rounds)}`
         : 'Signal done once a first complete draft of the shared solution exists.',
@@ -262,6 +312,7 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
   {
     key: 'critique',
     name: 'Critique',
+    peerReview: true,
     body: () => [
       'GOAL: Pressure-test the SHARED draft — everyone reviews the same work.',
       '1. Read the current shared solution (git diff).',
@@ -273,6 +324,7 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
   {
     key: 'revise',
     name: 'Revise',
+    peerReview: true,
     body: () => [
       'GOAL: Fold every critique into the ONE solution.',
       '1. Work the critiques into the single shared solution together.',
@@ -285,14 +337,36 @@ const COLLABORATE_MILESTONES: MilestoneDef[] = [
     key: 'finalize',
     name: 'Finalize',
     body: () => [
-      'GOAL: Land the shared result.',
-      '1. The agreed driver commits the solution with a clear message.',
-      '2. Posts a short summary of what was built to the group.',
-      '3. The others confirm it is accurate.',
-      'Signal done to close out the confer.',
+      'GOAL: Land the shared result. This step is bookkeeping — no new work, no new review.',
+      '1. The agreed driver commits and pushes the solution with a clear message; everyone else makes sure nothing of theirs is left uncommitted.',
+      '2. The driver sends the group ONE short summary of what was built and anything still open.',
+      'Signal done as soon as your part of that is done — do not wait for a reply.',
     ].join('\n'),
   },
 ];
+
+/**
+ * THE LEFTOVER PASS — not a mode, and not a confer in anything but name.
+ *
+ * When a coverage check leaves one or two tasks open (lib/confer-sizing.ts LEFTOVER_MAX_TASKS),
+ * the run does not go back through align → build → review → converge → finalize for them. The
+ * open tasks go, as this ONE milestone, to the cartridge(s) whose repo owns them. It is a session
+ * so that everything that already watches a confer step — the done signal, the watchdog, the
+ * run's step — works on it unchanged.
+ */
+export const LEFTOVER_KEY = 'leftover';
+const LEFTOVER_MILESTONE: MilestoneDef = {
+  key: LEFTOVER_KEY,
+  name: 'Finish what is open',
+  body: () => [
+    'GOAL: Finish the task(s) listed as STILL OPEN at the top of the overall task — and ONLY those. Everything else in the task is done; do not re-plan it, re-review it or touch it.',
+    '1. Do each open task that belongs to YOUR repo: the code, and its verification (its tests, your repo\'s suite).',
+    '2. Mark it DONE in the progress document, then commit and push: `git add -A && git commit -m "<task id>: <what you changed>" && git push -u origin HEAD` (pull --rebase if rejected; never force-push).',
+    '3. If a task genuinely cannot be done, do not leave it silent: say exactly why, and what it is waiting on, in your done signal.',
+    'NOTHING OF YOURS among the open tasks? Signal done IMMEDIATELY (result: "nothing of mine open").',
+    'Signal done as soon as your open task(s) are pushed. There is no review step after this one — the coverage check runs next.',
+  ].join('\n'),
+};
 
 /**
  * THE MODE REGISTRY. Both ways two cartridges can work one task.
@@ -384,10 +458,22 @@ export interface ConferPlanStep {
  * indices with no notion of a loop. A run counter that lived only in the conductor would have
  * been lost on the first server restart, which is exactly when a 6-round build is still going.
  */
-export function conferPlan(mode: string, buildRounds: unknown = 1): ConferPlanStep[] {
+export interface ConferPlanOptions {
+  /** false = leave out the steps in which participants review each other (a QA stage follows). */
+  peerReview?: boolean;
+  /** false = leave out the step that merges slices of one repo (every participant has its own). */
+  merge?: boolean;
+  /** true = the leftover pass: one milestone, nothing else. */
+  leftover?: boolean;
+}
+
+export function conferPlan(mode: string, buildRounds: unknown = 1, opts: ConferPlanOptions = {}): ConferPlanStep[] {
+  if (opts.leftover) return [{ key: LEFTOVER_MILESTONE.key, name: LEFTOVER_MILESTONE.name, round: 1, rounds: 1 }];
   const rounds = clampBuildRounds(buildRounds);
   const steps: ConferPlanStep[] = [];
   for (const def of milestonesFor(mode)) {
+    if (def.peerReview && opts.peerReview === false) continue;
+    if (def.merge && opts.merge === false) continue;
     if (!def.iterates) {
       steps.push({ key: def.key, name: def.name, round: 1, rounds: 1 });
       continue;
@@ -591,6 +677,10 @@ export function startConfer(input: {
   isolation?: ConferIsolation;
   /** How many times the build/fix milestone runs (1 = the classic single build). */
   buildRounds?: number;
+  /** false = no cross-review step: a QA stage after this one does the reviewing. Default true. */
+  peerReview?: boolean;
+  /** true = the leftover pass (LEFTOVER_MILESTONE): one milestone to the owners of what is open. */
+  leftover?: boolean;
 }): ConferSession {
   const id = uuid();
   const now = new Date().toISOString();
@@ -609,7 +699,12 @@ export function startConfer(input: {
     JSON.stringify(input.attachmentBlocks || {}), mode, isolation, JSON.stringify(worktrees), buildRounds,
   );
 
-  conferPlan(mode, buildRounds).forEach((m, idx) => {
+  // The merge step exists to combine slices of ONE repo. Participants each in their own repo have
+  // nothing to merge — "agree an integrator" there is twenty minutes of two agents confirming to
+  // each other that their separate repos are separate.
+  const repos = loadParticipants(input.participantIds).map((p) => p.repoPath).filter(Boolean);
+  const sharesARepo = isolation === 'worktree' || repos.length < input.participantIds.length || new Set(repos).size < repos.length;
+  conferPlan(mode, buildRounds, { peerReview: input.peerReview !== false, merge: sharesARepo, leftover: input.leftover === true }).forEach((m, idx) => {
     db.prepare(
       `INSERT INTO confer_milestones (id, session_id, idx, key, name, round, status)
        VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
@@ -858,7 +953,7 @@ export function buildMilestonePrompt(
   // Milestone rows are the source of truth for name/round (they survive a restart); the def
   // supplies the body. Looked up by KEY, so a repeated build finds the same def every round.
   const set = milestonesFor(session.mode);
-  const def = (ms && set.find((m) => m.key === ms.key)) || set[idx];
+  const def = ms?.key === LEFTOVER_KEY ? LEFTOVER_MILESTONE : (ms && set.find((m) => m.key === ms.key)) || set[idx];
   const round = ms?.round || 1;
   const buildRounds = clampBuildRounds(session.buildRounds);
   const rounds = def?.iterates ? buildRounds : 1;
@@ -892,24 +987,25 @@ export function buildMilestonePrompt(
   noteSent(ledger, taskKind, session.task);
   return [
     `[NeonCore Confer · Milestone ${idx + 1}/${total}: ${name}]`,
-    `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`,
+    peers.length
+      ? `You are collaborating with ${peers.length} other agent(s) on ONE task. Work together — do not work in isolation.`
+      : 'This step is yours alone: nobody else is working it.',
     ``,
     `OVERALL TASK:`,
     task,
     ``,
-    `YOUR PEER(S):`,
-    peerLines,
-    ``,
+    ...(peers.length ? [`YOUR PEER(S):`, peerLines, ``] : []),
     `THIS MILESTONE — ${name}:`,
     def.body({ task: session.task, round, rounds, buildRounds }),
     ...(worktreeLines ? ['', worktreeLines] : []),
     ...(commitLines ? ['', commitLines] : []),
     ``,
-    `COORDINATE: use neoncore_message_agent to talk to your peer(s) and neoncore_read_agent to see their work.`,
-    ``,
+    ...(peers.length ? [`COORDINATE: use neoncore_message_agent to talk to your peer(s) and neoncore_read_agent to see their work.`, ``] : []),
     `WHEN THIS MILESTONE IS DONE, you MUST signal completion by running:`,
     `curl -s -X POST "${doneUrl}" ${AUTH_CURL_HEADER} -H "Content-Type: application/json" -d '{"result":"<1-2 line summary of what you did this milestone>"}'`,
-    `The confer will NOT advance to the next milestone until every participant has signalled. After you signal, wait for the next milestone prompt.`,
+    total > idx + 1
+      ? `The confer will NOT advance until every participant has signalled — signal as soon as YOUR part is done, then wait.`
+      : `Signal the moment your part is done: this is the last step.`,
   ].join('\n') + attachmentBlock;
 }
 
@@ -945,7 +1041,9 @@ export async function dispatchMilestone(sessionId: string, idx: number): Promise
   if (undelivered > 0) {
     db.prepare('UPDATE confer_sessions SET error = ? WHERE id = ?')
       .run(`Milestone "${milestoneName}" could not reach ${undelivered} participant(s) — is that cartridge running?`, sessionId);
-  } else if (row.error) {
+  } else if (row.error && !String(row.error).startsWith(PRESUMED_PREFIX)) {
+    // A "presumed done" note stays: it is the only place that says a signal was recorded FOR a
+    // participant, and the next dispatch succeeding does not make that untrue.
     db.prepare("UPDATE confer_sessions SET error = '' WHERE id = ?").run(sessionId);
   }
   console.log(`[confer] ${sessionId} dispatched milestone ${idx + 1}/${total} (${milestoneName}) to ${participants.length} agent(s)`);
@@ -1003,6 +1101,31 @@ export function reconcileConfers(now = Date.now()): void {
       continue;
     }
 
+    // Idle and silent: the ones a reminder can reach, and the only ones ever presumed done.
+    const quiet = pending.filter((pid) => !dead.includes(pid) && participantIsQuiet(pid, now));
+    const dispatchedAt = Date.parse(ms.dispatched_at as string);
+    const presumed = (ms.nudged as number) >= PRESUME_AFTER_REMINDERS
+      ? quiet.filter((pid) => now - Math.max(lastToolCallMs([pid]), dispatchedAt) > PRESUME_IDLE_MS)
+      : [];
+    if (presumed.length > 0) {
+      const names = presumed.map((pid) =>
+        (db.prepare('SELECT repo_name FROM agents WHERE id = ?').get(pid) as { repo_name?: string } | undefined)?.repo_name || pid);
+      const earlier = String(row.error || '').startsWith(PRESUMED_PREFIX) ? `${row.error} · ` : '';
+      db.prepare('UPDATE confer_sessions SET error = ? WHERE id = ?').run(
+        `${earlier}${PRESUMED_PREFIX} on "${ms.name}": ${names.join(', ')} — idle, and silent through ${ms.nudged as number} reminder(s). `
+          + 'Its done signal was recorded for it so the confer could move on; the coverage check will show anything it did not finish.',
+        row.id as string,
+      );
+      console.warn(`[confer] ${row.id} "${ms.name}": presumed done — ${names.join(', ')} (idle, silent through ${ms.nudged as number} reminder(s))`);
+      for (const pid of presumed) {
+        recordMilestoneDone(
+          row.id as string, pid,
+          `PRESUMED DONE by NeonCore: this cartridge was idle and did not send its done signal after ${ms.nudged as number} reminder(s). Its work on "${ms.name}" was NOT confirmed — check it.`,
+        );
+      }
+      continue;
+    }
+
     if (age > ABSOLUTE_FAIL_MS) {
       db.prepare(`UPDATE confer_sessions SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
         .run(
@@ -1031,13 +1154,15 @@ export function reconcileConfers(now = Date.now()): void {
      * `nudged` was a boolean gate, so a participant got exactly one reminder in the session's
      * life and a single missed signal was terminal. It is now a COUNT, and the reminder repeats
      * every STALL_MS for as long as the participant is alive.
+     *
+     * ONLY TO THE QUIET ONES: a cartridge that is working, or waiting on a person, gets nothing.
      */
     const dueNudges = Math.floor(age / STALL_MS);
-    if (dueNudges > (ms.nudged as number)) {
+    if (dueNudges > (ms.nudged as number) && quiet.length > 0) {
       db.prepare('UPDATE confer_milestones SET nudged = ? WHERE id = ?').run(dueNudges, ms.id as string);
       const session = hydrateSession(row);
       const total = session.milestones?.length || CONFER_MILESTONE_COUNT;
-      for (const pid of pending) {
+      for (const pid of quiet) {
         const url = `${baseUrl()}/api/confer/${row.id}/milestone/${pid}/done`;
         sendCommandToAgent(
           pid,
@@ -1045,7 +1170,7 @@ export function reconcileConfers(now = Date.now()): void {
           false,
         );
       }
-      console.log(`[confer] ${row.id} nudged ${pending.length} participant(s) on milestone ${idx + 1}`);
+      console.log(`[confer] ${row.id} nudged ${quiet.length} participant(s) on milestone ${idx + 1}`);
     }
   }
 }

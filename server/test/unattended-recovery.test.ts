@@ -250,7 +250,9 @@ test('a live participant is nudged REPEATEDLY, not once and then abandoned', () 
 test('a confer with a live participant does not run forever — it fails with a diagnosable reason', () => {
   // Not failing is right up to a point; hanging silently for a day is its own failure. Past the
   // ceiling it stops, and the error has to name WHY so it is not just "stalled" again.
-  const p = agent('idle', { seenMsAgo: 10 * 1000 });
+  // A cartridge whose status still says WORKING: it is never presumed done, so the ceiling is
+  // what ends it.
+  const p = agent('working', { seenMsAgo: 10 * 1000 });
   const s = confer([p]);
   milestone(s, 6 * 60 * MIN, 5);                  // six hours, nudged repeatedly
   reconcileConfers(Date.now());
@@ -258,6 +260,20 @@ test('a confer with a live participant does not run forever — it fails with a 
   assert.equal(got.status, 'failed');
   assert.match(got.error, /alive|responsive|nudge/i,
     'the error does not distinguish "alive but silent" from "dead" — the same unhelpful message as before');
+});
+
+test('an IDLE participant that stays silent is not waited on for hours — it is presumed done and the confer goes on', () => {
+  // The other half of "does not run forever" (confer-efficiency.test.ts): idle + silent through
+  // two reminders means the work stopped and the signal was forgotten. Waiting six hours for it
+  // and then failing the whole confer was the old answer.
+  const p = agent('idle', { seenMsAgo: 10 * 1000 });
+  const s = confer([p]);
+  const m = milestone(s, 6 * 60 * MIN, 5);
+  reconcileConfers(Date.now());
+  const got = statusOf(s);
+  assert.notEqual(got.status, 'failed');
+  assert.match(got.error, /presumed done/i);
+  assert.equal((db.prepare('SELECT status FROM confer_milestones WHERE id = ?').get(m) as { status: string }).status, 'done');
 });
 
 test('a milestone everyone reported is left alone', () => {
