@@ -27,12 +27,18 @@ export function FinalAnswerModal({ agentId, name, onClose }: { agentId: string; 
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 bg-black/70 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 flex items-center justify-center p-4"
       style={{ zIndex: 10000 }}
       role="dialog" aria-modal="true" aria-label={`${name} — final answer`}
     >
-      <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-3xl mx-2 md:mx-0 max-h-[95vh] md:max-h-[85vh] flex flex-col">
-        <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-white/[0.08]">
+      {/* Capped to the window and clipped; the BODY below is what scrolls. 90% see-through, the
+          same as the agent's card over the map — a background alpha, never `opacity` (that would
+          also fade the text). */}
+      <div
+        className="rounded-[22px] border border-[rgba(120,150,255,0.22)] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-3xl mx-2 md:mx-0 max-h-[95vh] md:max-h-[85vh] flex flex-col overflow-hidden"
+        style={{ background: 'rgba(10, 16, 32, 0.9)' }}
+      >
+        <div className="shrink-0 flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-white/[0.08]">
           <div className="min-w-0">
             <h2 className="font-display text-xl font-semibold text-gray-100 truncate">{name} — final answer</h2>
             {answer && (
@@ -43,7 +49,9 @@ export function FinalAnswerModal({ agentId, name, onClose }: { agentId: string; 
           </div>
           <button onClick={onClose} className="h-9 w-9 rounded-[10px] text-gray-400 hover:text-gray-100 hover:bg-white/[0.06]" aria-label="Close">✕</button>
         </div>
-        <div className="px-6 py-5 overflow-y-auto">
+        {/* flex-1 + min-h-0: take what is left under the header and be ALLOWED to shrink, so a
+            long answer scrolls here instead of running off the bottom of the box. */}
+        <div data-answer-body tabIndex={0} className="answer-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-5 focus:outline-none">
           {error ? <p className="text-[13px] text-gray-500">{/not found|no answer/i.test(error) ? 'No answer recorded for this cartridge yet.' : error}</p>
             : !answer ? <p className="text-[13px] text-gray-500">Loading…</p>
             : (

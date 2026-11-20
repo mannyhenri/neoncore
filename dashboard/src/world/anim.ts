@@ -7,7 +7,13 @@
 import type { CrewMember } from './crew';
 
 /** In atlas row order (scripts/world/build_crew_sheets.py writes the rows in this order). */
-export const ANIMATION_NAMES = ['idle', 'walk', 'work', 'kneel', 'repair', 'tend', 'alert', 'rest', 'call', 'jump'] as const;
+export const ANIMATION_NAMES = ['idle', 'walk', 'work', 'kneel', 'repair', 'tend', 'alert', 'rest', 'call', 'jump', 'sit'] as const;
+/**
+ * Cycles a character's sheet may not have drawn yet — none today: every character has all
+ * eleven. A NEW character may list one here while its art is on the way; the figure then shows
+ * `idle` in its place (Avatar.tsx), and nothing is drawn in code to fill the gap.
+ */
+export const OPTIONAL_ANIMATIONS: readonly AnimationName[] = [];
 export type AnimationName = (typeof ANIMATION_NAMES)[number];
 
 /** Playback speed per cycle, in frames per second. Frame counts come from each sheet. */
@@ -22,6 +28,7 @@ export const ANIMATIONS: Record<AnimationName, { fps: number }> = {
   rest: { fps: 2 },
   call: { fps: 6 },
   jump: { fps: 7 },
+  sit: { fps: 2 },
 };
 
 /**
@@ -50,10 +57,11 @@ export const WORK_CYCLE: Record<WorkPosture, AnimationName> = { stand: 'kneel', 
  *   call    it is stuck
  *   alert   it needs an approval, an answer or a review, or is waiting on you
  *   floor   it is working — down at its work with a tool (kneel / repair / tend, by site)
- *   idle    it is idle — standing still
+ *   sit     it is idle and has reached a seat — sitting (only on a plate that has seats; the map has none today)
+ *   idle    it is idle — standing still at its building, or wherever you put it
  *
- * ONE LOOK PER STATE, wherever the figure stands: on the floor = working, standing still =
- * idle, waving = needs you, calling = stuck. Nothing else may share those looks.
+ * ONE LOOK PER STATE, wherever the figure stands: on the floor = working, sitting on a bench
+ * (or standing still, off it) = idle, waving = needs you, calling = stuck. Nothing else may share those looks.
  *
  * Idle agents do not wander: any movement on the map means something happened.
  */
@@ -61,12 +69,13 @@ export function animationFor(
   member: Pick<CrewMember, 'status' | 'attention'>,
   walking: boolean,
   posture: WorkPosture = 'stand',
-  moment: { cheering?: boolean } = {},
+  moment: { cheering?: boolean; seated?: boolean } = {},
 ): AnimationName {
   if (walking) return 'walk';
   if (moment.cheering) return 'jump';
   if (member.attention === 'stuck') return 'call';
   if (member.attention || member.status === 'waiting') return 'alert';
   if (member.status === 'working') return WORK_CYCLE[posture];
+  if (moment.seated) return 'sit';
   return 'idle';
 }

@@ -4,10 +4,10 @@
 export const CREW_ATLAS = {
   cell: 256,
   frames: 4,
-  rows: ['idle', 'walk', 'work', 'kneel', 'repair', 'tend', 'alert', 'rest', 'call', 'jump'],
+  rows: ['idle', 'walk', 'work', 'kneel', 'repair', 'tend', 'alert', 'rest', 'call', 'jump', 'sit'],
   characters: {
-    mechanic: { src: '/world/crew/mechanic.png', tops: { idle: 0.086, walk: 0.098, work: 0.129, kneel: 0.188, repair: 0.164, tend: 0.238, alert: 0.094, rest: 0.191, call: 0.094, jump: 0.055 } },
-    pilot: { src: '/world/crew/pilot.png', tops: { idle: 0.047, walk: 0.066, work: 0.047, kneel: 0.117, repair: 0.121, tend: 0.176, alert: 0.039, rest: 0.109, call: 0.039, jump: 0.043 } },
-    scout: { src: '/world/crew/scout.png', tops: { idle: 0.062, walk: 0.066, work: 0.062, kneel: 0.148, repair: 0.145, tend: 0.199, alert: 0.059, rest: 0.191, call: 0.059, jump: 0.039 } },
+    mechanic: { src: '/world/crew/mechanic.png', tops: { idle: 0.086, walk: 0.098, work: 0.129, kneel: 0.188, repair: 0.164, tend: 0.238, alert: 0.094, rest: 0.191, call: 0.094, jump: 0.055, sit: 0.148 } },
+    pilot: { src: '/world/crew/pilot.png', tops: { idle: 0.047, walk: 0.066, work: 0.047, kneel: 0.117, repair: 0.121, tend: 0.176, alert: 0.039, rest: 0.109, call: 0.039, jump: 0.043, sit: 0.117 } },
+    scout: { src: '/world/crew/scout.png', tops: { idle: 0.062, walk: 0.066, work: 0.062, kneel: 0.148, repair: 0.145, tend: 0.199, alert: 0.059, rest: 0.191, call: 0.059, jump: 0.039, sit: 0.133 } },
   },
 } as const;

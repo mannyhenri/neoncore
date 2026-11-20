@@ -157,6 +157,14 @@ describe('meeting', () => {
       const keys = meetingKeys([{ status, participantIds: ['a2', 'b1'] }], crew);
       expect(keys, status).toEqual(status === 'running' ? ['m:a', 'm:b'] : []);
     }
+    // Participants who all work in the SAME pod are already together: they stay in it.
+    const pods = [{ key: 'm:a', agentIds: ['a1'], pod: 'nw' }, { key: 'm:b', agentIds: ['b1'], pod: 'nw' }, { key: 'm:c', agentIds: ['c1'], pod: 'sw' }, { key: 'm:d', agentIds: ['d1'] }];
+    expect(meetingKeys([{ status: 'running', participantIds: ['a1', 'b1'] }], pods), 'one pod').toEqual([]);
+    // Across two pods, or with an agent of no project, they meet at the table — all of them.
+    expect(meetingKeys([{ status: 'running', participantIds: ['a1', 'b1', 'c1'] }], pods)).toEqual(['m:a', 'm:b', 'm:c']);
+    expect(meetingKeys([{ status: 'running', participantIds: ['a1', 'd1'] }], pods)).toEqual(['m:a', 'm:d']);
+    // Two confers at once, one in a pod and one across pods: only the second gathers.
+    expect(meetingKeys([{ status: 'running', participantIds: ['a1', 'b1'] }, { status: 'running', participantIds: ['c1', 'd1'] }], pods)).toEqual(['m:c', 'm:d']);
     // A confer of one is not a gathering.
     expect(meetingKeys([{ status: 'running', participantIds: ['c1'] }], crew)).toEqual([]);
   });

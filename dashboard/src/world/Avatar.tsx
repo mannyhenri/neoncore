@@ -24,9 +24,11 @@ export function Avatar({ character, height, anim, facing = 1 }: {
   const sheet = sheetFor(character);
   if (!sheet) return null;
 
-  const { row, frames, top } = sheet.rows[anim];
-  const totalRows = Math.max(...Object.values(sheet.rows).map((r) => r.row)) + 1;
-  const totalCols = Math.max(...Object.values(sheet.rows).map((r) => r.frames));
+  // A cycle the sheet has not drawn falls back to `idle` (anim.ts OPTIONAL_ANIMATIONS).
+  const { row, frames, top } = sheet.rows[anim] ?? sheet.rows.idle;
+  const all = Object.values(sheet.rows).filter((r): r is { row: number; frames: number; top: number } => r !== undefined);
+  const totalRows = Math.max(...all.map((r) => r.row)) + 1;
+  const totalCols = Math.max(...all.map((r) => r.frames));
   const width = (height * sheet.frameW) / sheet.frameH;
 
   return (

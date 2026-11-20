@@ -24,7 +24,7 @@ export interface CrewSheet {
   frameW: number;
   frameH: number;
   /** `top` = how far down its cell (0–1) the figure starts in that cycle. */
-  rows: Record<AnimationName, { row: number; frames: number; top: number }>;
+  rows: Partial<Record<AnimationName, { row: number; frames: number; top: number }>> & Record<'idle', { row: number; frames: number; top: number }>;
 }
 
 export type CharacterId = keyof typeof CREW_ATLAS.characters;
@@ -36,7 +36,9 @@ export const CREW_SHEETS: Record<string, CrewSheet> = Object.fromEntries(
   CHARACTERS.map((id) => {
     const { src, tops } = CREW_ATLAS.characters[id];
     const rows = Object.fromEntries(
-      ANIMATION_NAMES.map((name) => [name, { row: (CREW_ATLAS.rows as readonly string[]).indexOf(name), frames: CREW_ATLAS.frames, top: tops[name] }]),
+      // Only the cycles this atlas actually has: a missing one (anim.ts OPTIONAL_ANIMATIONS) has no row.
+      ANIMATION_NAMES.filter((name) => (CREW_ATLAS.rows as readonly string[]).includes(name))
+        .map((name) => [name, { row: (CREW_ATLAS.rows as readonly string[]).indexOf(name), frames: CREW_ATLAS.frames, top: (tops as Record<string, number>)[name] }]),
     ) as CrewSheet['rows'];
     return [id, { src, frameW: CREW_ATLAS.cell, frameH: CREW_ATLAS.cell, rows }];
   }),

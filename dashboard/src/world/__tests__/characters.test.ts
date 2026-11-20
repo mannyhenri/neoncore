@@ -66,10 +66,11 @@ describe('moving an agent by hand', () => {
   it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: positions are remembered per plate, and bad stored data is ignored', ({ plate }) => {
     localStorage.clear();
     expect(loadCustomSpots(plate.id).size).toBe(0);
-    saveCustomSpots(plate.id, new Map([['m:a', { x: 0.3, y: 0.5 }], ['m:b', { x: 5, y: 5 }]]));
+    saveCustomSpots(plate.id, new Map([['m:a', { x: 0.3, y: 0.5 }], ['m:b', { x: 5, y: 5, idle: true }]]));
     const back = loadCustomSpots(plate.id);
     expect(back.get('m:a')).toEqual({ x: 0.3, y: 0.5 });
-    expect(back.get('m:b')).toEqual(clampSpot({ x: 5, y: 5 }));
+    // "Dropped while idle" survives a reload, with the position still clamped to the plate.
+    expect(back.get('m:b')).toEqual({ ...clampSpot({ x: 5, y: 5 }), idle: true });
     expect(loadCustomSpots('some-other-plate').size).toBe(0);
     localStorage.setItem(`neoncore.world.spots.${plate.id}`, '{not json');
     expect(loadCustomSpots(plate.id).size).toBe(0);

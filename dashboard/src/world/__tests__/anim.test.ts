@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { ANIMATIONS, ANIMATION_NAMES, animationFor, WORK_POSTURES, WORK_CYCLE } from '../anim';
+import { ANIMATIONS, ANIMATION_NAMES, OPTIONAL_ANIMATIONS, animationFor, WORK_POSTURES, WORK_CYCLE } from '../anim';
 import { CREW_SHEETS, sheetFor } from '../sheets';
 import { CREW_STATUSES, ATTENTION_ORDER } from '../crew';
 import { PLATES } from '../sites';
@@ -19,8 +19,10 @@ const WORLD = resolve(HERE, '..');
  * the registry, and fails if a figure drawn from code ever comes back.
  */
 describe('avatar animations', () => {
-  it('the registry has the ten cycles the scene uses', () => {
-    expect([...ANIMATION_NAMES].sort()).toEqual(['alert', 'call', 'idle', 'jump', 'kneel', 'repair', 'rest', 'tend', 'walk', 'work']);
+  it('the registry has the eleven cycles the scene uses', () => {
+    expect([...ANIMATION_NAMES].sort()).toEqual(['alert', 'call', 'idle', 'jump', 'kneel', 'repair', 'rest', 'sit', 'tend', 'walk', 'work']);
+    // Every cycle is drawn for every character — sitting included: none may be missing.
+    expect([...OPTIONAL_ANIMATIONS]).toEqual([]);
     expect(Object.keys(ANIMATIONS).sort()).toEqual([...ANIMATION_NAMES].sort());
     for (const name of ANIMATION_NAMES) expect(ANIMATIONS[name].fps, name).toBeGreaterThan(0);
   });
@@ -83,23 +85,26 @@ describe('crew sprite sheets', () => {
     expect(existsSync(resolve(HERE, '../../../public', sheet.src.replace(/^\//, ''))), `${sheet.src} is missing from public/`).toBe(true);
     expect(sheet.frameW).toBeGreaterThan(0);
     expect(sheet.frameH).toBeGreaterThan(0);
-    expect(Object.keys(sheet.rows).sort()).toEqual([...ANIMATION_NAMES].sort());
+    // Every cycle is drawn, except those a sheet is allowed not to have yet — and a sheet has all or none of each.
+    const drawn = ANIMATION_NAMES.filter((n) => sheet.rows[n] !== undefined);
+    expect(ANIMATION_NAMES.filter((n) => !drawn.includes(n)).every((n) => OPTIONAL_ANIMATIONS.includes(n)), 'a required cycle is missing').toBe(true);
+    expect(Object.keys(sheet.rows).sort()).toEqual([...drawn].sort());
     const rows = new Set<number>();
-    for (const name of ANIMATION_NAMES) {
-      expect(sheet.rows[name].frames, name).toBeGreaterThanOrEqual(2);
+    for (const name of drawn) {
+      expect(sheet.rows[name]!.frames, name).toBeGreaterThanOrEqual(2);
       // Where the character's head (or raised hand) starts in the cell — the panel sits just above it.
-      expect(sheet.rows[name].top, name).toBeGreaterThanOrEqual(0);
-      expect(sheet.rows[name].top, name).toBeLessThan(0.6);
-      rows.add(sheet.rows[name].row);
+      expect(sheet.rows[name]!.top, name).toBeGreaterThanOrEqual(0);
+      expect(sheet.rows[name]!.top, name).toBeLessThan(0.6);
+      rows.add(sheet.rows[name]!.row);
     }
-    expect(rows.size, 'two animations point at the same row').toBe(ANIMATION_NAMES.length);
+    expect(rows.size, 'two animations point at the same row').toBe(drawn.length);
     // The image really is the grid the registry describes (read from the PNG header).
     const png = readFileSync(resolve(HERE, '../../../public', sheet.src.replace(/^\//, '')));
     const width = png.readUInt32BE(16);
     const height = png.readUInt32BE(20);
-    const cols = Math.max(...ANIMATION_NAMES.map((n) => sheet.rows[n].frames));
+    const cols = Math.max(...drawn.map((n) => sheet.rows[n]!.frames));
     expect(width, 'atlas width').toBe(sheet.frameW * cols);
-    expect(height, 'atlas height').toBe(sheet.frameH * ANIMATION_NAMES.length);
+    expect(height, 'atlas height').toBe(sheet.frameH * drawn.length);
     expect(png[25], 'atlas must have an alpha channel (colour type 6)').toBe(6);
   });
 
@@ -114,11 +119,12 @@ describe('crew sprite sheets', () => {
     }
   });
 
-  it('ONE LOOK PER STATE: what a figure is doing tells you its state, wherever it stands — every status, attention and posture', () => {
+  it('ONE LOOK PER STATE: what a figure is doing tells you its state, wherever it stands — every status, attention and posture, seated or not', () => {
     const FLOOR = ['kneel', 'repair', 'tend'];
     const looks = new Map<string, Set<string>>();
-    for (const status of CREW_STATUSES) for (const attention of [null, ...ATTENTION_ORDER]) for (const posture of WORK_POSTURES) {
-      const anim = animationFor({ status, attention }, false, posture);
+    for (const status of CREW_STATUSES) for (const attention of [null, ...ATTENTION_ORDER]) for (const posture of WORK_POSTURES) for (const seated of [false, true]) {
+      // `seated` = it has reached its bench. Only an idle agent with nothing to ask ever does.
+      const anim = animationFor({ status, attention }, false, posture, { seated: seated && status === 'idle' && attention === null });
       const state = attention === 'stuck' ? 'stuck' : attention || status === 'waiting' ? 'needs you' : status;
       // On the floor with a tool = working. The three floor cycles are one look.
       const look = FLOOR.includes(anim) ? 'floor' : anim;
@@ -126,7 +132,7 @@ describe('crew sprite sheets', () => {
     }
     expect(Object.fromEntries([...looks].map(([k, v]) => [k, [...v]]))).toEqual({
       working: ['floor'],       // down at its work
-      idle: ['idle'],           // standing still
+      idle: ['idle', 'sit'],    // sitting on its bench — standing still only while it is off it
       'needs you': ['alert'],   // waving
       stuck: ['call'],          // calling out
     });

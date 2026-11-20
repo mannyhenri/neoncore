@@ -81,6 +81,8 @@ const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   // Document Release inside Phase 6, which keeps the internal ones current.
   'Release Documentation':          'delivery',
   'CE: Phase 6 — Ship':             'delivery',
+  // Run on its own, after features built side by side conflict at merge (lib/feature-workspace.ts).
+  'Resolve PR Conflicts':           'delivery',
   'CE: Phase 7 — Compound':         'learning',
 };
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Agent, Goal, Machine, Project, QueueItem, QueueLane } from '../types';
+import type { ActiveFeature, Agent, Goal, Machine, Project, QueueItem, QueueLane } from '../types';
 import { api } from '../lib/api';
 import type { CrewMember } from './crew';
 
@@ -23,6 +23,8 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
   projects: Project[];
   /** Every feature (goal): the scene reads their target dates for the deadline gauges. */
   goals: Goal[];
+  /** Running and paused features — the teams on the map, with their plates (FeaturePlates.tsx). */
+  features: ActiveFeature[];
   /**
    * False until machines and projects have answered once (or failed). The scene draws nobody
    * before that: placing the crew first and then moving it when the projects arrive would make
@@ -35,6 +37,7 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
   const [machines, setMachines] = useState<Pick<Machine, 'hostname' | 'status'>[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [features, setFeatures] = useState<ActiveFeature[]>([]);
   const [ready, setReady] = useState(false);
   const crewRef = useRef(crew);
   crewRef.current = crew;
@@ -49,6 +52,7 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
       const fleet = api.getMachines().then((m) => { if (alive) setMachines(Array.isArray(m) ? m : []); }).catch(() => {});
       const owned = api.getGoalProjects().then((p) => { if (alive) setProjects(Array.isArray(p) ? p : []); }).catch(() => {});
       api.getGoals().then((g) => { if (alive) setGoals(Array.isArray(g) ? g : []); }).catch(() => {});
+      api.getActiveFeatures().then((f) => { if (alive) setFeatures(Array.isArray(f) ? f : []); }).catch(() => {});
       Promise.all([fleet, owned]).then(() => { if (alive) setReady(true); });
     };
     load();
@@ -75,5 +79,5 @@ export function useCrewExtras(crew: CrewMember[], agents: Agent[]): {
     return () => { alive = false; clearInterval(t); };
   }, [crewKeys]);
 
-  return { queue, burn, machines, projects, goals, ready };
+  return { queue, burn, machines, projects, goals, features, ready };
 }
