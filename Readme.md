@@ -12,6 +12,8 @@ machines — from one dashboard and from your phone.
 
 </div>
 
+![The Agents home screen: your agents as a crew on a map of this machine, with each project's base and the feature its team is on](docs/images/agents-map.jpg)
+
 ---
 
 ## The problem it solves
@@ -46,7 +48,7 @@ It runs entirely on your own machines. No cloud service, no account, no telemetr
 
 - [How it works](#how-it-works)
 - [Quick start](#quick-start) · [Connect your first agent](#connect-your-first-agent)
-- [Using it: cartridges, approvals, queue](#using-it)
+- [Using it: cartridges, approvals, queue, flows](#using-it)
 - [Projects, features and tasks](#projects-features-and-tasks)
 - [One server per machine](#one-server-per-machine)
 - [The mobile app](#the-mobile-app)
@@ -199,6 +201,8 @@ Within a second or two the repo appears as a cartridge. If it doesn't, jump to
 Each tile is one agent in one repo. The header carries branch, status, machine and tool; the
 **Live Log** underneath streams every tool call as it happens.
 
+![Cartridges in the list view: live logs, a pending question, and the Plan / Manual / Trust modes](docs/images/agents-cartridges.jpg)
+
 A cartridge leaves the grid when its session actually **ends** — going quiet does not remove it.
 That distinction is deliberate: an agent that has stopped talking is usually the one you most need
 to look at.
@@ -223,6 +227,13 @@ Send work to a busy cartridge and it queues behind the current job rather than i
 Lanes drain independently, a failure **halts its own lane with a reason** instead of failing
 silently, and you can hold one item without stopping the rest.
 
+### Flows
+
+The Flows view shows the workflows that are running, with their progress, above the template
+library you start new ones from. See [WORKFLOWS.md](WORKFLOWS.md).
+
+![The Flows view: an active run above the template library](docs/images/workflows.jpg)
+
 ---
 
 ## Projects, features and tasks
@@ -233,6 +244,8 @@ you take them **one at a time**: a planner cartridge scopes the feature with you
 and acceptance criteria, proposes the workflows, and runs them in the project's repos once you
 accept. See [docs/GOALS.md](docs/GOALS.md) and [docs/GOAL-PILOT.md](docs/GOAL-PILOT.md).
 
+![A project open on its features: progress, spend, and which one is waiting on you](docs/images/projects.jpg)
+
 The pipeline for a feature has stages: **acceptance tests** first (one failing test per criterion,
 approved by you and then locked), then the **workflow stages** that do the work, then an
 **independent review** by an agent that did not do the work. Each stage leaves out the workflow
@@ -241,6 +254,8 @@ steps that are not its job, which you can see and change on the plan before you 
 **Features run side by side.** Each running feature gets its own branch and worktree in every repo
 it touches, so two features in one project never share a working copy. On the Agents map each
 feature shows as a plate above the team working on it, with its stage and whether it needs you.
+
+<p align="center"><img src="docs/images/feature-pipeline.jpg" width="560" alt="A feature's pipeline: its stages, the acceptance contract, and the run stages with one waiting on a decision"></p>
 
 Beside the list, each project keeps its **spec, roadmap, changelog and architecture** — generated from
 the records as features are built, and for a codebase new to NeonCore written by a cartridge from the
@@ -255,6 +270,8 @@ Progress has **three** states, not two: real progress, genuine zero, and *nothin
 A feature with no runs never renders as 0% — that would claim work started and got nowhere.
 
 **Tasks** are discrete units of work you can dispatch to a cartridge.
+
+![The task queue](docs/images/tasks.jpg)
 
 Priority sorts them, and a **dependency gate** refuses to dispatch a task whose prerequisite hasn't
 finished — overridable with `force`, but deliberately, not by default.
