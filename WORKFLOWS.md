@@ -131,9 +131,12 @@ Scope the Work → Confer & Build → Verify Coverage → Work Standard Check �
    verified and `TASK_COUNT`, and leaves the split to the participants.
 2. **Confer & Build.** The participants agree one plan, give every task exactly one owner, agree the
    interface between repos first, and build in rounds, each in its own repo, one commit per task,
-   marking each task DONE in the progress document. **The number of build rounds comes from the
-   task count**: two tasks per participant per round, **capped at 2** (a step can raise the cap
-   with `maxBuildRounds`); what two rounds leave open, the coverage check sends back.
+   marking each task DONE in the progress document. **A single feature builds once; only a Jira
+   epic builds in rounds.** Scope reports which it is (`MODE: EPIC <KEY>` or `MODE: TASK`). A
+   feature's parts are one piece of work: agree the split, build once, land. An epic gets rounds
+   from its task count — two tasks per participant per round, up to 20 (a step can lower that with
+   `maxBuildRounds`) — so a 40-task epic on two cartridges gets 10 rounds. Anything that cannot be
+   read builds once. What a pass leaves open, the coverage check sends back.
    **Each participant does only its own part**: a task that is a day of backend work and one line
    of frontend is a day for one and one line for the other, and a participant with nothing in a
    step says so and signals at once rather than waiting.

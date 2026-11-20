@@ -96,18 +96,17 @@ test('the progress document: remembered from PROGRESS:, served only from a safe 
   assert.match(readProgressDoc(r3)!.unavailable, /some-other-box/);
 });
 
-test('a confer\'s build rounds come from the task count, or what is left — capped, with a fallback', () => {
+test('a confer\'s build rounds: one for a single feature, the task count for an epic, what is left on a pass back', () => {
+  // The full table is in confer-efficiency.test.ts; this is the part run-progress depends on.
   const from = { step: 'Scope the Work', pattern: 'TASK_COUNT:\\s*(\\d+)', tasksPerRound: 2 };
   const rounds = (cfg: Record<string, unknown>, people: number, scope: string) =>
-    resolveBuildRounds({ buildRounds: 3, buildRoundsFrom: from, ...cfg }, people, { 'Scope the Work': scope }).rounds;
-  assert.equal(rounds({}, 2, 'TASK_COUNT: 1'), 1);
-  // Capped at SIZED_ROUNDS_CAP (2) unless the step raises it (confer-efficiency.test.ts).
-  assert.equal(rounds({}, 2, 'TASK_COUNT: 12'), 2);
-  assert.equal(rounds({}, 3, 'TASK_COUNT: 40'), 2);
-  assert.equal(rounds({ maxBuildRounds: 20 }, 2, 'TASK_COUNT: 12'), 3);
-  assert.equal(rounds({ maxBuildRounds: 20 }, 3, 'TASK_COUNT: 40'), 7);
-  assert.equal(rounds({ maxBuildRounds: 9999 }, 2, 'TASK_COUNT: 500'), MAX_BUILD_ROUNDS, 'a huge epic must not dispatch hundreds of milestones');
-  assert.equal(rounds({ _coverageRemaining: 2 }, 2, 'TASK_COUNT: 40'), 1, 'a pass back to the confer is sized to what is LEFT');
-  assert.equal(rounds({}, 2, 'no count here'), 2, 'an unreadable count falls back to the template, capped');
-  assert.equal(resolveBuildRounds({ buildRounds: 3, maxBuildRounds: 3 }, 2, {}).rounds, 3, 'no resolver: the template decides');
+    resolveBuildRounds({ buildRounds: 1, buildRoundsFrom: from, ...cfg }, people, { 'Scope the Work': scope }).rounds;
+  assert.equal(rounds({}, 2, 'MODE: TASK\nTASK_COUNT: 12'), 1);
+  assert.equal(rounds({}, 2, 'MODE: EPIC K-1\nTASK_COUNT: 1'), 1);
+  assert.equal(rounds({}, 2, 'MODE: EPIC K-1\nTASK_COUNT: 12'), 3);
+  assert.equal(rounds({}, 3, 'MODE: EPIC K-1\nTASK_COUNT: 40'), 7);
+  assert.equal(rounds({}, 2, 'MODE: EPIC K-1\nTASK_COUNT: 500'), MAX_BUILD_ROUNDS, 'a huge epic must not dispatch hundreds of milestones');
+  assert.equal(rounds({ _coverageRemaining: 2 }, 2, 'MODE: EPIC K-1\nTASK_COUNT: 40'), 1, 'a pass back to the confer is sized to what is LEFT');
+  assert.equal(rounds({}, 2, 'no count here'), 1, 'unreadable: one build');
+  assert.equal(resolveBuildRounds({ buildRounds: 3 }, 2, {}).rounds, 3, 'no resolver: the template decides');
 });

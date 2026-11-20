@@ -119,7 +119,7 @@ reviews; the planner is told not to plan two stages for the same job. Each stage
 which job is its own ("this stage builds" / "this stage reviews"), and a Confer stage that has a
 QA, review or audit stage after it runs **without its Cross-review step** — the later stage reads
 the diff, once (`stage-steps.ts laterStageReviews`). See WORKFLOWS.md → Confer for the rest of how a
-Confer stage is kept short (two build rounds at most, leftover tasks straight to their owner, no
+Confer stage is kept short (one build for a feature, rounds only for an epic, leftover tasks straight to their owner, no
 waiting on a silent cartridge).
 
 A stage names a **repo + engine, not a cartridge id**: cartridge ids change every time a

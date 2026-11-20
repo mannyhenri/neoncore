@@ -91,9 +91,9 @@ ORDERING: <what genuinely must come first, or "none">
         // participants are in different repos already, so worktree isolation would split a repo
         // that is not the thing being shared.
         conferAgentIds: [], conferMode: 'divide', conferIsolation: 'shared', includeDepOutput: true,
-        // Sized from the work: Scope's TASK_COUNT, two tasks per participant per round, capped at
-        // 2 rounds (lib/confer-sizing.ts SIZED_ROUNDS_CAP). 2 when the count cannot be read.
-        buildRounds: 2,
+        // ONE build for a single feature. Only an epic (Scope's `MODE: EPIC`) builds in rounds:
+        // its TASK_COUNT, two tasks per participant per round (lib/confer-sizing.ts).
+        buildRounds: 1,
         buildRoundsFrom: { step: 'Scope the Work', pattern: 'TASK_COUNT:\\s*(\\d+)', tasksPerRound: 2 },
         prompt: `The previous step gives the objective, repos, task list and how it is verified. Every task in it is in scope — the run is not done until each one is. Details: the STATE doc (and Jira).
 

@@ -10,7 +10,7 @@
  *   · the cross-review inside the confer repeated what the Super QA stage after it does.
  *
  * What is checked here, each as a set:
- *   1. build rounds sized from the work are capped (2 unless the step says otherwise);
+ *   1. a single feature builds ONCE; only an epic builds in rounds, sized from its task count;
  *   2. the plan drops the milestones that repeat another's job — peer review when a QA stage
  *      follows, the merge step when every participant is in its own repo — for every mode;
  *   3. a pass for one or two leftover tasks is ONE milestone, sent only to the cartridge(s) whose
@@ -27,7 +27,8 @@ import crypto from 'node:crypto';
 import db from '../src/db.js';
 import { installStubIO } from './helpers/stub-io.js';
 import * as conductor from '../src/lib/confer-conductor.js';
-import { resolveBuildRounds, SIZED_ROUNDS_CAP, LEFTOVER_MAX_TASKS, leftoverOwners } from '../src/lib/confer-sizing.js';
+import { resolveBuildRounds, LEFTOVER_MAX_TASKS, leftoverOwners } from '../src/lib/confer-sizing.js';
+import { MAX_BUILD_ROUNDS } from '../src/lib/confer-conductor.js';
 import { laterStageReviews } from '../src/lib/stage-steps.js';
 
 const io = installStubIO();
@@ -49,24 +50,45 @@ function toolCall(agentId: string, at: string) {
     VALUES (?, ?, 'PostToolUse', 'Bash', '{}', '', ?)`).run(crypto.randomUUID(), agentId, at);
 }
 
-// ── 1. the cap ────────────────────────────────────────────────────────────────
+// ── 1. how many build rounds ──────────────────────────────────────────────────
 
-test('build rounds sized from the work never exceed the cap, whatever the task count — unless the step raises it', () => {
+test('a single feature builds ONCE; an epic builds in rounds sized from its task count — every count, every team size', () => {
   const from = { step: 'Scope the Work', pattern: 'TASK_COUNT:\\s*(\\d+)', tasksPerRound: 2 };
-  assert.equal(SIZED_ROUNDS_CAP, 2);
+  const scope = (mode: string, tasks: number | string) => `MODE: ${mode}\nSTATE: docs/progress/x.md\nTASK_COUNT: ${tasks}\nOBJECTIVE: do it`;
+  const rounds = (cfg: Record<string, unknown>, people: number, out: string) =>
+    resolveBuildRounds({ buildRounds: 1, buildRoundsFrom: from, ...cfg }, people, { 'Scope the Work': out });
+
   for (const people of [2, 3, 4]) for (const tasks of [1, 2, 4, 5, 10, 12, 40, 500]) {
-    const r = resolveBuildRounds({ buildRounds: 3, buildRoundsFrom: from }, people, { 'Scope the Work': `TASK_COUNT: ${tasks}` });
-    assert.ok(r.rounds >= 1 && r.rounds <= SIZED_ROUNDS_CAP, `${tasks} tasks / ${people} people → ${r.rounds} rounds`);
-    assert.equal(r.rounds, Math.min(SIZED_ROUNDS_CAP, Math.ceil(tasks / (people * 2))));
-    if (Math.ceil(tasks / (people * 2)) > SIZED_ROUNDS_CAP) assert.match(r.note, /capped at 2/, 'the note must say it was capped');
+    // A single feature: one build, however many parts Scope listed.
+    const single = rounds({}, people, scope('TASK', tasks));
+    assert.equal(single.rounds, 1, `single feature, ${tasks} parts / ${people} people → ${single.rounds} rounds`);
+    assert.match(single.note, /single feature/i);
+    // An epic: two tasks per participant per round, up to the ceiling.
+    const epic = rounds({}, people, scope('EPIC GRD-42', tasks));
+    assert.equal(epic.rounds, Math.min(MAX_BUILD_ROUNDS, Math.ceil(tasks / (people * 2))), `epic, ${tasks} tasks / ${people} people`);
+    assert.match(epic.note, /epic/i);
   }
-  // The template's own number is capped too, and so is a pass sized to what is left.
-  assert.equal(resolveBuildRounds({ buildRounds: 3 }, 2, {}).rounds, 2);
-  assert.equal(resolveBuildRounds({ buildRounds: 3, buildRoundsFrom: from }, 2, { 'Scope the Work': 'no count' }).rounds, 2);
-  assert.equal(resolveBuildRounds({ buildRounds: 3, buildRoundsFrom: from, _coverageRemaining: 30 }, 2, {}).rounds, 2);
-  // A step may ask for more, explicitly.
-  assert.equal(resolveBuildRounds({ buildRounds: 3, buildRoundsFrom: from, maxBuildRounds: 5 }, 2, { 'Scope the Work': 'TASK_COUNT: 12' }).rounds, 3);
-  assert.equal(resolveBuildRounds({ buildRounds: 3, buildRoundsFrom: from, maxBuildRounds: 5 }, 2, { 'Scope the Work': 'TASK_COUNT: 500' }).rounds, 5);
+  // The 2026-11-19 case: 10 parts of ONE feature on two cartridges got 3 rounds. Now 1.
+  assert.equal(rounds({}, 2, scope('TASK', 10)).rounds, 1);
+  assert.equal(rounds({}, 2, scope('EPIC S12', 10)).rounds, 3);
+  // Back from a coverage check with tasks open: an epic is sized to what is LEFT, a feature is still one build.
+  assert.equal(rounds({ _coverageRemaining: 9 }, 2, scope('EPIC S12', 40)).rounds, 3);
+  assert.equal(rounds({ _coverageRemaining: 9 }, 2, scope('TASK', 40)).rounds, 1);
+  // Anything unreadable is a single build, never a guess at several: no MODE line, no count, no output.
+  assert.equal(rounds({}, 2, 'TASK_COUNT: 12').rounds, 1);
+  assert.equal(rounds({}, 2, scope('EPIC S12', 'unknown')).rounds, 1);
+  assert.equal(resolveBuildRounds({ buildRounds: 1, buildRoundsFrom: from }, 2, {}).rounds, 1);
+  // A step may cap an epic's rounds; and a confer with no sizing rule keeps the number it was given.
+  assert.equal(rounds({ maxBuildRounds: 5 }, 2, scope('EPIC S12', 500)).rounds, 5);
+  assert.equal(resolveBuildRounds({ buildRounds: 3 }, 2, {}).rounds, 3);
+});
+
+test('the Confer template builds once unless Scope says it is an epic', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/lib/templates/confer.ts', import.meta.url), 'utf8');
+  assert.match(src, /buildRounds: 1,/);
+  assert.doesNotMatch(src, /buildRounds: [2-9]/);
+  assert.match(src, /MODE: EPIC <KEY> \| TASK/, 'Scope must still report the mode the sizing reads');
 });
 
 // ── 2. the plan ───────────────────────────────────────────────────────────────
