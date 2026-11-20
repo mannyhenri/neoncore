@@ -3,16 +3,14 @@
 # NeonCore
 
 **An orchestrator for AI coding agents.**
-Run, watch and coordinate many Claude Code, Codex and Gridlight sessions — across repos, across
+Run, watch and coordinate many Claude Code and Codex sessions — across repos, across
 machines — from one dashboard and from your phone.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-18%E2%80%9323-brightgreen.svg)](https://nodejs.org)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey.svg)](INSTALL.md)
 
 </div>
-
-![The NeonCore dashboard: a grid of live agent cartridges](docs/images/dashboard-cartridges.jpg)
 
 ---
 
@@ -31,6 +29,17 @@ NeonCore turns that pile of terminals into something you can actually run:
 
 It runs entirely on your own machines. No cloud service, no account, no telemetry.
 
+### What's in it
+
+| | |
+|---|---|
+| **Agents** | The home screen. Your agents as a crew on a map of this machine: who is working, who waits on you, and which feature each team is on. Every agent is also a cartridge with its live log, prompt box and approvals. |
+| **Projects and features** | A project holds the list of features to build. Each feature runs as a pipeline: scope it with a planner, lock acceptance tests, then run the workflows that build, check and review it. Several features can run side by side, each on its own branch and worktree. |
+| **Confer** | Several agents across several repos build one feature together: they agree the split, build their parts, review each other and land it. |
+| **Workflows** | A canvas of steps, gates and decisions. Start from a template or describe one in a sentence. |
+| **The work standard** | Every task an agent takes on ends with a completion report: what was in scope, the real test output, anything left undone. A Stop hook enforces it. |
+| **iOS app** | Watch the crew, read transcripts and answer approvals from your phone. |
+
 ---
 
 ## Table of contents
@@ -39,7 +48,7 @@ It runs entirely on your own machines. No cloud service, no account, no telemetr
 - [Quick start](#quick-start) · [Connect your first agent](#connect-your-first-agent)
 - [Using it: cartridges, approvals, queue](#using-it)
 - [Projects, features and tasks](#projects-features-and-tasks)
-- [Multiple computers](#multiple-computers-the-fleet)
+- [One server per machine](#one-server-per-machine)
 - [The mobile app](#the-mobile-app)
 - [Security model](#security-model)
 - [Troubleshooting](#troubleshooting) · [Contributing](#contributing) · [License](#license)
@@ -54,7 +63,7 @@ through a command channel, and the server holds the state.
 ```
    YOUR MACHINE (any number of repos)                      NEONCORE SERVER (:4040)
   ┌──────────────────────────────────┐                   ┌────────────────────────────┐
-  │  Claude Code / Codex / Gridlight │                   │  Express + SQLite          │
+  │  Claude Code / Codex             │                   │  Express + SQLite          │
   │             │                    │                   │                            │
   │   ┌─────────┴─────────┐          │   hooks POST      │   • cartridge registry     │
   │   │  hooks            │──────────┼──────────────────▶│   • activity + transcripts │
@@ -86,7 +95,26 @@ transcripts, permissions, queue, goals, tasks, workflows. Delete it and you're b
 
 ## Quick start
 
-Requires **Node.js 18+**.
+### What to install first
+
+On the computer that runs the server:
+
+| Install | Why | How |
+|---|---|---|
+| **Node.js 23** (with npm) | Runs the server and builds the dashboard. The repo pins 23.11.0 in `.nvmrc`. Node 18–23 work; **Node 26 does not** (the `better-sqlite3` database driver doesn't build on it yet). | [nodejs.org](https://nodejs.org) or `nvm install && nvm use` in the repo |
+| **git** | To clone the repo | macOS: `xcode-select --install` · Linux: your package manager |
+| **C/C++ build tools** | `better-sqlite3` compiles itself when no prebuilt binary matches your Node | macOS: `xcode-select --install` · Debian/Ubuntu: `sudo apt install build-essential python3` · Windows: Visual Studio Build Tools ("Desktop development with C++") |
+
+On every computer whose agents should appear in NeonCore (often the same one):
+
+| Install | Why | How |
+|---|---|---|
+| **Claude Code** | The agent NeonCore watches and drives | `npm install -g @anthropic-ai/claude-code` |
+| **Python 3** | Runs the hook installer, `agent/install.py` | macOS ships it with the Xcode tools · [python.org](https://www.python.org) |
+
+Only for the iOS app: **Xcode** — see [mobile/RELEASE.md](mobile/RELEASE.md).
+
+### Install and run
 
 ```bash
 git clone https://github.com/GRIDLIGHT-INC/neoncore.git
@@ -205,12 +233,19 @@ you take them **one at a time**: a planner cartridge scopes the feature with you
 and acceptance criteria, proposes the workflows, and runs them in the project's repos once you
 accept. See [docs/GOALS.md](docs/GOALS.md) and [docs/GOAL-PILOT.md](docs/GOAL-PILOT.md).
 
+The pipeline for a feature has stages: **acceptance tests** first (one failing test per criterion,
+approved by you and then locked), then the **workflow stages** that do the work, then an
+**independent review** by an agent that did not do the work. Each stage leaves out the workflow
+steps that are not its job, which you can see and change on the plan before you accept it.
+
+**Features run side by side.** Each running feature gets its own branch and worktree in every repo
+it touches, so two features in one project never share a working copy. On the Agents map each
+feature shows as a plate above the team working on it, with its stage and whether it needs you.
+
 Beside the list, each project keeps its **spec, roadmap, changelog and architecture** — generated from
 the records as features are built, and for a codebase new to NeonCore written by a cartridge from the
 repos (**✦ Generate with AI**) — and can publish them into the repo as `docs/product/`. See
 [docs/PROJECT-SPEC.md](docs/PROJECT-SPEC.md).
-
-![The goals view](docs/images/goals.jpg)
 
 A feature's brief is not decoration — **it is injected into the agent's prompt at dispatch**.
 Acceptance criteria, no-gos, rabbit holes and invariants are how you fight over-reach; the feature
@@ -220,8 +255,6 @@ Progress has **three** states, not two: real progress, genuine zero, and *nothin
 A feature with no runs never renders as 0% — that would claim work started and got nowhere.
 
 **Tasks** are discrete units of work you can dispatch to a cartridge.
-
-![The task queue](docs/images/tasks.jpg)
 
 Priority sorts them, and a **dependency gate** refuses to dispatch a task whose prerequisite hasn't
 finished — overridable with `force`, but deliberately, not by default.
@@ -240,8 +273,7 @@ point at it. Details: **[FLEET.md](FLEET.md)**.
 ## The mobile app
 
 A native iOS app (React Native — **not** Expo; see [mobile/RELEASE.md](mobile/RELEASE.md)) that
-mirrors the dashboard over your LAN. Point it at one server and the rest of the fleet appears by
-itself.
+mirrors the dashboard over your LAN. Point it at the server on the machine you work on.
 
 Six destinations: **Cartridges · Goals · Workflows · Queue · Tasks · Approvals.**
 
