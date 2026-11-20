@@ -55,7 +55,7 @@ export function ConnectScreen({ onConnected }: { onConnected: (url: string) => v
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={styles.btn} onPress={connect} disabled={busy}>
-          {busy ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>CONNECT</Text>}
+          {busy ? <ActivityIndicator color={theme.onAccent} /> : <Text style={styles.btnText}>CONNECT</Text>}
         </TouchableOpacity>
       </Adaptive>
     </KeyboardAvoidingView>

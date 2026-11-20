@@ -58,7 +58,7 @@ export function MoreSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
+  backdrop: { flex: 1, backgroundColor: theme.scrim },
   sheet: {
     backgroundColor: theme.bgElevated,
     borderTopLeftRadius: 16,

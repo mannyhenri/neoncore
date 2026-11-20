@@ -166,7 +166,7 @@ export function NewRepoModal({ visible, onClose }: { visible: boolean; onClose: 
                 onPress={create}
                 disabled={busy || !nameValid}
               >
-                {busy ? <ActivityIndicator color="#0d0f12" /> : <Text style={styles.runBtnText}>CREATE & PUSH</Text>}
+                {busy ? <ActivityIndicator color={theme.onAccent} /> : <Text style={styles.runBtnText}>CREATE & PUSH</Text>}
               </TouchableOpacity>
             </ScrollView>
           )}
@@ -177,7 +177,7 @@ export function NewRepoModal({ visible, onClose }: { visible: boolean; onClose: 
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: theme.scrim, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: theme.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: 16, paddingTop: 14, paddingBottom: 28, maxHeight: '88%',
@@ -212,8 +212,8 @@ const styles = StyleSheet.create({
   checkMark: { color: theme.bg, fontSize: 13, fontWeight: '900' },
   checkLabel: { color: theme.textDim, fontSize: 13 },
   err: { color: theme.danger, fontSize: 13, marginTop: 12 },
-  warn: { color: theme.amber, fontSize: 12, marginTop: 6 },
-  okLine: { color: theme.teal, fontSize: 15, fontWeight: '800', marginBottom: 8 },
+  warn: { color: theme.ember, fontSize: 12, marginTop: 6 },
+  okLine: { color: theme.success, fontSize: 15, fontWeight: '800', marginBottom: 8 },
   pathText: { color: theme.textFaint, fontSize: 12, marginBottom: 6 },
   link: { color: theme.accentSoft, fontSize: 14, fontWeight: '600', marginBottom: 4 },
   runBtn: { marginTop: 18, backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },

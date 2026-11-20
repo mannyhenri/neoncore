@@ -12,6 +12,30 @@ doing, answer their approvals, launch workflows and unblock work — from your p
 
 ---
 
+## Look and art
+
+The app follows the dashboard's design, **Night Glass** (`docs/DESIGN.md`): near-black page, dark
+panels with thin blue-grey borders, neon blue for what is live or selected, ember orange for what
+needs you, segmented meters. Every colour comes from `src/theme.ts`; there is no logo — the header
+is the name, and the app icon and launch screen are a neon "N" on the page colour.
+`src/__tests__/night-glass.test.ts` fails if the retired violet/pink look or the Gridlight mark
+comes back.
+
+The drawn art is the dashboard's, not a second set:
+
+- **Agents** opens on the pixel-art **map** (`src/world/WorldMap.tsx`): every live agent as an
+  animated character at its project's pod, in the one look its state has. Tap an agent to open
+  it; **List** is one tap away and the phone remembers which you left it on.
+- **Goals, Workflows, Tasks and Tokens** each open with their ship deck (`src/world/DeckPost.tsx`):
+  the captain, the engineer, the quartermaster and the power core, with three readouts.
+
+The rules that decide what a figure does and where it stands are **imported from the dashboard**
+(`dashboard/src/world/`), so the two screens cannot drift. The images are copied and halved by
+`python3 scripts/world/sync_mobile_art.py` — run it after rebuilding the dashboard's art.
+
+`npm run bundle:check` bundles the app with Metro without Xcode. Run it before an iOS build: it is
+what catches an import Metro cannot follow.
+
 ## Run it locally
 
 Requires Xcode and CocoaPods. From `mobile/`:

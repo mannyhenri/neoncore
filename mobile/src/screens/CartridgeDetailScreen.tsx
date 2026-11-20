@@ -287,7 +287,7 @@ export function CartridgeDetailScreen(
       ) : live.pendingQuestion ? (
         <View style={styles.questionBanner}>
           <View style={styles.questionRow}>
-            <QuestionIcon size={15} color={theme.amber} strokeWidth={2} />
+            <QuestionIcon size={15} color={theme.ember} strokeWidth={2} />
             <Text style={styles.questionText}>{live.pendingQuestion}</Text>
           </View>
           <Text style={styles.questionHint}>
@@ -358,7 +358,7 @@ export function CartridgeDetailScreen(
           multiline
         />
         <TouchableOpacity style={styles.sendBtn} onPress={send} disabled={sending || !text.trim()}>
-          {sending ? <ActivityIndicator color="#000" size="small" /> : <Text style={styles.sendText}>Send</Text>}
+          {sending ? <ActivityIndicator color={theme.onAccent} size="small" /> : <Text style={styles.sendText}>Send</Text>}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -384,39 +384,39 @@ const styles = StyleSheet.create({
   modeTextActive: { color: theme.bg },
   questionBanner: {
     marginHorizontal: 12, marginBottom: 4, padding: 12, borderRadius: 10,
-    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: theme.amber,
+    backgroundColor: theme.emberTint, borderWidth: 1, borderColor: theme.ember,
   },
   questionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  questionText: { color: theme.amber, fontSize: 14, fontWeight: '600', flex: 1 },
+  questionText: { color: theme.ember, fontSize: 14, fontWeight: '600', flex: 1 },
   questionHint: { color: theme.textDim, fontSize: 12, marginTop: 4 },
   permBox: { paddingHorizontal: 12, paddingTop: 4 },
   recovBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginBottom: 4,
     paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
-    backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
+    backgroundColor: theme.dangerTint, borderWidth: 1, borderColor: theme.dangerEdge,
   },
   recovTextWrap: { flex: 1 },
   stdBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginBottom: 4,
     paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
-    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
+    backgroundColor: theme.emberTint, borderWidth: 1, borderColor: theme.emberEdge,
   },
   stdTitle: { color: theme.warnSoft, fontSize: 13, fontWeight: '700' },
-  stdObjective: { color: 'rgba(253,230,138,0.6)', fontSize: 11, marginTop: 1 },
+  stdObjective: { color: theme.warnSoft, fontSize: 11, marginTop: 1 },
   stdBtn: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: 'rgba(245,158,11,0.2)',
+    backgroundColor: theme.emberFill,
   },
   stdBtnText: { color: theme.warnSoft, fontSize: 12, fontWeight: '700' },
   recovTitle: { color: theme.dangerSoft, fontSize: 13, fontWeight: '700' },
-  recovObjective: { color: 'rgba(254,202,202,0.6)', fontSize: 11, marginTop: 1 },
+  recovObjective: { color: theme.dangerSoft, fontSize: 11, marginTop: 1 },
   recovBtn: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: 'rgba(239,68,68,0.2)',
+    backgroundColor: theme.dangerFill,
   },
   recovBtnText: { color: theme.dangerSoft, fontSize: 12, fontWeight: '700' },
   recovDismiss: { paddingHorizontal: 6, paddingVertical: 4 },
-  recovDismissText: { color: 'rgba(254,202,202,0.6)', fontSize: 18, fontWeight: '700', lineHeight: 18 },
+  recovDismissText: { color: theme.dangerSoft, fontSize: 18, fontWeight: '700', lineHeight: 18 },
   targetRow: {
     flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6,
     paddingHorizontal: 12, paddingBottom: 6,
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
   targetChipText: { color: theme.textDim, fontSize: 12, fontWeight: '600' },
   targetChipTextOn: { color: theme.accentSoft },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 60 },
-  notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 6 },
+  notice: { color: theme.accent, fontSize: 13, textAlign: 'center', paddingVertical: 6 },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10,
     borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.bgElevated,

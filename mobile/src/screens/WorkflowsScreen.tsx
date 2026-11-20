@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl,
   ScrollView, Keyboard, TouchableWithoutFeedback,
 } from 'react-native';
+import { EnginePost } from '../world/DeckPost';
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
@@ -21,8 +22,8 @@ type FeedItem =
 
 /** Colors for a run's lifecycle. Templates themselves are always 'pending'. */
 const runColor: Record<string, string> = {
-  running: theme.teal,
-  paused: theme.amber,
+  running: theme.accent,
+  paused: theme.ember,
   completed: theme.textDim,
   failed: theme.danger,
   cancelled: theme.textFaint,
@@ -359,10 +360,10 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
             disabled={starting || (!agentId && conferAgents.length < 2)}
           >
             {starting ? (
-              <ActivityIndicator color="#0d0f12" />
+              <ActivityIndicator color={theme.onAccent} />
             ) : (
               <View style={styles.runBtnInner}>
-                <PlayIcon size={16} color="#0d0f12" strokeWidth={2.5} />
+                <PlayIcon size={16} color={theme.onAccent} strokeWidth={2.5} />
                 <Text style={styles.runBtnText}>RUN WORKFLOW</Text>
               </View>
             )}
@@ -419,6 +420,7 @@ export function WorkflowsScreen({ onOpenRun }: { onOpenRun?: (run: Workflow) => 
         }
         ListHeaderComponent={
           <View style={styles.section}>
+            <EnginePost runs={runs} />
             {activeItems.length > 0 && (
               <>
                 <Text style={styles.sectionTitle}>ACTIVE ({activeItems.length})</Text>
@@ -508,12 +510,12 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgElevated, borderWidth: 1, borderColor: theme.border,
   },
   agentChipOn: { borderColor: theme.accent, backgroundColor: theme.bgCard },
-  conferChipOn: { borderColor: theme.amber, backgroundColor: theme.warnSoft },
-  conferChipTextOn: { color: theme.amber, fontWeight: '700' },
-  hintWarn: { color: theme.amber },
+  conferChipOn: { borderColor: theme.ember, backgroundColor: theme.warnSoft },
+  conferChipTextOn: { color: theme.ember, fontWeight: '700' },
+  hintWarn: { color: theme.ember },
   agentChipText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
   agentChipTextOn: { color: theme.accentSoft },
-  noAgents: { color: theme.amber, fontSize: 13, marginBottom: 4 },
+  noAgents: { color: theme.ember, fontSize: 13, marginBottom: 4 },
   perStepToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
   perStepChevron: { color: theme.textDim, fontSize: 14, fontWeight: '700' },
   stepList: { gap: 12, marginTop: 8 },
@@ -604,6 +606,6 @@ const styles = StyleSheet.create({
   runBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   runBtnText: { color: theme.bg, fontWeight: '800', letterSpacing: 1 },
 
-  notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
+  notice: { color: theme.accent, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 60 },
 });

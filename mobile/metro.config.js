@@ -83,6 +83,23 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
      * this tests for an exact name or a name followed by '/'.
      */
     resolveRequest: (context, moduleName, platform) => {
+      /**
+       * SHARED SOURCE WRITTEN FOR NodeNext: `./client.js` means the file `./client.ts`.
+       *
+       * tsc and Vite rewrite that specifier; metro does not, which is the failure recorded in the
+       * header above ("Unable to resolve module ./client.js"). It stopped being hypothetical when
+       * NewRepoModal and RemoteLaunchModal began importing SELECTABLE_ENGINES from
+       * @neoncore/client at RUNTIME: from then on the app did not bundle at all. So a relative
+       * '.js' import from a workspace package (never from node_modules) is retried without the
+       * extension, and metro finds the '.ts'. `npm run bundle:check` proves the app bundles.
+       */
+      const from = context.originModulePath || '';
+      const shared = from.startsWith(path.join(monorepoRoot, 'packages') + path.sep) && !from.includes(`${path.sep}node_modules${path.sep}`);
+      if (shared && /^\.\.?\//.test(moduleName) && moduleName.endsWith('.js')) {
+        try {
+          return context.resolveRequest(context, moduleName.slice(0, -3), platform);
+        } catch (_) { /* a real .js file: fall through to the normal resolution */ }
+      }
       const hit = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
       if (hit) {
         const rest = moduleName.slice(hit.length);

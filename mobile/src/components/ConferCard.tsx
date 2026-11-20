@@ -113,7 +113,7 @@ export function ConferCard({ session: c }: { session: ConferSession }) {
 }
 
 const conferColor: Record<string, string> = {
-  running: theme.teal, completed: theme.blue, failed: theme.danger, cancelled: theme.textFaint,
+  running: theme.accent, completed: theme.success, failed: theme.danger, cancelled: theme.textFaint,
 };
 
 const styles = StyleSheet.create({
@@ -136,20 +136,20 @@ const styles = StyleSheet.create({
   confirmRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   confirmBtn: {
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
-    backgroundColor: 'rgba(239,68,68,0.18)',
+    backgroundColor: theme.dangerTint,
   },
   confirmText: { color: theme.danger, fontSize: 11, fontWeight: '800' },
   keep: { color: theme.textDim, fontSize: 11, fontWeight: '700' },
   task: { color: theme.textDim, fontSize: 12, marginTop: 4, marginBottom: 8 },
   steps: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   step: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7, borderWidth: 1 },
-  stepDone: { backgroundColor: 'rgba(16,185,129,0.18)', borderColor: 'rgba(16,185,129,0.4)' },
-  stepActive: { backgroundColor: 'rgba(245,158,11,0.18)', borderColor: 'rgba(245,158,11,0.5)' },
+  stepDone: { backgroundColor: theme.successTint, borderColor: theme.successEdge },
+  stepActive: { backgroundColor: theme.emberTint, borderColor: theme.emberEdge },
   stepPending: { backgroundColor: theme.bgElevated, borderColor: theme.border },
   stepText: { fontSize: 11, fontWeight: '700' },
-  stepTextDone: { color: theme.teal },
-  stepTextActive: { color: theme.amber },
+  stepTextDone: { color: theme.success },
+  stepTextActive: { color: theme.ember },
   stepTextPending: { color: theme.textFaint },
-  err: { color: theme.amber, fontSize: 11, marginTop: 8 },
-  done: { color: theme.blue, fontSize: 11, marginTop: 8 },
+  err: { color: theme.ember, fontSize: 11, marginTop: 8 },
+  done: { color: theme.success, fontSize: 11, marginTop: 8 },
 });

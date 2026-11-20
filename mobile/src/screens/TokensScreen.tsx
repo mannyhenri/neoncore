@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity, TextInput,
 } from 'react-native';
+import { CorePost } from '../world/DeckPost';
 import { theme } from '../theme';
 import { api, type BurnRate, type UsageSeries, type UsageBucket, type UsageAnchor, type UsageWindow, type UsageCheckpoint } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
@@ -204,6 +205,7 @@ export function TokensScreen() {
       <ScreenTitle title="Tokens" />
 
       {error !== '' && <Text style={styles.error}>{error}</Text>}
+      <CorePost burn={burn} />
 
       {/* The headline pair: rate now, and what it implies per day. */}
       <Card>
@@ -217,7 +219,7 @@ export function TokensScreen() {
             <Text style={styles.rateLabel}>tokens / day</Text>
           </View>
           <View style={styles.rateCell}>
-            <Text style={[styles.rateValue, { color: theme.teal }]}>{money(burn?.costPerDay ?? 0)}</Text>
+            <Text style={[styles.rateValue, { color: theme.success }]}>{money(burn?.costPerDay ?? 0)}</Text>
             <Text style={styles.rateLabel}>cost / day</Text>
           </View>
         </View>
@@ -251,7 +253,7 @@ export function TokensScreen() {
         {cpMessage ? <Text style={styles.cpMessage}>{cpMessage}</Text> : null}
         {(burn?.usageAnchor ?? []).map((a) => (
           <View key={`${a.provider}-${a.window}`} style={styles.cpAnchor}>
-            <Text style={[styles.cpAnchorTitle, { color: a.pace === 'hold' ? theme.danger : a.pace === 'watch' ? theme.accent : theme.teal }]}>
+            <Text style={[styles.cpAnchorTitle, { color: a.pace === 'hold' ? theme.danger : a.pace === 'watch' ? theme.accent : theme.success }]}>
               {anchorLabel(a)} · {a.window === 'weekly' ? 'weekly' : '5 hour'}
             </Text>
             <Text style={styles.cpAnchorBody}>{a.recommendation}</Text>
@@ -327,7 +329,7 @@ export function TokensScreen() {
             <Text style={styles.rateLabel}>tokens</Text>
           </View>
           <View style={styles.rateCell}>
-            <Text style={[styles.totalValue, { color: theme.teal }]}>{money(data?.total.costUsd ?? 0)}</Text>
+            <Text style={[styles.totalValue, { color: theme.success }]}>{money(data?.total.costUsd ?? 0)}</Text>
             <Text style={styles.rateLabel}>cost</Text>
           </View>
         </View>
@@ -438,7 +440,7 @@ const styles = StyleSheet.create({
   rowBar: { height: 6, backgroundColor: theme.accent, borderRadius: 3 },
   rowValue: { color: theme.text, fontSize: 11, width: 48, textAlign: 'right' },
   chev: { color: theme.textFaint, fontSize: 16, width: 12, textAlign: 'right' },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
+  backdrop: { flex: 1, backgroundColor: theme.scrim },
   sheet: {
     backgroundColor: theme.bgElevated, borderTopLeftRadius: 16, borderTopRightRadius: 16,
     borderTopWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingTop: 8,
@@ -503,7 +505,7 @@ function BreakdownSheet({
             <Text style={styles.rateLabel}>tokens</Text>
           </View>
           <View style={styles.rateCell}>
-            <Text style={[styles.rateValue, { color: theme.teal }]}>{share.toFixed(1)}%</Text>
+            <Text style={[styles.rateValue, { color: theme.success }]}>{share.toFixed(1)}%</Text>
             <Text style={styles.rateLabel}>of window</Text>
           </View>
           <View style={styles.rateCell}>

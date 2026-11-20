@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity, ScrollView,
 } from 'react-native';
+import { CargoPost } from '../world/DeckPost';
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
@@ -27,7 +28,7 @@ import type { QueueItem } from '@neoncore/client';
 
 const STATUS_COLOR: Record<string, string> = {
   queued: theme.textDim,
-  claimed: theme.blue,
+  claimed: theme.accent,
   in_progress: theme.accent,
   done: theme.success,
   failed: theme.danger,
@@ -142,6 +143,7 @@ export function TasksScreen() {
           right={liveCount > 0 ? <Text style={s.count}>{liveCount} live</Text> : undefined}
         />
         {error ? <Text style={s.err}>{error}</Text> : null}
+        <CargoPost tasks={tasks} />
         {/* Every status gets its own way in. The chips are ALWAYS rendered: hiding them when
             nothing was finished yet is what made a done or cancelled task unfindable. */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>

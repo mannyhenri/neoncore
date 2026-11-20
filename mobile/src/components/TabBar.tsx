@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -10,
-    backgroundColor: theme.pink,
+    backgroundColor: theme.ember,
     borderRadius: 9,
     minWidth: 18,
     height: 18,

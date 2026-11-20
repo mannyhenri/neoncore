@@ -57,7 +57,7 @@ export function PermissionCard({
     <View style={[styles.card, isQuestion && styles.cardQuestion]}>
       {!!agentName && <Text style={styles.agent}>{agentName}</Text>}
       <View style={styles.toolHead}>
-        {isQuestion && <QuestionIcon size={17} color={theme.amber} strokeWidth={2} />}
+        {isQuestion && <QuestionIcon size={17} color={theme.ember} strokeWidth={2} />}
         <Text style={[styles.tool, isQuestion && styles.toolQuestion]}>
           {isQuestion ? 'Question' : perm.toolName}
         </Text>
@@ -167,11 +167,11 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
-  cardQuestion: { borderColor: theme.amber },
+  cardQuestion: { borderColor: theme.ember },
   agent: { color: theme.textFaint, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   toolHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   tool: { color: theme.text, fontSize: 16, fontWeight: '700' },
-  toolQuestion: { color: theme.amber },
+  toolQuestion: { color: theme.ember },
   desc: { color: theme.textDim, fontSize: 13, marginTop: 6 },
   input: { color: theme.textFaint, fontSize: 12, fontFamily: 'monospace', marginTop: 6 },
   qText: { color: theme.text, fontSize: 15, fontWeight: '600', marginBottom: 8 },
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: theme.bg,
   },
-  optActive: { borderColor: theme.accent, backgroundColor: 'rgba(168,85,247,0.12)' },
+  optActive: { borderColor: theme.accent, backgroundColor: theme.accentTint },
   optLabel: { color: theme.text, fontSize: 14, fontWeight: '600' },
   optLabelActive: { color: theme.accentSoft },
   optDesc: { color: theme.textDim, fontSize: 12, marginTop: 4, lineHeight: 17 },

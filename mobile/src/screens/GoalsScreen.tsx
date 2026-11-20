@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { BridgePost } from '../world/DeckPost';
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { Card, CardTop, StatusPill, Chip, ScreenTitle, Adaptive, useAdaptiveContent } from '../components/ui';
+import { Card, CardTop, StatusPill, Chip, ScreenTitle, Adaptive, useAdaptiveContent, Meter } from '../components/ui';
 import { useResponsive, gridProps, gridKey } from '../responsive';
 import { progressLabel, progressFraction, attentionLabel, scheduleLabel, reachWarning, goalOrder } from '../goalDisplay';
 import type { Goal } from '../types';
@@ -69,6 +70,7 @@ export function GoalsScreen({ onOpen }: { onOpen: (goal: Goal) => void }) {
           right={needing > 0 ? <Text style={s.count}>{needing} need you</Text> : undefined}
         />
         {error ? <Text style={s.err}>{error}</Text> : null}
+        <BridgePost goals={goals} />
       </Adaptive>
 
       <FlatList
@@ -113,9 +115,7 @@ export function GoalCard({ goal, grid, onPress }: { goal: Goal; grid?: boolean; 
           zero-progress bar are different claims, and only one of them is ever true here. */}
       <Text style={s.progressText}>{progressLabel(goal)}</Text>
       {fraction !== null ? (
-        <View style={s.track}>
-          <View style={[s.fill, { width: `${Math.round(fraction * 100)}%`, backgroundColor: color }]} />
-        </View>
+        <Meter fraction={fraction} color={color === theme.textDim ? theme.accent : color} style={s.track} />
       ) : null}
 
       {attention ? <Text style={s.reason}>{attention}</Text> : null}
@@ -141,10 +141,7 @@ const s = StyleSheet.create({
   count: { color: theme.warn, fontSize: 12, fontWeight: '600' },
   name: { color: theme.text, fontSize: 15, fontWeight: '600', marginTop: 10, lineHeight: 20 },
   progressText: { color: theme.textDim, fontSize: 11, marginTop: 8 },
-  track: {
-    height: 4, backgroundColor: theme.border, borderRadius: 2, marginTop: 6, overflow: 'hidden',
-  },
-  fill: { height: 4, borderRadius: 2 },
+  track: { marginTop: 6 },
   attention: { fontSize: 10, color: theme.warn, fontWeight: '700', letterSpacing: 0.5 },
   reason: { color: theme.warn, fontSize: 11, lineHeight: 15, marginTop: 6 },
   meta: { color: theme.textDim, fontSize: 11, marginTop: 6 },

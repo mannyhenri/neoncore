@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
-import { theme } from '../theme';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { theme, glow } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import { FleetSheet } from './FleetSheet';
 
 /**
- * App brand bar — mirrors the web dashboard header: the Gridlight logo, the "NeonCore"
- * wordmark (Neon in blue, Core in pink), and an ORCHESTRATOR pill.
+ * App brand bar — Night Glass, like the dashboard: no logo, no image, no gradient. The name in
+ * one colour, and the fleet pill, which glows neon when every server is up.
  *
- * Uses a heavy system font rather than a bundled pixel typeface: loading a custom font at
- * startup pulled in the expo-font loader on the launch path, which was implicated in a
- * launch crash on a fresh build. Keeping this dependency-free makes the header safe to ship.
+ * A heavy system font rather than a bundled typeface: loading a custom font at startup pulled in
+ * a font loader on the launch path, which was implicated in a launch crash on a fresh build.
  */
 export function BrandHeader() {
   const { serverStatuses } = useNeonCore();
@@ -19,22 +18,18 @@ export function BrandHeader() {
   const up = serverStatuses.filter((s) => s.reachable).length;
   const total = serverStatuses.length;
   const anyAuthFailed = serverStatuses.some((s) => s.authFailed);
-  // Amber for a rejected token, violet when everything is up, faint otherwise. A token
+  // Ember for a rejected token, neon when everything is up, faint otherwise. A token
   // problem must not look like the ordinary "a laptop is asleep" state.
-  const pillColor = anyAuthFailed ? theme.amber : up === total && total > 0 ? theme.accent : theme.textFaint;
+  const pillColor = anyAuthFailed ? theme.ember : up === total && total > 0 ? theme.accent : theme.textFaint;
 
   return (
     <View style={styles.bar}>
-      <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
-      <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-        <Text style={{ color: theme.blue }}>Neon</Text>
-        <Text style={{ color: theme.pink }}>Core</Text>
-      </Text>
+      <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>NeonCore</Text>
       {/* Fleet status doubles as the way in to managing servers — with more than one
           machine the interesting failure is partial (three up, one asleep), which a single
           global indicator cannot express. */}
       <TouchableOpacity style={[styles.pill, { borderColor: pillColor }]} onPress={() => setFleetOpen(true)}>
-        <View style={[styles.pillDot, { backgroundColor: pillColor }]} />
+        <View style={[styles.pillDot, { backgroundColor: pillColor }, pillColor === theme.accent ? glow() : null]} />
         <Text style={[styles.pillText, { color: pillColor }]}>
           {total <= 1 ? 'ORCHESTRATOR' : `${up}/${total} SERVERS`}
         </Text>
@@ -55,8 +50,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
   },
-  logo: { width: 24, height: 24 },
-  name: { fontSize: 17, fontWeight: '800', letterSpacing: 0.5, flexShrink: 1 },
+  name: { color: theme.text, fontSize: 17, fontWeight: '800', letterSpacing: 0.5, flexShrink: 1 },
   pill: {
     marginLeft: 'auto',
     flexDirection: 'row',

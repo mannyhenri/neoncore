@@ -201,12 +201,12 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '700', color: theme.text },
   italic: { fontStyle: 'italic' },
   strike: { textDecorationLine: 'line-through', color: theme.textDim },
-  link: { color: theme.blue, textDecorationLine: 'underline' },
+  link: { color: theme.accent, textDecorationLine: 'underline' },
 
   codeInline: {
     fontFamily: mono,
     fontSize: 13,
-    color: theme.teal,
+    color: theme.accentSoft,
     backgroundColor: theme.bg,
   },
   codeBlock: {

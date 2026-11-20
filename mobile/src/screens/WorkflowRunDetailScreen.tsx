@@ -13,15 +13,15 @@ import { useAdaptiveContent } from '../components/ui';
 /** Per-step status colours — matches the dashboard canvas node dots. */
 const stepColor: Record<StepStatus, string> = {
   pending: theme.textFaint,
-  running: theme.teal,
+  running: theme.accent,
   completed: theme.accentSoft,
   failed: theme.danger,
   skipped: theme.textDim,
 };
 
 const runColor: Record<string, string> = {
-  running: theme.teal,
-  paused: theme.amber,
+  running: theme.accent,
+  paused: theme.ember,
   completed: theme.accentSoft,
   failed: theme.danger,
   cancelled: theme.textFaint,
@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgElevated, borderRadius: 8, padding: 10,
   },
   errorBox: {
-    backgroundColor: 'rgba(255,107,107,0.08)', borderWidth: 1, borderColor: theme.danger,
+    backgroundColor: theme.dangerTint, borderWidth: 1, borderColor: theme.danger,
     borderRadius: 8, padding: 10, marginTop: 12,
   },
   errorText: { color: theme.danger, fontSize: 12, lineHeight: 18 },
@@ -495,6 +495,6 @@ const styles = StyleSheet.create({
   steerBtnOff: { opacity: 0.4 },
   steerBtnText: { color: theme.bg, fontWeight: '700', fontSize: 13 },
 
-  notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
+  notice: { color: theme.accent, fontSize: 13, textAlign: 'center', paddingVertical: 8 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 40 },
 });

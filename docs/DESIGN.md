@@ -7,6 +7,10 @@ reference images: `design/`.
 Enforced by `dashboard/src/__tests__/designGuard.test.ts`. That test fails if the retired
 Gridlight look comes back. Run it with `cd dashboard && npx vitest run designGuard`.
 
+**The iOS app follows the same design** (`mobile/src/theme.ts` holds the same tokens;
+`mobile/src/__tests__/night-glass.test.ts` is its guard). It draws the same map and deck figures
+from the same art and the same rules — see `mobile/README.md` → Look and art.
+
 ## Rules in one breath
 
 Near-black page. Frosted dark panels with thin blue-grey borders. One accent, neon blue, that

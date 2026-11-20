@@ -141,7 +141,7 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
                 return (
                   <View key={m.id} style={styles.machine}>
                     <View style={styles.machineHead}>
-                      <View style={[styles.dot, { backgroundColor: online ? theme.teal : theme.textFaint }]} />
+                      <View style={[styles.dot, { backgroundColor: online ? theme.accent : theme.textFaint }]} />
                       <Text style={styles.machineName} numberOfLines={1}>{m.hostname || m.id.slice(0, 8)}</Text>
                       {online && (
                         <TouchableOpacity onPress={() => { setEditingId(editing ? null : m.id); setExpanded(null); setNewPath(''); }}>
@@ -230,7 +230,7 @@ export function RemoteLaunchModal({ visible, onClose }: { visible: boolean; onCl
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: theme.scrim, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: theme.bg, borderTopLeftRadius: 18, borderTopRightRadius: 18,
     paddingHorizontal: 16, paddingTop: 14, maxHeight: '82%',
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
   title: { color: theme.text, fontSize: 18, fontWeight: '800' },
   closeBtn: { paddingHorizontal: 8, paddingVertical: 6, marginRight: -8 },
   close: { color: theme.accentSoft, fontSize: 15, fontWeight: '700' },
-  notice: { color: theme.teal, fontSize: 13, paddingVertical: 6 },
+  notice: { color: theme.accent, fontSize: 13, paddingVertical: 6 },
   empty: { color: theme.textFaint, textAlign: 'center', marginTop: 40, lineHeight: 20, paddingHorizontal: 20 },
 
   machine: {

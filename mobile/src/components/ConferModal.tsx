@@ -133,7 +133,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               </>
             )}
             <Text style={styles.label}>
-              CARTRIDGES (pick 2+) · <Text style={{ color: selected.length >= 2 ? theme.accentSoft : theme.amber }}>{selected.length} selected</Text>
+              CARTRIDGES (pick 2+) · <Text style={{ color: selected.length >= 2 ? theme.accentSoft : theme.ember }}>{selected.length} selected</Text>
             </Text>
             {live.length < 2 ? (
               <Text style={styles.warn}>Need at least two live cartridges — start another agent first.</Text>
@@ -236,7 +236,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
               disabled={sending}
             >
               {sending ? (
-                <ActivityIndicator color="#0d0f12" />
+                <ActivityIndicator color={theme.onAccent} />
               ) : (
                 <Text style={styles.runBtnText}>START CONFER ({selected.length})</Text>
               )}
@@ -251,7 +251,7 @@ export function ConferModal({ visible, onClose }: { visible: boolean; onClose: (
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: theme.scrim, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: theme.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: 16, paddingTop: 14, paddingBottom: 28, maxHeight: '88%',
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     color: theme.textDim, fontSize: 11, fontWeight: '700', letterSpacing: 1,
     marginTop: 14, marginBottom: 8,
   },
-  warn: { color: theme.amber, fontSize: 13 },
+  warn: { color: theme.ember, fontSize: 13 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
@@ -308,5 +308,5 @@ const styles = StyleSheet.create({
   needHint: { color: theme.textFaint, fontSize: 12, marginTop: 14, textAlign: 'center' },
   roundsHint: { color: theme.textFaint, fontSize: 11, lineHeight: 15, marginTop: 8 },
   runBtnText: { color: theme.bg, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
-  notice: { color: theme.teal, fontSize: 13, textAlign: 'center', paddingTop: 8 },
+  notice: { color: theme.accent, fontSize: 13, textAlign: 'center', paddingTop: 8 },
 });

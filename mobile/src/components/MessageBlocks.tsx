@@ -16,7 +16,7 @@ const CLAMP_LINES = 6;
 export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; expanded?: boolean }) {
   const blocks = parseBlocks(ev.content);
   const roleColor =
-    ev.role === 'assistant' ? theme.accentSoft : ev.role === 'user' ? theme.teal : theme.textDim;
+    ev.role === 'assistant' ? theme.accentSoft : ev.role === 'user' ? theme.accent : theme.textDim;
   const clamp = expanded ? undefined : CLAMP_LINES;
 
   // Only advertise "tap to expand" when there is actually more to reveal.
@@ -59,7 +59,7 @@ export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; e
             return (
               <View key={i} style={styles.tool}>
                 <View style={styles.toolHead}>
-                  <ToolIcon size={13} color={theme.blue} strokeWidth={2} />
+                  <ToolIcon size={13} color={theme.accent} strokeWidth={2} />
                   <Text style={styles.toolLabel}>{(b as { name?: string }).name || 'tool'}</Text>
                 </View>
                 <Text style={styles.toolBody} numberOfLines={clamp} selectable={expanded}>
@@ -73,7 +73,7 @@ export function MessageBlocks({ ev, expanded = false }: { ev: TranscriptEvent; e
                 <View style={styles.toolHead}>
                   <ResultIcon
                     size={13}
-                    color={(b as { is_error?: boolean }).is_error ? theme.danger : theme.blue}
+                    color={(b as { is_error?: boolean }).is_error ? theme.danger : theme.accent}
                     strokeWidth={2}
                   />
                   <Text
@@ -174,11 +174,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bg,
     borderRadius: 8,
     borderLeftWidth: 2,
-    borderLeftColor: theme.blue,
+    borderLeftColor: theme.accent,
   },
   toolError: { borderLeftColor: theme.danger },
   toolHead: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
-  toolLabel: { color: theme.blue, fontSize: 11, fontWeight: '600' },
+  toolLabel: { color: theme.accent, fontSize: 11, fontWeight: '600' },
   toolBody: { color: theme.textDim, fontSize: 12, fontFamily: 'monospace' },
   expandHint: { color: theme.textFaint, fontSize: 11, marginTop: 8, fontStyle: 'italic' },
 });

@@ -5,7 +5,7 @@ import {
 import { theme } from '../theme';
 import { api } from '../api';
 import { useNeonCore } from '../NeonCoreProvider';
-import { StatusPill, Chip, ActionButton, Adaptive } from '../components/ui';
+import { StatusPill, Chip, ActionButton, Adaptive, Meter } from '../components/ui';
 import { progressLabel, progressFraction, attentionLabel, scheduleLabel, reachWarning, isLiveTask } from '../goalDisplay';
 import type { Goal, Task } from '../types';
 
@@ -91,9 +91,7 @@ export function GoalDetailScreen({ goal: initial, onBack }: { goal: Goal; onBack
 
         <Text style={s.progressText}>{progressLabel(goal)}</Text>
         {fraction !== null ? (
-          <View style={s.track}>
-            <View style={[s.fill, { width: `${Math.round(fraction * 100)}%` }]} />
-          </View>
+          <Meter fraction={fraction} style={s.track} />
         ) : null}
 
         {attention ? (
@@ -193,8 +191,7 @@ const s = StyleSheet.create({
   head: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   name: { color: theme.text, fontSize: 20, fontWeight: '700', marginTop: 10, lineHeight: 26 },
   progressText: { color: theme.textDim, fontSize: 12, marginTop: 12 },
-  track: { height: 5, backgroundColor: theme.border, borderRadius: 3, marginTop: 6, overflow: 'hidden' },
-  fill: { height: 5, borderRadius: 3, backgroundColor: theme.accent },
+  track: { marginTop: 6 },
   alert: {
     borderWidth: 1, borderColor: theme.warn, borderRadius: 12,
     padding: 12, marginTop: 14, backgroundColor: theme.warnSoft,

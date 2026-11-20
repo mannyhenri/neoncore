@@ -376,6 +376,12 @@ export const api = {
   // working cartridges at dispatch, so accepting one on a small screen by mistake is
   // expensive in a way that pausing a goal is not.
 
+  /**
+   * Every project: its repos and how many of its features are done and under way. The agents map
+   * gives each project a pod (world/mapLogic.ts); the phone has no Projects screen of its own.
+   */
+  listProjects: (base: string) => req<import('@neoncore/client').Project[]>(base, '/api/projects'),
+
   /** Every goal, already carrying progress, health, reach, cost and schedule. */
   listGoals: (base: string) => req<Goal[]>(base, '/api/goals'),
 

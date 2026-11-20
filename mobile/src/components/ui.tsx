@@ -12,7 +12,7 @@
  */
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, type ViewStyle, type StyleProp } from 'react-native';
-import { theme } from '../theme';
+import { theme, glow } from '../theme';
 import { useResponsive } from '../responsive';
 
 /**
@@ -85,10 +85,35 @@ export function CardTop({ children }: { children: React.ReactNode }) {
  * someone scanning, and it is invisible to anyone who cannot separate those hues.
  */
 export function StatusPill({ label, color }: { label: string; color: string }) {
+  // What is live glows (neon), and so does what needs you (ember). Nothing else.
+  const lit = color === theme.accent || color === theme.ember;
   return (
     <View style={[s.pill, { borderColor: color }]}>
-      <View style={[s.pillDot, { backgroundColor: color }]} />
+      <View style={[s.pillDot, { backgroundColor: color }, lit ? glow(color, 4) : null]} />
       <Text style={[s.pillText, { color }]}>{label.toUpperCase()}</Text>
+    </View>
+  );
+}
+
+/**
+ * Progress, the Night Glass way: a SEGMENTED meter. Lit cells glow, unlit cells are outlines —
+ * never a smooth bar (docs/DESIGN.md). Drawn only when there is a real fraction to show.
+ */
+export const METER_CELLS = 12;
+export function meterLit(fraction: number, cells = METER_CELLS): number {
+  if (!Number.isFinite(fraction) || fraction <= 0) return 0;
+  // Any progress lights one cell; only a finished thing lights them all.
+  return fraction >= 1 ? cells : Math.min(cells - 1, Math.max(1, Math.round(fraction * cells)));
+}
+export function Meter({
+  fraction, color = theme.accent, cells = METER_CELLS, style,
+}: { fraction: number; color?: string; cells?: number; style?: StyleProp<ViewStyle> }) {
+  const lit = meterLit(fraction, cells);
+  return (
+    <View style={[s.meter, style]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(Math.max(0, Math.min(1, fraction)) * 100) }}>
+      {Array.from({ length: cells }, (_, i) => (
+        <View key={i} style={[s.meterCell, i < lit ? [{ backgroundColor: color, borderColor: color }, glow(color, 3)] : null]} />
+      ))}
     </View>
   );
 }
@@ -187,6 +212,9 @@ const s = StyleSheet.create({
   },
   pillDot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+
+  meter: { flexDirection: 'row', gap: 3, alignItems: 'center' },
+  meterCell: { flex: 1, height: 6, borderRadius: 1.5, borderWidth: 1, borderColor: theme.borderStrong },
 
   chip: {
     backgroundColor: theme.bgElevated,

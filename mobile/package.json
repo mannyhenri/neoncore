@@ -10,6 +10,7 @@
     "android": "react-native run-android",
     "pods": "cd ios && pod install",
     "typecheck": "tsc --noEmit",
+    "bundle:check": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output /tmp/neoncore-bundle-check.js --assets-dest /tmp/neoncore-bundle-check-assets",
     "test": "vitest run"
   },
   "dependencies": {

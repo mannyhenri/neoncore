@@ -41,7 +41,7 @@ export function FleetSheet({ visible, onClose }: { visible: boolean; onClose: ()
               {servers.map((server) => {
                 const status = serverStatuses.find((s) => s.url === server.url);
                 const dotColor = status?.authFailed
-                  ? theme.amber
+                  ? theme.ember
                   : status?.reachable ? theme.accent : theme.textFaint;
                 return (
                   <View key={server.url} style={styles.row}>
@@ -128,7 +128,7 @@ export function FleetSheet({ visible, onClose }: { visible: boolean; onClose: ()
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.scrim },
   backdropTap: { flex: 1 },
   sheet: {
     backgroundColor: theme.bgElevated,
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   rowName: { color: theme.text, fontSize: 13, fontWeight: '600' },
   rowUrl: { color: theme.textFaint, fontSize: 11 },
   faint: { color: theme.textFaint, fontSize: 11 },
-  warn: { color: theme.amber, fontSize: 11 },
+  warn: { color: theme.ember, fontSize: 11 },
   action: { paddingHorizontal: 6, paddingVertical: 4 },
   actionText: { color: theme.textDim, fontSize: 12 },
   addRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
