@@ -10,9 +10,11 @@
  * The header line `[NeonCore goal pilot · <kind> request <id>]` is the stable marker a cartridge
  * (or the sandbox simulation) recognises the request by.
  */
+import { normalizeRepoPath } from './resolve-agent.js';
 import db from '../db.js';
 import { AUTH_CURL_HEADER, getServerBaseUrl } from './server-url.js';
 import { availableTemplates } from './goal-decomposition.js';
+import { skippableStepNames } from './stage-steps.js';
 import {
   BRIEF_FIELDS, INTAKE_QUESTIONS, MAX_QUESTIONS_PER_ROUND, MAX_SCOPE_ROUNDS, MAX_STAGES,
   answerText, involvementOf, type GoalPilot, type PilotRequest,
@@ -41,7 +43,7 @@ function goalRow(goalId: string): Record<string, unknown> {
 /** How much of the project's architecture notes reaches a planner prompt. */
 export const ARCHITECTURE_IN_PROMPT_MAX = 3000;
 
-export function projectContext(goalId: string): { lines: string[]; data: Record<string, unknown> | null } {
+export function projectContext(goalId: string, featureRepos: string[] = []): { lines: string[]; data: Record<string, unknown> | null } {
   const g = goalRow(goalId);
   const pid = String(g.project_id || '');
   if (!pid) return { lines: [], data: null };
@@ -50,11 +52,18 @@ export function projectContext(goalId: string): { lines: string[]; data: Record<
   if (!p) return { lines: [], data: null };
   const repos = [...new Set([p.primary_repo, ...((db.prepare('SELECT repo_path FROM project_cartridges WHERE project_id = ? ORDER BY repo_path').all(pid) as { repo_path: string }[]).map((r) => r.repo_path))].filter(Boolean))];
   const siblings = (db.prepare('SELECT id, name, status FROM goals WHERE project_id = ? AND id != ? ORDER BY position, created_at').all(pid, goalId) as { id: string; name: string; status: string }[]);
+  const picked = new Set(featureRepos.map(normalizeRepoPath));
+  const chosen = repos.filter((r) => picked.has(normalizeRepoPath(r)));
+  const others = repos.filter((r) => !picked.has(normalizeRepoPath(r)));
   const archFull = (p.architecture || '').trim();
   const arch = archFull.length > ARCHITECTURE_IN_PROMPT_MAX ? `${archFull.slice(0, ARCHITECTURE_IN_PROMPT_MAX)}\n…(clipped)` : archFull;
   const lines = [
     `PROJECT: ${p.name}${p.description ? ` — ${p.description.replace(/\s+/g, ' ')}` : ''}`,
-    ...(repos.length ? [`Repos in this project: ${repos.join(', ')}`] : []),
+    // The repos this feature involves, when the person chose some (the rest of the project is out of scope).
+    ...(repos.length && chosen.length
+      ? [`Repos for THIS feature: ${chosen.join(', ')}`,
+        ...(others.length ? [`Other repos in the project — not part of this feature, leave them alone: ${others.join(', ')}`] : [])]
+      : repos.length ? [`Repos in this project: ${repos.join(', ')}`] : []),
     ...(siblings.length
       ? ['Other features on this project\'s list — each is scoped and built SEPARATELY, so they are OUT OF SCOPE here',
         '(do not plan them into this feature; note a dependency on one as an assumption):',
@@ -64,7 +73,7 @@ export function projectContext(goalId: string): { lines: string[]; data: Record<
     // person. Clipped: it grounds the questions; the repo itself is still the authority.
     ...(arch ? ['HOW THE PRODUCT IS BUILT (the project\'s architecture notes — check the code where it matters):', arch] : []),
   ];
-  return { lines, data: { id: p.id, name: p.name, description: p.description, repos, otherFeatures: siblings.map((f) => f.name), architecture: arch } };
+  return { lines, data: { id: p.id, name: p.name, description: p.description, repos, featureRepos: chosen, otherFeatures: siblings.map((f) => f.name), architecture: arch } };
 }
 
 function intakeLines(pilot: GoalPilot): string[] {
@@ -105,7 +114,7 @@ function dataBlock(data: unknown): string[] {
 
 export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
   const goal = goalRow(pilot.goalId);
-  const project = projectContext(pilot.goalId);
+  const project = projectContext(pilot.goalId, pilot.featureRepos);
   const round = pilot.rounds.length + 1;
   const last = round >= MAX_SCOPE_ROUNDS;
   const asked = decisions(pilot);
@@ -185,13 +194,21 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
   ].join('\n');
 }
 
-/** Template name + the first sentence or two of its description — enough to choose by. */
-export function templateCatalogue(): { name: string; description: string }[] {
+/**
+ * Template name + the first sentence or two of its description — enough to choose by — and the
+ * steps a stage may leave out (lib/stage-steps.ts), so the planner can drop what is not its job.
+ */
+export function templateCatalogue(): { name: string; description: string; skippable: string[] }[] {
   const rows = availableTemplates();
   return rows.map((t) => {
     const d = (db.prepare('SELECT description FROM workflows WHERE id = ?').get(t.id) as { description?: string } | undefined)?.description || '';
     const short = d.replace(/\s+/g, ' ').trim();
-    return { name: t.name, description: short.length > 220 ? `${short.slice(0, 219)}…` : short };
+    const steps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ? ORDER BY position_y, created_at').all(t.id) as Record<string, unknown>[];
+    return {
+      name: t.name,
+      description: short.length > 220 ? `${short.slice(0, 219)}…` : short,
+      skippable: [...new Set(skippableStepNames(steps))].filter((n) => !/^(notify|capture learnings)$/i.test(n)),
+    };
   });
 }
 
@@ -209,7 +226,7 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
     'edit files, do not start workflows.',
     '',
     `FEATURE: ${goal.name ?? ''}`,
-    ...projectContext(pilot.goalId).lines,
+    ...projectContext(pilot.goalId, pilot.featureRepos).lines,
     `WORK TYPE: ${pilot.intake.workType ?? 'unspecified'}`,
     `INVOLVEMENT: ${involvement.label} — ${involvement.hint}`,
     '',
@@ -219,7 +236,7 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
     ...(asked.length ? ['', 'DECISIONS FROM SCOPING:', ...asked.map((d) => `- ${d.question} → ${d.answer}`)] : []),
     '',
     'AVAILABLE WORKFLOWS — use these EXACT names:',
-    ...catalogue.map((t) => `  · ${t.name}${t.description ? ` — ${t.description}` : ''}`),
+    ...catalogue.map((t) => `  · ${t.name}${t.description ? ` — ${t.description}` : ''}${t.skippable.length ? `\n      steps you may leave out: ${t.skippable.join(' · ')}` : ''}`),
     '',
     'HOW THE PIPELINE RUNS',
     '- Before your first stage, NeonCore has an agent write one FAILING test per "test" criterion; the',
@@ -242,9 +259,17 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
     `- At most ${MAX_STAGES} stages. Prefer the fewest that deliver the whole scope — a short, honest`,
     '  pipeline beats a padded one. Mark stages that are useful but not essential `optional: true`.',
     '- Skip workflows whose job scoping already did (e.g. an interrogation/brainstorm phase) and say so.',
+    '- ONE JOB PER STAGE, each job once: a build stage builds, a QA stage (Super QA) tests and reviews. Do not',
+    '  plan two stages that do the same job, do not split one body of work into several build stages unless',
+    '  they are genuinely separate deliverables, and when a QA stage follows a build stage leave the review to it.',
+    '- A workflow runs ALL its steps unless you leave some out. Put in `skipSteps` the steps (exact names from',
+    '  "steps you may leave out") that are not this stage\'s job on THIS goal — e.g. Security Review and',
+    '  Performance & Accessibility in a stage that is a live run of engines. Leave out only what clearly does',
+    '  not apply; when in doubt keep it. (Notify, and Capture Learnings when a Compound stage follows, are',
+    '  left out by NeonCore already — do not list them.)',
     '- Name up to 4 alternatives you considered, with why they were not chosen.',
     '',
-    ...completion(requestId, '{ "message": "<one line to the person>", "stages": [ { "template": "<exact name>", "title": "<short, for this goal>", "why": "...", "focus": "...", "optional": false } ], "alternatives": [ { "template": "<exact name>", "why": "..." } ] }'),
+    ...completion(requestId, '{ "message": "<one line to the person>", "stages": [ { "template": "<exact name>", "title": "<short, for this goal>", "why": "...", "focus": "...", "optional": false, "skipSteps": [] } ], "alternatives": [ { "template": "<exact name>", "why": "..." } ] }'),
     ...dataBlock({
       requestId, kind: 'pipeline', maxStages: MAX_STAGES,
       goal: { id: pilot.goalId, name: goal.name ?? '' },

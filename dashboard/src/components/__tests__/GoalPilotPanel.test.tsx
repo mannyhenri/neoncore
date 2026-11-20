@@ -25,6 +25,8 @@ vi.mock('../../lib/api', async () => {
     getGoalPilotMeta: () => Promise.resolve(demo.DEMO_PILOT_META),
     getGoalPilots: () => Promise.resolve(state.current),
     getFeatureFiles: () => Promise.resolve([]),
+    openFeaturePrs: record('openFeaturePrs'),
+    cleanupFeatureWorkspace: record('cleanupFeatureWorkspace'),
     getGoalPilotCandidates: () => Promise.resolve(demo.DEMO_CANDIDATES),
     getGoalPilotRequest: () => Promise.resolve({ prompt: 'the prompt' }),
     createGoalPilot: record('createGoalPilot', { goalId: 'demo-g1', pilot: null, queued: false, error: null }),
@@ -56,7 +58,7 @@ vi.mock('../../hooks/useSocket', () => ({ useSocket: () => ({ connected: true })
 // The canvas is React Flow — heavy, and not what is under test. Its mount is.
 vi.mock('../WorkflowCanvasEditor', () => ({ WorkflowCanvasEditor: ({ workflowId }: { workflowId: string }) => <div>canvas for {workflowId}</div> }));
 
-import { GoalPilotPanel } from '../GoalPilotPanel';
+import { GoalPilotPanel, GoalPilotIntake } from '../GoalPilotPanel';
 
 const goal = {
   id: 'demo-g1', name: 'Ship metered billing by Q3', description: 'why', successMetric: 'first customer', status: 'active',
@@ -193,6 +195,27 @@ describe('GoalPilotPanel', () => {
     expect(body.brief.summary).toBe('Edited summary');
     expect(body.stages.map((s) => s.template)).toEqual(['CE: Phase 2 — Plan']);
     expect(body.criteria.map((c) => c.text)).toEqual(DEMO_PILOT.criteria!.map((c) => c.text));
+  });
+
+  it('proposed: the steps a stage leaves out are shown, and a step can be kept before accepting', async () => {
+    const p = pilotIn('proposed');
+    const stages = [{ ...PROPOSAL.stages[0], skipSteps: ['Security Review', 'Performance & Accessibility'] }, PROPOSAL.stages[1]];
+    const view = await mount({ ...p, proposal: { ...PROPOSAL, stages } });
+    const first = (await view.findByDisplayValue('Plan it')).closest('div.rounded-lg') as HTMLElement;
+    expect(within(first).getByText(/Leaves out:/)).toBeTruthy();
+    fireEvent.click(within(first).getByRole('button', { name: 'Keep Security Review' }));
+    expect(within(first).queryByText('Security Review')).toBeNull();
+    fireEvent.click(await view.findByText(/Accept plan · 2 workflows/));
+    await waitFor(() => expect(calls.acceptGoalPilotPlan).toHaveLength(1));
+    const body = calls.acceptGoalPilotPlan[0][1] as { stages: { skipSteps?: string[] }[] };
+    expect(body.stages[0].skipSteps).toEqual(['Performance & Accessibility']);
+  });
+
+  it('running: a stage card says which steps its run leaves out', async () => {
+    const p = pilotIn('running');
+    const stages = p.stages.map((s, i) => (i === 0 ? { ...s, skipSteps: ['Security Review'] } : s));
+    const view = await mount({ ...p, stages });
+    expect(await view.findByText('Leaves out: Security Review')).toBeTruthy();
   });
 
   it('proposed: criteria are numbered rows; a test without an exact expectation blocks accept until fixed', async () => {
@@ -392,5 +415,56 @@ describe('GoalPilotPanel — the acceptance contract', () => {
     await view.findByText(/could not be checked: the runner did not answer/);
     fireEvent.click(view.getByText('Check again'));
     await waitFor(() => expect(calls.verifyGoalPilotStageAgain).toEqual([['demo-pilot-1', 'demo-ps2']]));
+  });
+});
+
+/**
+ * REQUESTED: run features side by side — "when we start a feature we need to be able to select which
+ * repos will be part of this feature", then a branch + worktree per repo, and PRs at the end.
+ */
+describe('GoalPilotPanel — features side by side', () => {
+  it('intake: a box per project repo, all ticked; only the ticked repos are sent', async () => {
+    const view = render(<GoalPilotIntake agents={agents} goal={goal} preferRepos={['/demo/ledger-svc', '/demo/atlas-api']} onCreated={() => {}} onCancel={() => {}} />);
+    const atlas = await view.findByRole('checkbox', { name: /atlas-api/ });
+    expect((view.getByRole('checkbox', { name: /ledger-svc/ }) as HTMLInputElement).checked).toBe(true);
+    expect((atlas as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(atlas);
+    fireEvent.click(view.getByRole('button', { name: /start scoping/i }));
+    await waitFor(() => expect(calls.createGoalPilot).toHaveLength(1));
+    expect((calls.createGoalPilot[0][0] as { repos: string[] }).repos).toEqual(['/demo/ledger-svc']);
+  });
+
+  it('staffing: only the feature\'s repos are preselected, and it runs on its own branch unless unticked', async () => {
+    const p = { ...pilotIn('staffing'), featureRepos: ['/demo/atlas-api'] } as GoalPilot;
+    const view = await mount(p);
+    const own = await view.findByRole('checkbox', { name: /own branch/i });
+    expect((own as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(await view.findByText(/Start the pipeline/));
+    await waitFor(() => expect(calls.startGoalPilot).toHaveLength(1));
+    const body = calls.startGoalPilot[0][1] as { repos: { repoPath: string }[]; isolate: boolean };
+    expect(body.repos.map((r) => r.repoPath)).toEqual(['/demo/atlas-api']);
+    expect(body.isolate).toBe(true);
+    fireEvent.click(own);
+    fireEvent.click(await view.findByText(/Start the pipeline/));
+    await waitFor(() => expect(calls.startGoalPilot).toHaveLength(2));
+    expect((calls.startGoalPilot[1][1] as { isolate: boolean }).isolate).toBe(false);
+  });
+
+  it('running on its own branch: the branch, each repo\'s PR or why not, and the actions', async () => {
+    const p = { ...pilotIn('completed'), workspace: {
+      branch: 'feature/metered-billing', prsAt: '2026-11-19T12:00:00Z',
+      repos: [
+        { repoPath: '/demo/ledger-svc', worktreePath: '/demo/ledger-svc-feature-metered-billing', agentType: 'claude', base: 'main', pr: { url: 'https://github.com/x/ledger/pull/7', number: 7, state: 'open' }, error: '', removed: false },
+        { repoPath: '/demo/atlas-api', worktreePath: '/demo/atlas-api-feature-metered-billing', agentType: 'claude', base: 'main', pr: null, error: 'no commits on feature/metered-billing — nothing to merge', removed: false },
+      ],
+    } } as GoalPilot;
+    const view = await mount(p);
+    expect(await view.findByText('feature/metered-billing')).toBeTruthy();
+    expect((view.getByRole('link', { name: /#7/ }) as HTMLAnchorElement).href).toBe('https://github.com/x/ledger/pull/7');
+    expect(view.getByText(/nothing to merge/)).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: /open prs now/i }));
+    await waitFor(() => expect(calls.openFeaturePrs).toHaveLength(1));
+    fireEvent.click(view.getByRole('button', { name: /clean up merged/i }));
+    await waitFor(() => expect(calls.cleanupFeatureWorkspace).toHaveLength(1));
   });
 });

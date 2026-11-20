@@ -138,6 +138,37 @@ export interface Command {
 /** A cartridge's full final answer (server lib/final-answer.ts). `complete` is false while its turn still runs. */
 export interface FinalAnswer { text: string; complete: boolean; sessionId: string; at: string }
 
+/** A running or paused feature, as the world map draws it (server lib/active-features.ts). */
+export interface ActiveFeature {
+  pilotId: string;
+  goalId: string;
+  projectId: string;
+  name: string;
+  phase: string;
+  stage: { position: number; total: number; title: string } | null;
+  /** Why it waits on a person; '' when it does not. */
+  needsYou: string;
+  agentIds: string[];
+  /** For a feature on its own branch: each worktree and the repo it is a worktree of. */
+  worktrees: { worktreePath: string; repoPath: string }[];
+  branch: string;
+}
+
+/** A feature that runs on its own branch (server lib/feature-workspace.ts). */
+export interface FeatureWorkspace {
+  branch: string;
+  repos: {
+    repoPath: string;
+    worktreePath: string;
+    agentType: string;
+    base: string;
+    pr: { url: string; number: number; state: string } | null;
+    error: string;
+    removed: boolean;
+  }[];
+  prsAt: string | null;
+}
+
 /** A file attached to a feature (server lib/feature-files.ts). */
 export interface FeatureFile { id: string; goalId: string; name: string; mimeType: string; size: number; createdAt: string }
 
@@ -590,6 +621,8 @@ export interface PilotProposedStage {
   why: string;
   focus: string;
   optional: boolean;
+  /** Steps of the workflow this stage leaves out — not its job on this feature. */
+  skipSteps?: string[];
 }
 
 export interface PilotRequest {
@@ -625,6 +658,8 @@ export interface PilotStage {
   agentType: string;
   /** A stage worked by several cartridges together (Confer): every participant. Empty = one cartridge. */
   participants?: { repoPath: string; agentType: string }[];
+  /** Steps of the workflow this stage leaves out, as planned. */
+  skipSteps?: string[];
   projectId: string;
   runId: string;
   agentId: string;
@@ -666,6 +701,10 @@ export interface GoalPilot {
   proposal: { message: string; stages: PilotProposedStage[]; alternatives: { template: string; why: string }[] } | null;
   plan: { brief: PilotBrief; stages: PilotProposedStage[]; criteria?: PilotCriterion[] } | null;
   staffing: { repos: { repoPath: string; agentType: string }[] } | null;
+  /** The project's repos this feature involves, chosen when it started ([] = all). */
+  featureRepos?: string[];
+  /** Its own branch: a worktree + cartridge per repo, and the PRs (server lib/feature-workspace.ts). */
+  workspace?: FeatureWorkspace | null;
   involvement: string;
   currentRequestId: string;
   currentRequest: PilotRequest | null;

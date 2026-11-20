@@ -22,6 +22,7 @@ import { remapStepRefsJson } from './step-refs.js';
 import { advanceWorkflowsSoon } from './workflow-executor-v2.js';
 import { withStandardGateOnTemplateRows } from './standard-gate.js';
 import { applyConferToRun } from './workflow-launch.js';
+import { withoutSteps } from './stage-steps.js';
 
 /**
  * What previous runs OF THIS WORKFLOW learned. THE ONE IMPLEMENTATION — both clone paths call
@@ -108,13 +109,22 @@ export interface CloneOptions {
    * steps are NOT pre-filled with `agentId` — the conversion fills them, and a template's own
    * confer step only takes the roster while it is still awaiting one.
    */
-  confer?: { agentIds: string[]; mode?: string; isolation?: string };
+  confer?: {
+    agentIds: string[]; mode?: string; isolation?: string;
+    /** false = the confer runs without its cross-review step: a later stage does the reviewing. */
+    peerReview?: boolean;
+  };
   /**
    * The feature (goal) the run is launched for — stored on the run (workflows.goal_id) so its
    * progress, cost, brief and contract resolve to that feature and not to a sibling in the same
    * project.
    */
   goalId?: string;
+  /**
+   * Template steps this run leaves out, by name (lib/stage-steps.ts): a feature stage skips what
+   * the pipeline or another stage already does. Steps that must stay are kept whatever is asked.
+   */
+  skipSteps?: string[];
 }
 
 export function cloneTemplateAsRun(
@@ -176,7 +186,8 @@ export function cloneTemplateAsRun(
   const conferIds = opts.confer && opts.confer.agentIds.filter(Boolean).length >= 2
     ? opts.confer.agentIds.filter(Boolean) : null;
   const templateSteps = withStandardGateOnTemplateRows(
-    db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(templateId) as Record<string, unknown>[],
+    withoutSteps(db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(templateId) as Record<string, unknown>[],
+      opts.skipSteps ?? []).steps,
     { skip: template.standard_gate === 'off' },
   );
   const oldToNew = new Map<string, string>();
@@ -238,6 +249,15 @@ export function cloneTemplateAsRun(
   if (conferIds) {
     applyConferToRun(runId, conferIds, opts.confer!.mode === 'collaborate' ? 'collaborate' : 'divide',
       opts.confer!.isolation === 'worktree' ? 'worktree' : 'shared');
+    if (opts.confer!.peerReview === false) {
+      const confers = db.prepare("SELECT id, executor_config FROM workflow_steps WHERE workflow_id = ? AND executor_type = 'confer'")
+        .all(runId) as { id: string; executor_config: string }[];
+      for (const c of confers) {
+        let cfg: Record<string, unknown> = {};
+        try { cfg = JSON.parse(c.executor_config || '{}') as Record<string, unknown>; } catch { /* keep {} */ }
+        db.prepare('UPDATE workflow_steps SET executor_config = ? WHERE id = ?').run(JSON.stringify({ ...cfg, conferPeerReview: false }), c.id);
+      }
+    }
   }
   // A scheduled run starts now, not on the next poll.
   advanceWorkflowsSoon();

@@ -36,9 +36,11 @@ import { guardBusy } from './queue-if-busy.js';
 import { isCartridgeBusy } from './queue-runner.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from './send-command.js';
 import { featureFilesBlock } from './feature-files.js';
+import { createFeatureWorkspace, launchWorkspaceCartridges, openFeaturePRs } from './feature-workspace.js';
 import { cartridgeExists } from './cartridge-exists.js';
 import { agentIdForRepoAndType, normalizeRepoPath, setProjectCartridges, getProjectCartridges } from './resolve-agent.js';
 import { cloneTemplateAsRun } from './workflow-from-template.js';
+import { automaticSkips, laterStageReviews } from './stage-steps.js';
 import { templateNeedsParticipants } from './workflow-launch.js';
 import { isReportStep } from './workflow-report.js';
 import { workflowNeedsAttention, type Attention } from './workflow-attention.js';
@@ -47,7 +49,7 @@ import { onRunFinished } from './run-events.js';
 import { notifyAll } from './channels.js';
 import { pauseRun, resumeRun, cancelRun } from '../routes/workflows.js';
 import {
-  type GoalPilot, type PilotStage, type PilotRequest, type Staffing, type StageStatus,
+  type GoalPilot, type PilotStage, type PilotRequest, type Staffing, type StageStatus, type FeatureWorkspace,
   PilotError, BRIEF_FIELDS, getPilot, getStage, getRequest, requestPrompt, stagesOf, requestsOf, pilotsInPhase,
   createRequestRow, setRequestPrompt, failRequest, setPhase, setAttention, updateStage,
   involvementOf, templateIdForName, answerText, PLANNER_KINDS,
@@ -289,6 +291,12 @@ export const REVIEW_STAGE_KEY = 'review';
 export interface StartInput {
   repos?: unknown;
   /**
+   * Run the feature on its own branch: a worktree + cartridge per repo, a PR per repo at the end
+   * (lib/feature-workspace.ts). Opt-in (true); absent runs it in the repos' own checkouts. The
+   * dashboard asks for it by default.
+   */
+  isolate?: unknown;
+  /**
    * stage key → repo path, or → a LIST of repo paths for a stage worked by several cartridges
    * together (a Confer stage). A stage not named runs in the first repo; a Confer stage not named
    * runs on every chosen repo.
@@ -342,6 +350,25 @@ export function startPilot(pilotId: string, input: StartInput): GoalPilot {
   }
   if (repos.length === 0) throw new PilotError('choose at least one repo to run the pipeline in', 400);
 
+  // Its own branch: every repo is swapped for the feature's worktree of it, so every stage, the
+  // contract and the staffing below point there. The project keeps the real repos (projectRepo).
+  const isolate = input.isolate === true;
+  let workspace: FeatureWorkspace | null = null;
+  const realRepo = new Map<string, string>();
+  if (isolate) {
+    try { workspace = createFeatureWorkspace(pilot, repos); } catch (err) { throw new PilotError(err instanceof Error ? err.message : String(err), 400); }
+    for (const w of workspace.repos) realRepo.set(normalizeRepoPath(w.worktreePath), w.repoPath);
+    const treeOf = new Map(workspace.repos.map((w) => [normalizeRepoPath(w.repoPath), w.worktreePath]));
+    for (const r of repos) r.repoPath = treeOf.get(normalizeRepoPath(r.repoPath)) ?? r.repoPath;
+    // Assignments name the real repos; translate them to the worktrees.
+    if (input.assignments && typeof input.assignments === 'object') {
+      const a = input.assignments as Record<string, unknown>;
+      const tr = (v: unknown) => treeOf.get(normalizeRepoPath(String(v ?? ''))) ?? v;
+      for (const k of Object.keys(a)) a[k] = Array.isArray(a[k]) ? (a[k] as unknown[]).map(tr) : tr(a[k]);
+    }
+  }
+  const projectRepo = (p: string) => realRepo.get(normalizeRepoPath(p)) ?? p;
+
   const assignments = input.assignments && typeof input.assignments === 'object' ? input.assignments as Record<string, unknown> : {};
   const chosen = (key: string, want: string) => {
     const hit = repos.find((r) => normalizeRepoPath(r.repoPath) === normalizeRepoPath(want));
@@ -394,49 +421,56 @@ export function startPilot(pilotId: string, input: StartInput): GoalPilot {
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM goal_pilot_stages WHERE pilot_id = ?').run(pilot.id);
     const projectByRepo = new Map<string, string>();
-    const projectOf = (repoPath: string) => {
+    const projectOf = (stageRepo: string) => {
       if (featureProject) return featureProject;
+      const repoPath = projectRepo(stageRepo);
       const norm = normalizeRepoPath(repoPath);
       if (!projectByRepo.has(norm)) projectByRepo.set(norm, projectForRepo(pilot.goalId, goal.name, repoPath));
       return projectByRepo.get(norm)!;
     };
     if (featureProject) {
       const owned = getProjectCartridges(featureProject);
-      const missing = repos.map((r) => r.repoPath).filter((p) => !owned.some((o) => normalizeRepoPath(o) === normalizeRepoPath(p)));
+      const missing = repos.map((r) => projectRepo(r.repoPath)).filter((p) => !owned.some((o) => normalizeRepoPath(o) === normalizeRepoPath(p)));
       if (missing.length) setProjectCartridges(featureProject, [...owned, ...missing]);
     }
     const insert = db.prepare(
       `INSERT INTO goal_pilot_stages (id, pilot_id, position, kind, stage_key, template_id, template_name, title, why, focus,
-         repo_path, agent_type, project_id, status, participants)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+         repo_path, agent_type, project_id, status, participants, skip_steps)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     );
     let position = 0;
     if (tested.length) {
       insert.run(randomUUID(), pilot.id, position++, 'acceptance', ACCEPTANCE_STAGE_KEY, '', '', 'Write the acceptance tests',
         `One failing test per criterion (${tested.map((c) => c.id).join(', ')}), written before anything is built. You approve them; then they are locked and NeonCore runs them after every stage.`,
-        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath), '[]');
+        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath), '[]', '[]');
     }
     pilot.plan!.stages.forEach((s) => {
       const templateId = templateIdForName(s.template) ?? '';
       const team = participantsFor(s.key, s.title, templateId);
       const staff = team[0] ?? repoFor(s.key);
       insert.run(randomUUID(), pilot.id, position++, 'workflow', s.key, templateId, s.template, s.title, s.why, s.focus,
-        staff.repoPath, staff.agentType, projectOf(staff.repoPath), JSON.stringify(team));
+        staff.repoPath, staff.agentType, projectOf(staff.repoPath), JSON.stringify(team), JSON.stringify(s.skipSteps ?? []));
     });
     if (checklist.length) {
       insert.run(randomUUID(), pilot.id, position++, 'review', REVIEW_STAGE_KEY, '', '', 'Independent review of the checklist',
         `A cartridge that did not do the work judges ${checklist.map((c) => c.id).join(', ')} against what exists; you confirm each verdict.`,
-        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath), '[]');
+        '', testsRepo.repoPath, testsRepo.agentType, projectOf(testsRepo.repoPath), '[]', '[]');
     }
     if (criteria.length) {
       createContract({ pilotId: pilot.id, goalId: pilot.goalId, criteria, repoPath: testsRepo.repoPath, agentType: testsRepo.agentType });
     }
     // The posture the person chose reaches every prompt as the goal's autonomy line.
     db.prepare('UPDATE goals SET autonomy = ?, updated_at = ? WHERE id = ?').run(involvement.goalAutonomy, nowIso(), pilot.goalId);
-    db.prepare(`UPDATE goal_pilots SET staffing = ?, phase = 'running', started_at = ?, attention = '', updated_at = ? WHERE id = ?`)
-      .run(JSON.stringify({ repos } satisfies Staffing), nowIso(), nowIso(), pilot.id);
+    db.prepare(`UPDATE goal_pilots SET staffing = ?, workspace = ?, phase = 'running', started_at = ?, attention = '', updated_at = ? WHERE id = ?`)
+      .run(JSON.stringify({ repos } satisfies Staffing), workspace ? JSON.stringify(workspace) : '', nowIso(), nowIso(), pilot.id);
   });
   tx();
+  // A cartridge in every worktree; each stage waits for its own and starts once it has registered.
+  if (workspace) {
+    const problems = launchWorkspaceCartridges(workspace);
+    if (problems.length) announcePilot(pilot.id, 'stage-needs-cartridge', 'a feature worktree has no cartridge',
+      `Could not launch: ${problems.join('; ')}. Launch a cartridge in that folder and its stages start by themselves.`, 'action');
+  }
 
   advancePilot(pilot.id);
   emitPilotUpdate(pilot.id);
@@ -495,6 +529,19 @@ export function buildStageContext(pilot: GoalPilot, stage: PilotStage, stages: P
       + 'NeonCore checks the files are unchanged and runs every one of them when this stage finishes.');
   }
   parts.push(`## This stage — ${stage.template}\n${stage.focus || stage.why || 'Run this workflow for the scope above.'}`);
+  // ONE JOB PER STAGE. What another stage of this pipeline does is not done here as well.
+  const later = laterTemplates(stage, stages);
+  const isReviewStage = laterStageReviews([stage.template]);
+  if (isReviewStage) {
+    parts.push('## One job: this stage reviews\nThe building was done by the earlier stages. Test and review what they built; do not re-plan it, '
+      + 'do not rebuild it and do not add scope. Fix what you find broken, and report what you could not.');
+  } else if (laterStageReviews(later)) {
+    parts.push(`## One job: this stage builds\nA later stage (${later.find((t) => laterStageReviews([t]))}) tests and reviews the result. Here: write the code and `
+      + 'verify YOUR OWN change (its tests, its build). Do not run a separate review, audit or QA pass in this stage.');
+  }
+  if (stage.skipSteps?.length) {
+    parts.push(`## Left out of this run\n${stage.skipSteps.join(', ')} — not this stage's job (decided with the plan). Do not do that work here.`);
+  }
   if (earlier.length) {
     parts.push(`## Earlier stages\n${earlier.map((s) => {
       const n = stages.indexOf(s) + 1;
@@ -504,10 +551,31 @@ export function buildStageContext(pilot: GoalPilot, stage: PilotStage, stages: P
     }).join('\n\n')}`);
   }
   if (next) parts.push(`## After this stage\nNext: ${next.title} (${stageKindLabel(next)}). Leave what it needs where it can find it, and say where in your report.`);
+  // Its own branch (lib/feature-workspace.ts): commit there; the PR is opened when the pipeline ends.
+  if (pilot.workspace) {
+    parts.push(`## Your branch\nThis feature runs on its own branch, \`${pilot.workspace.branch}\`, in a git worktree of each repo — you are in it. `
+      + 'Commit your work to this branch as you go (small, clear commits). Do NOT switch branches, do NOT merge into the base branch, '
+      + 'and do NOT open a pull request: NeonCore pushes the branch and opens one PR per repo when the whole pipeline is finished.');
+  }
   // The feature's files, in every repo this stage works in.
   const files = featureFilesBlock(pilot.goalId, [stage.repoPath, ...stage.participants.map((p) => p.repoPath)]).trim();
   if (files) parts.push(`## Files attached to the feature\n${files}`);
   return parts.join('\n\n');
+}
+
+/**
+ * The steps this stage's run leaves out (lib/stage-steps.ts): what the planner marked as not its job,
+ * plus "Notify" (the pipeline reports itself) and "Capture Learnings" when a later stage is a
+ * Compound workflow. Steps that must stay are kept by the clone whatever this asks.
+ */
+/** The workflow stages still to come after this one that will actually run (a skipped one will not). */
+function laterTemplates(stage: PilotStage, stages: PilotStage[]): string[] {
+  return stages.filter((s) => s.position > stage.position && s.kind === 'workflow' && s.status !== 'skipped').map((s) => s.template);
+}
+
+export function stageSkips(stage: PilotStage, stages: PilotStage[]): string[] {
+  const later = stages.filter((s) => s.position > stage.position && s.kind === 'workflow').map((s) => s.template);
+  return [...new Set([...(stage.skipSteps ?? []), ...automaticSkips(later)])];
 }
 
 // ── running ───────────────────────────────────────────────────────────────────
@@ -629,10 +697,12 @@ function launchStage(pilot: GoalPilot, stage: PilotStage, stages: PilotStage[]):
     return;
   }
 
+  const skips = stageSkips(stage, stages);
   const context = buildStageContext(pilot, stage, stages);
   const runId = cloneTemplateAsRun(templateId, stage.projectId || null, context, {
-    agentId, autonomy: involvementOf(pilot.involvement).runAutonomy, goalId: pilot.goalId,
-    ...(team ? { confer: { agentIds: team, mode: 'divide', isolation: 'shared' } } : {}),
+    agentId, autonomy: involvementOf(pilot.involvement).runAutonomy, goalId: pilot.goalId, skipSteps: skips,
+    // A QA / review stage later in the pipeline does the reviewing: this stage only builds.
+    ...(team ? { confer: { agentIds: team, mode: 'divide', isolation: 'shared', peerReview: !laterStageReviews(laterTemplates(stage, stages)) } } : {}),
   });
   if (!runId) {
     updateStage(stage.id, { status: 'failed', wait_reason: '', completed_at: nowIso(), result_summary: 'The workflow could not be cloned into a run.' });
@@ -766,8 +836,26 @@ export function advancePilot(pilotId: string): void {
  * The pipeline is done: compile the goal report now (it never waits on a model), tell the person,
  * and ask the planner for the narrative summary on top.
  */
+/** Push the feature's branches and open its PRs, then say what happened (lib/feature-workspace.ts). */
+export async function openPrsAndTell(pilotId: string): Promise<void> {
+  try {
+    const ws = await openFeaturePRs(pilotId);
+    if (!ws) return;
+    emitPilotUpdate(pilotId);
+    const opened = ws.repos.filter((r) => r.pr);
+    const failed = ws.repos.filter((r) => !r.pr && r.error && !r.removed);
+    announcePilot(pilotId, 'prs-opened', opened.length ? `${opened.length} PR${opened.length === 1 ? '' : 's'} ready to review` : 'no PR could be opened',
+      [opened.map((r) => `${path.basename(r.repoPath)}: ${r.pr!.url}`).join(' · '),
+        failed.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · ')].filter(Boolean).join(' — ') || 'Nothing to merge.',
+      'action');
+  } catch (err) {
+    console.error('[goal-pilot] opening PRs failed:', err);
+  }
+}
+
 export function finishWithReport(pilotId: string): void {
   const report = generateGoalReport(pilotId);
+  if (getPilot(pilotId)?.workspace) void openPrsAndTell(pilotId);
   const finished = getPilot(pilotId);
   if (finished) docsChangedForGoal(finished.goalId);   // delivered: the spec's evidence just changed
   emitPilotUpdate(pilotId);

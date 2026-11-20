@@ -33,6 +33,7 @@ import db from '../db.js';
 import { randomUUID } from 'crypto';
 import { availableTemplates, templateIdForName } from './goal-decomposition.js';
 import { type Criterion, normalizeCriteria, acceptedCriteria, criteriaText, deleteContract } from './acceptance-contract.js';
+import { skippableStepNames } from './stage-steps.js';
 
 // ── registries ────────────────────────────────────────────────────────────────
 
@@ -211,6 +212,8 @@ export interface ProposedStage {
   why: string;
   focus: string;
   optional: boolean;
+  /** Steps of the workflow this stage leaves out — not its job (lib/stage-steps.ts). */
+  skipSteps: string[];
 }
 
 export interface PipelineProposal {
@@ -228,6 +231,26 @@ export interface AcceptedPlan {
 
 export interface Staffing {
   repos: { repoPath: string; agentType: string }[];
+}
+
+/** A feature that runs on its own branch: a worktree + cartridge per repo (lib/feature-workspace.ts). */
+export interface FeatureWorkspace {
+  branch: string;
+  repos: {
+    /** The real repo (the project's). */
+    repoPath: string;
+    /** Where this feature's work happens: a git worktree of repoPath on `branch`. */
+    worktreePath: string;
+    agentType: string;
+    /** The branch the feature started from, and its PR goes into (e.g. 'main'). */
+    base: string;
+    pr: { url: string; number: number; state: string } | null;
+    /** Why the last PR attempt or cleanup did not complete for this repo ('' = it did). */
+    error: string;
+    /** The worktree was removed (after its PR merged). */
+    removed: boolean;
+  }[];
+  prsAt: string | null;
 }
 
 export type PilotPhase =
@@ -267,6 +290,8 @@ export interface PilotStage {
    * engine. Empty for a one-cartridge stage. The first participant is also repoPath/agentType.
    */
   participants: { repoPath: string; agentType: string }[];
+  /** Steps of the workflow this stage leaves out, as planned (lib/stage-steps.ts). */
+  skipSteps: string[];
   projectId: string;
   runId: string;
   agentId: string;
@@ -321,6 +346,10 @@ export interface GoalPilot {
   proposal: PipelineProposal | null;
   plan: AcceptedPlan | null;
   staffing: Staffing | null;
+  /** The project's repos this feature involves, chosen when it started ([] = all of them). */
+  featureRepos: string[];
+  /** Its own branch, a worktree + cartridge per repo, and the PRs (lib/feature-workspace.ts); null = runs in place. */
+  workspace: FeatureWorkspace | null;
   involvement: Involvement;
   currentRequestId: string;
   attention: string;
@@ -501,6 +530,7 @@ export function normalizePipelineResult(raw: unknown): Normalized<PipelinePropos
       why: str(s.why),
       focus: str(s.focus),
       optional: s.optional === true,
+      skipSteps: plannedSkips(template, s.skipSteps),
     });
   });
   if (stages.length === 0) return fail('no usable workflows were proposed');
@@ -529,6 +559,8 @@ function rowToPilot(row: Record<string, unknown>): GoalPilot {
     proposal: parse<PipelineProposal | null>(row.proposal, null),
     plan: parse<AcceptedPlan | null>(row.plan, null),
     staffing: parse<Staffing | null>(row.staffing, null),
+    featureRepos: parse<string[]>(row.feature_repos, []).filter((r) => typeof r === 'string' && r),
+    workspace: parse<FeatureWorkspace | null>(row.workspace, null),
     involvement: involvementOf(row.involvement).value,
     currentRequestId: (row.current_request_id as string) || '',
     attention: (row.attention as string) || '',
@@ -557,6 +589,7 @@ function rowToStage(row: Record<string, unknown>): PilotStage {
     agentType: (row.agent_type as string) || 'claude',
     participants: parse<{ repoPath: string; agentType: string }[]>(row.participants, [])
       .filter((p) => p && typeof p.repoPath === 'string' && p.repoPath.trim()),
+    skipSteps: parse<string[]>(row.skip_steps, []).filter((n) => typeof n === 'string'),
     projectId: (row.project_id as string) || '',
     runId: (row.run_id as string) || '',
     agentId: (row.agent_id as string) || '',
@@ -655,13 +688,14 @@ export function activePilotForGoal(goalId: string): GoalPilot | null {
 
 // ── creation ──────────────────────────────────────────────────────────────────
 
-export function createPilotRow(input: { goalId: string; plannerAgentId: string; intake: Record<string, string> }): GoalPilot {
+export function createPilotRow(input: { goalId: string; plannerAgentId: string; intake: Record<string, string>; featureRepos?: string[] }): GoalPilot {
   const id = randomUUID();
   const t = now();
   db.prepare(
-    `INSERT INTO goal_pilots (id, goal_id, phase, planner_agent_id, intake, involvement, created_at, updated_at)
-     VALUES (?, ?, 'scoping', ?, ?, ?, ?, ?)`,
-  ).run(id, input.goalId, input.plannerAgentId, JSON.stringify(input.intake), involvementOf(input.intake.involvement).value, t, t);
+    `INSERT INTO goal_pilots (id, goal_id, phase, planner_agent_id, intake, involvement, feature_repos, created_at, updated_at)
+     VALUES (?, ?, 'scoping', ?, ?, ?, ?, ?, ?)`,
+  ).run(id, input.goalId, input.plannerAgentId, JSON.stringify(input.intake), involvementOf(input.intake.involvement).value,
+    JSON.stringify(input.featureRepos ?? []), t, t);
   return getPilot(id)!;
 }
 
@@ -721,6 +755,19 @@ export interface SubmitOutcome {
 
 const strList = (v: unknown, max: number): string[] =>
   (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((x) => x.trim()).slice(0, max);
+
+/**
+ * The steps a stage asked to leave out that its workflow has AND may leave out (lib/stage-steps.ts),
+ * spelled as the workflow spells them. Anything else is dropped: a skip list never breaks a run.
+ */
+export function plannedSkips(template: string, raw: unknown): string[] {
+  const asked = new Set(strList(raw, 20).map((n) => n.toLowerCase()));
+  if (asked.size === 0) return [];
+  const templateId = templateIdForName(template);
+  if (!templateId) return [];
+  const steps = db.prepare('SELECT * FROM workflow_steps WHERE workflow_id = ?').all(templateId) as Record<string, unknown>[];
+  return skippableStepNames(steps).filter((n) => asked.has(n.toLowerCase()));
+}
 
 /** The planner's summary of a finished goal. `summary` is required; highlights and follow-ups are lists. */
 export function normalizeReportSummary(raw: unknown): { value: ReportSummary | null; error: string } {
@@ -913,6 +960,7 @@ export function acceptPlan(pilotId: string, input: PlanInput): GoalPilot {
     stages.push({
       key: `s${stages.length + 1}`, template,
       title: str(s.title) || template, why: str(s.why), focus: str(s.focus), optional: s.optional === true,
+      skipSteps: plannedSkips(template, s.skipSteps),
     });
   }
   if (stages.length === 0) throw new PilotError('pick at least one workflow to run', 400);

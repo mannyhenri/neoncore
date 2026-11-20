@@ -110,6 +110,12 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
   const staged = useAttachments();
+  // The project's repos this feature involves — all to start with; untick what it does not touch.
+  const [repoPick, setRepoPick] = useState<Set<string>>(() => new Set(preferRepos ?? []));
+  // Keyed on the list's contents: the parent rebuilds the array every render, and resetting on its
+  // identity would undo every untick.
+  const repoKey = (preferRepos ?? []).join('|');
+  useEffect(() => { setRepoPick(new Set(repoKey ? repoKey.split('|') : [])); }, [repoKey]);
 
   const candidates = useMemo(() => plannerCandidates(agents, preferRepos), [agents, preferRepos]);
   useEffect(() => { if (!planner && candidates.length) setPlanner(candidates[0].id); }, [candidates, planner]);
@@ -122,7 +128,8 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
     try {
       // Sent with the request, so the planner's first scoping prompt already carries them.
       const files = staged.attachments.length ? await staged.encode() : undefined;
-      const out = await api.createGoalPilot({ intake: values, plannerAgentId: planner, goalId: goal?.id, projectId: goal ? undefined : projectId, replace, files });
+      const repos = (preferRepos ?? []).filter((r) => repoPick.has(r));
+      const out = await api.createGoalPilot({ intake: values, plannerAgentId: planner, goalId: goal?.id, projectId: goal ? undefined : projectId, replace, files, repos });
       staged.clear();
       if (out.error) setError(`Created, but: ${out.error}`);
       onCreated(out.goalId);
@@ -186,6 +193,22 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
         </div>
       </details>
 
+      {(preferRepos?.length ?? 0) > 1 && (
+        <div>
+          <div className="block text-[13px] text-gray-300 mb-1">Which repos does this feature involve?</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {preferRepos!.map((r) => (
+              <label key={r} className="flex items-center gap-1.5 text-[13px] text-gray-300 cursor-pointer" title={r}>
+                <input type="checkbox" className="accent-violet-500" checked={repoPick.has(r)}
+                  onChange={() => setRepoPick((prev) => { const n = new Set(prev); if (n.has(r)) n.delete(r); else n.add(r); return n; })} />
+                {r.split(/[\\/]/).pop()}
+              </label>
+            ))}
+          </div>
+          <p className="text-[12px] text-gray-500 mt-1">The planner scopes only these, and they are what the pipeline runs in (each on the feature's own branch).</p>
+        </div>
+      )}
+
       <div>
         <label className="block text-[13px] text-gray-300 mb-1">Files <span className="text-gray-500">(optional)</span></label>
         <FileDrop onFiles={staged.addFiles} label="Add mockups, specs, examples…" />
@@ -216,7 +239,7 @@ export function GoalPilotIntake({ agents, goal, projectId, preferRepos, onCreate
         )}
         <button
           onClick={() => submit(false)}
-          disabled={busy || missing.length > 0 || !planner}
+          disabled={busy || missing.length > 0 || !planner || ((preferRepos?.length ?? 0) > 1 && repoPick.size === 0)}
           className={primaryBtn}
           title={missing.length ? `Still needed: ${missing.map((m) => m.label).join(', ')}` : undefined}
         >
@@ -577,7 +600,7 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
     if (!adding) return;
     const alt = alternatives.find((a) => a.template === adding);
     setStages((prev) => [...prev, {
-      key: `added-${prev.length + 1}`, template: adding, title: adding, why: alt?.why || templateWhy.get(adding) || '', focus: '', optional: false, include: true,
+      key: `added-${prev.length + 1}`, template: adding, title: adding, why: alt?.why || templateWhy.get(adding) || '', focus: '', optional: false, skipSteps: [], include: true,
     }]);
     setAdding('');
   };
@@ -642,6 +665,19 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
                     {s.optional && <span className="text-[11px] text-gray-500">optional</span>}
                   </div>
                   {s.why && <p className="text-[13px] text-gray-500 pl-6">{s.why}</p>}
+                  {(s.skipSteps?.length ?? 0) > 0 && (
+                    <div data-skip-steps className="pl-6 flex items-center gap-1.5 flex-wrap text-[12px] text-gray-500">
+                      <span>Leaves out:</span>
+                      {s.skipSteps!.map((n) => (
+                        <span key={n} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-white/10 bg-white/[0.03] text-gray-400">
+                          {n}
+                          <button type="button" aria-label={`Keep ${n}`} title="Keep this step"
+                            onClick={() => setStages((prev) => prev.map((x, j) => (j === i ? { ...x, skipSteps: (x.skipSteps ?? []).filter((m) => m !== n) } : x)))}
+                            className="text-gray-500 hover:text-gray-200">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <details className="pl-6">
                     <summary className="text-[12px] text-gray-500 hover:text-gray-400 cursor-pointer">What this stage will be told</summary>
                     <textarea rows={4} className={`${input} mt-1 text-[13px]`} value={s.focus} placeholder="The focus for this stage on this feature"
@@ -691,6 +727,8 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   const [chosen, setChosen] = useState<Record<string, string>>({});      // repoPath → engine
   const [assign, setAssign] = useState<Record<string, string>>({});      // stage key → repoPath
   const [teamPick, setTeamPick] = useState<Record<string, string[]>>({}); // team stage key → repoPaths
+  // Its own branch: a worktree + cartridge per repo, a PR per repo at the end — so it can run beside other features.
+  const [ownBranch, setOwnBranch] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const stages = pilot.plan?.stages ?? [];
@@ -709,15 +747,18 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
     api.getGoalPilotCandidates(pilot.goalId).then((list) => {
       setRepos(list);
       // Pre-select the project's repos, else the planner's own repo if it is a candidate.
+      // The repos chosen when the feature started, when it named some; else the project's.
+      const wanted = new Set(pilot.featureRepos ?? []);
+      const featured = list.filter((r) => wanted.has(r.repoPath));
       const owned = list.filter((r) => r.owned);
       const planner = list.find((r) => r.engines.some((e) => e.agentId === pilot.plannerAgentId));
-      let pick = owned.length ? owned : planner ? [planner] : [];
+      let pick = featured.length ? featured : owned.length ? owned : planner ? [planner] : [];
       // The first chosen repo is where every stage runs unless you move it — so it should be the
       // repo the planner read the feature in, not whichever name sorts first.
       if (planner && pick.includes(planner)) pick = [planner, ...pick.filter((r) => r !== planner)];
       setChosen(Object.fromEntries(pick.map((r) => [r.repoPath, defaultEngine(r)])));
     }).catch((e) => setError(errorText(e)));
-  }, [pilot.goalId, pilot.plannerAgentId]);
+  }, [pilot.goalId, pilot.plannerAgentId, pilot.featureRepos]);
 
   const chosenPaths = Object.keys(chosen);
   // Stages worked by several cartridges together (Confer): two or more repos each, not one.
@@ -733,7 +774,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   const start = async () => {
     setBusy(true); setError('');
     try {
-      await api.startGoalPilot(pilot.id, { repos: chosenPaths.map((p) => ({ repoPath: p, agentType: chosen[p] })), assignments });
+      await api.startGoalPilot(pilot.id, { repos: chosenPaths.map((p) => ({ repoPath: p, agentType: chosen[p] })), assignments, isolate: ownBranch });
       onChanged();
     } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   };
@@ -745,6 +786,13 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
     <div className="space-y-4">
       <div>
         <h3 className="text-[12px] text-gray-400 uppercase tracking-wider mb-1">Which repos build this feature?</h3>
+        <label className="flex items-start gap-2 text-[13px] text-gray-300 mb-2 cursor-pointer">
+          <input type="checkbox" className="accent-violet-500 mt-0.5" checked={ownBranch} onChange={() => setOwnBranch((v) => !v)} />
+          <span>
+            Work on its own branch
+            <span className="block text-[12px] text-gray-500">A git worktree and a cartridge per repo, so it runs beside other features; a PR per repo when it is done. Untick to work in the repos' own checkouts.</span>
+          </span>
+        </label>
         <p className="text-[12px] text-gray-500 mb-2">
           The project's repos are picked for you — untick any this feature does not touch, and choose the engine that works in each.
           A repo from outside the project is added to the project when the run starts.
@@ -888,6 +936,9 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
             </span>
             {stage.attempts > 1 && <span className="text-[11px] text-gray-500">attempt {stage.attempts}</span>}
           </div>
+          {(stage.skipSteps?.length ?? 0) > 0 && (
+            <p data-skip-steps className="text-[12px] text-gray-500 mt-0.5">Leaves out: {stage.skipSteps!.join(' · ')}</p>
+          )}
           {pct !== null && stage.status === 'running' && (
             <div className="flex items-center gap-2 mt-1.5">
               <div aria-hidden="true" className="flex-1 flex gap-[2px]">
@@ -1069,6 +1120,46 @@ function GoalReportCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () 
   );
 }
 
+/**
+ * The feature's own branch: a worktree + cartridge per repo, each repo's PR (or why there is none),
+ * and the two actions — open the PRs now (they open by themselves when the pipeline ends), and
+ * clean up once merged (ends the worktree cartridges, removes the worktrees).
+ */
+function WorkspaceCard({ pilot, busy, act }: { pilot: GoalPilot; busy: boolean; act: (fn: () => Promise<unknown>) => void }) {
+  const ws = pilot.workspace!;
+  const base = (p: string) => p.split(/[\\/]/).pop() || p;
+  const anyLive = ws.repos.some((r) => !r.removed);
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-gl-code/60 px-3.5 py-3 space-y-2">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <div className="text-[13px] text-gray-300">
+          Own branch <span className="font-mono text-violet-200">{ws.branch}</span>
+          <span className="text-gray-500"> — a worktree and a cartridge per repo{ws.prsAt ? '' : '; the PRs open when the pipeline finishes'}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {anyLive && <button disabled={busy} onClick={() => act(() => api.openFeaturePrs(pilot.id))} className={quietBtn}>Open PRs now</button>}
+          {anyLive && ws.prsAt && <button disabled={busy} onClick={() => act(() => api.cleanupFeatureWorkspace(pilot.id))} className={quietBtn}
+            title="For each repo whose PR is merged: end its worktree cartridge and remove the worktree">Clean up merged</button>}
+        </div>
+      </div>
+      <ul className="space-y-1">
+        {ws.repos.map((r) => (
+          <li key={r.repoPath} className="text-[13px] flex items-baseline gap-2 flex-wrap">
+            <span className="text-gray-100">{base(r.repoPath)}</span>
+            <span className="text-[11px] text-gray-500 font-mono truncate" title={r.worktreePath}>{r.removed ? 'worktree removed' : base(r.worktreePath)}</span>
+            {r.pr && (
+              <a href={r.pr.url} target="_blank" rel="noreferrer" className="text-neon-400 hover:text-neon-300">
+                PR #{r.pr.number || ''}{r.pr.state && r.pr.state !== 'open' ? ` · ${r.pr.state}` : ''}
+              </a>
+            )}
+            {r.error && <span className="text-[12px] text-amber-300">{r.error}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
   pilot: GoalPilot; goal: Goal; agents: Agent[]; onChanged: () => void; onGoalChanged: () => void;
 }) {
@@ -1094,6 +1185,8 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
       {pilot.phase === 'paused' && pilot.attention && (
         <div className="text-[13px] text-amber-200 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">{pilot.attention}</div>
       )}
+
+      {pilot.workspace && <WorkspaceCard pilot={pilot} busy={busy} act={act} />}
       {pilot.report && <GoalReportCard pilot={pilot} onChanged={onChanged} />}
       <ContractCard pilot={pilot} onChanged={onChanged} />
       {!pilot.report && pilot.phase === 'cancelled' && pilot.stages.some((s) => s.runId) && (

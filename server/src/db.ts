@@ -1590,6 +1590,14 @@ for (const [table, column, decl] of [
   // The architecture as a page (self-contained HTML with diagrams) — what the Architecture tab shows.
   // projects.architecture stays: plain-text notes, what the planner reads.
   ['projects', 'architecture_html', "TEXT NOT NULL DEFAULT ''"],
+  // Features that run side by side (lib/feature-workspace.ts):
+  //   goal_pilots.feature_repos  JSON [repoPath] — the project's repos this feature involves ([] = all)
+  //   goal_pilots.workspace      JSON — its branch, a worktree + cartridge per repo, the PRs ('' = runs in place)
+  ['goal_pilots', 'feature_repos', "TEXT NOT NULL DEFAULT '[]'"],
+  ['goal_pilots', 'workspace', "TEXT NOT NULL DEFAULT ''"],
+  // Steps a feature stage leaves out of its workflow (lib/stage-steps.ts): JSON [step name] the
+  // planner marked as not this stage's job. The automatic ones are not stored.
+  ['goal_pilot_stages', 'skip_steps', "TEXT NOT NULL DEFAULT '[]'"],
 ] as const) {
   try {
     db.prepare(`SELECT ${column} FROM ${table} LIMIT 1`).get();
