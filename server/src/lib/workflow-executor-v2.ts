@@ -5,6 +5,7 @@
  * Steps at the same level run in parallel; sequential steps wait for dependencies.
  * Every step dispatches a natural language command to a Claude Code agent.
  */
+import { attentionKind } from './notification-kind.js';
 import { emitRunFinished, emitRunHeld } from './run-events.js';
 import { parseCoverage, recordCoverage, recordDispatch, noteProgressDoc, type Coverage } from './run-progress.js';
 import { coverageConfigOf, decideCoverage, holdDetail, loopBackFeedback, MAX_COVERAGE_PASSES } from './coverage-loop.js';
@@ -413,6 +414,7 @@ export function notifyNeedsAttention(
     body,
     projects,
     timestamp: new Date().toISOString(),
+    kind: attentionKind(pushType),
   });
   notifyAll({
     title, body,
@@ -434,6 +436,7 @@ function notifyManualAdvanceNeeded(step: WorkflowStep): void {
     body,
     projects,
     timestamp,
+    kind: 'needs-you',
   });
 
   notifyAll({
@@ -2120,6 +2123,7 @@ async function executeConnectorStep(step: WorkflowStep): Promise<void> {
         body,
         projects,
         timestamp: new Date().toISOString(),
+        kind: 'finished',
       });
 
       await notifyAll({

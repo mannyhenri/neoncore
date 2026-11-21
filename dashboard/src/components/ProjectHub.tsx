@@ -15,7 +15,9 @@
  * Everything is read from the server (lib/project-spec.ts and friends) — nothing is computed twice.
  */
 import { RoadmapChart } from '../world/roadmap/RoadmapChart';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
@@ -406,7 +408,17 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
         </div>
       )}
       {err && <p className="text-[13px] text-ember-300">{err}</p>}
-      {view === 'chart' && <RoadmapChart project={project} version={version} onOpenFeature={onOpenFeature} onChanged={onChanged} />}
+      {view === 'chart' && (
+        <RoadmapDeck>
+          <RoadmapChart project={project} version={version} onOpenFeature={onOpenFeature} onChanged={onChanged}
+            toolbar={(
+              <button type="button" onClick={() => setView('board')} title={`Back to ${project.name}`}
+                className="h-9 px-3 rounded-[9px] border border-[rgba(96,160,255,0.35)] bg-[rgba(6,12,26,0.85)] text-[12px] font-semibold text-gray-200 hover:text-white hover:border-[rgba(96,160,255,0.7)] whitespace-nowrap">
+                ← Board
+              </button>
+            )} />
+        </RoadmapDeck>
+      )}
       {view === 'board' && <>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {LANES.map((lane) => {
@@ -977,4 +989,27 @@ export function ArchitectureTab({ project, agents, version, onChanged }: { proje
       </details>
     </div>
   );
+}
+
+/**
+ * THE ROADMAP DECK IS ITS OWN SCREEN: it fills the work area — everything right of the nav rail
+ * and under the top bar — over the project page, which is still there when you go back to the board.
+ */
+function RoadmapDeck({ children }: { children: ReactNode }) {
+  const [box, setBox] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const area = document.getElementById('work-area');
+      const r = area?.getBoundingClientRect();
+      // The work area's top edge when the page is not scrolled: the bottom of the top bar.
+      setBox({ left: r ? r.left : 0, top: r ? Math.max(0, r.top + window.scrollY) : 0 });
+    };
+    place();
+    window.addEventListener('resize', place);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('resize', place); document.body.style.overflow = overflow; };
+  }, []);
+  if (typeof document === 'undefined' || !box) return null;
+  return createPortal(<div data-roadmap-deck className="fixed right-0 bottom-0 z-40" style={{ left: box.left, top: box.top }}>{children}</div>, document.body);
 }

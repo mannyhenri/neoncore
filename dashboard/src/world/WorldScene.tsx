@@ -23,7 +23,8 @@ import { buildCrew, crewCounts, ENGINE_COLOURS } from './crew';
 import type { CrewMember, CrewAttention } from './crew';
 import { assignSlots, spotsFor } from './sites';
 import { PLATE, THEME } from './theme';
-import { planZones, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
+import { planZones, planCamps, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
+import { pipelineSignal, benchSeats, featuresToDo, freightFor, freightTitle, nextWorkSwitch, settledDeliveries, workCycleAt } from './props';
 import type { PoolSlots } from './zones';
 import { padsFor, padOf } from './fleet';
 import { meetingKeys } from './meeting';
@@ -32,6 +33,9 @@ import { FeaturePlates, worktreeRepos } from './FeaturePlates';
 import type { Deadline } from './milestones';
 import type { Placement, WorldPlate, WorldSite, WorldStructure } from './sites';
 import type { KitName } from './kit';
+import { SIGNPOST } from './signpost.generated';
+import { projectHash } from '../lib/projectSelection';
+import { playUi } from '../lib/sound/engine';
 import { Avatar } from './Avatar';
 import { animationFor } from './anim';
 import { CHARACTERS, assignCharacters } from './sheets';
@@ -93,8 +97,20 @@ const STATUS_WORD: Record<CrewMember['status'], string> = { working: 'Working', 
 const AVATAR_SCALE = 0.2;
 /** Walking speed: seconds to cross the full width of the plate. */
 const WALK_SECONDS_PER_PLATE = 9;
-/** How long a figure celebrates a finished turn before it walks off to rest, in milliseconds. */
-const CHEER_MS = 1300;
+/** How long a figure wipes its brow after a finished task before it stands idle or waves, in milliseconds. */
+const FINISH_MS = 2000;
+/** A signpost's height, in figure heights. */
+const SIGN_HEIGHT = 1.15;
+const SIGN_ART = SIGNPOST[THEME] ?? SIGNPOST.scifi;
+/**
+ * Where things stand relative to the signpost's spot, as fractions of the plate's width.
+ * hang: the mast stands left of the spot and the board hangs over it. center: the post IS the spot.
+ */
+const SIGN_ROW = {
+  hang: { mast: -0.03, marker: -0.006, gauge: 0.016, pennant: 0.032 },
+  center: { mast: 0, marker: -0.026, gauge: 0.024, pennant: 0.04 },
+} as const;
+const PLAQUE_CLASS = 'absolute top-full mt-0.5 px-1.5 py-px rounded-md border border-white/[0.14] bg-[rgba(10,16,32,0.82)] font-mono text-[10px] leading-4 text-gray-300 whitespace-nowrap';
 /** Above this many figures the panels shrink to a name; the rest shows on hover, selection or alert. */
 const COMPACT_ABOVE = 8;
 /**
@@ -117,6 +133,13 @@ export function WorldScene({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [tick, setTick] = useState(() => Date.now());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // An agent's card opening and closing each have their sound (lib/sound).
+  const hadCardRef = useRef(false);
+  useEffect(() => {
+    const has = selectedKey !== null;
+    if (has !== hadCardRef.current) playUi(has ? 'ui-open' : 'ui-close');
+    hadCardRef.current = has;
+  }, [selectedKey]);
   // The full final answer being read (FinalAnswerModal); onClose marks that answer read.
   const [answerFor, setAnswerFor] = useState<{ agentId: string; name: string; onClose: () => void } | null>(null);
   const { confers, runs } = useLiveWork();
@@ -228,11 +251,15 @@ export function WorldScene({
     if (fresh.length > 0) setBursts((b) => [...b, ...fresh.map((z) => ({ key: `${z.projectId}-${now.get(z.projectId)}-${Date.now()}`, district: z.districts[0] }))]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doneSig, ready]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const camps = useMemo(() => planCamps(extras.projects ?? [], zones), [projectsSig, zones]);
   // An agent works at its repo's building; one whose repo no project owns uses unclaimed land.
   const wants = crew.map((m) => {
     const paths = m.agentIds.map((id) => agents.find((a) => a.id === id)?.repoPath ?? '');
     const home = paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null);
-    return { key: m.key, pool: home?.building ?? OPEN_POOL };
+    // A project past the map's districts has no pod: its agents gather at its camp (zones.ts).
+    const camp = paths.map((path) => camps.get(normRepo(realRepo(path)))).find((c) => c !== undefined);
+    return { key: m.key, pool: home?.building ?? camp ?? OPEN_POOL };
   });
   /** Repos (normalised paths) that have a character on the map right now. */
   const manned = new Set(crew.flatMap((m) => m.agentIds.map((id) => normRepo(realRepo(agents.find((a) => a.id === id)?.repoPath ?? '')))));
@@ -256,36 +283,6 @@ export function WorldScene({
     meetSlotsRef.current = assignSlots(meetSlotsRef.current, meetSig ? meetSig.split('|') : []);
     return plate.meet.length > 0 ? spotsFor(meetSlotsRef.current, { sites: plate.meet, figureScale: plate.figureScale }) : new Map<string, Spot & { siteId: string }>();
   }, [meetSig, plate]);
-
-  // WHERE THE IDLE ONES SIT: on a bench. An agent of a project sits on the bench in its own
-  // pod; an agent of no project sits on a commons bench. A seat each, sticky like the work sites.
-  const podOf = new Map(crew.map((m) => {
-    const paths = m.agentIds.map((id) => agents.find((a) => a.id === id)?.repoPath ?? '');
-    return [m.key, paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null)?.zone.districts[0] ?? 'commons'] as const;
-  }));
-  const idleSig = crew.filter((m) => m.status === 'idle').map((m) => `${m.key}>${podOf.get(m.key)}`).join('|');
-  const restSlotsRef = useRef<Map<string, Map<string, number>>>(new Map());
-  const restSpots = useMemo(() => {
-    const out = new Map<string, Placement>();
-    const byBench = new Map<string, string[]>();
-    for (const entry of idleSig ? idleSig.split('|') : []) {
-      const [key, pod] = entry.split('>');
-      byBench.set(pod, [...(byBench.get(pod) ?? []), key]);
-    }
-    const next = new Map<string, Map<string, number>>();
-    for (const [pod, keys] of byBench) {
-      // A pod with no bench of its own falls back to the commons benches.
-      const seats = plate.rest.filter((r) => r.district === pod);
-      const here = seats.length > 0 ? seats : plate.rest.filter((r) => r.district === 'commons');
-      if (here.length === 0) continue;
-      const slots = assignSlots(restSlotsRef.current.get(pod) ?? new Map(), keys);
-      next.set(pod, slots);
-      for (const [key, spot] of spotsFor(slots, { sites: here, figureScale: plate.figureScale * 0.5 })) out.set(key, spot);
-    }
-    restSlotsRef.current = next;
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idleSig, plate]);
 
   // WHO LOOKS LIKE WHOM: a character per agent (not per engine), sticky like the slots.
   const castRef = useRef<Map<string, string>>(new Map());
@@ -320,6 +317,27 @@ export function WorldScene({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusSig]);
   const resetSpots = () => { setCustomSpots(new Map()); saveCustomSpots(plate.id, new Map()); };
+
+  // THE BENCH BY THE POND (props.ts): an agent idle for 30 minutes goes and sits; new work sends
+  // it back. "Idle since" is its last activity when the scene first sees it idle, and the moment
+  // it turned idle after that. One you dropped somewhere during this idle spell stays there.
+  const idleSinceRef = useRef<Map<string, number>>(new Map());
+  const benchRef = useRef<Map<string, number>>(new Map());
+  /** Agents this scene has seen busy: when one of them turns idle, it turned idle NOW. */
+  const busySeenRef = useRef<Set<string>>(new Set());
+  const idleNow: { key: string; since: number }[] = [];
+  for (const m of crew) {
+    if (m.status !== 'idle' || m.attention !== null) { idleSinceRef.current.delete(m.key); busySeenRef.current.add(m.key); continue; }
+    if (!idleSinceRef.current.has(m.key)) {
+      const last = Math.max(0, ...m.agentIds.flatMap((id) => (activitiesByAgent[id] ?? []).map((a) => new Date(a.timestamp).getTime() || 0)));
+      // Idle when the scene first saw it: since its last activity. Turned idle while open: now.
+      idleSinceRef.current.set(m.key, !busySeenRef.current.has(m.key) && last > 0 ? Math.min(last, tick) : tick);
+    }
+    if (customSpots.get(m.key)?.idle !== true) idleNow.push({ key: m.key, since: idleSinceRef.current.get(m.key)! });
+  }
+  for (const key of [...idleSinceRef.current.keys()]) if (!crew.some((m) => m.key === key)) idleSinceRef.current.delete(key);
+  benchRef.current = benchSeats(benchRef.current, idleNow, tick, plate.rest.length);
+  const restSpots = new Map<string, Placement>([...benchRef.current].map(([key, seat]) => [key, { x: plate.rest[seat].x, y: plate.rest[seat].y, siteId: plate.rest[seat].id }]));
 
   // WHAT THEY SAID WHEN THEY FINISHED: shown over an idle agent until it is clicked.
   const [read, setRead] = useState<Map<string, string>>(loadRead);
@@ -529,42 +547,39 @@ export function WorldScene({
               />
             );
           })}
-          {/* What each place IS, in the records' words: project on its district, repo on its
-              building, machine on its pad. Night Glass name plates, under the figures. */}
-          {zones.flatMap((z) => z.districts.map((d) => {
-            const at = plate.districts.find((x) => x.id === d);
-            if (at?.x === undefined || at.y === undefined) return null;
+          {/* What each place IS, in the records' words: project on its SIGNPOST, repo on its
+              building, machine on its pad. The project's name is on the drawn board, which is as
+              wide as the name (signpost.generated.ts); a plaque under the post keeps the counts
+              and the badges. Above the figures, like every banner — and it takes no clicks. */}
+          {zones.map((z) => {
+            const d = z.districts[0];
+            const at = plate.props[d]?.sign;
+            if (!at) return null;
+            const running = features.some((f) => f.projectId === z.projectId);
+            const feats = (extras.goals ?? []).filter((g) => g.projectId === z.projectId && g.origin !== 'imported' && g.pilot);
+            const earned = feats.length > 0 ? badgesFor(extras.goals ?? [], z.projectId) : null;
             return (
-              // A project with features running keeps a small caption: its features' plates say the rest.
-              features.some((f) => f.projectId === z.projectId) ? (
-                <div key={`${z.projectId}-${d}`} data-zone-label={d} data-caption="true" className={PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: BANNER_Z }}>
-                  <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: z.color || ENGINE_COLOURS.claude.suit }} />
-                  {z.name}
-                </div>
-              ) :
-              <div key={`${z.projectId}-${d}`} data-zone-label={d} className={PROJECT_PLATE_CLASS} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%`, zIndex: BANNER_Z }}>
-                <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: z.color || ENGINE_COLOURS.claude.suit }} />
-                <span className="font-semibold text-gray-100">{z.name}</span>
-                {z.features.total > 0 && <span className="text-gray-400"> · {z.features.done}/{z.features.total} features</span>}
-                {z.features.active > 0 && <span className="text-emerald-300"> · {z.features.active} under way</span>}
-                {/* BADGES: one per step of the feature under way; lit once earned (milestones.ts). */}
-                {(() => {
-                  const feats = (extras.goals ?? []).filter((g) => g.projectId === z.projectId && g.origin !== 'imported' && g.pilot);
-                  if (feats.length === 0) return null;
-                  const n = badgesFor(extras.goals ?? [], z.projectId);
-                  return (
-                    <span className="inline-flex items-center gap-0.5 ml-2 align-[-4px]" aria-label={`${n} of ${FEATURE_BADGES.length} steps earned`}>
-                      {FEATURE_BADGES.map((b, i) => (
-                        <img key={b.step} data-badge={b.step} data-earned={i < n} src={KIT[b.sprite as KitName].src} alt={i < n ? b.label : ''}
-                          className="h-[18px] w-[18px] object-contain" style={{ opacity: i < n ? 1 : 0.18, filter: i < n ? undefined : 'grayscale(1)' }} />
-                      ))}
-                    </span>
-                  );
-                })()}
-              </div>
+              <Signpost key={`${z.projectId}-${d}`} district={d} name={z.name} colour={z.color || ENGINE_COLOURS.claude.suit} at={at} height={avatarHeight * SIGN_HEIGHT} caption={running}>
+                {/* A project with features running keeps the name only: its features' plates say the rest. */}
+                {!running && (z.features.total > 0 || earned !== null) && (
+                  <div data-zone-plaque={d} className={`${PLAQUE_CLASS} ${SIGN_ART.mode === 'hang' ? 'left-0' : 'left-1/2 -translate-x-1/2'}`}>
+                    {z.features.total > 0 && <span>{z.features.done}/{z.features.total} features</span>}
+                    {z.features.active > 0 && <span className="text-emerald-300"> · {z.features.active} under way</span>}
+                    {/* BADGES: one per step of the feature under way; lit once earned (milestones.ts). */}
+                    {earned !== null && (
+                      <span className="inline-flex items-center gap-0.5 ml-2 align-[-4px]" aria-label={`${earned} of ${FEATURE_BADGES.length} steps earned`}>
+                        {FEATURE_BADGES.map((b, i) => (
+                          <img key={b.step} data-badge={b.step} data-earned={i < earned} src={KIT[b.sprite as KitName].src} alt={i < earned ? b.label : ''}
+                            className="h-[16px] w-[16px] object-contain" style={{ opacity: i < earned ? 1 : 0.18, filter: i < earned ? undefined : 'grayscale(1)' }} />
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </Signpost>
             );
-          }))}
-          <FeaturePlates features={features} crew={crew} placement={placement} zones={zones} districts={plate.districts} goals={extras.goals ?? []} z={BANNER_Z} />
+          })}
+          <FeaturePlates features={features} crew={crew} placement={placement} zones={zones} districts={Object.entries(plate.props).map(([id, p]) => ({ id, ...p.sign }))} goals={extras.goals ?? []} z={BANNER_Z} />
           {zones.flatMap((z) => [...z.buildings].map(([repo, id]) => {
             const st = plate.structures.find((x) => x.id === id);
             // Two repos can share a building when a project has more repos than buildings.
@@ -579,18 +594,51 @@ export function WorldScene({
               </div>
             );
           }))}
-          {/* DEADLINE, DELIVERY, REWARDS (milestones.ts): the pod's oxygen gauge and pennant stand
-              just above its name plate; the flare goes up over the pod. */}
+          {/* UNDER THE BOARD: the marker (props.ts pipelineSignal), then the pod's deadline gauge
+              and its delivery pennant (milestones.ts) — standing in a row beside the post's foot. */}
           {ready && zones.map((z) => {
-            const at = plate.districts.find((x) => x.id === z.districts[0]);
-            if (at?.x === undefined || at.y === undefined) return null;
+            const d = z.districts[0];
+            const at = plate.props[d]?.sign;
+            if (!at) return null;
             const deadline = deadlineFor(extras.goals ?? [], z.projectId, tick);
             const pennant = pennantFrame(z.features.done, z.features.total);
-            const prop = (dx: number) => ({ left: `${(at.x! + dx) * 100}%`, top: `${(at.y! - 0.016) * 100}%`, width: '1.7%', transform: 'translate(-50%, -100%)', zIndex: Math.round(at.y! * 1000) });
+            const signal = pipelineSignal(extras.goals ?? [], z.projectId);
+            const side = SIGN_ART.mode === 'hang' ? SIGN_ROW.hang : SIGN_ROW.center;
+            const prop = (dx: number, w = '1.7%') => ({ left: `${(at.x + dx) * 100}%`, top: `${at.y * 100}%`, width: w, transform: 'translate(-50%, -100%)', zIndex: Math.round(at.y * 1000) });
             return (
               <Fragment key={`m-${z.projectId}`}>
-                {deadline && <DeadlineGauge district={z.districts[0]} deadline={deadline} style={prop(-0.012)} />}
-                {pennant !== null && <Pennant district={z.districts[0]} frame={pennant} style={prop(0.012)} />}
+                {signal && (
+                  <button type="button" data-pipeline-marker={d} data-tone={signal.tone}
+                    onClick={() => { window.location.hash = projectHash(z.projectId, signal.features[0].id); }}
+                    aria-label={`${z.name}: ${signal.tone === 'yellow' ? 'a feature is waiting on you' : 'features are moving'} — ${signal.features.map((f) => `${f.name}: ${f.label}`).join('; ')}. Open ${signal.features[0].name}.`}
+                    title={signal.features.map((f) => `${f.needsYou ? '● ' : ''}${f.name} — ${f.label}`).join('\n')}
+                    className={`absolute p-0 bg-transparent border-0 cursor-pointer ${signal.tone === 'yellow' ? 'world-alert' : ''}`} style={prop(side.marker, '2.1%')}>
+                    <img src={KIT[signal.tone === 'yellow' ? 'marker-yellow' : 'marker-green'].src} alt="" draggable={false} className="block w-full max-w-none select-none" />
+                  </button>
+                )}
+                {deadline && <DeadlineGauge district={d} deadline={deadline} style={prop(side.gauge)} />}
+                {pennant !== null && <Pennant district={d} frame={pennant} style={prop(side.pennant)} />}
+              </Fragment>
+            );
+          })}
+          {/* WHAT THE RECORDS EARN (props.ts): the statue once a feature has been delivered for a
+              day, and the freight — what is left to build. Two fixed spots per pod; figures are
+              always drawn above them, so a prop never takes a click meant for an agent. */}
+          {ready && zones.map((z) => {
+            const spots = plate.props[z.districts[0]];
+            if (!spots) return null;
+            const settled = settledDeliveries(extras.goals ?? [], z.projectId, tick);
+            const toDo = featuresToDo(z.features);
+            const freight = freightFor(toDo);
+            const place = (at: { x: number; y: number }, w: number) => ({ left: `${at.x * 100}%`, top: `${at.y * 100}%`, width: `${w * 100}%`, transform: 'translate(-50%, -100%)', zIndex: Math.round(at.y * 1000) });
+            return (
+              <Fragment key={`p-${z.projectId}`}>
+                {settled > 0 && (
+                  <img data-statue={z.districts[0]} src={KIT.statue.src} alt={`${z.name}: ${settled} feature${settled === 1 ? '' : 's'} delivered`} title={`${z.name}: ${settled} feature${settled === 1 ? '' : 's'} delivered`}
+                    draggable={false} className="absolute select-none max-w-none" style={place(spots.statue, 0.03)} />
+                )}
+                <img data-freight={z.districts[0]} data-freight-kind={freight} src={KIT[freight].src} alt={`${z.name}: ${freightTitle(toDo, z.features.total)}`} title={`${z.name}: ${freightTitle(toDo, z.features.total)}`}
+                  draggable={false} className="absolute select-none max-w-none" style={place(spots.freight, freight.startsWith('cart') ? 0.034 : 0.024)} />
               </Fragment>
             );
           })}
@@ -800,6 +848,39 @@ function DeadlineGauge({ district, deadline, style }: { district: string; deadli
       className="absolute select-none max-w-none"
       style={style}
     />
+  );
+}
+
+/**
+ * A POD'S SIGNPOST: the drawn post, and the drawn board cut in three so its middle is as wide as
+ * the project's name (scripts/world/build_signpost.py). Nothing here is drawn in code.
+ */
+function Signpost({ district, name, colour, at, height, caption, children }: {
+  district: string; name: string; colour: string; at: { x: number; y: number }; height: number; caption: boolean; children?: ReactNode;
+}) {
+  const art = SIGN_ART;
+  const k = height / art.post.h;
+  const boardH = art.boardH * k;
+  const hang = art.mode === 'hang';
+  return (
+    <div data-zone-label={district} data-caption={caption || undefined} data-sign-mode={art.mode} title={name}
+      className={`absolute pointer-events-none select-none ${hang ? 'flex items-start' : 'grid justify-items-center'}`}
+      style={{
+        left: `${(at.x + (hang ? SIGN_ROW.hang.mast : 0)) * 100}%`, top: `${at.y * 100}%`, zIndex: BANNER_Z,
+        // hang: the mast's foot is the anchor, the board grows to the right. center: the post is.
+        transform: hang ? `translate(${-(art.post.w / 2) * k}px, -100%)` : 'translate(-50%, -100%)',
+      }}>
+      <img data-sign-post src={art.post.src} alt="" draggable={false} className="max-w-none select-none shrink-0" style={{ height, width: 'auto', gridArea: '1 / 1', imageRendering: 'pixelated' }} />
+      <div data-sign-board className="flex items-stretch shrink-0" style={{ height: boardH, marginTop: art.boardY * k, marginLeft: hang ? -(art.post.w - art.attach) * k : undefined, gridArea: '1 / 1', alignSelf: 'start', imageRendering: 'pixelated' }}>
+        <img src={art.left.src} alt="" draggable={false} className="h-full w-auto max-w-none select-none" />
+        <span data-sign-name className="flex items-center whitespace-nowrap font-display font-bold uppercase tracking-[0.06em]"
+          style={{ backgroundImage: `url(${art.mid.src})`, backgroundSize: '100% 100%', color: art.ink, fontSize: Math.max(8, boardH * 0.44), padding: `0 ${boardH * 0.12}px`, borderBottom: `2px solid ${colour}`, boxSizing: 'border-box' }}>
+          {name}
+        </span>
+        <img src={art.right.src} alt="" draggable={false} className="h-full w-auto max-w-none select-none" />
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -1041,7 +1122,6 @@ const walkSeconds = (from: Spot, to: Spot) => Math.min(7, Math.max(0.7, Math.hyp
 /** Name plates on the map: Night Glass, small, never in the way of a click. */
 const PLATE_CLASS = 'absolute -translate-x-1/2 mt-0.5 px-1.5 py-px rounded-md border border-white/[0.14] bg-[rgba(10,16,32,0.82)] font-mono text-[10px] leading-4 text-gray-300 whitespace-nowrap pointer-events-none select-none';
 /** A project's name on its district — a step up from the repo and machine plates, so the map reads by project. */
-const PROJECT_PLATE_CLASS = 'absolute -translate-x-1/2 mt-0.5 px-2 py-0.5 rounded-md border border-white/[0.14] bg-[rgba(10,16,32,0.82)] font-mono text-[12px] leading-5 text-gray-300 whitespace-nowrap pointer-events-none select-none';
 
 /**
  * SESSION ENDED → the figure walks from where it stood to its machine's landing pad, then it
@@ -1119,24 +1199,24 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
   onSelect: () => void;
   onMove: (spot: Spot | null) => void;
 }) {
-  // A TURN JUST FINISHED (working → idle): celebrate for a moment, then walk off to rest.
-  // Decided while rendering, not in an effect: the figure must not take even one step toward
-  // its rest spot before the jump starts.
+  // A TASK JUST FINISHED (working → idle or waiting): it wipes its brow for a moment, then
+  // stands idle or waves for you. Decided while rendering, not in an effect: the figure must
+  // not play even one frame of the next state first.
   const [seenStatus, setSeenStatus] = useState(member.status);
-  const [cheering, setCheering] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   if (seenStatus !== member.status) {
     setSeenStatus(member.status);
-    setCheering(seenStatus === 'working' && member.status === 'idle');
+    setFinishing(seenStatus === 'working' && member.status !== 'working');
   }
   useEffect(() => {
-    if (!cheering) return;
-    const t = setTimeout(() => setCheering(false), CHEER_MS);
+    if (!finishing) return;
+    const t = setTimeout(() => setFinishing(false), FINISH_MS);
     return () => clearTimeout(t);
-  }, [cheering]);
+  }, [finishing]);
 
   // WHERE IT BELONGS: an idle agent with nothing to ask sits on its bench; anyone else is at its
   // work site — or at the spot you dragged it to, which is its work spot from then on.
-  const resting = member.status === 'idle' && member.attention === null && restSpot !== null && !cheering;
+  const resting = member.status === 'idle' && member.attention === null && restSpot !== null && !finishing;
   const target: Spot = resting ? restSpot : spot;
 
   const [pos, setPos] = useState<Spot>(startAt ?? target);
@@ -1207,7 +1287,16 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
   const posture = resting ? 'stand' : site?.work ?? 'stand';
   // Seated once it has ARRIVED at its bench: on the way there it walks.
   const seated = resting && walk === null && Math.hypot(pos.x - target.x, pos.y - target.y) < 0.002;
-  const anim = animationFor(member, walk !== null, posture, { cheering, seated });
+  // WORKING: one of the four work cycles, changing at this agent's own pace (props.ts).
+  const [workCycle, setWorkCycle] = useState(() => workCycleAt(member.key, Date.now()));
+  useEffect(() => {
+    if (member.status !== 'working') return;
+    let t: ReturnType<typeof setTimeout>;
+    const turn = () => { setWorkCycle(workCycleAt(member.key, Date.now())); t = setTimeout(turn, nextWorkSwitch(member.key, Date.now())); };
+    turn();
+    return () => clearTimeout(t);
+  }, [member.status, member.key]);
+  const anim = animationFor(member, walk !== null, posture, { finishing, seated, workCycle });
   const crates = crateSpriteFor(queue.waiting);
   const facing = walk?.facing ?? (resting ? 1 : site?.faces ?? 1);
 
@@ -1230,7 +1319,15 @@ function CrewFigure({ member, spot, restSpot, site, siteId, meeting, moved, char
         transition: walk && !dragging ? `left ${walk.seconds}s linear, top ${walk.seconds}s linear` : undefined,
       }}
     >
-      {finished.length > 0 && (
+      {finished.length > 0 && resting && (
+        // On the bench the wide bubble would cover its neighbour: a chip, with the summary on hover.
+        <button type="button" data-finished-chip onClick={onOpenAnswer} title={`${finished.join(' ')} — click to read the full answer`}
+          aria-label={`${member.name} finished: ${finished.join(' ')} — click to read the full answer`}
+          className="px-1.5 py-px rounded-full border border-emerald-400/70 bg-[rgba(8,20,22,0.95)] text-[9px] font-bold uppercase tracking-wide text-emerald-300 hover:border-emerald-300">
+          Finished
+        </button>
+      )}
+      {finished.length > 0 && !resting && (
         <button
           type="button"
           data-finished-bubble

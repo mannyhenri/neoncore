@@ -27,6 +27,14 @@ export function dateAt(x: number, range: RoadmapChart['range']): string {
   return iso(from + index * DAY);
 }
 
+/**
+ * The window the chart shows: whole calendar years, JAN to DEC, around the months the plan covers —
+ * so a plan of two months still reads as a year's chart.
+ */
+export function calendarYears(range: RoadmapChart['range']): RoadmapChart['range'] {
+  return { from: `${range.from.slice(0, 4)}-01-01`, to: `${range.to.slice(0, 4)}-12-31` };
+}
+
 export interface MonthColumn { key: string; label: string; year: number; from: number; to: number }
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 

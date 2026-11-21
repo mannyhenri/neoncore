@@ -96,9 +96,24 @@ Enforced by the last two tests in `designGuard.test.ts`.
 
 **Ambient motion.** A few things on the map move all the time, tied to no event: the pond's water ripples and glints, the commons hologram drifts and pulses, the water station's tank glows. Their frames are made from the drawn art itself by `scripts/world/build_ambient.py` (the water is the terrain's own pixels, displaced; the glow is the sprite's own lit pixels) — nothing is drawn in code. Ambient motion never carries meaning: anything that means something still follows "one look per state".
 
-**One look per state.** What a figure is doing IS its state, wherever it stands: on the floor with a tool = working; standing still = idle; waving = needs you (approval, question, review, waiting); calling out = stuck; a jump = its turn just finished; walking = it is going somewhere because something changed. No state borrows another's look (`anim.ts animationFor`, checked for every status × attention × posture).
+**One look per state.** What a figure is doing IS its state, wherever it stands: busy with a tool = working; standing still, or sitting on the bench = idle; waving = needs you (approval, question, review, waiting); calling out = stuck; wiping its brow = its task just finished (working → idle or waiting, about 2 seconds, then it stands idle or waves); walking = it is going somewhere because something changed. No state borrows another's look (`anim.ts animationFor`, checked for every status × attention × posture). The drawn `jump` row is unused.
 
-**Idle agents stand at their building.** The map has no benches: an agent that goes idle stays where it works, standing still, and takes up its work cycle again on the same spot. Dragging is yours to keep: the spot you drop an agent on is where it stays, working or idle, until you double-click it home. (The crew sheets carry a drawn `sit` cycle and the scene can seat idle agents on a plate that lists seats in `rest`; this plate lists none.)
+**Working is one of four cycles.** A working agent kneels, repairs, tends or stands with its tool, and changes to a different one every 40–90 seconds at its own pace (`props.ts workCycleAt` — from its key and the clock, so it looks the same in every window and the crew never changes all at once).
+
+**Idle agents stand at their building — until they have been idle for 30 minutes.** Then they walk to the ONE bench, on the pond's north bank, and sit facing the water; new work sends them back. The bench has two seats (three put the figures and panels on top of each other): the two idle longest have them, anyone else stays standing where they are. "Idle since" is the agent's last activity when the map first sees it idle, and the moment it turned idle after that. A seated agent's unread answer is a small **Finished** chip (hover for the summary, click to read). Dragging is yours to keep: the spot you drop an agent on is where it stays, working or idle, until you double-click it home.
+
+**What the records put on the map** (`world/props.ts`; each pod has three fixed spots in `sites.ts props`, clear of its work spots, buildings, gate and of each other — checked pair by pair):
+
+| Prop | What it says |
+|---|---|
+| Signpost | The project's name, on the drawn board. The board is cut from the signpost art into a left end, a middle and a right end, and the middle stretches to the name (`scripts/world/build_signpost.py`; the sci-fi board is straightened first). A plaque under the post keeps the feature counts and the badges; with features running it is the name only |
+| Marker under the signpost | **Yellow, pulsing** = a feature of the project waits on you (the same rules as the "needs you" labels in Projects: `lib/featureStatus.ts`); **green** = features are in their pipeline and moving; none = nothing is in a pipeline. Hover lists the features, click opens the first one in Projects |
+| Gauge and pennant | Deadline and delivery (`milestones.ts`), in a row with the marker beside the post's foot |
+| Statue | A feature of the project has been delivered for 24 hours or more (hover: how many) |
+| Freight | What is left to deliver: open crate = none (or nothing planned) · glowing crate = 1 · small cart = 2–3 · loaded cart = 4 or more |
+| Fountain | Scenery: fills the bottom end of the landing field |
+
+**A project past the map's four districts** has no pod, but its agents still stand together: each such project camps around one open spot — the east road first, then the pond's banks (`zones.ts planCamps`).
 
 **What drives the scene.** Every moving thing is tied to a record, and only a CHANGE animates (what is already true when the screen opens is simply drawn that way; nothing is drawn until machines and projects have loaded once):
 
@@ -172,10 +187,37 @@ animations meaning the same states. Settings → Theme chooses it; the choice is
   from the sheets in `designs/fantasy/`. Art is generated sheets, never figures drawn in code.
 - The iOS app is not themed.
 
-## The roadmap chart
+## The roadmap deck
 
-`world/roadmap/RoadmapChart.tsx` (Projects → a project → Roadmap → Chart): the vision strip with its three
-ring gauges and the destination; a lane per epic with its glyph; a waypoint marker per feature in its
-state colour (planned grey · under way neon · delivered green · late ember, with ▲ so colour is not the only
-sign); dotted *waits on* lines (ember when still blocking); the TODAY line with the theme's marker. What
-it means and how it is planned with: `docs/PROJECT-SPEC.md`.
+`world/roadmap/RoadmapChart.tsx` (Projects → a project → Roadmap). It is its own screen: it fills the work area over the project page (`RoadmapDeck` in `components/ProjectHub.tsx`; "← Board" goes back to the four columns), on the theme's drawn deck.
+
+- **Vision** across the top: the sentence (click to edit), three half-ring gauges — Delivery (delivered), Scope (has a place on the chart), Readiness (not late) — and the destination.
+- **The officer of the deck** at the left: `worry` when a feature is late, `log` when one is under way, else `idle`.
+- **The chart**: a whole calendar year of months with the TODAY pill and line; a bordered lane per epic (glyph, EPIC n, name, outcome); a node per feature — green filled = delivered, blue ring = under way, white ring = planned, orange ring with ⚠ = late — with its name tag under it. A lane's route is green up to its last delivery, blue from there to what is under way, faint beyond. Dotted lines are dependencies (orange while still blocking). Features with no date sit in "Not on the chart yet" under the lanes.
+- **The selected waypoint's card**, bottom right: its epic, date and state, its summary, START (OPEN once it has started; disabled with the reason while it waits on another feature), and "Edit plan" for its epic, dates and what it waits on.
+
+What it means and how it is planned with: `docs/PROJECT-SPEC.md`.
+
+## Sound
+
+Sparse on purpose: a quiet ambient loop (a steady drone, wind and distant pings — no hum), five interface sounds and ONE cue per kind of event. All fifteen files are synthesized by `scripts/sound/build_sounds.py` (one palette: soft bell tones in D minor pentatonic; nothing sampled) and checked there for clipping, level and clicks.
+
+| Cue | Plays when |
+|---|---|
+| Needs you ⚠ | an approval, question or plan to review; a workflow or feature waiting on you |
+| Agent stuck ⚠ | an agent looks stuck |
+| Something failed ⚠ | a step, run or task fails, or a feature pipeline stops |
+| Quota nearly gone ⚠ | the Claude quota crosses 90% (the core overheats), on any screen |
+| Run finished | a workflow run completes, or a feature's report is ready |
+| Feature delivered | a feature is delivered (the flare on the map) |
+| Cartridge launched | a new cartridge comes online |
+| Notice | any other workflow notice |
+| Turn finished | an agent finishes its turn, or a task is done |
+
+Rules (`lib/sound/cues.ts`, tested for every cue and every pair): nothing in the first 6 seconds after the page opens; the same cue is one sound however many arrive, and again only after its cooldown; a less important cue within 3 seconds of a more important one is dropped; at most 8 cues a minute, the four warnings (⚠) always get through; in a background tab only the warnings play. The ambient loop overlaps its copies so no loop point is heard, stops in a background tab and dips under every cue.
+
+Interface: a tap on buttons, tabs and switches, a brighter one on primary buttons, open / close for an agent's card on the map, and "sent" when a command goes out (which replaces that click's tap).
+
+Controls: the speaker button beside the bell mutes everything; Settings → Sound has the volume, the ambient level, switches for interface sounds and event cues, and a Preview for each cue. Kept in this browser (`neoncore.sound`). A browser only allows sound after the first click on the page.
+
+The server labels every bell notification with its kind — `needs-you`, `failed`, `finished`, `notice` (`server/src/lib/notification-kind.ts`); for an older server the kind is read off the title.

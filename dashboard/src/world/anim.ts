@@ -45,23 +45,24 @@ export type WorkPosture = (typeof WORK_POSTURES)[number];
  * tend   — crouched, hands in the soil (the planter)
  */
 export const WORK_CYCLE: Record<WorkPosture, AnimationName> = { stand: 'kneel', kneel: 'kneel', repair: 'repair', tend: 'tend' };
-// `stand` sites use the kneeling cycle too: WORKING ALWAYS LOOKS THE SAME — down on the floor
-// with a tool. A working agent on its feet at one site and on its knees at another could not
-// be told from an idle one at a glance. (The drawn `work` and `rest` rows are unused.)
+// The site's cycle is where a working agent STARTS from when the scene gives it no cycle of
+// its own. On the map each working agent plays one of the four work cycles and changes every
+// 40–90 seconds (props.ts workCycleAt) — kneeling, repairing, tending, or standing with a tool.
 
 /**
  * WHAT DRIVES EACH ANIMATION — one real event behind every cycle, most urgent first:
  *
  *   walk    the figure is moving: it arrived, its status changed, or it was sent back to its site
- *   jump    its turn just finished (working → idle), for a moment, before it walks off
+ *   rest    its task just finished (working → idle or waiting): it wipes its brow for a moment,
+ *           then stands idle or waves for you. (`jump` is drawn and unused.)
  *   call    it is stuck
  *   alert   it needs an approval, an answer or a review, or is waiting on you
- *   floor   it is working — down at its work with a tool (kneel / repair / tend, by site)
- *   sit     it is idle and has reached a seat — sitting (only on a plate that has seats; the map has none today)
+ *   work    it is working — one of the four work cycles (kneel / repair / tend / work), with a tool in hand
+ *   sit     it has been idle for 30 minutes and has reached the bench by the pond
  *   idle    it is idle — standing still at its building, or wherever you put it
  *
- * ONE LOOK PER STATE, wherever the figure stands: on the floor = working, sitting on a bench
- * (or standing still, off it) = idle, waving = needs you, calling = stuck. Nothing else may share those looks.
+ * ONE LOOK PER STATE, wherever the figure stands: busy with a tool = working, sitting on the bench
+ * or standing still = idle, waving = needs you, calling = stuck. Nothing else may share those looks.
  *
  * Idle agents do not wander: any movement on the map means something happened.
  */
@@ -69,13 +70,13 @@ export function animationFor(
   member: Pick<CrewMember, 'status' | 'attention'>,
   walking: boolean,
   posture: WorkPosture = 'stand',
-  moment: { cheering?: boolean; seated?: boolean } = {},
+  moment: { finishing?: boolean; seated?: boolean; workCycle?: AnimationName } = {},
 ): AnimationName {
   if (walking) return 'walk';
-  if (moment.cheering) return 'jump';
+  if (moment.finishing) return 'rest';
   if (member.attention === 'stuck') return 'call';
   if (member.attention || member.status === 'waiting') return 'alert';
-  if (member.status === 'working') return WORK_CYCLE[posture];
+  if (member.status === 'working') return moment.workCycle ?? WORK_CYCLE[posture];
   if (moment.seated) return 'sit';
   return 'idle';
 }

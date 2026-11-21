@@ -28,6 +28,7 @@
  * scoping, this stage's focus, and what the earlier stages produced — is the run's launch
  * context, which the workflow's first step receives (lib/workflow-context.ts).
  */
+import { pilotEventKind } from './notification-kind.js';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import db from '../db.js';
@@ -95,7 +96,7 @@ export function announcePilot(pilotId: string, event: string, headline: string, 
   try {
     getIO().emit('workflow_notification', {
       id: randomUUID(), workflowId: runId, workflowName: `Feature · ${goalName}`,
-      title, body, projects: [], timestamp: nowIso(),
+      title, body, projects: [], timestamp: nowIso(), kind: pilotEventKind(event, urgency),
     });
   } catch { /* no socket server */ }
   notifyAll({

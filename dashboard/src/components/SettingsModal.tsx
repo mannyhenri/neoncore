@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { THEMES, THEME, THEME_LABEL, chooseTheme } from '../world/theme';
+import { SoundSettingsPanel } from './SoundControls';
 import { api } from '../lib/api';
 import { isDemoEnabled, setDemoEnabled, resetDemoData } from '../lib/demoMode';
 import { NotificationSettings } from './NotificationSettings';
@@ -24,7 +25,7 @@ const BADGE_STYLES: Record<string, string> = {
   violet: 'bg-neon-500/20 text-neon-50',
 };
 
-type SettingsTab = 'projects' | 'tools' | 'notifications' | 'github' | 'theme' | 'demo';
+type SettingsTab = 'projects' | 'tools' | 'notifications' | 'github' | 'theme' | 'sound' | 'demo';
 
 interface ToolStatus {
   label: string;
@@ -193,6 +194,7 @@ export function SettingsModal({ onClose }: Props) {
           <button onClick={() => setTab('notifications')} className={tabClass('notifications')}>Notifications</button>
           <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
           <button onClick={() => setTab('theme')} className={tabClass('theme')}>Theme</button>
+          <button onClick={() => setTab('sound')} className={tabClass('sound')}>Sound</button>
           <button onClick={() => setTab('demo')} className={tabClass('demo')}>Demo</button>
         </div>
         <div className="flex-1 min-w-0 flex flex-col overflow-y-auto relative">
@@ -201,6 +203,8 @@ export function SettingsModal({ onClose }: Props) {
 
         {tab === 'notifications' ? (
           <div className="overflow-y-auto"><NotificationSettings /></div>
+        ) : tab === 'sound' ? (
+          <SoundSettingsPanel />
         ) : tab === 'theme' ? (
           <div className="px-4 py-4 md:px-6 space-y-3" data-theme-settings>
             <p className="text-[15px] text-gray-200">World theme</p>

@@ -17,10 +17,11 @@ vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 import { WorldScene, FIGURE_DRAG_Z } from '../WorldScene';
 import { api } from '../../lib/api';
 import { CREW_STATUSES } from '../crew';
-import { WORK_CYCLE } from '../anim';
+import { WORK_CYCLES, workCycleAt, BENCH_AFTER_MS, STATUE_AFTER_MS, FREIGHT } from '../props';
 import { OUTPOST } from '../sites';
 import { FEATURE_BADGES } from '../milestones';
 import { KIT } from '../kit';
+import { SIGNPOST } from '../signpost.generated';
 import { AMBIENT_GROUND, AMBIENT_PROPS } from '../ambient.generated';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -134,9 +135,8 @@ describe('WorldScene', () => {
     render(<WorldScene agents={agents} activitiesByAgent={{}} pendingPermissions={perms} stuckAlerts={[]} {...handlers} />);
     const animOf = (repo: string) =>
       screen.getByRole('button', { name: new RegExp(`^Crew member ${repo}\\b`) }).closest('.world-member')!.getAttribute('data-anim');
-    // The working agent plays whichever work cycle its site calls for — standing or on the floor.
-    const working = screen.getByRole('button', { name: /^Crew member repo-working\b/ }).closest('.world-member')!;
-    expect(animOf('repo-working')).toBe(WORK_CYCLE[working.getAttribute('data-work') as 'stand' | 'kneel']);
+    // The working agent plays one of the four work cycles — the one its own clock is on (props.ts).
+    expect(WORK_CYCLES as readonly string[]).toContain(animOf('repo-working'));
     expect(animOf('repo-waiting')).toBe('alert');
     expect(animOf('repo-idle')).toBe('alert');      // idle, but it has an approval pending
   });
@@ -166,7 +166,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it('working at a floor-level site is a kneeling cycle, facing the object', () => {
+  it('every working agent plays a work cycle, facing the thing it works on', () => {
     // Fill the plate so every site is occupied by a working agent, then check each against its site.
     const crowd = OUTPOST.sites.map((_, i) => agent({ id: `w${String(i).padStart(2, '0')}`, status: 'working' }));
     render(<WorldScene agents={crowd} activitiesByAgent={{}} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />);
@@ -177,7 +177,7 @@ describe('WorldScene', () => {
       const site = OUTPOST.sites.find((s) => s.id === el.getAttribute('data-site'))!;
       expect(site, 'figure is not at a known site').toBeDefined();
       seen.add(site.id);
-      expect(el.getAttribute('data-anim'), site.id).toBe(WORK_CYCLE[site.work]);
+      expect(WORK_CYCLES as readonly string[], site.id).toContain(el.getAttribute('data-anim'));
       expect(el.getAttribute('data-facing'), site.id).toBe(String(site.faces));
     }
     expect(seen.size).toBe(OUTPOST.sites.length);
@@ -419,7 +419,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it('status drives the look, not the place: finishing jumps, then the agent stands idle where it is; starting work is the work cycle on the same spot', () => {
+  it('status drives the look, not the place: finishing wipes its brow, then the agent stands idle where it is; starting work is the work cycle on the same spot', () => {
     vi.useFakeTimers();
     try {
       const at = (st: Agent['status']) => [agent({ id: 'mover', status: st })];
@@ -429,14 +429,14 @@ describe('WorldScene', () => {
       const anim = () => figure().getAttribute('data-anim');
       const where = () => `${figure().style.left},${figure().style.top}`;
       const site = where();
-      expect(Object.values(WORK_CYCLE)).toContain(anim());
+      expect(WORK_CYCLES as readonly string[]).toContain(anim());
 
-      // The turn finishes: a jump on the spot first…
+      // The task finishes: it wipes its brow on the spot first…
       rerender(scene('idle'));
-      expect(anim()).toBe('jump');
+      expect(anim()).toBe('rest');
       expect(where()).toBe(site);
-      // …then it stands still, right where it worked: there is nowhere else for an idle agent to go.
-      act(() => { vi.advanceTimersByTime(1400); });
+      // …then it stands still, right where it worked (the bench is for the long idle).
+      act(() => { vi.advanceTimersByTime(2100); });
       act(() => { vi.advanceTimersByTime(20_000); });
       expect(anim(), 'idle: standing still').toBe('idle');
       expect(figure().getAttribute('data-resting')).toBeNull();
@@ -446,7 +446,14 @@ describe('WorldScene', () => {
       // Work starts again: the work cycle, same spot.
       rerender(scene('working'));
       act(() => { vi.advanceTimersByTime(20_000); });
-      expect(Object.values(WORK_CYCLE)).toContain(anim());
+      expect(WORK_CYCLES as readonly string[]).toContain(anim());
+      expect(where()).toBe(site);
+
+      // Work that ends in a question: the same brow-wipe, then it waves.
+      rerender(scene('waiting'));
+      expect(anim()).toBe('rest');
+      act(() => { vi.advanceTimersByTime(2100); });
+      expect(anim()).toBe('alert');
       expect(where()).toBe(site);
 
       // Needing you: an idle agent with an approval stays at its site and waves.
@@ -580,7 +587,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it.each(CREW_STATUSES)('a %s agent of a project is at its building in its project\'s pod — idle included: there are no benches to go to', (status) => {
+  it.each(CREW_STATUSES)('a %s agent of a project is at its building in its project\'s pod — idle included: the bench is only for the long idle', (status) => {
     extras.projects = [atlas];
     render(scene([
       agent({ id: 'gl-dev', repoPath: '/code/gl-dev', status }),
@@ -600,7 +607,7 @@ describe('WorldScene', () => {
     }
   });
 
-  it('the map has no benches: a whole idle crew stands at its buildings, nobody sits, nobody shares a spot', () => {
+  it('a crew that has only just gone idle stands at its buildings: nobody sits, nobody shares a spot, and there is one bench', () => {
     extras.projects = [{ ...atlas, cartridges: Array.from({ length: 5 }, (_, i) => `/code/r${i}`), primaryRepo: '/code/r0' }];
     const crew = [
       ...Array.from({ length: 5 }, (_, i) => agent({ id: `r${i}`, repoPath: `/code/r${i}`, status: 'idle' })),
@@ -611,8 +618,7 @@ describe('WorldScene', () => {
     expect(figures).toHaveLength(12);
     expect(new Set(figures.map((f) => `${f.style.left},${f.style.top}`)).size, 'two agents in exactly the same place').toBe(12);
     expect(figures.every((f) => f.dataset.anim === 'idle' && f.dataset.seat === undefined)).toBe(true);
-    // Not one bench drawn, of all the things on the map.
-    expect([...container.querySelectorAll('img')].filter((img) => /bench/.test(img.getAttribute('src') ?? ''))).toHaveLength(0);
+    expect([...container.querySelectorAll('img')].filter((img) => /bench/.test(img.getAttribute('src') ?? ''))).toHaveLength(1);
   });
 
   it('nothing is drawn until the records have loaded, so nobody walks across the map on opening', () => {
@@ -918,3 +924,165 @@ describe('WorldScene', () => {
   });
 });
 
+/**
+ * WHAT THE RECORDS PUT ON THE MAP (props.ts): the bench, the statue, the freight, the work cycles.
+ */
+describe('the props on the map', () => {
+  const project = (over: object = {}) => ({ id: 'p1', name: 'Atlas', color: '#5AAEFF', primaryRepo: '/code/a', cartridges: ['/code/a', '/code/b', '/code/c'], createdAt: '2026-01-01', featureCount: 0, featuresDone: 0, featuresActive: 0, ...over });
+  const scene = (list: Agent[], activities: Record<string, unknown[]> = {}) => <WorldScene agents={list} activitiesByAgent={activities as never} pendingPermissions={[]} stuckAlerts={[]} {...handlers} />;
+  const fig = (id: string) => screen.getByRole('button', { name: new RegExp(`^Crew member ${id}\\b`) }).closest<HTMLElement>('.world-member')!;
+  const last = (id: string, msAgo: number) => ({ [id]: [{ id: `act-${id}`, agentId: id, eventType: 'stop', toolName: '', toolInput: '', toolResult: '', timestamp: new Date(Date.now() - msAgo).toISOString() }] });
+
+  it('the bench: idle 30 minutes sits, less stands; two seats, the third long-idle agent stays where it is', () => {
+    extras.projects = [project()] as never;
+    const crew = ['a', 'b', 'c', 'd'].map((id) => agent({ id, repoPath: `/code/${id}`, status: 'idle' }));
+    render(scene(crew, { ...last('a', BENCH_AFTER_MS + 60_000), ...last('b', BENCH_AFTER_MS * 3), ...last('c', BENCH_AFTER_MS * 2), ...last('d', BENCH_AFTER_MS - 60_000) }));
+    // b and c have been idle longest: they have the seats. a is due but the bench is full. d is not due.
+    expect(fig('b').dataset.seat).toBe('bench-west');
+    expect(fig('c').dataset.seat).toBe('bench-east');
+    for (const id of ['a', 'd']) {
+      expect(fig(id).dataset.seat, id).toBeUndefined();
+      expect(fig(id).dataset.resting, id).toBeUndefined();
+      expect(fig(id).dataset.anim, id).toBe('idle');
+    }
+    const pct = (v: number) => `${v * 100}%`;
+    const seat = (id: string) => OUTPOST.rest.find((r) => r.id === id)!;
+    expect([fig('b').style.left, fig('b').style.top]).toEqual([pct(seat('bench-west').x), pct(seat('bench-west').y)]);
+    expect([fig('c').style.left, fig('c').style.top]).toEqual([pct(seat('bench-east').x), pct(seat('bench-east').y)]);
+  });
+
+  it('the bench: the agent walks there, sits, and new work sends it back to its building', () => {
+    vi.useFakeTimers();
+    try {
+      extras.projects = [project()] as never;
+      const at = (status: Agent['status']) => [agent({ id: 'a', repoPath: '/code/a', status })];
+      const { rerender } = render(scene(at('working')));
+      const home = `${fig('a').style.left},${fig('a').style.top}`;
+      rerender(scene(at('idle')));
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(fig('a').dataset.anim).toBe('idle');
+      expect(fig('a').dataset.seat).toBeUndefined();
+      // Half an hour later (the scene's clock ticks every 15 s) it is on the bench, sitting.
+      act(() => { vi.advanceTimersByTime(BENCH_AFTER_MS + 30_000); });
+      act(() => { vi.advanceTimersByTime(10_000); });
+      expect(fig('a').dataset.seat).toBe('bench-west');
+      expect(fig('a').dataset.anim).toBe('sit');
+      rerender(scene(at('working')));
+      act(() => { vi.advanceTimersByTime(10_000); });
+      expect(fig('a').dataset.seat).toBeUndefined();
+      expect(`${fig('a').style.left},${fig('a').style.top}`).toBe(home);
+      expect(WORK_CYCLES as readonly string[]).toContain(fig('a').dataset.anim);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a seated agent shows a small Finished chip, not the wide bubble — and it still opens the answer', () => {
+    extras.projects = [project()] as never;
+    render(scene([agent({ id: 'a', repoPath: '/code/a', status: 'idle', lastMessage: 'All done. Tests pass.' })], last('a', BENCH_AFTER_MS * 2)));
+    expect(fig('a').dataset.seat).toBe('bench-west');
+    expect(fig('a').querySelector('[data-finished-bubble]')).toBeNull();
+    const chip = fig('a').querySelector<HTMLElement>('[data-finished-chip]')!;
+    expect(chip.title).toMatch(/All done/);
+  });
+
+  it('the freight: one look for every count of features left, and the hover says how many', () => {
+    for (const [total, done, want] of [[0, 0, 'crate-open'], [3, 3, 'crate-open'], [3, 2, 'crate-glow'], [4, 2, 'cart-1'], [5, 2, 'cart-1'], [6, 2, 'cart-3'], [20, 0, 'cart-3']] as const) {
+      extras.projects = [project({ featureCount: total, featuresDone: done })] as never;
+      const { container, unmount } = render(scene([]));
+      const freight = container.querySelector<HTMLImageElement>('[data-freight="nw"]')!;
+      expect(freight.dataset.freightKind, `${done}/${total}`).toBe(want);
+      expect(freight.getAttribute('src')).toBe(KIT[want].src);
+      expect(freight.title).toMatch(total === 0 ? /No features planned/ : total === done ? /All 3 features delivered/ : new RegExp(`${total - done} feature`));
+      expect(container.querySelectorAll('[data-freight]').length, 'one per pod that has a project').toBe(1);
+      unmount();
+    }
+    expect([...FREIGHT]).toEqual(['crate-open', 'crate-glow', 'cart-1', 'cart-3']);
+  });
+
+  it('the statue: only once a feature has been delivered for 24 hours', () => {
+    const goal = (msAgo: number | null) => ({ id: `g${msAgo}`, projectId: 'p1', status: msAgo === null ? 'active' : 'achieved', origin: 'planned', doneAt: msAgo === null ? null : new Date(Date.now() - msAgo).toISOString(), targetDate: null, createdAt: '2026-01-01', updatedAt: '2026-01-01', pilot: null });
+    for (const [ages, want] of [[[], 0], [[null], 0], [[STATUE_AFTER_MS - 60_000], 0], [[STATUE_AFTER_MS + 60_000], 1], [[STATUE_AFTER_MS * 5, STATUE_AFTER_MS * 9, 1000], 2]] as const) {
+      extras.projects = [project()] as never;
+      extras.goals = ages.map((a) => goal(a)) as never;
+      const { container, unmount } = render(scene([]));
+      const statues = container.querySelectorAll<HTMLImageElement>('[data-statue]');
+      expect(statues.length, JSON.stringify(ages)).toBe(want > 0 ? 1 : 0);
+      if (want > 0) expect(statues[0].title).toMatch(new RegExp(`${want} feature${want === 1 ? '' : 's'} delivered`));
+      unmount();
+    }
+  });
+
+  it('a working agent plays the cycle its clock is on, and moves to a different one when the clock says so', () => {
+    vi.useFakeTimers();
+    try {
+      render(scene([agent({ id: 'w', status: 'working' })]));
+      const seen = new Set<string>();
+      let before = fig('w').dataset.anim!;
+      let changes = 0;
+      for (let i = 0; i < 40; i++) {
+        expect(fig('w').dataset.anim).toBe(workCycleAt('m1:w', Date.now()));
+        act(() => { vi.advanceTimersByTime(10_000); });
+        const now = fig('w').dataset.anim!;
+        seen.add(now);
+        if (now !== before) changes++;
+        before = now;
+      }
+      expect(changes).toBeGreaterThanOrEqual(4);
+      expect(seen.size).toBe(WORK_CYCLES.length);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('the signpost: every project\'s name is on a board cut from the drawn signpost — however long the name', () => {
+    const names = ['OPS', 'Atlas', 'Lighthouse Marketing Site', 'A project with a very long name indeed'];
+    extras.projects = names.map((name, i) => project({ id: `p${i}`, name, primaryRepo: `/code/s${i}`, cartridges: [`/code/s${i}`], createdAt: `2026-01-0${i + 1}`, featureCount: 3, featuresDone: 1 })) as never;
+    const { container } = render(scene([]));
+    const signs = [...container.querySelectorAll<HTMLElement>('[data-zone-label]')];
+    expect(signs.map((el) => el.dataset.zoneLabel).sort()).toEqual(['ne', 'nw', 'se', 'sw']);
+    expect(signs.map((el) => el.querySelector('[data-sign-name]')!.textContent).sort()).toEqual([...names].sort());
+    for (const el of signs) {
+      // The art: the post, then left end · the name on the stretched middle · right end. No drawn-in-code board.
+      const imgs = [...el.querySelectorAll<HTMLImageElement>('[data-sign-post], [data-sign-board] > img')].map((img) => img.getAttribute('src'));
+      expect(imgs).toEqual(['post', 'left', 'right'].map((n) => SIGNPOST.scifi[n as 'post'].src));
+      expect(el.querySelector<HTMLElement>('[data-sign-name]')!.style.backgroundImage).toContain(SIGNPOST.scifi.mid.src);
+      for (const src of [...imgs, SIGNPOST.scifi.mid.src]) expect(existsSync(resolve(PUBLIC, `.${src}`)), src!).toBe(true);
+      // At its own spot in the pod, taking no clicks; the counts are on the plaque under it.
+      const spot = OUTPOST.props[el.dataset.zoneLabel!].sign;
+      expect(el.style.top).toBe(`${spot.y * 100}%`);
+      expect(el.className).toContain('pointer-events-none');
+      expect(el.querySelector('[data-zone-plaque]')!.textContent).toContain('1/3 features');
+    }
+    // The old name plate is gone: a project's name appears once per pod.
+    expect(container.querySelectorAll('[data-zone-label]').length).toBe(4);
+  });
+
+  it.each(['scifi', 'fantasy'])('%s: the cut signpost pieces exist and fit together', (theme) => {
+    const art = SIGNPOST[theme];
+    for (const piece of [art.post, art.left, art.mid, art.right]) expect(existsSync(resolve(PUBLIC, `.${piece.src}`)), piece.src).toBe(true);
+    for (const piece of [art.left, art.mid, art.right]) expect(piece.h).toBe(art.boardH);
+    expect(art.boardY + art.boardH).toBeLessThan(art.post.h);
+  });
+
+  it('the marker: none with nothing in a pipeline, green while features move, yellow and pulsing when one waits on you — hover lists them, click opens the first', () => {
+    const pilot = (phase: string) => ({ phase, stagesDone: 1, stagesTotal: 4, awaitingReview: false });
+    const goal = (id: string, phase: string | null) => ({ id, name: `Feature ${id}`, projectId: 'p1', status: 'active', origin: 'planned', health: null, targetDate: null, createdAt: '2026-01-01', updatedAt: '2026-01-01', doneAt: null, pilot: phase ? pilot(phase) : null });
+    extras.projects = [project()] as never;
+    const marker = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-pipeline-marker]');
+    for (const [goals, tone] of [[[], null], [[goal('a', null)], null], [[goal('a', 'running')], 'green'], [[goal('a', 'running'), goal('b', 'proposed')], 'yellow'], [[goal('b', 'paused')], 'yellow']] as const) {
+      extras.goals = goals as never;
+      const { container, unmount } = render(scene([]));
+      const m = marker(container);
+      expect(m?.dataset.tone ?? null, JSON.stringify(goals.map((g) => g.pilot?.phase))).toBe(tone);
+      if (m) {
+        expect(m.dataset.pipelineMarker).toBe('nw');
+        expect(m.querySelector('img')!.getAttribute('src')).toBe(KIT[tone === 'yellow' ? 'marker-yellow' : 'marker-green'].src);
+        expect(m.className.includes('world-alert')).toBe(tone === 'yellow');
+        for (const g of goals) expect(m.title).toContain(g.name);
+      }
+      unmount();
+    }
+    extras.goals = [goal('a', 'running'), goal('b', 'proposed')] as never;
+    const { container } = render(scene([]));
+    fireEvent.click(marker(container)!);
+    expect(window.location.hash).toBe('#project/p1/feature/b');
+    window.location.hash = '';
+  });
+});

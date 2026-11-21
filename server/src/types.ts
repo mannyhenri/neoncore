@@ -590,7 +590,7 @@ export type ServerToClientEvents = {
   /** A Goal Pilot changed — phase, a planner answer, a stage starting or finishing. Refetch it. */
   goal_pilot_updated: (data: { id: string }) => void;
   /** The in-app bell (and the dashboard's browser notification). workflowId is '' for a notice about no one run. */
-  workflow_notification: (data: { id: string; workflowId: string; workflowName: string; title: string; body: string; projects: string[]; timestamp: string }) => void;
+  workflow_notification: (data: { id: string; workflowId: string; workflowName: string; title: string; body: string; projects: string[]; timestamp: string; kind: 'needs-you' | 'failed' | 'finished' | 'notice' }) => void;
 };
 
 export type ClientToServerEvents = {

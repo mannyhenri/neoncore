@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { WORK_CYCLES } from '../props';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -35,9 +36,9 @@ describe('avatar animations', () => {
         expect(animationFor({ status, attention }, true)).toBe('walk');
         // Stuck calls out; everything else that needs you waves.
         if (attention) expect(still, `${attention} must be visible as motion`).toBe(attention === 'stuck' ? 'call' : 'alert');
-        // A finished turn jumps, whatever else is true — except while walking.
-        expect(animationFor({ status, attention }, false, 'stand', { cheering: true })).toBe('jump');
-        expect(animationFor({ status, attention }, true, 'stand', { cheering: true })).toBe('walk');
+        // A finished task wipes its brow, whatever else is true — except while walking.
+        expect(animationFor({ status, attention }, false, 'stand', { finishing: true })).toBe('rest');
+        expect(animationFor({ status, attention }, true, 'stand', { finishing: true })).toBe('walk');
       }
     }
     expect(animationFor({ status: 'working', attention: null }, false)).toBe('kneel');
@@ -120,15 +121,17 @@ describe('crew sprite sheets', () => {
   });
 
   it('ONE LOOK PER STATE: what a figure is doing tells you its state, wherever it stands — every status, attention and posture, seated or not', () => {
-    const FLOOR = ['kneel', 'repair', 'tend'];
+    const FLOOR = ['kneel', 'repair', 'tend', 'work'];
     const looks = new Map<string, Set<string>>();
     for (const status of CREW_STATUSES) for (const attention of [null, ...ATTENTION_ORDER]) for (const posture of WORK_POSTURES) for (const seated of [false, true]) {
       // `seated` = it has reached its bench. Only an idle agent with nothing to ask ever does.
-      const anim = animationFor({ status, attention }, false, posture, { seated: seated && status === 'idle' && attention === null });
+      for (const workCycle of [undefined, ...WORK_CYCLES]) {
+      const anim = animationFor({ status, attention }, false, posture, { seated: seated && status === 'idle' && attention === null, workCycle });
       const state = attention === 'stuck' ? 'stuck' : attention || status === 'waiting' ? 'needs you' : status;
-      // On the floor with a tool = working. The three floor cycles are one look.
+      // Busy with a tool = working. The four work cycles are one look, and only a working agent plays them.
       const look = FLOOR.includes(anim) ? 'floor' : anim;
       looks.set(state, (looks.get(state) ?? new Set()).add(look));
+      }
     }
     expect(Object.fromEntries([...looks].map(([k, v]) => [k, [...v]]))).toEqual({
       working: ['floor'],       // down at its work

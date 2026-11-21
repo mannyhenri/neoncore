@@ -1023,6 +1023,8 @@ export interface WorkflowNotification {
   body: string;
   projects: string[];
   timestamp: string;
+  /** What kind of notice this is (server lib/notification-kind.ts). Absent from an older server. */
+  kind?: 'needs-you' | 'failed' | 'finished' | 'notice';
 }
 
 // Agent task queue

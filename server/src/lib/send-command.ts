@@ -470,6 +470,7 @@ export function sendCommandToAgent(
         body: alert.message,
         projects: [] as string[],
         timestamp: new Date().toISOString(),
+        kind: 'notice',
       });
     }
   } catch (err) {

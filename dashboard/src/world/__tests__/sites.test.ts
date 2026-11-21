@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { KIT } from '../kit';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -97,9 +98,51 @@ describe('world plates and placement', () => {
     expect(tooClose).toEqual([]);
   });
 
-  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: no benches and no seats — an idle agent stays at its building', ({ plate }) => {
-    expect(plate.structures.filter((st) => st.sprite === 'bench' || /bench/.test(st.id)).map((st) => st.id)).toEqual([]);
-    expect(plate.rest.map((r) => r.id)).toEqual([]);
+  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: ONE bench, by the pond, with two seats on it — and a fountain on the landing field', ({ plate }) => {
+    const benches = plate.structures.filter((st) => /bench/.test(st.sprite));
+    expect(benches.map((st) => st.id)).toEqual(['bench']);
+    expect(plate.rest.map((r) => r.id)).toEqual(['bench-west', 'bench-east']);
+    const bench = benches[0];
+    for (const seat of plate.rest) {
+      // On the bench: within its width, at its foot.
+      expect(Math.abs(seat.x - bench.x), seat.id).toBeLessThan(bench.w / 2);
+      expect(Math.abs(seat.y - bench.y), seat.id).toBeLessThan(0.02);
+      // Clear of every work spot, so a seated agent's panel covers nobody at work.
+      for (const site of plate.sites) {
+        expect(Math.hypot((seat.x - site.x) / plate.spacing.x, (seat.y - site.y) / plate.spacing.y), `${seat.id}/${site.id}`).toBeGreaterThan(0.9);
+      }
+    }
+    // North bank: above both of the pond's work spots.
+    const banks = plate.sites.filter((x) => x.id === 'pond' || x.id === 'pond-east');
+    expect(banks).toHaveLength(2);
+    for (const bank of banks) expect(bench.y).toBeLessThan(bank.y);
+    expect(plate.structures.filter((st) => st.sprite === 'fountain').map((st) => st.district)).toEqual(['field']);
+    const pad = plate.structures.find((st) => st.sprite === 'pad')!;
+    expect(plate.structures.find((st) => st.sprite === 'fountain')!.y, 'the fountain is at the bottom end of the field').toBeGreaterThan(pad.y);
+  });
+
+  it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: every pod has a spot for its signpost, its statue and its freight, clear of everything a person reads or clicks', ({ plate }) => {
+    const pods = plate.districts.filter((d) => d.x !== undefined).map((d) => d.id);
+    expect(Object.keys(plate.props).sort()).toEqual([...pods].sort());
+    const crowded: string[] = [];
+    const all = Object.entries(plate.props).flatMap(([d, p]) => [{ id: `sign:${d}`, ...p.sign }, { id: `statue:${d}`, ...p.statue }, { id: `freight:${d}`, ...p.freight }]);
+    for (const prop of all) {
+      expect(prop.x).toBeGreaterThan(0.02); expect(prop.x).toBeLessThan(0.98); expect(prop.y).toBeGreaterThan(0.15); expect(prop.y).toBeLessThan(0.98);
+      // A figure stands ABOVE its feet with its panel over it: a prop must not sit inside that box.
+      for (const site of [...plate.sites, ...plate.meet, ...plate.rest]) {
+        const inBox = Math.abs(prop.x - site.x) < plate.spacing.x * 0.42 && prop.y > site.y - plate.spacing.y * 1.5 && prop.y - 0.05 < site.y;
+        if (inBox) crowded.push(`${prop.id} on ${site.id}`);
+      }
+      for (const other of all) {
+        if (other.id < prop.id && Math.hypot((prop.x - other.x) * plate.width, (prop.y - other.y) * plate.height) < 60) crowded.push(`${prop.id} on ${other.id}`);
+      }
+      for (const st of plate.structures) {
+        const h = st.w * plate.width * (KIT[st.sprite].h / KIT[st.sprite].w);
+        const hit = Math.abs(prop.x - st.x) * plate.width < st.w * plate.width / 2 + 14 && (prop.y - st.y) * plate.height < 30 && (st.y - prop.y) * plate.height < h;
+        if (hit && !st.flat) crowded.push(`${prop.id} on ${st.id}`);
+      }
+    }
+    expect(crowded).toEqual([]);
   });
 
   it.each(PLATES.map((p) => ({ name: p.id, plate: p })))('$name: every district has somewhere to work, and every placed thing names a real district', ({ plate }) => {

@@ -71,8 +71,14 @@ export interface WorldPlate {
   meet: WorldSite[];
   structures: WorldStructure[];
   sites: WorldSite[];
-  /** Where idle agents go and sit. They stay there — idle agents do not wander. */
+  /** The seats of the bench by the pond: where an agent idle for 30 minutes goes and sits (props.ts). */
   rest: WorldSite[];
+  /**
+   * Three fixed spots in each project district: where its SIGNPOST stands (the foot of the post —
+   * the project's name is on its board), and the two things its records earn (props.ts): the
+   * statue and the freight. Low in the district, clear of its work spots, panels, buildings and gate.
+   */
+  props: Record<string, { sign: { x: number; y: number }; statue: { x: number; y: number }; freight: { x: number; y: number } }>;
 }
 
 /** Positions below are read off the 1344 × 752 map image, in its pixels. */
@@ -131,6 +137,10 @@ export const OUTPOST: WorldPlate = {
     { id: 'pad-north', district: 'field', sprite: 'pad', ...px(1235, 300), w: 0.115, flat: true, door: px(1180, 300) },
     // One shuttle per pad: it lands to bring a new agent or collect a leaving one, then goes.
     { id: 'shuttle-north', district: 'field', sprite: 'shuttle-0', ...px(1235, 285), w: 0.1, when: 'in-service', on: 'pad-north' },
+    // The fountain fills the bottom end of the landing field.
+    { id: 'fountain', district: 'field', sprite: 'fountain', ...px(1232, 528), w: 0.062 },
+    // ONE bench, on the pond's north bank, facing the water (and you).
+    { id: 'bench', sprite: 'bench', ...px(618, 492), w: 0.058 },
   ],
   // Fourteen work spots beside the structures, far enough apart that figures and their panels
   // do not overlap (sites.test.ts checks every pair). Listed in the order they fill, so the
@@ -152,9 +162,17 @@ export const OUTPOST: WorldPlate = {
     { id: 'nw-yard', at: 'greenhouse', district: 'nw', label: 'Greenhouse yard', ...px(165, 262), work: 'stand', faces: 1 },
     { id: 'road', label: 'East road', ...px(1010, 356), work: 'stand', faces: 1 },
   ],
-  // NO BENCHES, NO SEATS. An idle agent stays standing at its building (or wherever you put
-  // it). The scene still knows how to seat idle agents on a plate that lists seats here.
-  rest: [],
+  // The bench's two seats. Three would put the figures and their panels on top of each other.
+  rest: [
+    { id: 'bench-west', label: 'Pond bench', ...px(600, 494), work: 'stand', faces: 1 },
+    { id: 'bench-east', label: 'Pond bench', ...px(636, 494), work: 'stand', faces: 1 },
+  ],
+  props: {
+    nw: { sign: px(300, 358), statue: px(214, 322), freight: px(388, 330) },
+    sw: { sign: px(250, 614), statue: px(160, 566), freight: px(340, 562) },
+    se: { sign: px(905, 614), statue: px(812, 566), freight: px(996, 562) },
+    ne: { sign: px(888, 342), statue: px(956, 328), freight: px(818, 340) },
+  },
   // Confer participants stand around the holo table, facing it.
   meet: [
     { id: 'meet-west', district: 'commons', label: 'Commons table', ...px(550, 358), work: 'stand', faces: 1 },
@@ -180,6 +198,12 @@ const VILLAGE_AT: Record<string, [number, number, number?]> = {
   generator: [205, 512, 0.075], workshop: [345, 506, 0.09], module: [815, 532, 0.062], tripod: [932, 518, 0.045],
   'water-station': [436, 652, 0.042], 'holo-table': [567, 378, 0.085], heater: [648, 348, 0.028], banner: [498, 334, 0.024],
   'pad-north': [1205, 402, 0.14], 'shuttle-north': [1205, 372, 0.1],
+  fountain: [1192, 514, 0.062], bench: [612, 590, 0.058], 'bench-west': [594, 592], 'bench-east': [630, 592],
+  // the statue and the freight of each clearing
+  'statue:nw': [250, 304], 'freight:nw': [424, 316], 'statue:sw': [186, 644], 'freight:sw': [366, 642],
+  'statue:se': [792, 652], 'freight:se': [968, 650], 'statue:ne': [772, 322], 'freight:ne': [1002, 296],
+  // where each clearing's signpost stands
+  'sign:nw': [335, 344], 'sign:sw': [290, 666], 'sign:se': [880, 670], 'sign:ne': [850, 336],
   // work spots — at the feet
   'sw-generator': [255, 548], 'se-survey': [885, 552], 'nw-planter': [448, 200], 'ne-habitat': [865, 205],
   pond: [470, 674], 'nw-greenhouse': [340, 232], 'sw-workshop': [385, 560], 'se-module': [762, 572],
@@ -210,6 +234,11 @@ export const VILLAGE: WorldPlate = {
   structures: OUTPOST.structures.map((st) => ({ ...moved(st), ...(st.door ? { door: px(1095, 362) } : {}) })),
   sites: OUTPOST.sites.map((s) => moved(s)),
   meet: OUTPOST.meet.map((s) => moved(s)),
+  rest: OUTPOST.rest.map((s) => moved(s)),
+  props: Object.fromEntries(Object.keys(OUTPOST.props).map((d) => {
+    const at = (kind: string) => { const [x, y] = VILLAGE_AT[`${kind}:${d}`] ?? (() => { throw new Error(`the village has no ${kind} spot for "${d}" — add it to VILLAGE_AT (sites.ts)`); })(); return px(x, y); };
+    return [d, { sign: at('sign'), statue: at('statue'), freight: at('freight') }];
+  })),
 };
 
 /** Every plate the scene can show. Tests iterate this, so a new plate is checked automatically. */

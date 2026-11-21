@@ -35,7 +35,7 @@ const calls = vi.hoisted(() => ({
   getRoadmap: vi.fn(), setRoadmapVision: vi.fn(), createEpic: vi.fn(), updateEpic: vi.fn(), deleteEpic: vi.fn(), reorderEpics: vi.fn(), planFeature: vi.fn(),
 }));
 vi.mock('../../../lib/api', () => ({ api: calls }));
-import { RoadmapChart } from '../RoadmapChart';
+import { RoadmapChart, officerAnim } from '../RoadmapChart';
 
 const project = { id: 'p1', name: 'Orbit' } as never;
 const mount = async (onOpenFeature = vi.fn(), onChanged = vi.fn()) => {
@@ -55,18 +55,23 @@ describe('the roadmap chart', () => {
     const drawn = new Map([...container.querySelectorAll('[data-waypoint]')].map((n) => [n.getAttribute('data-waypoint'), n.getAttribute('data-state')]));
     expect([...drawn.keys()].sort()).toEqual(all.map((f) => f.id).sort());
     for (const f of all) expect(drawn.get(f.id), f.id).toBe(f.state);
-    expect([...container.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'))).toEqual(['e1', 'e2', 'none']);
-    // a feature with no date is listed in its lane, not placed on a day
+    // An epic a lane; a feature in no epic and with no date is off the chart, in the tray under it.
+    expect([...container.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'))).toEqual(['e1', 'e2']);
+    expect(container.querySelector('[data-unplanned] [data-waypoint="f6"]')).not.toBeNull();
     expect(container.querySelector('[data-waypoint="f6"]')!.hasAttribute('data-unscheduled')).toBe(true);
   });
 
   it('shows the vision, a column per month, today, and every dependency', async () => {
     const { container } = await mount();
     expect(screen.getByText(CHART.vision)).toBeTruthy();
-    expect([...container.querySelectorAll('[data-month]')].map((n) => n.getAttribute('data-month'))).toEqual(['2026-11', '2026-12']);
+    // A whole calendar year, JAN to DEC, though the plan covers two months.
+    expect([...container.querySelectorAll('[data-month]')].map((n) => n.getAttribute('data-month'))).toEqual(Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`));
+    expect([...container.querySelectorAll('[data-month]')].map((n) => n.textContent)).toEqual(['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']);
+    expect(container.querySelector('[data-today-pill]')!.textContent).toBe('TODAY');
     expect(container.querySelector('[data-today]')).not.toBeNull();
     expect([...container.querySelectorAll('[data-dependency]')].map((n) => n.getAttribute('data-dependency')).sort()).toEqual(['f1>f2', 'f4>f5']);
-    expect(container.querySelectorAll('[data-vision-gauge]').length).toBe(3);
+    expect([...container.querySelectorAll('[data-vision-gauge]')].map((n) => n.getAttribute('data-vision-gauge'))).toEqual(['delivery', 'scope', 'readiness']);
+    expect([...container.querySelectorAll('[data-legend]')].map((n) => n.getAttribute('data-legend'))).toEqual(['delivered', 'under-way', 'planned', 'late']);
   });
 
   it('"Start next" opens the feature the server says is next, and only where there is one', async () => {
@@ -125,5 +130,38 @@ describe('the roadmap chart', () => {
     fireEvent.change(container.querySelector('[data-selected-feature] select')!, { target: { value: 'e1' } });
     await waitFor(() => expect(screen.getByText('That would make a loop')).toBeTruthy());
     expect(container.querySelectorAll('[data-waypoint]').length).toBe(6);
+  });
+
+  it('the route in a lane is green up to its last delivery, blue from there to what is under way, faint beyond — and a late feature is marked', async () => {
+    const { container } = await mount();
+    const routes = (lane: string) => [...container.querySelectorAll(`[data-lane="${lane}"] [data-route]`)].map((n) => n.getAttribute('data-route')).sort();
+    expect(routes('e1')).toEqual(['ahead', 'delivered', 'under-way']);   // f1 delivered, f2 under way, f3 planned
+    expect(routes('e2')).toEqual(['ahead']);                             // nothing delivered or under way
+    // One node per waypoint on the chart, drawn in its state; the late one carries the warning sign.
+    for (const f of CHART.epics.flatMap((e) => e.features)) {
+      const w = container.querySelector(`[data-timeline] [data-waypoint="${f.id}"]`)!;
+      expect(w.querySelector('[data-node]')!.getAttribute('data-node'), f.id).toBe(f.state);
+      expect(w.textContent!.includes('⚠'), f.id).toBe(f.state === 'late');
+    }
+  });
+
+  it('the selected waypoint\'s card says its epic, its date and its state; the planning controls open on request', async () => {
+    const { container } = await mount();
+    fireEvent.keyDown(container.querySelector('[data-waypoint="f2"]')!, { key: 'Enter' });
+    const card = container.querySelector('[data-selected-feature="f2"]')!;
+    expect(card.textContent).toContain('EPIC 1 — Core');
+    expect(card.textContent).toContain('NOV 25');
+    expect(card.textContent).toContain('Under way');
+    expect(card.querySelector('[data-plan]')).toBeNull();
+    // Under way: it is opened, not started.
+    expect(card.querySelector('[data-start]')).toBeNull();
+    expect(card.querySelector('[data-open-feature]')!.textContent).toBe('OPEN ▸');
+    fireEvent.click(card.querySelector('[data-plan-toggle]')!);
+    expect(card.querySelectorAll('[data-plan] select, [data-plan] input[type="date"]').length).toBe(3);
+  });
+
+  it('the officer of the deck looks as the plan stands — for every mix of states', () => {
+    const t = (late: number, underWay: number) => ({ planned: 1, delivered: 1, late, 'under-way': underWay });
+    expect([officerAnim(t(0, 0)), officerAnim(t(0, 2)), officerAnim(t(1, 0)), officerAnim(t(3, 2))]).toEqual(['idle', 'log', 'worry', 'worry']);
   });
 });

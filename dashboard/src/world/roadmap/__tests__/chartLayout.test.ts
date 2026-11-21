@@ -3,7 +3,7 @@
  * feature was dropped. Checked over whole windows, every day of them, not a sample.
  */
 import { describe, it, expect } from 'vitest';
-import { xOf, dateAt, monthColumns, placeLane, dayOf, visionGauges, startBlock } from '../chartLayout';
+import { calendarYears, xOf, dateAt, monthColumns, placeLane, dayOf, visionGauges, startBlock } from '../chartLayout';
 import type { RoadmapFeature } from '../../../types';
 
 const RANGES = [
@@ -92,5 +92,12 @@ describe('roadmap chart layout', () => {
     expect(startBlock(feature('x', { state: 'under-way' }), names)).toMatch(/under way/i);
     expect(startBlock(feature('x', { blockedBy: ['a'] }), names)).toBe('Waits on Access control');
     expect(startBlock(feature('x', { blockedBy: ['zz'] }), names)).toMatch(/another feature/);
+  });
+
+  it('the chart shows whole calendar years around the plan', () => {
+    expect(calendarYears({ from: '2026-11-01', to: '2026-12-31' })).toEqual({ from: '2026-01-01', to: '2026-12-31' });
+    expect(calendarYears({ from: '2026-10-01', to: '2027-01-31' })).toEqual({ from: '2026-01-01', to: '2027-12-31' });
+    expect(monthColumns(calendarYears({ from: '2026-03-01', to: '2026-03-31' }))).toHaveLength(12);
+    expect(monthColumns(calendarYears({ from: '2026-10-01', to: '2027-01-31' }))).toHaveLength(24);
   });
 });

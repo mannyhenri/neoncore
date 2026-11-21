@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { SoundButton } from './components/SoundControls';
+import { useSoundEvents } from './lib/sound/useSoundEvents';
 import { useAgents } from './hooks/useAgents';
 import { CartridgeGrid } from './components/CartridgeGrid';
 import type { StatusFilter } from './components/CartridgeGrid';
@@ -92,6 +94,8 @@ export default function App() {
     serverStatuses,
     applyFleetToken,
   } = useAgents(handleVirtualCartridgeUpdated);
+  // SOUND (lib/sound): one cue per kind of thing that just happened, and the interface sounds.
+  useSoundEvents({ agents, pendingPermissions, stuckAlerts: stuckAlertsArray, workflowNotifications, tasks });
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   // Status selection lives here so it can render in the rail; the counts come back up
@@ -236,6 +240,7 @@ export default function App() {
         </button>
         <span className="hidden xl:inline text-[13px] text-gray-400">{onlineAgents.length} online</span>
         <ServerPicker statuses={serverStatuses} onSetToken={applyFleetToken} />
+        <SoundButton />
         <NotificationCenter
           pendingPermissions={pendingPermissions}
           stuckAlerts={stuckAlertsArray}
@@ -252,6 +257,7 @@ export default function App() {
           padding, edge to edge, from the top bar to the bottom of the window. */}
       <ProjectsProvider active={activeView === 'projects'} agents={agents}>
       <div
+        id="work-area"
         className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]' : ''} ${isDeckView(activeView) ? deckProps(activeView).className : ''}`}
         style={isDeckView(activeView) ? deckProps(activeView).style : undefined}
       >

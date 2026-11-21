@@ -8,6 +8,7 @@ import { api, apiFor } from '../lib/api';
 import { loadServers, saveServers, setFleetToken, activeServers, fallbackName } from '../lib/servers';
 import { useSockets } from './useSocket';
 import { browserNotificationsWanted, setDesktopStatus } from '../lib/osNotify';
+import { playUi } from '../lib/sound/engine';
 
 function browserNotify(title: string, body: string, tag: string) {
   if (!('Notification' in window)) return;
@@ -373,6 +374,7 @@ export function useAgents(onVirtualCartridgeUpdated?: (vc: VirtualCartridge) => 
     try {
       const { client, origin } = clientForAgent(agentId);
       console.log('[NeonCore] Sending command:', { agentId, origin: origin || 'local', includeMemory });
+      playUi('ui-send');
       // Returned, not dropped: the card shows "not delivered" when no session was listening.
       return await client.sendCommand(agentId, text, includeMemory, attachments);
     } catch (err) {
