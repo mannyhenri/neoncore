@@ -21,7 +21,8 @@ import { cartridgeProgress } from '../lib/cartridgeProgress';
 import { useLiveWork } from '../hooks/useLiveWork';
 import { buildCrew, crewCounts, ENGINE_COLOURS } from './crew';
 import type { CrewMember, CrewAttention } from './crew';
-import { OUTPOST, assignSlots, spotsFor } from './sites';
+import { assignSlots, spotsFor } from './sites';
+import { PLATE, THEME } from './theme';
 import { planZones, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
 import type { PoolSlots } from './zones';
 import { padsFor, padOf } from './fleet';
@@ -42,6 +43,12 @@ import { useCrewExtras } from './useCrewExtras';
 import { KIT, crateSpriteFor, cellSpriteFor } from './kit';
 import { AMBIENT_GROUND, AMBIENT_PROPS } from './ambient.generated';
 import type { AmbientStrip as AmbientArt } from './ambient.generated';
+
+// The ambient frames are cut from the BASE theme's own map and props (scripts/world/build_ambient.py):
+// laid over another theme's art they would be the wrong pond and the wrong table, so a pack
+// without its own is simply still.
+const AMBIENT: typeof AMBIENT_GROUND = THEME === 'scifi' ? AMBIENT_GROUND : {};
+const MOVING_PROPS: typeof AMBIENT_PROPS = THEME === 'scifi' ? AMBIENT_PROPS : {};
 import { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, scaleFor, clampCamera, homeCamera, zoomAt, panBy } from './camera';
 import type { Camera } from './camera';
 import { summarize, isReport, messageId, loadRead, markRead, isUnread } from './summary';
@@ -104,7 +111,7 @@ const DRAG_THRESHOLD = 5;
 export function WorldScene({
   agents, activitiesByAgent, pendingPermissions, stuckAlerts,
   onDecidePermission, onSetMode, onSendCommand, onDelete, onDismiss, onRestore, onDismissStuck, onActivityClick,
-  statusFilter = 'all', onStatusCounts, hud, offSceneCount = 0, onOpenList, plate = OUTPOST,
+  statusFilter = 'all', onStatusCounts, hud, offSceneCount = 0, onOpenList, plate = PLATE,
 }: WorldSceneProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -477,7 +484,7 @@ export function WorldScene({
           />
           {/* AMBIENT MOTION: the water, drawn over the terrain and under everything else. It
               plays all the time, whatever the agents are doing (ambient.generated.ts). */}
-          {Object.entries(AMBIENT_GROUND).map(([id, art]) => (
+          {Object.entries(AMBIENT).map(([id, art]) => (
             <AmbientStrip key={id} id={id} art={art} style={{ left: `${art.x * 100}%`, top: `${art.y * 100}%`, width: `${art.w * 100}%`, height: `${art.h * 100}%`, zIndex: 0 }} />
           ))}
           {plate.structures.map((st) => {
@@ -489,7 +496,7 @@ export function WorldScene({
               const open = zones.some((z) => z.districts.includes(st.district ?? '') && z.features.active > 0);
               return ready ? <FeatureGate key={st.id} st={st} open={open} /> : null;
             }
-            const moving = AMBIENT_PROPS[st.sprite];
+            const moving = MOVING_PROPS[st.sprite];
             if (moving) {
               // A structure that moves all the time (the hologram, the station's tank).
               return (

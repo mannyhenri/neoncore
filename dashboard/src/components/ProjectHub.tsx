@@ -14,6 +14,7 @@
  * Plus the DocsBar: all of it published into the main repo as docs/product/, on demand or kept in sync.
  * Everything is read from the server (lib/project-spec.ts and friends) — nothing is computed twice.
  */
+import { RoadmapChart } from '../world/roadmap/RoadmapChart';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -349,6 +350,8 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<Lane | null>(null);
   const [err, setErr] = useState('');
+  // The plan (vision → epics → features on a timeline) is the roadmap; the four columns are its board.
+  const [view, setView] = useState<'chart' | 'board'>('chart');
   if (error) return <p className="text-[13px] text-ember-300">{error}</p>;
   if (!spec) return <p className="text-[13px] text-gray-500">Loading…</p>;
   const lanes = lanesOf(spec.features);
@@ -384,6 +387,14 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
           {t.verified > 0 && <> · <span className="text-emerald-300">{t.verified} verified against their criteria</span></>}
         </p>
         <div className="flex items-center gap-2">
+          <div role="tablist" aria-label="Roadmap view" className="inline-flex rounded-[10px] border border-white/[0.12] overflow-hidden mr-1">
+            {(['chart', 'board'] as const).map((v) => (
+              <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)}
+                className={`h-10 px-3.5 text-[13px] font-semibold ${view === v ? 'bg-neon-500/15 text-neon-200' : 'text-gray-400 hover:text-gray-200'}`}>
+                {v === 'chart' ? 'Chart' : 'Board'}
+              </button>
+            ))}
+          </div>
           <a href={docUrl(project.id, 'roadmap', { html: true })} target="_blank" rel="noreferrer" className={primaryBtn}>Open shareable page</a>
           <a href={docUrl(project.id, 'roadmap', { html: true, download: true })} className={quietBtn}>Download .html</a>
           <a href={docUrl(project.id, 'roadmap', { download: true })} className={quietBtn}>.md</a>
@@ -395,6 +406,8 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
         </div>
       )}
       {err && <p className="text-[13px] text-ember-300">{err}</p>}
+      {view === 'chart' && <RoadmapChart project={project} version={version} onOpenFeature={onOpenFeature} onChanged={onChanged} />}
+      {view === 'board' && <>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {LANES.map((lane) => {
           const items = lanes[lane.key];
@@ -459,6 +472,7 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
         Drag a feature to another column, or use Move… on its card. Without a placement, a feature is in Now while its pipeline runs,
         and in Next when it is among the top three of the feature list. Moving to Done marks it done; moving out of Done reopens it.
       </p>
+      </>}
     </div>
   );
 }

@@ -170,6 +170,7 @@ const GESTURE_ONLY: Record<string, string> = {
   'components/TasksPage.tsx': 'create-task modal opened by the user',
   'components/WorkflowCanvasEditor.tsx': 'node rename after the user clicks edit',
   'components/DatePicker.tsx': 'moves focus between days only while the user has the calendar open',
+  'world/roadmap/RoadmapChart.tsx': 'vision editor opens when the user clicks the vision; the epic name box opens on "+ Epic"',
   'components/AcceptanceContractPanel.tsx': 'feedback / reason boxes open when the user clicks Ask for changes, Accept the change or Unlock',
 };
 

@@ -82,6 +82,40 @@ you dropped it on. A placed feature whose pipeline is running still shows *pipel
 page** is a self-contained HTML page with no controls and no implementation detail — send it, print it,
 or put it on a screen. Also as Markdown.
 
+## Roadmap chart — vision, epics, features on a timeline
+
+The Roadmap tab opens on the **Chart** (the four columns above are its **Board**; both are the same features).
+
+```
+VISION ──── one or two sentences: where the project is going   (projects.vision)
+  EPIC ──── a lane: a name, what it delivers, an icon, an order (epics)
+    FEATURE ─ a waypoint on its target date, in its state       (goals.epic_id, start_date, target_date, depends_on)
+```
+
+- **States** come from the records, never from the chart: *planned*, *under way* (its pipeline is
+  running or its work has started), *delivered* (marked done), *late* (target date passed, not delivered).
+- **Waits on**: a feature can wait on other features of the same project. A loop is refused. A feature
+  that waits on an undelivered one cannot be started from the chart, and says which one it waits on.
+- **Planning**: drag a waypoint along its lane to change its target date, or into another lane to change
+  its epic; select it to set its epic, start and target dates and what it waits on. A feature with no
+  date is listed at the bottom of its lane.
+- **Executing**: *Start* on a selected feature, or *Start next* on an epic (the earliest feature of it
+  that can start), opens the feature — its pipeline starts from there, as always.
+- **Told to the agents**: a feature started while it is on the roadmap is given a short *Where this
+  fits* section — the vision, its epic and outcome, its dates, and what it waits on.
+- The gauges are of the whole project: delivered / scheduled (has a target date) / on track (not late).
+
+| API | |
+|---|---|
+| `GET /api/roadmap/:projectId` | the chart |
+| `PUT /api/roadmap/:projectId/vision` | `{ vision }` |
+| `POST /api/roadmap/:projectId/epics` · `PUT /api/roadmap/epics/:id` · `DELETE /api/roadmap/epics/:id` | an epic: `name`, `outcome`, `icon`; removing one leaves its features in the project |
+| `PUT /api/roadmap/:projectId/epics/order` | `{ order: [epicId…] }` |
+| `PUT /api/roadmap/features/:featureId` | `epicId`, `startDate`, `targetDate`, `dependsOn` |
+
+Every write answers with the chart as it now is. Code: `server/src/lib/roadmap.ts`, `server/src/routes/roadmap.ts`,
+`dashboard/src/world/roadmap/` (`RoadmapChart.tsx`, `chartLayout.ts`), art from `scripts/world/build_roadmap_art.py`.
+
 ## Changelog
 
 When a feature is **marked done**, NeonCore writes its changelog entry from the feature's own records:

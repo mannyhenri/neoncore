@@ -1398,3 +1398,48 @@ export interface DocsPublishResult {
   at: string;
 }
 
+// ── the roadmap: vision → epics → features on a timeline (server lib/roadmap.ts) ──────────────
+
+export type RoadmapFeatureState = 'planned' | 'under-way' | 'delivered' | 'late';
+
+export interface RoadmapFeature {
+  id: string;
+  name: string;
+  slug: string;
+  state: RoadmapFeatureState;
+  /** '' when it is in no epic. */
+  epicId: string;
+  /** YYYY-MM-DD, or '' when it has none. */
+  startDate: string;
+  targetDate: string;
+  completedAt: string | null;
+  /** Features of the same project it waits on. */
+  dependsOn: string[];
+  /** Those of `dependsOn` not delivered yet — empty means it can start. */
+  blockedBy: string[];
+  summary: string;
+}
+
+export interface RoadmapEpic {
+  id: string;
+  name: string;
+  outcome: string;
+  icon: string;
+  position: number;
+  /** Along the timeline: dated features by date, then the undated ones. */
+  features: RoadmapFeature[];
+  progress: { done: number; total: number };
+  /** The earliest feature of this epic that can start now, or null. */
+  nextUp: string | null;
+}
+
+export interface RoadmapChart {
+  project: { id: string; name: string };
+  vision: string;
+  epics: RoadmapEpic[];
+  unassigned: RoadmapFeature[];
+  /** Whole months holding today and every dated feature. */
+  range: { from: string; to: string };
+  today: string;
+  totals: Record<RoadmapFeatureState, number>;
+}

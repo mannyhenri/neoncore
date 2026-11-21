@@ -41,6 +41,7 @@ import { cartridgeExists } from './cartridge-exists.js';
 import { agentIdForRepoAndType, normalizeRepoPath, setProjectCartridges, getProjectCartridges } from './resolve-agent.js';
 import { cloneTemplateAsRun } from './workflow-from-template.js';
 import { automaticSkips, laterStageReviews } from './stage-steps.js';
+import { roadmapContextFor } from './roadmap.js';
 import { templateNeedsParticipants } from './workflow-launch.js';
 import { isReportStep } from './workflow-report.js';
 import { workflowNeedsAttention, type Attention } from './workflow-attention.js';
@@ -513,6 +514,9 @@ export function buildStageContext(pilot: GoalPilot, stage: PilotStage, stages: P
     if (inGoalBrief.length) parts.push(`(The feature's ${inGoalBrief.join(', ')} arrive with the goal brief on every step.)`);
   }
   if (decided.length) parts.push(`## Decisions made while scoping\n${decided.join('\n')}`);
+  // Where it sits on the project's roadmap: the vision, its epic, what it builds on (lib/roadmap.ts).
+  const fits = roadmapContextFor(pilot.goalId);
+  if (fits) parts.push(`## Where this fits\n${fits}`);
   // The project's living spec, when it has been published into the repo (lib/project-docs.ts).
   if (project?.docs_published_at) {
     parts.push(`## The project's spec\ndocs/product/ in ${project.primary_repo || 'the main repo'} holds every feature of the project (README.md), `

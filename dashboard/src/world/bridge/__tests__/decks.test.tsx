@@ -10,6 +10,7 @@ vi.mock('../../../lib/api', () => ({ api: {
 
 import { ENGINEER_ANIMS, engineerAnim, flowGauges, CORE_LEVELS, CORE_AT, coreLevel, quotaOf, compactTokens } from '../deckState';
 import { EngineerPost, FlowGauges, CorePost, TokenGauges, QuartermasterPost, TaskGauges, deckProps, DECK_VIEWS } from '../Decks';
+import { CORE_HEATS, HEAT_AT, HEAT_LINE, coreHeat, USAGE_CHANGED } from '../deckState';
 import { QUARTERMASTER_ANIMS, quartermasterAnim, taskGauges, FAILED_RECENT_MS } from '../deckState';
 import type { Task } from '../../../types';
 import { DECK_ART } from '../bridge.generated';
@@ -153,5 +154,66 @@ describe('every deck', () => {
     await flush();
     expect(view.container.querySelectorAll('svg, canvas')).toHaveLength(0);
     for (const fig of view.container.querySelectorAll<HTMLElement>('[data-deck-sprite] > div')) expect(fig.style.backgroundImage).toMatch(/\/world\/bridge\/[a-z]+\.png/);
+  });
+});
+
+/**
+ * THE CORE HEATS UP AS THE QUOTA RUNS OUT — one look per stage, for every percentage there is.
+ */
+describe('the core\'s heat (Tokens)', () => {
+  const stageAt = (pct: number) => (pct >= 90 ? 'red' : pct >= 85 ? 'orange' : pct >= 80 ? 'amber' : 'none');
+  const anchored = (pct: number) => ({ tokensPerHour: 100, tokensPerDay: 0, costPerDay: 0, activeCartridges: 0, usageAnchor: [{ provider: 'claude', window: 'weekly', pctUsed: pct / 100, hoursToReset: 30, pace: 'ok' }] });
+
+  it('has one stage for every percent from 0 to 120, and a glow that only ever grows', () => {
+    expect([...CORE_HEATS]).toEqual(['none', 'amber', 'orange', 'red']);
+    expect(HEAT_AT).toEqual({ amber: 80, orange: 85, red: 90 });
+    let last = 0;
+    for (let pct = 0; pct <= 120; pct++) {
+      const h = coreHeat(pct);
+      expect(h.stage, `${pct}%`).toBe(stageAt(pct));
+      expect(h.glow, `${pct}% glow`).toBeGreaterThanOrEqual(last);
+      expect(h.glow).toBeLessThanOrEqual(1);
+      if (pct < 80) expect(h.glow).toBe(0);
+      if (pct >= 90) expect(h.glow).toBe(1);
+      last = h.glow;
+    }
+    for (const none of [null, undefined, NaN]) expect(coreHeat(none)).toEqual({ stage: 'none', glow: 0 });
+  });
+
+  it('draws each stage on the core, the readout and the tank — and nothing below 80%', async () => {
+    for (const pct of [0, 50, 79, 80, 82, 84, 85, 87, 89, 90, 95, 100]) {
+      data.rate = anchored(pct);
+      const view = render(<CorePost />);
+      await flush();
+      const stage = stageAt(pct);
+      const core = view.container.querySelector('[data-core-heat]')!;
+      expect(core.getAttribute('data-core-heat'), `${pct}%`).toBe(stage);
+      expect(view.container.querySelectorAll('.core-heat-glow').length, `${pct}% glow`).toBe(stage === 'none' ? 0 : 1);
+      expect(view.container.querySelectorAll('.core-ember').length, `${pct}% embers`).toBe({ none: 0, amber: 4, orange: 8, red: 12 }[stage]);
+      const readout = view.container.querySelector('.bridge-readout')!;
+      if (stage !== 'none') expect(readout.textContent, `${pct}% line`).toBe(HEAT_LINE[stage]);
+      else expect(Object.values(HEAT_LINE)).not.toContain(readout.textContent);
+      expect(view.container.querySelector('.bridge-tank')!.getAttribute('data-heat'), `${pct}% tank`).toBe(stage === 'none' ? null : stage);
+      cleanup();
+    }
+  });
+
+  it('keeps the drone\'s alarm line when the provider says hold below 85%', async () => {
+    data.rate = { ...anchored(82), usageAnchor: [{ provider: 'claude', window: 'weekly', pctUsed: 0.82, hoursToReset: 30, pace: 'hold' }] };
+    const view = render(<CorePost />);
+    await flush();
+    expect(view.container.querySelector('[data-core-heat]')!.getAttribute('data-core-heat')).toBe('amber');
+    expect(view.container.querySelector('.bridge-readout')!.textContent).toBe('Quota nearly gone');
+  });
+
+  it('re-reads the quota as soon as a reading is logged or removed', async () => {
+    data.rate = anchored(50);
+    const view = render(<CorePost />);
+    await flush();
+    expect(view.container.querySelector('[data-core-heat]')!.getAttribute('data-core-heat')).toBe('none');
+    data.rate = anchored(93);
+    act(() => { window.dispatchEvent(new Event(USAGE_CHANGED)); });
+    await flush();
+    expect(view.container.querySelector('[data-core-heat]')!.getAttribute('data-core-heat')).toBe('red');
   });
 });

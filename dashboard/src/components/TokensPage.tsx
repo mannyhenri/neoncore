@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, apiFor } from '../lib/api';
 import { activeServers } from '../lib/servers';
 import { mergeSeries, type UsageSeries, type FleetSeries } from '../lib/usageSeries';
+import { USAGE_CHANGED } from '../world/bridge/deckState';
 import { mergeBurnRates, budgetStats, type ServerBurnRate, type FleetBurnRate } from '../lib/burnRate';
 import { fanOut } from '../lib/fanOut';
 import type { ServerEntry } from '@neoncore/client';
@@ -183,6 +184,7 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
     } finally {
       setRemovingKey(null);
       setLimitRefresh((n) => n + 1);
+      window.dispatchEvent(new Event(USAGE_CHANGED));
     }
   };
 
@@ -222,6 +224,8 @@ export function TokensPage({ servers }: { servers: ServerEntry[] }) {
       setCpMessage(`${limitProvider === 'claude' ? 'Claude' : 'Codex'} ${cpWindow === 'weekly' ? 'weekly' : '5-hour'} reading recorded: ${pct}%.`);
       setCpPct('');
       setLimitRefresh((n) => n + 1);
+      // The core reads the quota from this reading: have it look now, not at its next check.
+      window.dispatchEvent(new Event(USAGE_CHANGED));
     } finally {
       setLoggingCp(false);
     }

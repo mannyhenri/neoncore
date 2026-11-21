@@ -164,8 +164,56 @@ export const OUTPOST: WorldPlate = {
   ],
 };
 
+/**
+ * THE VILLAGE — the fantasy theme's map (theme.ts). The SAME pods, buildings, gates and work spots
+ * as the outpost, by id and by role: only where they stand differs, read off the village map
+ * (designs/fantasy/terrain.png, 1344 × 752): four walled clearings around a cobbled plaza, a stone
+ * landing circle to the east, a pond to the south. Built FROM the outpost so the two cannot drift —
+ * a structure or a spot added there needs a position here, and `moved` fails loudly without one.
+ */
+const VILLAGE_AT: Record<string, [number, number, number?]> = {
+  // districts — where each pod's name plate goes (below its clearing)
+  'district:nw': [335, 286], 'district:sw': [275, 634], 'district:se': [880, 642], 'district:ne': [835, 282],
+  // structures — base (centre-bottom), and a width where the village's sprite needs another
+  greenhouse: [288, 192, 0.1], planter: [398, 188, 0.06], habitat: [792, 186, 0.1], dish: [900, 152, 0.032],
+  'gate-ne': [748, 274, 0.05], 'gate-nw': [412, 270, 0.05], 'gate-sw': [394, 480, 0.05], 'gate-se': [752, 488, 0.05],
+  generator: [205, 512, 0.075], workshop: [345, 506, 0.09], module: [815, 532, 0.062], tripod: [932, 518, 0.045],
+  'water-station': [436, 652, 0.042], 'holo-table': [567, 378, 0.085], heater: [648, 348, 0.028], banner: [498, 334, 0.024],
+  'pad-north': [1205, 402, 0.14], 'shuttle-north': [1205, 372, 0.1],
+  // work spots — at the feet
+  'sw-generator': [255, 548], 'se-survey': [885, 552], 'nw-planter': [448, 200], 'ne-habitat': [865, 205],
+  pond: [470, 674], 'nw-greenhouse': [340, 232], 'sw-workshop': [385, 560], 'se-module': [762, 572],
+  'pond-east': [660, 676], 'ne-yard': [722, 212], 'sw-yard': [270, 474], 'se-samples': [880, 478],
+  'nw-yard': [240, 190], road: [942, 372],
+  // around the council table
+  'meet-west': [503, 372], 'meet-east': [632, 372], 'meet-south-west': [524, 412], 'meet-south-east': [611, 412],
+};
+const VILLAGE_LABEL: Record<string, string> = {
+  nw: 'Glasshouse clearing', sw: 'Forge clearing', se: 'Tower clearing', ne: 'Cottage clearing', commons: 'Plaza', field: 'Landing circle',
+  'sw-generator': 'Forge', 'se-survey': 'Spyglass', 'nw-planter': 'Herb beds', 'ne-habitat': 'Cottage', pond: 'Well',
+  'nw-greenhouse': 'Glasshouse', 'sw-workshop': 'Smithy', 'se-module': 'Tower', 'pond-east': 'East bank', 'ne-yard': 'Cottage yard',
+  'sw-yard': 'Forge yard', 'se-samples': 'Tower yard', 'nw-yard': 'Glasshouse yard', road: 'East road',
+};
+function moved<T extends { id: string; x?: number; y?: number; label?: string }>(thing: T, key = thing.id): T {
+  const at = VILLAGE_AT[key];
+  if (!at) throw new Error(`the village has no position for "${key}" — add it to VILLAGE_AT (sites.ts)`);
+  const [x, y, w] = at;
+  return { ...thing, ...px(x, y), ...(w !== undefined ? { w } : {}), ...(VILLAGE_LABEL[thing.id] ? { label: VILLAGE_LABEL[thing.id] } : {}) };
+}
+export const VILLAGE: WorldPlate = {
+  ...OUTPOST,
+  id: 'village',
+  src: '/world/fantasy/terrain.jpg',
+  // Beside the airship on the landing circle: new agents arrive by air.
+  entry: px(1095, 362),
+  districts: OUTPOST.districts.map((d) => (d.x === undefined ? { ...d, label: VILLAGE_LABEL[d.id] ?? d.label } : moved(d, `district:${d.id}`))),
+  structures: OUTPOST.structures.map((st) => ({ ...moved(st), ...(st.door ? { door: px(1095, 362) } : {}) })),
+  sites: OUTPOST.sites.map((s) => moved(s)),
+  meet: OUTPOST.meet.map((s) => moved(s)),
+};
+
 /** Every plate the scene can show. Tests iterate this, so a new plate is checked automatically. */
-export const PLATES: readonly WorldPlate[] = [OUTPOST];
+export const PLATES: readonly WorldPlate[] = [OUTPOST, VILLAGE];
 
 export interface Placement {
   x: number;

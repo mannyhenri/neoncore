@@ -15,7 +15,12 @@
  */
 import { ANIMATION_NAMES } from './anim';
 import type { AnimationName } from './anim';
-import { CREW_ATLAS } from './crewAtlas.generated';
+import { PACK } from './theme';
+import type { CREW_ATLAS as BaseAtlas } from './crewAtlas.generated';
+
+/** The crew's atlases, as the theme this page was loaded with draws them (theme.ts): same
+ *  character ids, cycles and cell size in every theme. */
+const CREW_ATLAS = PACK.crew as unknown as typeof BaseAtlas;
 
 export interface CrewSheet {
   /** Served from dashboard/public, e.g. '/world/crew/mechanic.png'. */

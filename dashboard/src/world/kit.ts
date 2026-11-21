@@ -5,7 +5,10 @@
  * written by `scripts/world/build_world_kit.py` from the sheets in `designs/`). This file is
  * the meaning: how many queued items make which stack of crates, how full the energy cell is.
  */
-import { KIT } from './kit.generated';
+import { PACK } from './theme';
+
+/** Every scenery sprite, as the theme this page was loaded with draws it (theme.ts). */
+const KIT = PACK.kit;
 
 export type KitName = keyof typeof KIT;
 

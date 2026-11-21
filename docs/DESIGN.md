@@ -145,6 +145,37 @@ The captain is a drawn sprite sheet with one look per state, like the crew: **ca
 | Tasks | quartermaster + cargo drone | scanning a crate = a task is claimed or in progress; waving = a task failed in the last 6 hours; standing = nothing being worked |
 | Tokens | reactor core + drone | low / steady / hot = the fleet's tokens per hour (steps at 1M and 20M); red base + drone alarm = quota nearly gone (provider says hold, or ≥ 85% used). The tank beside it holds what is LEFT of the quota |
 
+**The core heats up as the quota runs out** (`coreHeat` in `deckState.ts`), laid over the drawn core as a tint, a glow and embers — one look per stage: under 80% used, nothing; **80–84% amber** ("Core heating up"); **85–89% orange**, more embers, with the drone's alarm ("Quota nearly gone"); **90% and up red**, a fast pulse, the core shakes and the tank turns red ("Core overheating"). The glow grows evenly from 80% to 90%. Reduced motion keeps the colours and drops the movement. Logging or removing a reading on the Tokens page updates the core at once.
+
 **The workflow canvas** is the engine deck's schematic table (`.bridge.flow-canvas`, applied by `components/WorkflowCanvasEditor.tsx`, which is portalled out of the page and so names the scope itself). Steps are console tiles whose lamp and frame are their status (grey pending, cyan pulsing running, green done, red failed, dim skipped) and whose corner colour is their kind (decision amber, confer violet with a second outline, connector teal, gates blue/rose). Connections are glowing conduits that pulse while the run is live. The minimap is a radar scope, the grid is a blueprint, and the engineer stands at the corner with the same three looks as on the Flows page. Behaviour is untouched. `src/__tests__/flowCanvas.theme.test.ts` holds the editor and the CSS together.
 
 **Deadlines, delivery and badges** (`world/milestones.ts`). Each pod with a dated open feature has an oxygen gauge that drains toward the NEAREST target date (full → three-quarters → half → quarter, then a blinking red light under 10% of the time left, then empty and blinking once the date has passed). Each pod with planned features has a pennant that climbs its pole as they are delivered, and a flare goes up over the pod each time one more is. The project's banner carries seven BADGES, one per step of the feature under way — scoped, questions answered, planned, plan accepted, staffed and running, built, delivered — lit as each step is passed. They reset when a new feature starts; after a delivery the full row stays until then. The captain adds three looks: keeping the log (work under way), celebrating (a delivery just landed), worrying (a date is tight or past). The airlock-barrier art is in the kit but unused: the records have no "depends on" link to drive it.
+
+## Themes — the same game in another world
+
+A theme is an **art pack and a vocabulary**, nothing else: the same screens, the same records, the same
+animations meaning the same states. Settings → Theme chooses it; the choice is kept in this browser
+(`localStorage['neoncore.theme']`) and is read once when the page loads, so choosing reloads the page.
+
+| | `scifi` (default) | `fantasy` |
+|---|---|---|
+| Map | the outpost | the village (`VILLAGE` in `world/sites.ts` — the same sites, where the village art has them) |
+| Crew | mechanic · pilot · scout | blacksmith · ranger · apothecary |
+| Decks | captain · engineer · core · quartermaster | guildmaster · artificer · great crystal · storekeeper |
+| Roadmap | star chart, destination planet, the ship | quest map, journey's end, the party |
+
+- A pack keeps **the base pack's names** (sprite names, character ids, animation rows), so no screen knows
+  which theme it draws. `world/theme.ts` is the only place that chooses: `PACK`, `PLATE`, `word()`.
+- A piece a pack lacks is drawn from the base pack (or plainly), never left blank. Missing today: the
+  fantasy Tokens backdrop (`designs/fantasy/crystal-chamber.png`).
+- Build: `python3 scripts/world/build_theme_pack.py fantasy` and `python3 scripts/world/build_roadmap_art.py`,
+  from the sheets in `designs/fantasy/`. Art is generated sheets, never figures drawn in code.
+- The iOS app is not themed.
+
+## The roadmap chart
+
+`world/roadmap/RoadmapChart.tsx` (Projects → a project → Roadmap → Chart): the vision strip with its three
+ring gauges and the destination; a lane per epic with its glyph; a waypoint marker per feature in its
+state colour (planned grey · under way neon · delivered green · late ember, with ▲ so colour is not the only
+sign); dotted *waits on* lines (ember when still blocking); the TODAY line with the theme's marker. What
+it means and how it is planned with: `docs/PROJECT-SPEC.md`.

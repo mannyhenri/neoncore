@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { parseProjectHash } from '../../lib/projectSelection';
-import { BRIDGE } from './bridge.generated';
+import { BRIDGE } from './art';
 import { BRIEF_MS, CELEBRATE_MS, CAPTAIN_FPS, captainAnim, formatSpent, gaugesFor, needsYou } from './captainState';
 import { deadlineFor } from '../milestones';
 import type { DatedFeature } from '../milestones';

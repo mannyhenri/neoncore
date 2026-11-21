@@ -296,6 +296,10 @@ select.glass-input optgroup {
 .bridge .bridge-tank-glass { position: relative; flex: none; width: 34px; height: 84px; border: 2px solid #6B7C99; border-radius: 6px; background: rgba(3, 8, 18, 0.9); overflow: hidden; box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.7); }
 .bridge .bridge-tank-glass > div { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #7FF3EA, #1CB5A8); box-shadow: 0 0 10px rgba(46, 230, 214, 0.7); }
 .bridge .bridge-tank[data-alert] .bridge-tank-glass > div { background: linear-gradient(180deg, #FFC85A, #F08A12); box-shadow: 0 0 10px rgba(245, 165, 36, 0.7); }
+.bridge .bridge-tank[data-heat="red"] { border-color: rgba(255, 77, 79, 0.9); box-shadow: 0 0 14px rgba(255, 77, 79, 0.35); }
+.bridge .bridge-tank[data-heat="red"] .bridge-tank-glass > div { background: linear-gradient(180deg, #FF8A7A, #E5282B); box-shadow: 0 0 10px rgba(255, 77, 79, 0.8); }
+.bridge .bridge-readout[data-heat="red"] { color: #FF8A7A; border-color: rgba(255, 77, 79, 0.8); }
+
 .bridge .bridge-gauge[data-tone="amber"] .bridge-bars span[data-on] { background: #F5A524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.6); }
 .bridge.flow-canvas { background-color: #050914; background-image: linear-gradient(rgba(5, 9, 20, 0.35), rgba(5, 9, 20, 0.97) 120px), var(--flow-deck, none); background-size: 100% auto; background-position: top center; background-repeat: no-repeat; border-color: rgba(46, 230, 214, 0.4); }
 .bridge.flow-canvas .flow-toolbar { background: rgba(5, 10, 22, 0.72); border-bottom: 1px solid rgba(46, 230, 214, 0.35); box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.6); }
@@ -334,3 +338,21 @@ select.glass-input optgroup {
 @keyframes flow-active { 0%, 100% { box-shadow: inset 0 0 22px rgba(46, 230, 214, 0.12), 0 0 14px rgba(46, 230, 214, 0.35); } 50% { box-shadow: inset 0 0 26px rgba(46, 230, 214, 0.2), 0 0 26px rgba(46, 230, 214, 0.7); } }
 @keyframes flow-sweep { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .bridge.flow-canvas .flow-node, .bridge.flow-canvas .react-flow__minimap::after { animation: none !important; } }
+
+/* The core's heat (world/bridge/deckState.ts coreHeat): a tint over the drawn core, a glow behind
+   it and embers rising off it. --heat is 0 at 80% of the quota used and 1 from 90%. */
+.core-heat { position: relative; display: inline-block; --heat: 0; }
+.core-heat[data-core-heat="amber"] > :first-child { filter: sepia(calc(0.25 + var(--heat) * 0.5)) saturate(calc(1.2 + var(--heat))) hue-rotate(-12deg) brightness(1.05); }
+.core-heat[data-core-heat="orange"] > :first-child { filter: sepia(0.75) saturate(2.4) hue-rotate(-22deg) brightness(1.08); }
+.core-heat[data-core-heat="red"] > :first-child { filter: sepia(0.9) saturate(3.4) hue-rotate(-42deg) brightness(1.1); }
+.core-heat-glow { position: absolute; inset: 12% 8% 6%; z-index: -1; border-radius: 50%; pointer-events: none; opacity: calc(0.25 + var(--heat) * 0.6);
+  background: radial-gradient(closest-side, rgba(245, 165, 36, 0.85), rgba(245, 165, 36, 0)); filter: blur(calc(10px + var(--heat) * 14px)); }
+.core-heat[data-core-heat="orange"] .core-heat-glow { background: radial-gradient(closest-side, rgba(255, 122, 26, 0.9), rgba(255, 122, 26, 0)); }
+.core-heat[data-core-heat="red"] .core-heat-glow { background: radial-gradient(closest-side, rgba(255, 60, 50, 0.95), rgba(255, 60, 50, 0)); animation: core-pulse 0.7s ease-in-out infinite; }
+.core-heat[data-core-heat="red"] { animation: core-shake 0.32s steps(2) infinite; }
+.core-ember { position: absolute; bottom: 38%; width: 4px; height: 4px; background: #FFC14D; box-shadow: 0 0 6px #F08A12; pointer-events: none; opacity: 0; animation: core-ember 2.6s linear infinite; }
+.core-heat[data-core-heat="red"] .core-ember { background: #FF8A7A; box-shadow: 0 0 6px #E5282B; }
+@keyframes core-ember { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(6px, -90px); opacity: 0; } }
+@keyframes core-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes core-shake { 0% { transform: translate(0, 0); } 50% { transform: translate(1px, -1px); } 100% { transform: translate(-1px, 1px); } }
+@media (prefers-reduced-motion: reduce) { .core-heat, .core-heat-glow, .core-ember { animation: none !important; } .core-ember { display: none; } }

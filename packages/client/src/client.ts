@@ -829,6 +829,21 @@ export function createClient(config: ClientConfig = {}) {
   /** Add features to the end of a project's list — one or many (a pasted list). Nothing starts. */
   addProjectFeatures: (projectId: string, features: { name: string; description?: string }[]) =>
     request<{ ids: string[] }>(`/projects/${projectId}/features`, { method: 'POST', body: JSON.stringify({ features }) }),
+  // The roadmap: vision → epics → features on a timeline. Every write answers with the chart as it now is.
+  getRoadmap: (projectId: string) => request<import('./types').RoadmapChart>(`/roadmap/${projectId}`),
+  setRoadmapVision: (projectId: string, vision: string) =>
+    request<import('./types').RoadmapChart>(`/roadmap/${projectId}/vision`, { method: 'PUT', body: JSON.stringify({ vision }) }),
+  createEpic: (projectId: string, data: { name: string; outcome?: string; icon?: string }) =>
+    request<import('./types').RoadmapChart>(`/roadmap/${projectId}/epics`, { method: 'POST', body: JSON.stringify(data) }),
+  updateEpic: (epicId: string, data: { name?: string; outcome?: string; icon?: string }) =>
+    request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  /** Its features stay in the project, in no epic. */
+  deleteEpic: (epicId: string) => request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'DELETE' }),
+  reorderEpics: (projectId: string, ids: string[]) =>
+    request<import('./types').RoadmapChart>(`/roadmap/${projectId}/epics/order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
+  /** Plan one feature: its epic ('' = none), its dates ('' = clear), what it waits on. Only the fields given change. */
+  planFeature: (featureId: string, data: { epicId?: string; startDate?: string; targetDate?: string; dependsOn?: string[] }) =>
+    request<import('./types').RoadmapChart>(`/roadmap/features/${featureId}`, { method: 'PUT', body: JSON.stringify(data) }),
   /** The living spec: every feature's intent beside the evidence for each acceptance criterion. */
   getProjectSpec: (projectId: string) => request<import('./types').ProjectSpec>(`/projects/${projectId}/spec`),
   /** The architecture page (self-contained HTML; '' when none) — the Architecture tab renders it sandboxed. */

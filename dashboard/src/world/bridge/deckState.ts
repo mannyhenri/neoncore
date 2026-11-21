@@ -15,6 +15,13 @@
  *              high    burning at CORE_AT.high tokens an hour or more
  *              normal  burning at CORE_AT.normal or more
  *              low     below that, or no reading at all
+ *
+ *   core heat  what the quota does to the core, on top of its level — ONE LOOK PER STAGE:
+ *              none    under 80% used: the core as it is
+ *              amber   80–84%: the glass warms, a soft glow, a few embers
+ *              orange  85–89%: orange glass, a stronger glow, more embers (the drone's alarm is `warn`)
+ *              red     90% and up: red glass, a fast pulse, the core shakes, the tank turns red
+ *              The glow grows evenly from 80% to 90%, so a stage is never a jump.
  */
 import type { Task, Workflow } from '../../types';
 import { hoursLabel } from '../../lib/subscriptionUsage';
@@ -92,6 +99,22 @@ export function coreLevel(s: { tokensPerHour: number; warn: boolean }): CoreLeve
   if (s.tokensPerHour >= CORE_AT.normal) return 'normal';
   return 'low';
 }
+
+export const CORE_HEATS = ['none', 'amber', 'orange', 'red'] as const;
+export type CoreHeat = (typeof CORE_HEATS)[number];
+/** Percent of the quota used at which each heat stage starts. `orange` is the warning (QUOTA_WARN_PCT). */
+export const HEAT_AT = { amber: 80, orange: QUOTA_WARN_PCT, red: 90 } as const;
+export const HEAT_LINE: Record<Exclude<CoreHeat, 'none'>, string> = { amber: 'Core heating up', orange: 'Quota nearly gone', red: 'Core overheating' };
+
+/** The core's heat for a quota reading: its stage, and how strong the glow is (0 at 80%, 1 from 90%). */
+export function coreHeat(pct: number | null | undefined): { stage: CoreHeat; glow: number } {
+  if (pct === null || pct === undefined || !Number.isFinite(pct) || pct < HEAT_AT.amber) return { stage: 'none', glow: 0 };
+  const glow = Math.min(1, (pct - HEAT_AT.amber) / (HEAT_AT.red - HEAT_AT.amber));
+  return { stage: pct >= HEAT_AT.red ? 'red' : pct >= HEAT_AT.orange ? 'orange' : 'amber', glow: Math.round(glow * 100) / 100 };
+}
+
+/** Sent on `window` when a quota reading is logged or removed, so the core re-reads at once. */
+export const USAGE_CHANGED = 'neoncore:usage-changed';
 
 export interface Quota { pct: number; resetsIn: string | null; warn: boolean }
 

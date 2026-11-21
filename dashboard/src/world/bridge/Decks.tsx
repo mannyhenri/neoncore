@@ -8,12 +8,13 @@
  * scripts/world/build_bridge.py — no art, no figure.
  */
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { Task, Workflow } from '../../types';
 import { api } from '../../lib/api';
-import { DECK_ART } from './bridge.generated';
-import type { DeckSheet } from './bridge.generated';
+import { DECK_ART } from './art';
+import type { DeckSheet } from './art';
 import { formatSpent } from './captainState';
-import { compactTokens, coreLevel, engineerAnim, flowGauges, quartermasterAnim, quotaOf, taskGauges } from './deckState';
+import { compactTokens, coreHeat, coreLevel, engineerAnim, flowGauges, quartermasterAnim, quotaOf, taskGauges, HEAT_LINE, USAGE_CHANGED } from './deckState';
 
 /** The screens that are decks, and the backdrop each one stands on. */
 export const DECK_VIEWS = ['projects', 'workflows', 'tasks', 'tokens'] as const;
@@ -152,26 +153,39 @@ function useRate(): Rate | null {
     };
     load();
     const t = setInterval(load, 5 * 60_000);
-    return () => { alive = false; clearInterval(t); };
+    // A reading logged or removed on the Tokens page changes the quota now, not in five minutes.
+    window.addEventListener(USAGE_CHANGED, load);
+    return () => { alive = false; clearInterval(t); window.removeEventListener(USAGE_CHANGED, load); };
   }, []);
   return rate;
 }
 
 const CORE_LINE = { low: 'Core idling', normal: 'Core steady', high: 'Core running hot', warn: 'Quota nearly gone' } as const;
 const CORE_FPS = { low: 3, normal: 5, high: 8, warn: 8 } as const;
+/** How many embers rise off the core at each heat stage. */
+const EMBERS = { none: 0, amber: 4, orange: 8, red: 12 } as const;
 
 /** The reactor core and the drone: how hard the fleet is burning, and how much quota is left. */
 export function CorePost({ height = 250 }: { height?: number }) {
   const rate = useRate();
   const quota = quotaOf(rate);
   const level = coreLevel({ tokensPerHour: rate?.tokensPerHour ?? 0, warn: quota?.warn ?? false });
+  const heat = coreHeat(quota?.pct);
+  const hot = heat.stage !== 'none';
   return (
     <div className="bridge-captain" data-deck-state={level}>
-      <DeckSprite sheet={DECK_ART.sheets.core} cycle={level} fps={CORE_FPS[level]} height={height} />
-      <div className="bridge-readout" role="status" data-alert={level === 'warn' || undefined}>{CORE_LINE[level]}</div>
+      {/* The heat is laid over the drawn core — a tint, a glow and embers — never a second drawing. */}
+      <div className="core-heat" data-core-heat={heat.stage} style={{ '--heat': heat.glow } as CSSProperties}>
+        <DeckSprite sheet={DECK_ART.sheets.core} cycle={level} fps={CORE_FPS[level]} height={height} />
+        {hot && <div className="core-heat-glow" aria-hidden="true" />}
+        {hot && Array.from({ length: EMBERS[heat.stage] }, (_, i) => (
+          <span key={i} className="core-ember" aria-hidden="true" style={{ left: `${22 + ((i * 37) % 56)}%`, animationDelay: `${(i * 0.43) % 2.4}s`, animationDuration: `${2.2 + (i % 3) * 0.5}s` }} />
+        ))}
+      </div>
+      <div className="bridge-readout" role="status" data-alert={level === 'warn' || hot || undefined} data-heat={hot ? heat.stage : undefined}>{heat.stage === 'red' ? HEAT_LINE.red : level === 'warn' ? CORE_LINE.warn : hot ? HEAT_LINE[heat.stage as keyof typeof HEAT_LINE] : CORE_LINE[level]}</div>
       <div className="bridge-rate" data-core-rate>{rate ? `${compactTokens(rate.tokensPerHour)} TOK / HR` : 'NO READING'}</div>
       {quota && (
-        <div className="bridge-tank" data-quota-tank={quota.pct} data-alert={quota.warn || undefined} title="What the tank holds is what is LEFT of the subscription quota">
+        <div className="bridge-tank" data-quota-tank={quota.pct} data-alert={quota.warn || undefined} data-heat={hot ? heat.stage : undefined} title="What the tank holds is what is LEFT of the subscription quota">
           <div className="bridge-tank-glass" aria-hidden="true"><div data-quota-fill style={{ height: `${Math.max(0, 100 - quota.pct)}%` }} /></div>
           <div>
             <div className="bridge-gauge-label">Claude quota</div>

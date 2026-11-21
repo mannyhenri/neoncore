@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { THEMES, THEME, THEME_LABEL, chooseTheme } from '../world/theme';
 import { api } from '../lib/api';
 import { isDemoEnabled, setDemoEnabled, resetDemoData } from '../lib/demoMode';
 import { NotificationSettings } from './NotificationSettings';
@@ -23,7 +24,7 @@ const BADGE_STYLES: Record<string, string> = {
   violet: 'bg-neon-500/20 text-neon-50',
 };
 
-type SettingsTab = 'projects' | 'tools' | 'notifications' | 'github' | 'demo';
+type SettingsTab = 'projects' | 'tools' | 'notifications' | 'github' | 'theme' | 'demo';
 
 interface ToolStatus {
   label: string;
@@ -191,6 +192,7 @@ export function SettingsModal({ onClose }: Props) {
           <button onClick={() => setTab('tools')} className={tabClass('tools')}>Tools</button>
           <button onClick={() => setTab('notifications')} className={tabClass('notifications')}>Notifications</button>
           <button onClick={() => setTab('github')} className={tabClass('github')}>GitHub</button>
+          <button onClick={() => setTab('theme')} className={tabClass('theme')}>Theme</button>
           <button onClick={() => setTab('demo')} className={tabClass('demo')}>Demo</button>
         </div>
         <div className="flex-1 min-w-0 flex flex-col overflow-y-auto relative">
@@ -199,6 +201,21 @@ export function SettingsModal({ onClose }: Props) {
 
         {tab === 'notifications' ? (
           <div className="overflow-y-auto"><NotificationSettings /></div>
+        ) : tab === 'theme' ? (
+          <div className="px-4 py-4 md:px-6 space-y-3" data-theme-settings>
+            <p className="text-[15px] text-gray-200">World theme</p>
+            <p className="text-[13px] text-gray-400 max-w-[560px]">
+              How the map, the deck figures and the roadmap are drawn and named. It changes nothing in your projects, features or agents,
+              and it is kept in this browser. Choosing another theme reloads the page.
+            </p>
+            {THEMES.map((id) => (
+              <label key={id} className={`flex items-center gap-3 cursor-pointer rounded-[12px] border px-4 py-3 max-w-[560px] ${THEME === id ? 'border-neon-500/60 bg-neon-500/[0.06]' : 'border-white/[0.1] hover:border-white/[0.2]'}`}>
+                <input type="radio" name="world-theme" value={id} checked={THEME === id} onChange={() => chooseTheme(id)} className="accent-neon-500" />
+                <span className="text-[14px] text-gray-100">{THEME_LABEL[id]}</span>
+                {THEME === id && <span className="ml-auto text-[12px] text-neon-300">in use</span>}
+              </label>
+            ))}
+          </div>
         ) : tab === 'demo' ? (
           <div className="px-4 py-4 md:px-6 space-y-3">
             <label className="flex items-start gap-3 cursor-pointer">

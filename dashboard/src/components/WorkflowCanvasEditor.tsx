@@ -42,7 +42,7 @@ import '@xyflow/react/dist/style.css';
 
 import { api } from '../lib/api';
 import { DeckSprite } from '../world/bridge/Decks';
-import { DECK_ART } from '../world/bridge/bridge.generated';
+import { DECK_ART } from '../world/bridge/art';
 import { canvasEngineerAnim } from '../world/bridge/deckState';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowExecutionLog } from './WorkflowExecutionLog';
