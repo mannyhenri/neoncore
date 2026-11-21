@@ -12,7 +12,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const db = new Database(path.join(root, 'server/neoncore.db'), { readonly: true });
+// NEONCORE_DB_PATH lets this read a freshly seeded database instead of the live one, so the
+// demo can be regenerated without restarting the server that reseeds it.
+const db = new Database(process.env.NEONCORE_DB_PATH || path.join(root, 'server/neoncore.db'), { readonly: true });
 
 const tpls = db.prepare(
   'SELECT id, name, description FROM workflows WHERE template_id IS NULL ORDER BY name',

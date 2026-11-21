@@ -6,16 +6,19 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
   // ── 10. Product Strategy Session ─────────────────────────────────────────
   {
     const wfId = stableId('Product Strategy Session');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s9 = randomUUID();
+    const s1 = randomUUID(), s2 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID(), s8 = randomUUID(), s9 = randomUUID();
     insertWorkflow.run(wfId, 'Product Strategy Session',
-      'Set the workflow description to the product/feature being reviewed. Premise challenge → alternatives → dream state → dual-voice analysis (CEO vs PM) → 10-dimension strategy review → action plan → capture learnings.', now);
+      'Set the workflow description to the product/feature being reviewed. Premise challenge → alternatives → dual-voice analysis (CEO vs PM) → 10-dimension scorecard → action plan with a 3-year picture → capture learnings.', now);
 
+    // Each question is asked ONCE: "why now" and the riskiest assumption in Context & Premise,
+    // the smallest version in Alternatives. "Dream State" re-asked all three and is folded into
+    // the Action Plan's 3-year picture.
     step(wfId, s1, 'Context & Premise',
       'Understand what is being built and challenge the core premise. Surface hidden assumptions before the team gets attached.',
       300, 80, 'claude-code',
       {
         ...cc('researcher'), workflowContext: true,
-        prompt: 'The product or feature to review is described above. Your first job is to deeply understand it and then challenge its premise.\n\n**PHASE 1 — UNDERSTAND THE SUBJECT**\nRead the description carefully. Research the local codebase (if relevant) using Grep/Glob/Read to understand current state. Identify:\n- What exactly is being built or changed\n- Who the target user is and what problem they have\n- What success looks like from the user\'s perspective\n\n**PHASE 2 — CHALLENGE THE PREMISE**\nEvery product assumption deserves scrutiny. Challenge each one:\n1. Why does this problem need solving NOW? What changes if we wait 6 months?\n2. Is the proposed solution the most direct path to the user\'s underlying need — or is it solving a proxy problem?\n3. What assumptions about user behavior are baked in? Are they validated?\n4. What is the riskiest assumption in this plan? What would invalidate the whole approach?\n5. Could this be solved with something 10x simpler that already exists?\n\n**OUTPUT**\n```\n## Subject\n[1-2 sentences: what this is]\n\n## Core Premise\n[The fundamental bet this product/feature is making]\n\n## Premise Challenges\n| Assumption | Why It Could Be Wrong | Risk Level |\n|------------|----------------------|------------|\n[3-5 rows]\n\n## Riskiest Assumption\n[The single assumption that, if wrong, kills the whole idea — and why]\n```',
+        prompt: 'The product or feature to review is described above. Understand it, then challenge its premise.\n\n**1 — UNDERSTAND.** Read the description (and the local codebase, if relevant). Identify what is being built or changed, who the target user is and what problem they have, and what success looks like to them.\n\n**2 — CHALLENGE.**\n1. Why does this need solving NOW? What changes if we wait 6 months?\n2. Is the proposed solution the most direct path to the user\'s underlying need, or a proxy?\n3. Which assumptions about user behavior are baked in? Are they validated?\n4. What is the riskiest assumption — the one that would invalidate the whole approach?\n5. Could something 10x simpler that already exists solve it?\n\n**OUTPUT**\n```\n## Subject\n[1-2 sentences: what this is]\n\n## Core Premise\n[The fundamental bet]\n\n## Premise Challenges\n| Assumption | Why It Could Be Wrong | Risk Level |\n|------------|----------------------|------------|\n[3-5 rows]\n\n## Riskiest Assumption\n[The one that, if wrong, kills the idea — and why]\n```',
       }, []);
 
     step(wfId, s2, 'Alternatives Analysis',
@@ -23,54 +26,46 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
       300, 255, 'claude-code',
       {
         ...cc('architect'),
-        prompt: 'Using the context and premise from the previous step, map the full solution space.\n\nDo NOT just list minor variations of the same idea. Explore genuinely different approaches:\n\n**Alternative 1: Do Nothing**\nWhat happens if we ship nothing? Can users work around this? What is the cost of inaction?\n\n**Alternative 2: Buy / Integrate**\nIs there an existing product, library, or API that already solves 80% of this? What would it cost? What would we lose?\n\n**Alternative 3: Narrow Scope Dramatically**\nWhat is the smallest possible version that still delivers meaningful value? What are we overbuilding?\n\n**Alternative 4: Reframe the Problem**\nIf we asked "what is the user\'s deeper need?" rather than "how do we build X?" — what entirely different solution appears?\n\n**Alternative 5: The Original Proposal**\nDescribe the proposed approach as a distinct option with the same rigor as the others.\n\n**OUTPUT**\n```\n## Solution Alternatives\n\n| Alternative | Core Idea | Biggest Advantage | Biggest Risk | Effort |\n|-------------|-----------|-------------------|--------------|--------|\n[one row per alternative]\n\n## Head-to-Head\n[Pick the 2 most interesting alternatives and explain the key trade-off between them in 2-3 sentences]\n\n## Recommendation\n[Which alternative looks strongest and why — be direct]\n```',
+        prompt: 'Using the context and premise above, map the solution space with genuinely different approaches, not variations of one idea:\n\n1. **Do Nothing** — can users work around it? What does inaction cost?\n2. **Buy / Integrate** — does an existing product, library or API solve 80% of it? At what cost, and what do we lose?\n3. **Narrow Scope** — the smallest possible version that still delivers meaningful value. What are we overbuilding?\n4. **Reframe** — ask "what is the user\'s deeper need?" instead of "how do we build X?". What different solution appears?\n5. **The Original Proposal** — with the same rigor as the others.\n\n**OUTPUT**\n```\n## Solution Alternatives\n\n| Alternative | Core Idea | Biggest Advantage | Biggest Risk | Effort |\n|-------------|-----------|-------------------|--------------|--------|\n[one row per alternative]\n\n## Head-to-Head\n[The 2 most interesting alternatives and their key trade-off, in 2-3 sentences]\n\n## Recommendation\n[Which looks strongest and why — be direct]\n```',
       }, [s1]);
-
-    step(wfId, s3, 'Dream State',
-      'Articulate the ideal end-state with all constraints removed. What does complete success look like in 3 years?',
-      300, 430, 'claude-code',
-      {
-        ...cc('researcher'),
-        prompt: 'Imagine it is 3 years from now and this product/feature has succeeded beyond expectations. Constraints of time, team size, and technical debt have been removed. What does the world look like?\n\nThis is not a roadmap — it is a north star. Write it in present tense as if it has already happened.\n\n**DREAM STATE DOCUMENT**\n\n```\n## Dream State: [Product/Feature Name]\n\n### The User Experience (in 3 years)\n[Write 2-3 paragraphs from the perspective of a user in the ideal future. What does their day look like? How does this product fit into it? Be concrete and specific — use a real user story, not abstract language.]\n\n### The Product (in 3 years)\n[What has been built? What metrics prove success? What does the product do that seemed impossible 3 years ago?]\n\n### What Had to Be True\n[The 3-5 things that had to happen for this dream state to be reached — these are the strategic bets]\n\n### The Gap\n[What is the distance between today and this dream state? What is the hardest thing to close?]\n\n### The Minimum Viable Dream\n[What is the smallest version of this that preserves the soul of the dream? Where is the line between "not enough" and "enough to validate the bet"?]\n```',
-      }, [s2]);
 
     step(wfId, s4, 'Dual Voice Analysis',
       'CEO lens vs PM lens — two distinct perspectives debate the product in a structured dialogue.',
-      300, 605, 'claude-code',
+      300, 430, 'claude-code',
       {
         ...cc('planner'),
-        prompt: 'Conduct a dual-voice debate between two distinct perspectives on this product/feature. Write as if two smart, opinionated people are actually disagreeing.\n\n**THE CEO VOICE** — thinks about: business model, market size, competitive moat, burn rate, defensibility, timing, investor narrative, existential risk.\n\n**THE PM VOICE** — thinks about: user pain intensity, behavior change required, retention loops, feedback cycles, what users actually asked for vs what they need, scope creep risk, shipping velocity.\n\nFormat as a real dialogue. Each voice gets to respond to the other. Minimum 3 exchanges per topic.\n\n**Topics to debate:**\n1. Is this the right thing to build right now?\n2. What does success look like in 6 months?\n3. What would we cut if we had to ship in half the time?\n4. What is the most likely way this fails?\n\n**OUTPUT**\n```\n## Dual Voice Analysis\n\n### 1. Is this the right thing to build right now?\n**CEO:** [position]\n**PM:** [response / pushback]\n**CEO:** [rebuttal]\n**PM:** [synthesis or escalation]\n\n[repeat for each topic]\n\n### Resolution\n[Where the two voices agree. Where they still disagree. What question remains open that only data can answer.]\n```',
-      }, [s3]);
+        prompt: 'Run a debate between two opinionated voices on the recommended approach. Premise, risk and scope are settled above — do not re-argue them.\n\n**CEO** — business model, market size, competitive moat, defensibility, burn, investor narrative.\n**PM** — pain intensity, behavior change required, retention loops, what users asked for vs need, shipping velocity.\n\nEach voice responds to the other.\n\n**Topics:**\n1. What does success look like in 6 months?\n2. Where should the moat come from — and is it real?\n\n**OUTPUT**\n```\n## Dual Voice Analysis\n\n### 1. [topic]\n**CEO:** [position]\n**PM:** [pushback]\n**CEO:** [rebuttal]\n**PM:** [synthesis or escalation]\n\n[repeat per topic]\n\n### Resolution\n[Where they agree, where they still disagree, and the open question only data can answer.]\n```',
+      }, [s2]);
 
     step(wfId, s5, 'Strategy Review',
-      '10-dimension review: market fit, technical feasibility, UX, competition, risk, timing, monetization, team, metrics, and moat.',
-      300, 780, 'claude-code',
+      '10-dimension scorecard: market fit, technical feasibility, UX, competition, risk, timing, monetization, team, metrics, and moat.',
+      300, 605, 'claude-code',
       {
         ...cc('reviewer'),
-        prompt: 'Conduct a structured 10-dimension product strategy review. Be direct — call out weaknesses as clearly as strengths.\n\nFor each dimension: give a 2-4 sentence assessment, a score (1-10), and the single most important action.\n\n```\n## Product Strategy Review: [Name]\n\n### 1. Market Fit (Score: N/10)\n[Does this solve a real pain for a large enough market? Is the market growing or shrinking?]\n**Key action:** [Most important thing to do here]\n\n### 2. Technical Feasibility (Score: N/10)\n[Can we build this with our current team and stack? What are the hardest technical challenges?]\n**Key action:** [Most important thing to do here]\n\n### 3. User Experience (Score: N/10)\n[How much behavior change is required? Is the UX intuitive? Where will users get stuck?]\n**Key action:** [Most important thing to do here]\n\n### 4. Competitive Position (Score: N/10)\n[Who else is solving this? What is our differentiation? Could a well-funded competitor copy this in 6 months?]\n**Key action:** [Most important thing to do here]\n\n### 5. Risk Profile (Score: N/10)\n[What are the top 3 risks? Technical, market, execution? Which is most likely to kill the project?]\n**Key action:** [Most important thing to do here]\n\n### 6. Timing (Score: N/10)\n[Why now? What has changed that makes this possible or necessary today vs 2 years ago?]\n**Key action:** [Most important thing to do here]\n\n### 7. Monetization (Score: N/10)\n[Is there a clear path to revenue? Does the pricing model match user psychology?]\n**Key action:** [Most important thing to do here]\n\n### 8. Team Readiness (Score: N/10)\n[Does the team have the skills, capacity, and context to execute this well?]\n**Key action:** [Most important thing to do here]\n\n### 9. Success Metrics (Score: N/10)\n[Are the success metrics clear, measurable, and leading indicators — not just lagging vanity metrics?]\n**Key action:** [Most important thing to do here]\n\n### 10. Moat & Defensibility (Score: N/10)\n[What keeps competitors from copying this once it works? Network effects, data, switching costs, brand?]\n**Key action:** [Most important thing to do here]\n\n---\n## Overall Score: [average]/10\n## Verdict: [GO / GO WITH CHANGES / NO-GO]\n## Top 3 Priorities Before Moving Forward:\n1. [Highest-leverage action]\n2. [Second priority]\n3. [Third priority]\n```',
+        prompt: 'Score the product strategy on 10 dimensions in ONE table, using the analysis above. Be direct — weaknesses as clearly as strengths.\n\nDimensions: Market Fit, Technical Feasibility, User Experience, Competitive Position, Risk Profile, Timing, Monetization, Team Readiness, Success Metrics, Moat & Defensibility.\n\n```\n## Product Strategy Review: [Name]\n\n| Dimension | Score (1-10) | Assessment (1-2 sentences) | Key action |\n|-----------|--------------|----------------------------|------------|\n[one row per dimension]\n\n## Overall Score: [average]/10\n## Verdict: [GO / GO WITH CHANGES / NO-GO]\n## Top 3 Priorities Before Moving Forward:\n1. [Highest-leverage action]\n2. [Second priority]\n3. [Third priority]\n```',
       }, [s4]);
 
     step(wfId, s6, 'Action Plan',
       'Concrete next steps with clear owners, deadlines, and success criteria. Requires human review before accepting.',
-      300, 955, 'claude-code',
+      300, 780, 'claude-code',
       {
         ...cc('planner'),
-        prompt: 'Using all the analysis from the previous steps, compile a concrete action plan. This should be opinionated — don\'t hedge. Pick the best path and commit to it.\n\n```\n## Action Plan: [Product/Feature Name]\n\n### Strategic Decision\n[State the GO/NO-GO/CHANGE recommendation clearly. One paragraph on why.]\n\n### Immediate Actions (next 2 weeks)\n| Priority | Action | Owner | Done When |\n|----------|--------|-------|----------|\n[3-5 rows — these are the blockers and validators that determine the path]\n\n### Phase 1 (first 6 weeks)\n[What gets built? What gets validated? What gets cut?]\n\n| Week | Milestone | Success Criteria |\n|------|-----------|------------------|\n[one row per key milestone]\n\n### Key Decisions Still Open\n| Decision | Who Decides | Deadline | Impact If Wrong |\n|----------|-------------|----------|-----------------|\n[decisions that must be made before building starts]\n\n### What We Are NOT Building\n[Explicit list of things that are out of scope — to prevent scope creep]\n\n### North Star Metric\n[The single number that tells you in 6 months whether this worked]\n```',
+        prompt: 'Compile an opinionated action plan from the analysis above. Pick the best path and commit to it.\n\n```\n## Action Plan: [Name]\n\n### Strategic Decision\n[GO / NO-GO / CHANGE, and one paragraph on why]\n\n### 3-Year Picture\n[If this succeeds: the user\'s day and the product, in present tense, 3-5 sentences]\n\n### Immediate Actions (next 2 weeks)\n| Priority | Action | Owner | Done When |\n|----------|--------|-------|----------|\n\n### Phase 1 (first 6 weeks)\n| Week | Milestone | Success Criteria |\n|------|-----------|------------------|\n\n### Key Decisions Still Open\n| Decision | Who Decides | Deadline | Impact If Wrong |\n|----------|-------------|----------|-----------------|\n\n### What We Are NOT Building\n[Out of scope]\n\n### North Star Metric\n[The one number that says in 6 months whether this worked]\n```',
       }, [s5], false);
 
     step(wfId, s7, 'Capture Learnings',
       'Save the key strategy insights to project learnings for future workflow context.',
-      300, 1130, 'connector',
+      300, 955, 'connector',
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s6]);
 
     step(wfId, s8, 'Save to Project',
       'Write the full strategy session output as a Markdown file in the linked project repo.',
-      300, 1305, 'connector',
+      300, 1130, 'connector',
       { connectorType: 'save-to-project' }, [s7]);
 
     step(wfId, s9, 'Notify',
       'System notification: Product Strategy Session complete.',
-      300, 1480, 'connector',
+      300, 1305, 'connector',
       { connectorType: 'system-notify', title: 'Product Strategy Session — Done', message: '{{workflowName}} complete. Review the action plan in NeonCore.' }, [s8]);
   }
 
@@ -86,7 +81,7 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
       300, 80, 'claude-code',
       {
         ...cc('architect'), workflowContext: true,
-        prompt: 'The system or feature to review is described above. Map its current architecture using Read, Grep, and Glob tools to explore the codebase.\n\n**PHASE 1 — COMPONENT INVENTORY**\nList every significant component involved: files, modules, services, APIs, DB tables, queues, caches, external dependencies.\n\n**PHASE 2 — DATA FLOW TRACE**\nTrace the primary data flows end-to-end. For each flow:\n- Start point (user action / event / cron)\n- Each layer it passes through\n- Final state change or output\n- Where errors can occur\n\n**PHASE 3 — DEPENDENCY MAP**\nIdentify:\n- Internal dependencies (what depends on what within the codebase)\n- External dependencies (third-party services, APIs, packages)\n- Circular dependencies or tight coupling\n\n**OUTPUT**\n```\n## Architecture Map: [System/Feature Name]\n\n### Components\n| Component | Type | File(s) | Responsibility |\n|-----------|------|---------|----------------|\n[one row per component]\n\n### Primary Data Flows\n[Flow 1: name]\n→ [step1] → [step2] → [step3] → [output]\n[repeat per flow]\n\n### Dependency Graph (prose)\n[Describe the most critical dependencies and coupling points in 3-5 bullet points]\n\n### External Dependencies\n| Service/Package | Purpose | Risk if Unavailable |\n|-----------------|---------|---------------------|\n[one row per external dep]\n```',
+        prompt: 'The system or feature to review is described above. Map its current architecture from the codebase.\n\n**PHASE 1 — COMPONENT INVENTORY**\nList every significant component involved: files, modules, services, APIs, DB tables, queues, caches, external dependencies.\n\n**PHASE 2 — DATA FLOW TRACE**\nTrace the primary data flows end-to-end. For each flow:\n- Start point (user action / event / cron)\n- Each layer it passes through\n- Final state change or output\n- Where errors can occur\n\n**PHASE 3 — DEPENDENCY MAP**\nIdentify:\n- Internal dependencies (what depends on what within the codebase)\n- External dependencies (third-party services, APIs, packages)\n- Circular dependencies or tight coupling\n\n**OUTPUT**\n```\n## Architecture Map: [System/Feature Name]\n\n### Components\n| Component | Type | File(s) | Responsibility |\n|-----------|------|---------|----------------|\n[one row per component]\n\n### Primary Data Flows\n[Flow 1: name]\n→ [step1] → [step2] → [step3] → [output]\n[repeat per flow]\n\n### Dependency Graph (prose)\n[Describe the most critical dependencies and coupling points in 3-5 bullet points]\n\n### External Dependencies\n| Service/Package | Purpose | Risk if Unavailable |\n|-----------------|---------|---------------------|\n[one row per external dep]\n```',
       }, []);
 
     step(wfId, s2, 'Bottleneck & Risk Analysis',
@@ -110,7 +105,7 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
       300, 605, 'claude-code',
       {
         ...cc('architect'),
-        prompt: 'Based on the analysis so far, write the concrete architecture recommendation. Be specific — include actual file paths, interface names, and data structures.\n\n```\n## Architecture Recommendation: [System/Feature Name]\n\n### Proposed Design\n[2-3 paragraphs describing the recommended architecture in plain English. Why this over the alternatives.]\n\n### Component Changes\n| Component | Current State | Proposed State | Reason |\n|-----------|--------------|----------------|--------|\n[one row per component that changes — "NEW" for additions, "REMOVE" for deletions]\n\n### New Interfaces / Contracts\n[For each new interface, type, or API contract being introduced]\n```typescript\n// or the relevant language\ninterface [Name] {\n  [fields]\n}\n```\n\n### Migration Path\n[How do we get from current state to proposed state without breaking prod?]\n1. [Step 1 — can be done independently]\n2. [Step 2 — depends on step 1]\n[continue]\n\n### Explicit Trade-offs\n| We are choosing | Over | Because |\n|-----------------|------|---------|\n[list the deliberate trade-offs in this design]\n\n### What This Does NOT Solve\n[Things explicitly out of scope — to prevent scope creep in implementation]\n\n### Success Criteria\n[How will we know the new architecture is working? Metrics and observable behaviors.]\n```',
+        prompt: 'Based on the analysis so far, write the concrete architecture recommendation. Be specific — include actual file paths, interface names, and data structures.\n\n```\n## Architecture Recommendation: [System/Feature Name]\n\n### Proposed Design\n[2-3 paragraphs describing the recommended architecture in plain English. Why this over the alternatives.]\n\n### Component Changes\n| Component | Current State | Proposed State | Reason |\n|-----------|--------------|----------------|--------|\n[one row per component that changes — "NEW" for additions, "REMOVE" for deletions]\n\n### New Interfaces / Contracts\n[For each new interface, type, or API contract being introduced]\n```typescript\n// or the relevant language\ninterface [Name] {\n  [fields]\n}\n```\n\n### Explicit Trade-offs\n| We are choosing | Over | Because |\n|-----------------|------|---------|\n[list the deliberate trade-offs in this design]\n\n### What This Does NOT Solve\n[Things explicitly out of scope — to prevent scope creep in implementation]\n\n### Success Criteria\n[How will we know the new architecture is working? Metrics and observable behaviors.]\n```',
       }, [s3], false);
 
     step(wfId, s5, 'Implementation Roadmap',
@@ -118,7 +113,7 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
       300, 780, 'claude-code',
       {
         ...cc('planner'),
-        prompt: 'Using the Architecture Recommendation, create a detailed implementation roadmap that a team can follow.\n\n```\n## Implementation Roadmap\n\n### Phase 1: Foundation (estimated: [timeframe])\n**Goal:** [What this phase achieves and why it must come first]\n\n| Task | File(s) | Description | Done When |\n|------|---------|-------------|----------|\n[one row per task — keep tasks small enough to complete in 1 day]\n\n**Phase 1 Definition of Done:**\n- [ ] [observable criterion 1]\n- [ ] [observable criterion 2]\n**Rollback plan:** [How to undo Phase 1 if it causes problems]\n\n### Phase 2: Core Changes (estimated: [timeframe])\n[same structure]\n\n### Phase 3: Cleanup & Optimization (estimated: [timeframe])\n[same structure]\n\n---\n### Critical Path\n[The 3-5 tasks that everything else depends on — these are the highest-risk items]\n\n### Parallel Work\n[Tasks that can be done simultaneously without blocking each other]\n\n### Total Estimated Effort\n[Sum of all phases with confidence range — e.g. "8-12 engineering days"]\n```',
+        prompt: 'Using the Architecture Recommendation, write the implementation roadmap — the migration path from today\'s system to the proposed one without breaking prod.\n\n```\n## Implementation Roadmap\n\n### Phase 1: Foundation (estimated: [timeframe])\n**Goal:** [What this phase achieves and why it must come first]\n\n| Task | File(s) | Description | Done When |\n|------|---------|-------------|----------|\n[one row per task — keep tasks small enough to complete in 1 day]\n\n**Phase 1 Definition of Done:**\n- [ ] [observable criterion 1]\n- [ ] [observable criterion 2]\n**Rollback plan:** [How to undo Phase 1 if it causes problems]\n\n### Phase 2: Core Changes (estimated: [timeframe])\n[same structure]\n\n### Phase 3: Cleanup & Optimization (estimated: [timeframe])\n[same structure]\n\n---\n### Critical Path\n[The 3-5 tasks that everything else depends on — these are the highest-risk items]\n\n### Total Estimated Effort\n[Sum of all phases with confidence range — e.g. "8-12 engineering days"]\n```',
       }, [s4]);
 
     step(wfId, s6, 'Capture Learnings',
@@ -165,7 +160,7 @@ export function seedReviews({ now, stableId, insertWorkflow, step, cc, gate }: S
 
 **1 — SCOPE.** Decide what the target is:
 - A CHANGE (branch, PR, commit range or files): \`git diff main...HEAD\` (or the comparison named above). The changed files are the scope, read in full — not just the diff.
-- A FEATURE, URL or the whole app: find every file, route, component and table it involves with Grep/Glob/Read. If a URL or running app is given, note it for functional testing.
+- A FEATURE, URL or the whole app: find every file, route, component and table it involves. If a URL or running app is given, note it for functional testing.
 
 **2 — READ.** For each file in scope: its role, how it connects to the rest, and the data flow through it (input → transformation → output, side effects).
 
@@ -361,45 +356,38 @@ Coverage score: N/10 — [why]
   // ── 13. Bug Investigation ─────────────────────────────────────────────────
   {
     const wfId = stableId('Bug Investigation');
-    const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
+    const s1 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID(), s7 = randomUUID();
     insertWorkflow.run(wfId, 'Bug Investigation',
-      'Set the workflow description to the bug being investigated. Reproduce → root cause → impact assessment → fix plan (human gate) → implement → verify → capture learnings.', now);
+      'Set the workflow description to the bug being investigated. Reproduce & root cause → impact assessment → fix plan (human gate) → implement → verify → capture learnings.', now);
 
-    step(wfId, s1, 'Reproduce the Bug',
-      'Establish a reliable reproduction case. Understand exactly what happens vs what should happen.',
+    // Reproduce and Root Cause were two steps tracing the same code path; one pass does both.
+    step(wfId, s1, 'Reproduce & Root Cause',
+      'Establish a reliable reproduction, then trace it to the deepest cause. Distinguish symptom from root cause.',
       300, 80, 'claude-code',
       {
         ...cc('reviewer'), workflowContext: true,
-        prompt: 'The bug to investigate is described above. Your first job is to understand and reproduce it.\n\n**PHASE 1 — UNDERSTAND THE SYMPTOMS**\nFrom the description, extract:\n- What action triggers the bug\n- What the user observes (the symptom)\n- What the correct behavior should be\n- When it first appeared (if known)\n- How reliably it occurs (always / sometimes / rarely)\n\n**PHASE 2 — EXPLORE THE CODE PATH**\nUsing Grep, Glob, and Read tools, trace the code path that handles the action described in the bug:\n1. Find the entry point (API route, event handler, component, cron job, etc.)\n2. Follow execution through every function call\n3. Identify where the actual behavior diverges from the expected behavior\n4. Note any conditions, flags, or state that could affect the behavior\n\n**PHASE 3 — IDENTIFY REPRODUCTION CONDITIONS**\nDetermine:\n- The exact inputs that trigger the bug\n- Any preconditions (specific state, user role, data configuration)\n- Whether the bug is deterministic or dependent on timing/environment\n\n**OUTPUT**\n```\n## Bug Reproduction Report\n\n### Bug Summary\n[1-2 sentences: what it is]\n\n### Symptom vs Expected Behavior\n| | Description |\n|--|-------------|\n| **Symptom (actual)** | [what happens] |\n| **Expected behavior** | [what should happen] |\n\n### Reproduction Steps\n1. [Step 1]\n2. [Step 2]\n[continue]\n**Preconditions:** [any required state]\n**Reliability:** [always / ~X% of the time / specific conditions]\n\n### Code Path Traced\n[entry point] → [function] → [function] → ... → [point of failure]\n\n### Point of Failure\n**File:Line:** [path:linenum]\n**Why:** [brief explanation of what the code does wrong here]\n```',
+        prompt: 'The bug to investigate is described above. Reproduce it, then find its root cause.\n\n**1 — SYMPTOMS.** Extract: the triggering action, what the user observes, the correct behavior, when it first appeared, how reliably it occurs.\n\n**2 — TRACE.** Find the entry point (route, handler, component, cron) and follow execution until actual behavior diverges from expected. Note the exact inputs, preconditions (state, role, data) and whether it depends on timing/environment.\n\n**3 — ROOT CAUSE.** From the point of failure, ask "why?" backward until you reach the original source. Classify it: logic error, missing null handling, race/timing, wrong data-shape assumption, missing boundary validation, state bug, misread API contract, or regression (check git blame). Then trace it forward: does it fully explain the symptoms?\n\n**OUTPUT**\n```\n## Bug Reproduction Report\n\n### Bug Summary\n[1-2 sentences]\n\n| | Description |\n|--|-------------|\n| **Symptom (actual)** | [what happens] |\n| **Expected behavior** | [what should happen] |\n\n### Reproduction Steps\n1. [Step 1]\n[continue]\n**Preconditions:** [required state]\n**Reliability:** [always / ~X% / specific conditions]\n\n### Code Path Traced\n[entry point] → [function] → ... → [point of failure]\n\n## Root Cause Analysis\n\n### The 5 Whys Chain\n1. **Why** did [symptom] occur? → Because [reason 1]\n[continue until root]\n\n### Root Cause\n**Classification:** [type]\n**Location:** [file:line]\n**Description:** [precise explanation]\n\n### Confidence\n[HIGH / MEDIUM / LOW — and why]\n```',
       }, []);
-
-    step(wfId, s2, 'Root Cause Analysis',
-      'Trace the bug to its deepest cause. Distinguish symptom from root cause.',
-      300, 255, 'claude-code',
-      {
-        ...cc('reviewer'),
-        prompt: 'Using the reproduction report from the previous step, dig to the root cause.\n\n**The 5 Whys approach:** Ask "why did this happen?" repeatedly until you reach the true origin.\n\n**PHASE 1 — TRACE THE FAILURE CHAIN**\nStarting from the point of failure identified in the reproduction step, trace backward:\n- Why does this code do the wrong thing?\n- What data or state is it operating on that causes the wrong behavior?\n- Where does that incorrect data or state come from?\n- Continue until you reach the original source of the error\n\n**PHASE 2 — CLASSIFY THE ROOT CAUSE**\nIs this:\n- A logic error in a specific function?\n- Missing null/undefined handling?\n- A race condition or timing issue?\n- Incorrect assumptions about the data shape?\n- Missing validation at a system boundary?\n- A state management bug?\n- A misunderstood API contract?\n- A regression introduced by a recent change? (check git blame if relevant)\n\n**PHASE 3 — CONFIRM THE ROOT CAUSE**\nVerify your hypothesis by tracing it forward: if the root cause is what you identified, does that explanation fully account for the symptoms described in the bug report?\n\n**OUTPUT**\n```\n## Root Cause Analysis\n\n### The 5 Whys Chain\n1. **Why** did [symptom] occur? → Because [reason 1]\n2. **Why** [reason 1]? → Because [reason 2]\n3. **Why** [reason 2]? → Because [reason 3]\n[continue until root]\n\n### Root Cause\n**Classification:** [type from phase 2]\n**Location:** [file:line]\n**Description:** [precise explanation of the original cause]\n\n### Confidence\n[HIGH / MEDIUM / LOW — and why]\n\n### Confirmation\n[Does this root cause fully explain the observed symptoms? How?]\n```',
-      }, [s1]);
 
     step(wfId, s3, 'Impact Assessment',
       'Determine how many users are affected, what data is at risk, and whether related bugs exist.',
-      300, 430, 'claude-code',
+      300, 255, 'claude-code',
       {
         ...cc('reviewer'),
         prompt: 'Assess the full impact of this bug before designing a fix.\n\n**PHASE 1 — USER IMPACT**\n- Who is affected? (all users / specific roles / specific conditions)\n- How frequently does this occur? (every request / daily / rare edge case)\n- What is the user experience impact? (broken feature / wrong data / data loss / security issue)\n- Is there a workaround users can use?\n\n**PHASE 2 — DATA IMPACT**\n- Has incorrect data been written to the database?\n- Is any user data at risk of being lost or corrupted?\n- Does this bug affect historical records or only new operations?\n- Is a data migration or cleanup needed as part of the fix?\n\n**PHASE 3 — RELATED BUGS**\nUsing the root cause identified, grep for similar patterns in the codebase:\n- Are there other places where the same mistake was made?\n- Are there related code paths that have the same vulnerability?\n- Are there similar functions that should be checked for the same issue?\n\n**PHASE 4 — SEVERITY CLASSIFICATION**\nClassify overall severity:\n- **Critical**: data loss, security breach, complete feature outage for all users\n- **High**: incorrect behavior on the happy path for many users\n- **Medium**: edge case failure, usually with a workaround\n- **Low**: cosmetic or very rare condition\n\n```\n## Impact Assessment\n\n### User Impact\n- **Affected users:** [all / specific segment / edge case]\n- **Frequency:** [every time / often / rarely]\n- **UX impact:** [description]\n- **Workaround:** [exists / none]\n\n### Data Impact\n- **Data at risk:** [YES — description / NO]\n- **Cleanup needed:** [YES — description / NO]\n\n### Related Bugs Found\n| File:Line | Issue | Severity |\n|-----------|-------|----------|\n[rows if any related bugs found]\n\n### Overall Severity: [critical / high / medium / low]\n### Priority: [fix immediately / fix in next release / backlog]\n```',
-      }, [s2]);
+      }, [s1]);
 
     step(wfId, s4, 'Fix Plan',
       'Design the minimal correct fix. Requires human review before any code is changed.',
-      300, 605, 'claude-code',
+      300, 430, 'claude-code',
       {
         ...cc('planner'),
-        prompt: 'Using the root cause and impact assessment, design the fix. Keep it minimal — fix the root cause, not just the symptom.\n\n**Principles for a good bug fix:**\n1. Fix the root cause, not the symptom\n2. Make the minimal change that resolves the issue — do not refactor or improve surrounding code in the same commit\n3. The fix should be understandable to someone reading it without the bug report context\n4. Consider: could the fix break anything else?\n\n**OUTPUT**\n```\n## Fix Plan\n\n### The Fix\n**File:** [path]\n**Line(s):** [line range]\n**Change:** [describe the exact change in one sentence]\n\n### Why This Fix Works\n[How the change addresses the root cause — not just the symptom]\n\n### Code Sketch\n```[language]\n// BEFORE:\n[current code]\n\n// AFTER:\n[proposed code]\n```\n\n### What Could Break\n[Any other code paths that rely on the current (buggy) behavior]\n[Tests that may need updating]\n\n### Data Cleanup (if needed)\n[SQL or script to fix any corrupted data]\n\n### Tests to Add\n[New test cases that would have caught this bug]\n\n### Related Fixes\n[The related bugs found in impact assessment — should they be fixed in the same PR or separately?]\n```\n\n⚠️ This step has manual advance — human review required before implementation.',
+        prompt: 'Using the root cause and impact assessment, design the fix. Keep it minimal — fix the root cause, not just the symptom.\n\n**Principles for a good bug fix:**\n1. Fix the root cause, not the symptom\n2. Make the minimal change that resolves the issue — do not refactor or improve surrounding code in the same commit\n3. The fix should be understandable to someone reading it without the bug report context\n4. Consider: could the fix break anything else?\n\n**OUTPUT**\n```\n## Fix Plan\n\n### The Fix\n**File:** [path]\n**Line(s):** [line range]\n**Change:** [describe the exact change in one sentence]\n\n### Why This Fix Works\n[How the change addresses the root cause — not just the symptom]\n\n### Code Sketch\n```[language]\n// BEFORE:\n[current code]\n\n// AFTER:\n[proposed code]\n```\n\n### What Could Break\n[Any other code paths that rely on the current (buggy) behavior]\n[Tests that may need updating]\n\n### Data Cleanup (if needed)\n[SQL or script to fix any corrupted data]\n\n### Tests to Add\n[New test cases that would have caught this bug]\n\n### Related Fixes\n[The related bugs found in impact assessment — should they be fixed in the same PR or separately?]\n```',
       }, [s3], false);
 
     step(wfId, s5, 'Implement Fix',
       'Apply the fix exactly as planned. No refactoring beyond the fix scope.',
-      300, 780, 'claude-code',
+      300, 605, 'claude-code',
       {
         ...cc('backend'),
         prompt: 'Implement the fix from the Fix Plan. Follow the plan precisely — do not make changes beyond the defined scope.\n\n**Rules:**\n1. Implement exactly what is in the Fix Plan — no more, no less\n2. If you discover the fix plan is wrong or incomplete, STOP and explain why rather than improvising\n3. Do not fix other issues you notice — log them but do not change them\n4. Add the test cases specified in the Fix Plan\n5. Do not reformat or restyle code you are not fixing\n\n**For each change made:**\n```\nCHANGED [file:line] — [brief description of what changed]\n```\n\n**For any issues noticed but NOT fixed:**\n```\nNOTED (not fixed) [file:line] — [brief description]\n```\n\n**Summary output:**\n```\n## Fix Applied\n\n### Changes Made\n[list of CHANGED lines]\n\n### Tests Added\n[list of new tests]\n\n### Scope Boundary\n[Confirm: "All changes are within the scope defined by the Fix Plan. No other changes were made."]\n```',
@@ -407,12 +395,12 @@ Coverage score: N/10 — [why]
 
     step(wfId, s6, 'Verify Fix',
       'Run the full test suite and confirm the bug no longer reproduces.',
-      300, 955, 'quality-gate',
+      300, 780, 'quality-gate',
       { ...gate('test'), routingRules: [{ id: randomUUID(), condition: 'contains', value: 'STATUS: FAIL', nextStepId: s5 }], maxCycles: 2 }, [s5]);
 
     step(wfId, s7, 'Capture Learnings',
       'Save bug root cause and fix pattern to project learnings.',
-      300, 1130, 'connector',
+      300, 955, 'connector',
       { connectorType: 'capture-learnings', includeDepOutput: true }, [s6]);
   }
 

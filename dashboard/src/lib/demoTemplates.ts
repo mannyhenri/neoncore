@@ -32,8 +32,8 @@ export const DEMO_TEMPLATES: DemoTemplate[] = [
   {
     id: "demo-tpl-2",
     name: "Bug Investigation",
-    description: "Set the workflow description to the bug being investigated. Reproduce → root cause → impact assessment → fix plan (human gate) → implement → verify → capture learnings.",
-    stepNames: ["Reproduce the Bug","Root Cause Analysis","Impact Assessment","Fix Plan","Implement Fix","Verify Fix","Capture Learnings","Workflow Completion Report"],
+    description: "Set the workflow description to the bug being investigated. Reproduce & root cause → impact assessment → fix plan (human gate) → implement → verify → capture learnings.",
+    stepNames: ["Reproduce & Root Cause","Impact Assessment","Fix Plan","Implement Fix","Verify Fix","Capture Learnings","Workflow Completion Report"],
   },
   {
     id: "demo-tpl-3",
@@ -50,7 +50,7 @@ export const DEMO_TEMPLATES: DemoTemplate[] = [
   {
     id: "demo-tpl-5",
     name: "CE: Phase 2 — Plan",
-    description: "Pressure-test the plan from 3 angles before any code is written. Load brainstorm → CEO + Eng + CE Plan run in parallel → merge to docs/[slug]/plan.md.",
+    description: "Pressure-test the plan from 3 angles before any code is written. Load brainstorm → CEO review → Eng review → CE Plan research → merge to docs/[slug]/plan.md.",
     stepNames: ["Load Brainstorm","/plan-ceo-review","/plan-eng-review","CE Plan Research","Write Plan Doc","Phase 2 Complete","Workflow Completion Report"],
   },
   {
@@ -62,8 +62,8 @@ export const DEMO_TEMPLATES: DemoTemplate[] = [
   {
     id: "demo-tpl-7",
     name: "CE: Phase 4 — Review",
-    description: "6 specialist agents run in parallel (security, perf, architecture, quality, codex) → triage P1/P2/P3 → decision checkpoint → resolve P2s → open PR.",
-    stepNames: ["Load Diff + Build Summary","Security Sentinel","CSO / STRIDE Review","Performance Oracle","Architecture Review","Code Quality Review","Codex — Cross-Model Review","Triage — P1 / P2 / P3","Review Decision","Resolve P1s + P2s","Open PR","Phase 4 Complete","Workflow Completion Report"],
+    description: "Specialist reviews (security, perf, architecture, quality, codex) → triage P1/P2/P3 → decision checkpoint → resolve P2s → open PR.",
+    stepNames: ["Load Diff + Build Summary","Security Review","Performance Oracle","Architecture Review","Code Quality Review","Codex — Cross-Model Review","Triage — P1 / P2 / P3","Review Decision","Resolve P1s + P2s","Open PR","Phase 4 Complete","Workflow Completion Report"],
   },
   {
     id: "demo-tpl-8",
@@ -116,20 +116,20 @@ export const DEMO_TEMPLATES: DemoTemplate[] = [
   {
     id: "demo-tpl-16",
     name: "Feature Validation",
-    description: "TDD-based feature validation: specify → define/review tests (human gate) → evaluate code → implement gaps → run tests → final report. Enter the feature description (and optional Jira epic key) in the launch prompt.",
-    stepNames: ["Feature Specification","Test Discovery & Creation","Code Evaluation","Code Implementation","Run Tests","Final Report","Notify","Workflow Completion Report"],
+    description: "TDD-based feature validation: specify → define/review tests (human gate) → evaluate code → implement gaps → run tests. Enter the feature description (and optional Jira epic key) in the launch prompt.",
+    stepNames: ["Feature Specification","Test Discovery & Creation","Code Evaluation","Code Implementation","Run Tests","Notify","Workflow Completion Report"],
   },
   {
     id: "demo-tpl-17",
     name: "Jira Tasks Validation",
     description: "Enter the Jira epic name or key in the launch prompt — each task in the epic is checked against the codebase and transitioned to In QA if requirements are met.",
-    stepNames: ["Fetch & Save Tasks","Validate & Save Results","Summary Report","Notify","Workflow Completion Report"],
+    stepNames: ["Fetch & Save Tasks","Validate & Save Results","Notify","Workflow Completion Report"],
   },
   {
     id: "demo-tpl-18",
     name: "Product Strategy Session",
-    description: "Set the workflow description to the product/feature being reviewed. Premise challenge → alternatives → dream state → dual-voice analysis (CEO vs PM) → 10-dimension strategy review → action plan → capture learnings.",
-    stepNames: ["Context & Premise","Alternatives Analysis","Dream State","Dual Voice Analysis","Strategy Review","Action Plan","Capture Learnings","Save to Project","Notify","Workflow Completion Report"],
+    description: "Set the workflow description to the product/feature being reviewed. Premise challenge → alternatives → dual-voice analysis (CEO vs PM) → 10-dimension scorecard → action plan with a 3-year picture → capture learnings.",
+    stepNames: ["Context & Premise","Alternatives Analysis","Dual Voice Analysis","Strategy Review","Action Plan","Capture Learnings","Save to Project","Notify","Workflow Completion Report"],
   },
   {
     id: "demo-tpl-19",
@@ -145,14 +145,14 @@ export const DEMO_TEMPLATES: DemoTemplate[] = [
   },
   {
     id: "demo-tpl-21",
-    name: "Super QA",
-    description: "Put what to QA in the context: a branch, PR or files (reviewed as a change) or a feature, URL or the whole app (tested as a product). Read the code → functional testing (golden paths, edge cases) → logic & error handling → security → performance & accessibility → test coverage → QA report with one verdict (human gate) → capture learnings.",
-    stepNames: ["Scope & Read the Code","Functional Testing","Logic & Error Handling","Security Review","Performance & Accessibility","Test Coverage","QA Report","Capture Learnings","Notify","Workflow Completion Report"],
+    name: "Resolve PR Conflicts",
+    description: "Run on a feature branch whose PR conflicts with its base: bring the base in → resolve keeping both sides → re-test → push and comment on the PR. Never force-pushes, never merges.",
+    stepNames: ["Bring the base in","Resolve the conflicts","Re-test","Push and report","Workflow Completion Report"],
   },
   {
     id: "demo-tpl-22",
-    name: "UX Audit & Simplify — Dashboard",
-    description: "Audits the web dashboard’s features and how they’re implemented, evaluates them against UX best practices, proposes prioritized simplifications, then — after you approve the scope — implements and verifies the changes.",
-    stepNames: ["Inventory dashboard UI","Evaluate UX vs best practices","Propose simplifications","Design critique","Approve scope","Implement approved fixes","Verify & summarize","Workflow Completion Report"],
+    name: "Super QA",
+    description: "Put what to QA in the context: a branch, PR or files (reviewed as a change) or a feature, URL or the whole app (tested as a product). Read the code → functional testing (golden paths, edge cases) → logic & error handling → security → performance & accessibility → test coverage → QA report with one verdict (human gate) → capture learnings.",
+    stepNames: ["Scope & Read the Code","Functional Testing","Logic & Error Handling","Security Review","Performance & Accessibility","Test Coverage","QA Report","Capture Learnings","Notify","Workflow Completion Report"],
   },
 ];

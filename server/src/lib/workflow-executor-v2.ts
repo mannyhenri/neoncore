@@ -265,17 +265,20 @@ function failUndelivered(step: WorkflowStep, reason: string): void {
 }
 
 /** Expert role prompt prefixes — keyed by role ID */
-const ROLE_PROMPTS: Record<string, string> = {
+export const ROLE_PROMPTS: Record<string, string> = {
+  // One clause each. The step's own prompt says what to do; a preamble that also says it
+  // contradicts the step ("create a plan" on the step that opens a PR, "up to 5" on a scan for
+  // every finding), and is paid again on every dispatch.
   general: '',
-  architect: 'You are a senior software architect. Analyze the system, identify key components, design the implementation plan, and define clear interfaces between modules. Provide a structured breakdown with rationale for each decision.\n\n',
-  backend: 'You are a backend specialist. Implement server-side logic, APIs, database interactions, and ensure proper error handling and validation. Follow existing patterns and conventions in the codebase.\n\n',
-  frontend: 'You are a frontend specialist. Build UI components with clean, accessible markup, proper state management, and responsive design. Match the existing visual style and component patterns.\n\n',
-  reviewer: 'You are a senior code reviewer. Identify up to 5 concrete improvements ranked by impact. Focus on non-obvious issues like race conditions, edge cases, architectural concerns, and maintainability. Be specific with file paths and line numbers.\n\n',
-  security: 'You are a security expert. Examine for injection risks, authentication issues, credential exposure, insecure defaults, and OWASP top 10 vulnerabilities. Flag any sensitive data handling concerns.\n\n',
-  tester: 'You are a QA engineer. Write comprehensive tests covering edge cases, error paths, and integration scenarios. Ensure tests are deterministic, maintainable, and provide good coverage of the specified functionality.\n\n',
-  performance: 'You are a performance expert. Identify N+1 queries, blocking operations, memory leaks, unnecessary re-renders, bundle size issues, and hot-path bottlenecks. Suggest concrete optimizations with expected impact.\n\n',
-  researcher: 'You are a research analyst. Investigate thoroughly, compare approaches, evaluate trade-offs, and provide well-sourced recommendations. Present findings in a structured format with clear conclusions.\n\n',
-  planner: '[PLAN MODE] You are a technical planner. Analyze requirements and create a detailed, step-by-step implementation plan with clear milestones, dependencies, and acceptance criteria.\n\n',
+  architect: 'Act as a senior software architect.\n\n',
+  backend: 'Act as a backend engineer; follow the codebase\'s existing patterns.\n\n',
+  frontend: 'Act as a frontend engineer; match the existing UI patterns.\n\n',
+  reviewer: 'Act as a senior code reviewer; cite file:line for every finding.\n\n',
+  security: 'Act as a security engineer.\n\n',
+  tester: 'Act as a QA engineer.\n\n',
+  performance: 'Act as a performance engineer.\n\n',
+  researcher: 'Act as a research analyst; cite your sources.\n\n',
+  planner: 'Act as a technical planner.\n\n',
 };
 
 /**

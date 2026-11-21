@@ -175,10 +175,10 @@ test('a result this session reported is referred to — hand-off, first line and
   const from = lastRowid();
   const runId = await launch('Bug Investigation');
   assert.equal(await drive(runId, (n) => `${n}: the headline finding\nlong detail ${'x'.repeat(1800)}`), 'completed');
-  const root = received(from).map((r) => r.text).find((t) => t.includes('Root Cause Analysis') && t.includes('Output from previous step'))!;
-  assert.match(root, /\[Output from previous step: "Reproduce the Bug" — you reported this earlier in this session\]/);
-  assert.match(root, /NEXT: next after Reproduce the Bug/);
-  assert.match(root, /Reproduce the Bug: the headline finding/);
+  const root = received(from).map((r) => r.text).find((t) => t.includes('Impact Assessment') && t.includes('Output from previous step'))!;
+  assert.match(root, /\[Output from previous step: "Reproduce & Root Cause" — you reported this earlier in this session\]/);
+  assert.match(root, /NEXT: next after Reproduce & Root Cause/);
+  assert.match(root, /Reproduce & Root Cause: the headline finding/);
   assert.doesNotMatch(root, /x{200}/, 'the full result was pasted back anyway');
   const path = /(\/api\/workflows\/steps\/[^/\s"]+\/result)/.exec(root)![1];
   const res = await fetch(`${app.base}${path}`);

@@ -75,8 +75,9 @@ test('NO template step prompt grew past its recorded size', () => {
       if (prompt.length > max) grew.push(`${template} / ${step}: ${prompt.length} > ${max}`);
     }
   }
-  // 100 since seven templates were removed or merged (CE: Full Delivery alone was 36 steps).
-  assert.ok(checked >= 100, `expected the recorded set, checked ${checked}`);
+  // 90 since the duplicate reports, Dream State and the doubled security / bug steps went
+  // (docs/analysis/workflow-prompt-review.md); 100 before that, after seven templates were merged.
+  assert.ok(checked >= 90, `expected the recorded set, checked ${checked}`);
   assert.deepEqual(grew, [], `update fixtures/template-prompt-sizes.json on purpose if this is intended:\n  ${grew.join('\n  ')}`);
 });
 
