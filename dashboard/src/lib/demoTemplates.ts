@@ -42,12 +42,6 @@ export const DEMO_TEMPLATES: DemoTemplate[] = [
     stepNames: ["Load Work and Goals","Develop and Optimize Every Task","Verify Coverage and Evidence","Goal Achievement Gate","Notify","Workflow Completion Report"],
   },
   {
-    id: "demo-tpl-4",
-    name: "CE: Phase 1 — Interrogate",
-    description: "Challenge the idea before any planning begins. Enter the feature slug + description in launch context. Outputs docs/[slug]/brainstorm.md.",
-    stepNames: ["Load Prior Work","Office Hours — Interrogate","Pick Approach","CE Brainstorm","Write Brainstorm Doc","Phase 1 Complete","Workflow Completion Report"],
-  },
-  {
     id: "demo-tpl-5",
     name: "CE: Phase 2 — Plan",
     description: "Pressure-test the plan from 3 angles before any code is written. Load brainstorm → CEO review → Eng review → CE Plan research → merge to docs/[slug]/plan.md.",

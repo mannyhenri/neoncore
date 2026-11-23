@@ -119,7 +119,7 @@ test('the last stage finishing produces the goal report — every section from t
   const seen: Notice[] = [];
   clearChannels();
   registerChannel({ name: 'collector', isConfigured: () => true, async send(x) { seen.push(x); return { ok: true, dropped: [] }; } });
-  const { pilotId, agent } = await runningPilot(['QA Testing Guide', 'Release Documentation']);
+  const { pilotId, agent } = await runningPilot(['Feature Validation', 'Release Documentation']);
 
   finishRun(stagesOf(pilotId)[0].runId, RUN_REPORT('Wrote the testing guide for <expenses>.'), 'Totals must use integer cents.');
   advancePilot(pilotId);
@@ -138,7 +138,7 @@ test('the last stage finishing produces the goal report — every section from t
   const r = (await call('GET', `/api/goal-pilots/${pilotId}/report`)).json;
   assert.equal(r.status, 'SUCCESS', 'every criterion met (reviewed, confirmed)');
   assert.deepEqual([r.acceptance.passing, r.acceptance.total, r.acceptance.criteria[0].outcome], [1, 1, 'met']);
-  assert.deepEqual(r.stages.map((s: { title: string }) => s.title), ['Do QA Testing Guide', 'Do Release Documentation', 'Independent review of the checklist'], 'every stage, in order');
+  assert.deepEqual(r.stages.map((s: { title: string }) => s.title), ['Do Feature Validation', 'Do Release Documentation', 'Independent review of the checklist'], 'every stage, in order');
   assert.equal(r.stages[0].runReport.executiveSummary, 'Wrote the testing guide for <expenses>.');
   assert.deepEqual(r.outcome, { stagesCompleted: 3, stagesTotal: 3, stagesSkipped: 0, stepsCompleted: r.outcome.stepsTotal, stepsTotal: r.outcome.stepsTotal, testsPassed: 16, testsTotal: 17, issues: 1 });
   assert.deepEqual(r.learnings.map((l: { content: string }) => l.content), ['Totals must use integer cents.']);
@@ -154,7 +154,7 @@ test('the last stage finishing produces the goal report — every section from t
   for (const f of [r.files.html, r.files.markdown, r.files.json]) assert.ok(fs.existsSync(f), `missing ${f}`);
   const html = await call('GET', `/api/goal-pilots/${pilotId}/report/html`);
   assert.match(html.type, /text\/html/);
-  assert.ok(html.text.includes('Do QA Testing Guide') && html.text.includes('Do Release Documentation'));
+  assert.ok(html.text.includes('Do Feature Validation') && html.text.includes('Do Release Documentation'));
   assert.ok(html.text.includes('Acceptance criteria') && html.text.includes('AC-1'), 'the criteria and their evidence are in the report');
   assert.ok(html.text.includes('&lt;expenses&gt;') && !html.text.includes('<expenses>'), 'agent text is escaped, never markup');
   const md = await call('GET', `/api/goal-pilots/${pilotId}/report/markdown`);
@@ -186,7 +186,7 @@ test('the last stage finishing produces the goal report — every section from t
 });
 
 test('a skipped stage is an open item — never counted as delivered — and the status follows the criteria, not the stages', async () => {
-  const { pilotId } = await runningPilot(['QA Testing Guide', 'Release Documentation']);
+  const { pilotId } = await runningPilot(['Feature Validation', 'Release Documentation']);
   finishRun(stagesOf(pilotId)[0].runId, RUN_REPORT('Guide written.'));
   advancePilot(pilotId);
   await call('POST', `/api/goal-pilots/${pilotId}/stages/${stagesOf(pilotId)[1].id}/skip`);
@@ -202,7 +202,7 @@ test('no planner to write the summary: the compiled report stands, nobody is cal
   const seen: Notice[] = [];
   clearChannels();
   registerChannel({ name: 'collector', isConfigured: () => true, async send(x) { seen.push(x); return { ok: true, dropped: [] }; } });
-  const { pilotId, agent } = await runningPilot(['QA Testing Guide']);
+  const { pilotId, agent } = await runningPilot(['Feature Validation']);
   finishRun(stagesOf(pilotId)[0].runId, null);                            // the run filed no report
   advancePilot(pilotId);
   await finishReview(pilotId, 'met', () => {
@@ -224,7 +224,7 @@ test('no planner to write the summary: the compiled report stands, nobody is cal
 });
 
 test('a pipeline cancelled part-way can still get a report of what ran; one where nothing ran cannot', async () => {
-  const { pilotId } = await runningPilot(['QA Testing Guide', 'Release Documentation']);
+  const { pilotId } = await runningPilot(['Feature Validation', 'Release Documentation']);
   finishRun(stagesOf(pilotId)[0].runId, RUN_REPORT('Guide written.'));
   advancePilot(pilotId);
   await call('POST', `/api/goal-pilots/${pilotId}/cancel`);

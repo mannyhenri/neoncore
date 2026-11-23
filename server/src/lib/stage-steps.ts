@@ -16,6 +16,7 @@
  * step another kept step routes to. A step that is left out is removed with its edges rewired: what
  * depended on it now depends on what it depended on, so the graph still runs end to end.
  */
+import { FEATURE_AUTO_SKIPS } from './feature-stages.js';
 import { isReportStep, REPORT_STEP_NAME } from './workflow-report.js';
 
 type StepRow = Record<string, unknown>;
@@ -63,7 +64,8 @@ export function skippableStepNames(steps: StepRow[]): string[] {
  * Compound workflow, and the run's own "Notify".
  */
 export function automaticSkips(laterTemplates: string[]): string[] {
-  const out = ['Notify'];
+  // "Open PR": NeonCore opens, merges and cleans up the feature's PR itself (lib/feature-stages.ts).
+  const out = ['Notify', ...FEATURE_AUTO_SKIPS];
   if (laterTemplates.some((t) => /compound/i.test(t))) out.push('Capture Learnings');
   return out;
 }

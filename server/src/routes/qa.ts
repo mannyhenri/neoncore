@@ -15,7 +15,7 @@ import { requestsOf, getRequest } from '../lib/qa/dispatch.js';
 import { addEvents, coverageOf, recorderKeyMatches, recorderKeyOf, recorderScript, startSession } from '../lib/qa/recorder.js';
 import { evidenceFile, evidenceUrl, runReportHtml } from '../lib/qa/report.js';
 
-import { featureQaReport, runFeatureQa, startFeatureQa } from '../lib/qa/feature-link.js';
+import { featureQaReport, runFeatureQa, runEpicQa, startFeatureQa } from '../lib/qa/feature-link.js';
 
 startFeatureQa();
 const router = Router();
@@ -100,6 +100,8 @@ router.post('/requests/:id/submit', handle((req) => {
 // QA follows the feature (lib/qa/feature-link.ts): a feature's criteria are its test, run by itself; the report per project.
 router.get('/features', handle(() => featureQaReport()));
 router.post('/features/:goalId/run', handle((req) => runFeatureQa(id(req, 'goalId'))));
+// The whole epic of this feature, now — whenever the person decides (it also runs by itself when the epic is finished).
+router.post('/features/:goalId/run-epic', handle((req) => runEpicQa(id(req, 'goalId'))));
 
 // evidence
 router.get('/evidence/:runId/*', handle((req, res) => {

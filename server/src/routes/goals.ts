@@ -1,3 +1,5 @@
+import { laneOf } from '../lib/project-spec.js';
+import { assertCanBeDone, forgetFeature, RoadmapError } from '../lib/roadmap.js';
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { addFeatureFiles, listFeatureFiles, readFeatureFile, removeFeatureFile, deleteFeatureFiles, FeatureFileError } from '../lib/feature-files.js';
@@ -25,7 +27,7 @@ import { guardBusy } from '../lib/queue-if-busy.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
 import { releaseReadyTasks } from './tasks.js';
 import { pilotsForGoal, deletePilotsForGoal } from '../lib/goal-pilot.js';
-import { cancelPilot } from '../lib/goal-pilot-runner.js';
+import { cancelPilot, shipOnDone } from '../lib/goal-pilot-runner.js';
 import { entryForDoneFeature, retractEntryForReopenedFeature } from '../lib/project-changelog.js';
 import { docsChanged } from '../lib/project-docs.js';
 
@@ -123,7 +125,7 @@ function normalizeGoal(row: Record<string, unknown>, extra?: Partial<Goal>): Goa
     position: (row.position as number) ?? 0,
     origin: row.origin === 'imported' ? 'imported' : '',
     doneAt: (row.done_at as string) || '',
-    roadmapLane: (['now', 'next', 'later'].includes(row.roadmap_lane as string) ? row.roadmap_lane : '') as Goal['roadmapLane'],
+    roadmapLane: laneOf(row.roadmap_lane),
     area: (row.area as string) || '',
     name: row.name as string,
     description: (row.description as string) || '',
@@ -260,10 +262,18 @@ router.put('/:id', (req, res) => {
   if (status !== undefined && status !== '' && !['active', 'achieved', 'paused'].includes(String(status))) {
     return res.status(400).json({ error: 'status must be active, achieved or paused' });
   }
+  // NEEDS FIRST (lib/roadmap.ts): this is the only way a feature becomes done — the Mark done button,
+  // a drag to Done on the Board, the tools — so the rule is held here. Nothing else is changed when it is refused.
+  if (status === 'achieved' && row.status !== 'achieved') {
+    try { assertCanBeDone(req.params.id); } catch (err) {
+      if (err instanceof RoadmapError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
+  }
 
-  // Placing it on the roadmap: 'now' | 'next' | 'later', or '' for automatic.
+  // Placing it on the board: 'todo' | 'progress' | 'qa', or '' (anything else) for where its state puts it.
   if (roadmapLane !== undefined) {
-    const lane = ['now', 'next', 'later'].includes(String(roadmapLane)) ? String(roadmapLane) : '';
+    const lane = laneOf(roadmapLane);
     db.prepare('UPDATE goals SET roadmap_lane = ? WHERE id = ?').run(lane, req.params.id);
   }
 
@@ -310,6 +320,9 @@ router.put('/:id', (req, res) => {
   if (status === 'achieved' && row.status !== 'achieved') {
     db.prepare('UPDATE goals SET done_at = ? WHERE id = ?').run(now, req.params.id);
     try { entryForDoneFeature(req.params.id); } catch (err) { console.warn('[changelog] entry for a done feature failed:', err); }
+    // Built on its own branch: done means it lands — PRs merged and the worktrees removed, unless the
+    // person chose "I'll merge it myself" (lib/goal-pilot-runner.ts shipOnDone). git and gh take seconds: after the reply.
+    void shipOnDone(req.params.id);
   } else if (status && status !== 'achieved' && row.status === 'achieved') {
     // An existing (imported) feature reopened is work to do again: it joins the list as planned.
     db.prepare("UPDATE goals SET done_at = '', origin = '' WHERE id = ?").run(req.params.id);
@@ -334,6 +347,8 @@ export function deleteFeatureCascade(goalId: string): void {
   }
   deletePilotsForGoal(goalId);
   deleteFeatureFiles(goalId);
+  // Nothing waits on a feature that is gone.
+  forgetFeature(goalId);
   db.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
 }
 

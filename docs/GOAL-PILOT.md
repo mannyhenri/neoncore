@@ -168,7 +168,7 @@ Hands-off it is released at once by the run's posture.
 ones this feature does not touch. The planner is told only those ("Repos for THIS feature", the rest
 "not part of this feature, leave them alone"), and staffing starts from the same choice.
 
-**Its own branch** (staffing → *Work on its own branch*, ticked by default). When the pipeline starts,
+**Its own branch** (staffing → *Work on its own branch*, unticked by default — a feature works in the repos' own checkouts unless you tick it). When the pipeline starts,
 every chosen repo gets:
 
 | | |

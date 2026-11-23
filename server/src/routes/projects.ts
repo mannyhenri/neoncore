@@ -41,6 +41,7 @@ function normalizeProject(row: Record<string, unknown>, extra?: Partial<Project>
     docsAutoPublish: !!row.docs_auto_publish,
     docsPublishedAt: (row.docs_published_at as string) || '',
     docsPublishError: (row.docs_publish_error as string) || '',
+    archivedAt: (row.archived_at as string) || '',
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     ...extra,
@@ -117,9 +118,14 @@ function withComputedFields(row: Record<string, unknown>): Project {
 
 router.get('/', (req, res) => {
   const goalId = req.query.goalId as string | undefined;
+  // The projects in use; ?archived=1 for the archived ones instead (most recently archived first).
+  if (req.query.archived === '1') {
+    const rows = db.prepare("SELECT * FROM projects WHERE archived_at != '' ORDER BY archived_at DESC").all() as Record<string, unknown>[];
+    return res.json(rows.map(withComputedFields));
+  }
   const rows = goalId
-    ? db.prepare('SELECT * FROM projects WHERE goal_id = ? ORDER BY created_at DESC').all(goalId) as Record<string, unknown>[]
-    : db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Record<string, unknown>[];
+    ? db.prepare("SELECT * FROM projects WHERE goal_id = ? AND archived_at = '' ORDER BY created_at DESC").all(goalId) as Record<string, unknown>[]
+    : db.prepare("SELECT * FROM projects WHERE archived_at = '' ORDER BY created_at DESC").all() as Record<string, unknown>[];
 
   res.json(rows.map(withComputedFields));
 });
@@ -164,8 +170,18 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Project not found' });
 
-  const { name, description, goalId, primaryRepo, color, cartridges, architecture, docsAutoPublish } = req.body;
+  const { name, description, goalId, primaryRepo, color, cartridges, architecture, docsAutoPublish, archived } = req.body;
   const now = new Date().toISOString();
+
+  // ARCHIVE / RESTORE. Not while a feature is under way: its work would vanish from sight mid-run.
+  if (archived !== undefined) {
+    if (typeof archived !== 'boolean') return res.status(400).json({ error: 'archived must be true or false' });
+    if (archived) {
+      const busy = (withComputedFields(row).featuresActive ?? 0);
+      if (busy > 0) return res.status(409).json({ error: `Not while ${busy} feature${busy === 1 ? ' is' : 's are'} under way — finish or stop ${busy === 1 ? 'it' : 'them'} first.` });
+    }
+    db.prepare('UPDATE projects SET archived_at = ? WHERE id = ?').run(archived ? (String(row.archived_at || '') || now) : '', req.params.id);
+  }
 
   db.prepare(`
     UPDATE projects SET name = ?, description = ?, goal_id = ?, primary_repo = ?, color = ?, updated_at = ?,

@@ -268,6 +268,12 @@ interface ReasonDef {
    * `autonomy.ts` derives AUTO_RESOLVABLE and NEVER_AUTO from this rather than restating them.
    */
   autoAt: readonly ('advance' | 'full')[];
+  /**
+   * Can only a PERSON clear it? True: its notice interrupts you ("needs you"). False: NeonCore
+   * handles it itself (nudging a quiet cartridge) or it is a heads-up (a budget or grant running
+   * low) — information, never "needs you". Asked of every reason so none is left unclassified.
+   */
+  person: boolean;
   detect: (ctx: DetectCtx) => Hit | null;
 }
 
@@ -276,6 +282,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'failed',
     order: 1,
     autoAt: [],                       // breakage — never auto-resolved, at any level
+    person: true,
     detect: ({ steps }) => {
       const s = steps.find((x) => x.status === 'failed');
       return s ? { step: s, detail: `"${s.name}" failed — the run cannot continue.` } : null;
@@ -285,6 +292,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'interrupted',
     order: 2,
     autoAt: [],                       // breakage — recovery is a decision, not a default
+    person: true,
     detect: ({ steps }) => {
       const s = steps.find((x) => x.status === 'running' && x.recovery_status === 'interrupted');
       return s ? { step: s, detail: `"${s.name}" was interrupted and needs recovery.` } : null;
@@ -295,6 +303,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'decision',
     order: 3,
     autoAt: ['full'],
+    person: true,
     detect: ({ steps }) => {
       const s = steps.find((x) => x.status === 'running' && x.executor_type === 'decision');
       if (!s) return null;
@@ -311,6 +320,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'tasks-outstanding',
     order: 3.5,
     autoAt: [],
+    person: true,
     detect: ({ steps }) => {
       for (const s of steps) {
         if (s.status !== 'completed') continue;
@@ -340,6 +350,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'agent-waiting',
     order: 4,
     autoAt: ['full'],
+    person: true,
     detect: ({ steps }) => {
       const s = steps.find((x) => {
         if (x.status !== 'running' || !x.executor_id) return false;
@@ -376,6 +387,7 @@ export const REASONS: readonly ReasonDef[] = [
     // no channel to deliver it down. Granting this would queue a message into the void and
     // record it as handled.
     autoAt: [],
+    person: true,
     detect: ({ steps }) => {
       const s = steps.find((x) => {
         if (x.status !== 'running' || !x.executor_id) return false;
@@ -411,6 +423,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'agent-idle',
     order: 6,
     autoAt: ['advance', 'full'],
+    person: false,
     detect: ({ steps }) => {
       const s = steps.find((x) => {
         if (x.status !== 'running' || !x.executor_id) return false;
@@ -456,6 +469,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'agent-silent',
     order: 7,
     autoAt: ['advance', 'full'],
+    person: false,
     detect: ({ workflowId, steps }) => {
       // Computed ONCE per sweep, not per step: it is a property of the run, and the query
       // behind it costs 0.06ms against an index that already exists.
@@ -505,6 +519,7 @@ export const REASONS: readonly ReasonDef[] = [
     // everything reaching here is a bound that exists to stop a runaway loop. Overriding those
     // without a person is the one thing the bounds are for.
     autoAt: [],
+    person: false,
     detect: ({ steps }) => {
       for (const x of steps) {
         if (x.status !== 'running') continue;
@@ -569,6 +584,7 @@ export const REASONS: readonly ReasonDef[] = [
     // level extending its own authority. autonomy.test.ts already states the principle — "a
     // time-box that keeps granting is decorative".
     autoAt: [],
+    person: false,
     detect: ({ workflowId, steps }) => {
       const wf = db.prepare(
         'SELECT autonomy, autonomy_expires_at FROM workflows WHERE id = ?',
@@ -600,6 +616,7 @@ export const REASONS: readonly ReasonDef[] = [
     name: 'manual-advance',
     order: 10,
     autoAt: ['advance', 'full'],
+    person: true,
     detect: ({ steps }) => {
       const anyPending = steps.some((x) => x.status === 'pending');
       const s = steps.find((x) => x.status === 'completed' && x.auto_advance === 0);
@@ -609,6 +626,10 @@ export const REASONS: readonly ReasonDef[] = [
     },
   },
 ];
+
+/** The reasons only a person can clear — derived from the registry, never restated. */
+export const PERSON_REASONS: readonly AttentionReason[] = REASONS.filter((r) => r.person).map((r) => r.name);
+
 
 /** The registry in precedence order. Sorted once at module load, not per sweep. */
 const ORDERED_REASONS = [...REASONS].sort((a, b) => a.order - b.order);

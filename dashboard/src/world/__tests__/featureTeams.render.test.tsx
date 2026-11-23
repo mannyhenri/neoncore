@@ -25,7 +25,7 @@ vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 import { WorldScene } from '../WorldScene';
 import { OUTPOST } from '../sites';
 import { FEATURE_BADGES } from '../milestones';
-import { clearPlates, PLATE_CLEAR } from '../FeaturePlates';
+import { MAX_PLATES, plateOrder } from '../FeaturePlates';
 
 const iso = () => new Date().toISOString();
 const agent = (over: Partial<Agent> & { id: string }): Agent => ({
@@ -110,24 +110,41 @@ describe('features on the map', () => {
   });
 });
 
-describe('feature plates never sit on top of each other', () => {
-  it('a plate keeps its place unless an earlier one is in the way; then it is lifted clear — for any number of plates at one spot', () => {
-    for (const count of [1, 2, 3, 6]) {
-      const out = clearPlates(Array.from({ length: count }, () => ({ x: 0.5, y: 0.4, tag: 'same spot' })));
-      expect(out[0]).toEqual({ x: 0.5, y: 0.4, tag: 'same spot' });
-      // Every pair is clear of each other.
-      for (let a = 0; a < count; a++) for (let b = a + 1; b < count; b++) {
-        expect(Math.abs(out[a]!.y - out[b]!.y) >= PLATE_CLEAR.y - 1e-9, `${count} plates: ${a} and ${b}`).toBe(true);
-      }
-      expect(out.map((p) => p!.x)).toEqual(Array(count).fill(0.5));
+describe('feature plates sit right under their project\'s sign', () => {
+  const feat = (n: number, over: Record<string, unknown> = {}) => ({ ...invoice, pilotId: `px${n}`, goalId: `gx${n}`, name: `Feature ${n}`, stage: { position: n, total: 9, title: 'x' }, agentIds: [], ...over });
+  const stackOf = (projectId: string) => document.querySelector<HTMLElement>(`[data-feature-stack="${projectId}"]`)!;
+
+  it('every plate of a project is in one stack, anchored where its signpost stands — not over its agents', () => {
+    extras.projects = [atlas];
+    extras.features = [invoice, exportCsv];
+    extras.goals = goalsFor;
+    render(scene([agent({ id: 'wt-gl', repoPath: '/code/gl-dev-feature-invoice-import', repoName: 'gl-dev-feature-invoice-import' }), agent({ id: 'lic', repoPath: '/code/license-server' })]));
+    const stack = stackOf('p1');
+    const sign = document.querySelector<HTMLElement>('[data-zone-label]')!;
+    expect(stack.style.left).toBe(sign.style.left);
+    expect(stack.style.top).toBe(sign.style.top);
+    expect([...stack.querySelectorAll('[data-feature-plate]')].map((n) => n.getAttribute('data-feature-plate')).sort()).toEqual(['pi1', 'pi2']);
+    expect(document.querySelectorAll('[data-feature-plate]')).toHaveLength(2);
+  });
+
+  it(`at most ${MAX_PLATES} plates under a sign, those that need you first — the rest counted`, () => {
+    extras.projects = [atlas];
+    for (const count of [1, MAX_PLATES, MAX_PLATES + 1, 7]) {
+      const list = Array.from({ length: count }, (_, i) => feat(i + 1, i === count - 1 ? { needsYou: 'stopped' } : {}));
+      extras.features = list;
+      render(scene([]));
+      const shown = [...stackOf('p1').querySelectorAll('[data-feature-plate]')].map((n) => n.getAttribute('data-feature-plate'));
+      expect(shown).toEqual(plateOrder(list as unknown as (Parameters<typeof plateOrder>[0][number] & { pilotId: string })[]).slice(0, MAX_PLATES).map((f) => f.pilotId));
+      expect(shown[0], 'the one that needs you leads').toBe(`px${count}`);
+      const more = stackOf('p1').querySelector('[data-feature-more]');
+      if (count > MAX_PLATES) expect(more!.textContent).toBe(`+${count - MAX_PLATES} more under way`);
+      else expect(more).toBeNull();
+      cleanup();
     }
-    // Side by side but far enough apart, or one well above the other: nothing moves.
-    const apart = [{ x: 0.2, y: 0.4 }, { x: 0.2 + PLATE_CLEAR.x, y: 0.4 }, { x: 0.2, y: 0.4 - PLATE_CLEAR.y }];
-    expect(clearPlates(apart)).toEqual(apart);
-    // A feature with no place stays without one, and is in nobody's way.
-    const mixed = clearPlates([null, { x: 0.5, y: 0.4 }, null, { x: 0.55, y: 0.41 }]);
-    expect([mixed[0], mixed[1], mixed[2]]).toEqual([null, { x: 0.5, y: 0.4 }, null]);
-    expect(mixed[3]!.x).toBe(0.55);
-    expect(0.4 - mixed[3]!.y).toBeGreaterThanOrEqual(PLATE_CLEAR.y - 1e-9);
+  });
+
+  it('plate order: needs you first, then furthest along, then by name — for every pair', () => {
+    const a = feat(2), b = feat(5), c = feat(5, { name: 'Alpha' }), d = feat(1, { needsYou: 'x' });
+    expect(plateOrder([a, b, c, d] as unknown as (Parameters<typeof plateOrder>[0][number] & { pilotId: string })[]).map((f) => f.pilotId)).toEqual([d.pilotId, c.pilotId, b.pilotId, a.pilotId]);
   });
 });

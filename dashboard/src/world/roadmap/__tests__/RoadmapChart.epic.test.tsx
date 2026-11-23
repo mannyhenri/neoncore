@@ -1,6 +1,6 @@
 /**
- * AN EPIC'S DATE AND WHAT IT WAITS ON, on the roadmap chart: what its lane says for every state an
- * epic can be in, and the editor that sets both — one call to the server.
+ * AN EPIC'S DATE AND WHAT IT WAITS ON, on the roadmap's route: what its card and its stop say for every
+ * state an epic can be in, and the editor that sets both — one call to the server.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
@@ -30,6 +30,7 @@ const calls = vi.hoisted(() => ({
 }));
 vi.mock('../../../lib/api', () => ({ api: calls }));
 import { RoadmapChart, epicStatus } from '../RoadmapChart';
+import { datePill } from '../EpicCards';
 
 const project = { id: 'p1', name: 'Orbit' } as never;
 const mount = async () => {
@@ -38,8 +39,6 @@ const mount = async () => {
   return view;
 };
 beforeEach(() => {
-  // These are the TIMELINE's tests; the roadmap opens on the route (RoadmapChart.route.test.tsx).
-  window.localStorage.setItem('neoncore.roadmap.view', 'timeline');
   for (const f of Object.values(calls)) { f.mockReset(); f.mockResolvedValue(CHART); }
   calls.getProjectRewards.mockResolvedValue({ families: [], rank: { index: 2, id: 'commander', title: 'Commander', commendations: 2, next: { title: 'Admiral', at: 3 } } });
 });
@@ -55,14 +54,17 @@ describe('an epic\'s date and dependencies on the chart', () => {
     e5: [{ kind: 'waits', text: 'Waits on Epic 4' }, { kind: 'due', text: 'Due Dec 24' }],
     e6: [],
   };
-  it.each(EPICS.map((e) => ({ name: e.name, e })))('$name: what its lane says', async ({ e }) => {
+  it.each(EPICS.map((e) => ({ name: e.name, e })))('$name: what its card says', async ({ e }) => {
     expect(epicStatus(e, numberOf)).toEqual(WANT[e.id]);
     const { container } = await mount();
-    const shown = container.querySelector(`[data-epic-status="${e.id}"]`);
-    if (WANT[e.id].length === 0) { expect(shown).toBeNull(); return; }
-    expect([...shown!.querySelectorAll('[data-kind]')].map((s) => ({ kind: s.getAttribute('data-kind'), text: s.textContent }))).toEqual(WANT[e.id]);
-    // A dated epic has its date marked on its lane; an undated one has no mark.
-    expect(container.querySelector(`[data-epic-due="${e.id}"]`) !== null).toBe(e.targetDate !== '');
+    const card = container.querySelector(`[data-epic-card="${e.id}"]`)!;
+    // Its date: a pill when it has one, in the state the date is in; none for an undated epic.
+    const pill = card.querySelector('[data-epic-pill="date"]');
+    const want = datePill(e);
+    expect(pill !== null).toBe(e.targetDate !== '');
+    if (want) expect({ kind: pill!.getAttribute('data-kind'), text: pill!.textContent }).toEqual(want);
+    // What it waits on: one pill per epic it needs, met or not.
+    expect([...card.querySelectorAll('[data-epic-pill="needs"]')].map((n) => n.getAttribute('data-met'))).toEqual((e.dependsOn ?? []).map((id) => String(!(e.blockedBy ?? []).includes(id))));
   });
 
   it('one day after its date reads "1 day", and an epic from an older server (no date fields) says nothing', () => {

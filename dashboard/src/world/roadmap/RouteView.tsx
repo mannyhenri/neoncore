@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { RoadmapChart as Chart, RoadmapEpic, RoadmapFeature, RoadmapFeatureState } from '../../types';
 import { ROUTE, STAGE_COLOUR, STAGE_LABEL, currentStop, epicStage, routeLayout } from './routeLayout';
+import { EpicCards } from './EpicCards';
 
 const LEG_STYLE = {
   travelled: { stroke: '#34D36B', width: 3, dash: undefined, opacity: 0.95 },
@@ -22,7 +23,7 @@ const CANVAS_H = 380;
 const short = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const FEATURE_WORD: Record<RoadmapFeatureState, string> = { delivered: 'Delivered', 'under-way': 'Under way', planned: 'Planned', late: 'Late' };
 
-export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node, destination, ship, editor, onPickFeature, onStart, onAddEpic, onAddFeature, padBottom }: {
+export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node, destination, ship, editor, onPickFeature, onStart, onAddEpic, onAddFeature, onReorder, onDeleteEpic, onMoveFeature, padBottom }: {
   chart: Chart; busy: boolean;
   /** The feature whose card is open, if any. */
   selectedFeature: string | null;
@@ -39,6 +40,9 @@ export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node,
   onStart: (featureId: string) => void;
   onAddEpic: () => void;
   onAddFeature: (epicId: string, name: string, date: string) => void;
+  onReorder: (ids: string[]) => void;
+  onDeleteEpic: (epic: RoadmapEpic) => void;
+  onMoveFeature: (featureId: string, epicId: string) => void;
   padBottom?: number;
 }) {
   const stages = useMemo(() => chart.epics.map(epicStage), [chart.epics]);
@@ -65,25 +69,21 @@ export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node,
   const [picked, setPicked] = useState<string | null>(null);
   const shownIndex = Math.max(0, chart.epics.findIndex((e) => e.id === picked) >= 0 ? chart.epics.findIndex((e) => e.id === picked) : Math.min(at, chart.epics.length - 1));
   const shown = chart.epics[shownIndex] ?? null;
-  const [editing, setEditing] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState('');
-  const [date, setDate] = useState('');
-  const pick = (id: string) => { setPicked(id); setEditing(false); setAdding(false); };
+  const pick = (id: string) => setPicked(id);
   const names = new Map(chart.epics.flatMap((e) => e.features).concat(chart.unassigned).map((f) => [f.id, f.name]));
   const total = chart.epics.reduce((n, e) => n + e.progress.total, 0);
   const delivered = chart.epics.reduce((n, e) => n + e.progress.done, 0);
 
   const chip = (f: RoadmapFeature) => {
     const on = selectedFeature === f.id;
-    const waits = f.blockedBy.length > 0;
+    const waits = f.blockedBy.length > 0 || (f.waitsOnEpics ?? []).length > 0;
     return (
       <button key={f.id} data-route-feature={f.id} data-state={f.state} data-selected={on || undefined} onClick={() => onPickFeature(f.id)}
-        title={`${f.name} — ${FEATURE_WORD[f.state]}${f.targetDate ? `, due ${f.targetDate}` : ''}${waits ? ` · waits on ${f.blockedBy.map((id) => names.get(id) ?? 'another feature').join(', ')}` : ''}`}
+        title={`${f.name} — ${FEATURE_WORD[f.state]}${f.targetDate ? `, due ${f.targetDate}` : ''}${waits ? ` · waits on ${[...f.blockedBy.map((id) => names.get(id) ?? 'another feature'), ...(f.waitsOnEpics ?? []).map((id) => `the epic ${chart.epics.find((e) => e.id === id)?.name ?? ''}`)].join(', ')}` : ''}`}
         className={`flex items-center gap-2 h-9 pl-2.5 pr-3 rounded-[9px] border text-left text-[13px] transition-colors ${on ? 'border-[#3FB4FF] bg-[rgba(20,70,130,0.6)] text-white' : 'border-white/[0.12] bg-[rgba(10,18,36,0.7)] text-gray-200 hover:border-white/30'}`}>
         {node(f.state)}
         <span className={`min-w-0 flex-1 truncate ${f.state === 'delivered' ? 'text-gray-400' : ''}`}>{f.name}</span>
-        {waits && <span aria-hidden="true" className="text-[11px] text-amber-200">🔒</span>}
+        {waits && <span data-waits aria-hidden="true" className="text-[11px] text-amber-200">⛓</span>}
         {f.targetDate && <span className={`shrink-0 text-[11px] tabular-nums ${f.state === 'late' ? 'text-[#FF8A3D]' : 'text-gray-400'}`}>{short(f.targetDate)}</span>}
       </button>
     );
@@ -177,49 +177,11 @@ export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node,
         </div>
       </div>
 
-      {/* ── THE STOP ON SHOW ────────────────────────────────────────────── */}
-      {shown && (
-        <section data-route-epic={shown.id} className="relative mt-3 rounded-[14px] border border-[rgba(96,160,255,0.22)] bg-[rgba(8,14,30,0.72)] px-5 py-4">
-          {editing ? <div className="relative min-h-[420px]">{editor(shown, () => setEditing(false))}</div> : (
-            <>
-              <div className="flex items-start gap-4 flex-wrap">
-                {iconOf(shown, shownIndex) && <img src={iconOf(shown, shownIndex)!.src} alt="" className="w-11 h-11 shrink-0" style={{ imageRendering: 'pixelated' }} />}
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-bold tracking-[0.14em] uppercase" style={{ color: STAGE_COLOUR[stages[shownIndex]] }}>Epic {shownIndex + 1} · {STAGE_LABEL[stages[shownIndex]]}</p>
-                  <h4 className="font-display text-[19px] font-semibold text-white leading-tight">{shown.name}</h4>
-                  {shown.outcome && <p className="text-[13px] text-gray-300 mt-0.5">{shown.outcome}</p>}
-                  {shown.doneWhen && <p className="text-[12px] text-emerald-300/85 mt-0.5">✓ Done when: {shown.doneWhen}</p>}
-                  {notesOf(shown).length > 0 && (
-                    <p data-route-notes className="mt-1.5 flex gap-2 flex-wrap">
-                      {notesOf(shown).map((n) => <span key={n.kind} data-kind={n.kind} className="px-2 h-6 inline-flex items-center rounded-[6px] border border-white/[0.14] bg-white/[0.04] text-[12px] text-gray-100">{n.text}</span>)}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {shown.nextUp && <button data-route-start={shown.id} onClick={() => onStart(shown.nextUp!)} className="btn-primary h-9 px-4 rounded-[9px] text-[13px] font-semibold" title={`Start next: ${names.get(shown.nextUp) ?? ''}`}>Start next ▸</button>}
-                  <button data-route-add-feature onClick={() => { setAdding(true); setName(''); setDate(''); }} className="btn-ghost h-9 px-3 rounded-[9px] text-[13px] font-semibold">+ Feature</button>
-                  <button data-route-edit onClick={() => setEditing(true)} aria-label={`Edit the epic ${shown.name}`} className="btn-ghost h-9 px-3 rounded-[9px] text-[13px]">Edit epic</button>
-                </div>
-              </div>
-              <div role="progressbar" aria-label={`${shown.name}: features delivered`} aria-valuemin={0} aria-valuemax={shown.progress.total} aria-valuenow={shown.progress.done} className="mt-3 h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
-                <span className="block h-full" style={{ width: `${shown.progress.total ? Math.round((shown.progress.done / shown.progress.total) * 100) : 0}%`, background: STAGE_COLOUR[stages[shownIndex]] }} />
-              </div>
-              <p className="mt-1 text-[12px] text-gray-400">{shown.progress.done} of {shown.progress.total} features delivered</p>
-              {adding && (
-                <form data-route-adder className="mt-3 flex items-center gap-2 flex-wrap" onSubmit={(ev) => { ev.preventDefault(); if (name.trim()) { onAddFeature(shown.id, name.trim(), date); setAdding(false); } }}>
-                  <input value={name} onChange={(ev) => setName(ev.target.value)} aria-label="New feature name" placeholder="Feature name" className="glass-input h-9 px-3 rounded-[9px] text-[13px] w-[260px]" />
-                  <input type="date" value={date} onChange={(ev) => setDate(ev.target.value)} aria-label="New feature target date" className="glass-input h-9 px-2 rounded-[9px] text-[13px] text-gray-100" />
-                  <button type="submit" disabled={busy || !name.trim()} className="btn-primary h-9 px-3 rounded-[9px] text-[13px] font-semibold disabled:opacity-40">Add</button>
-                  <button type="button" onClick={() => setAdding(false)} className="btn-ghost h-9 px-3 rounded-[9px] text-[13px]">Cancel</button>
-                </form>
-              )}
-              <div data-route-features className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                {shown.features.map(chip)}
-                {shown.features.length === 0 && <p className="text-[13px] text-gray-400">No features in this epic yet — add the first with “+ Feature”.</p>}
-              </div>
-            </>
-          )}
-        </section>
+      {/* ── THE EPICS, AS CARDS (EpicCards.tsx) ─────────────────────────── */}
+      {chart.epics.length > 0 && (
+        <EpicCards chart={chart} stages={stages} selected={shown?.id ?? null} onSelect={pick} selectedFeature={selectedFeature} onPickFeature={onPickFeature}
+          iconOf={iconOf} editor={editor} busy={busy} onStart={onStart} onAddEpic={onAddEpic} onAddFeature={onAddFeature}
+          onReorder={onReorder} onDelete={onDeleteEpic} onMoveFeature={onMoveFeature} />
       )}
 
       {/* features in no epic: not on the route until they are given one */}

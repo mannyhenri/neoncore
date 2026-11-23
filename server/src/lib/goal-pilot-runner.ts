@@ -52,7 +52,7 @@ import { notifyAll } from './channels.js';
 import { pauseRun, resumeRun, cancelRun } from '../routes/workflows.js';
 import {
   type GoalPilot, type PilotStage, type PilotRequest, type Staffing, type StageStatus, type FeatureWorkspace,
-  PilotError, BRIEF_FIELDS, getPilot, getStage, getRequest, requestPrompt, stagesOf, requestsOf, pilotsInPhase,
+  PilotError, BRIEF_FIELDS, getPilot, getStage, getRequest, requestPrompt, stagesOf, requestsOf, pilotsInPhase, pilotsForGoal,
   createRequestRow, setRequestPrompt, failRequest, setPhase, setAttention, updateStage,
   involvementOf, templateIdForName, answerText, PLANNER_KINDS,
 } from './goal-pilot.js';
@@ -858,7 +858,7 @@ export function advancePilot(pilotId: string): void {
  * The pipeline is done: compile the goal report now (it never waits on a model), tell the person,
  * and ask the planner for the narrative summary on top.
  */
-/** Push the feature's branches and open its PRs, then say what happened (lib/feature-workspace.ts). */
+/** Push the feature's branches and open its PRs for review, then say what happened (lib/feature-workspace.ts). Never merges. */
 export async function openPrsAndTell(pilotId: string): Promise<void> {
   try {
     const ws = await openFeaturePRs(pilotId);
@@ -868,11 +868,39 @@ export async function openPrsAndTell(pilotId: string): Promise<void> {
     const failed = ws.repos.filter((r) => !r.pr && r.error && !r.removed);
     const body = [opened.map((r) => `${path.basename(r.repoPath)}: ${r.pr!.url}`).join(' · '),
       failed.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · '),
-      opened.length ? 'Review it, then press Merge on the feature: NeonCore merges every PR, then removes the worktrees, branches and their cartridges.' : '',
+      opened.length ? 'Review it, then mark the feature done: NeonCore merges every PR, then removes the worktrees, branches and their cartridges — or choose "I\'ll merge it myself" there.' : '',
     ].filter(Boolean).join(' — ') || 'Nothing to merge.';
-    announcePilot(pilotId, 'prs-opened', opened.length ? `${opened.length} PR${opened.length === 1 ? '' : 's'} ready — merge?` : 'no PR could be opened', body, 'action');
+    announcePilot(pilotId, 'prs-opened', opened.length ? `${opened.length} PR${opened.length === 1 ? '' : 's'} ready for review` : 'no PR could be opened', body, 'action');
   } catch (err) {
     console.error('[goal-pilot] opening PRs failed:', err);
+  }
+}
+
+/**
+ * THE FEATURE WAS MARKED DONE (goals PUT → achieved: the button, the Board, the tools). Its own
+ * branch lands: the PRs are opened if they are not yet, then — unless the person chose "I'll merge it
+ * myself" — merged (all or none) and the worktrees, branches and cartridges removed. A pipeline still
+ * running is left alone: an agent may be working in the worktree.
+ */
+export async function shipOnDone(goalId: string): Promise<void> {
+  const pilot = pilotsForGoal(goalId).find((p) => p.workspace && !p.workspace.cleanedAt);
+  if (!pilot || pilot.phase === 'running' || pilot.phase === 'paused') return;
+  try {
+    let ws = pilot.workspace!;
+    if (!ws.prsAt || ws.repos.some((r) => !r.removed && !r.pr)) {
+      ws = (await openFeaturePRs(pilot.id)) ?? ws;
+      emitPilotUpdate(pilot.id);
+    }
+    const open = ws.repos.filter((r) => !r.removed && r.pr?.state === 'open');
+    if (ws.mergeMyself) {
+      announcePilot(pilot.id, 'prs-opened', `done — ${open.length} PR${open.length === 1 ? '' : 's'} left open for you to merge`,
+        [open.map((r) => `${path.basename(r.repoPath)}: ${r.pr!.url}`).join(' · '),
+          'Once it is merged on GitHub, NeonCore removes the worktrees, the branch and their cartridges.'].filter(Boolean).join(' — '), 'info');
+      return;
+    }
+    await mergeAndTell(pilot.id);
+  } catch (err) {
+    console.error(`[goal-pilot] shipping ${pilot.id.slice(0, 8)} on done failed:`, err);
   }
 }
 
@@ -891,7 +919,7 @@ function tellMerged(pilotId: string): void {
   if (ws.cleanedAt) {
     announcePilot(pilotId, 'merged', 'merged and cleaned up', `${ws.repos.length} PR${ws.repos.length === 1 ? '' : 's'} merged; the worktrees, the ${ws.branch} branch and their cartridges are gone.`, 'info');
   } else if (stuck.length) {
-    announcePilot(pilotId, 'merge-blocked', 'not merged yet', stuck.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · '), 'action');
+    announcePilot(pilotId, 'merge-blocked', 'not merged yet — your decision', `${stuck.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · ')}. Nothing was merged and the worktrees stay. Resolve it, then press Merge on the feature — or merge it on GitHub and NeonCore cleans up.`, 'action');
   }
 }
 

@@ -1585,10 +1585,12 @@ for (const [table, column, decl] of [
   ['goals', 'origin', "TEXT NOT NULL DEFAULT ''"],
   // When the feature was marked done — a date that does not move when it is edited later.
   ['goals', 'done_at', "TEXT NOT NULL DEFAULT ''"],
-  // Where the person PUT it on the roadmap: '' = automatic (Now while its pipeline is live, else
-  // Next/Later by list position), or 'now' | 'next' | 'later'. Done always follows status.
+  // Where the person PUT it on the board: '' = where its state puts it (To do / In Progress / QA),
+  // or 'todo' | 'progress' | 'qa' (older 'now' | 'next' | 'later' read as ''). Done always follows status.
   ['goals', 'roadmap_lane', "TEXT NOT NULL DEFAULT ''"],
   ['projects', 'architecture', "TEXT NOT NULL DEFAULT ''"],
+  // ARCHIVED: when it was put away ('' = in use). Off the map and the lists; nothing of it is deleted.
+  ['projects', 'archived_at', "TEXT NOT NULL DEFAULT ''"],
   ['projects', 'docs_auto_publish', 'INTEGER NOT NULL DEFAULT 0'],
   ['projects', 'docs_published_at', "TEXT NOT NULL DEFAULT ''"],
   ['projects', 'docs_publish_error', "TEXT NOT NULL DEFAULT ''"],

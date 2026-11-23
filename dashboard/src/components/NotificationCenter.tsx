@@ -1,11 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { focusIfIdle } from '../lib/focus';
-import type { PermissionRequest, StuckAlert, Agent, WorkflowNotification } from '../types';
+import type { PermissionRequest, StuckAlert, Agent, WorkflowNotification, NeedsYouItem } from '../types';
+import { projectHash, UNFILED } from '../lib/projectSelection';
 
 interface Props {
   pendingPermissions: PermissionRequest[];
   stuckAlerts: StuckAlert[];
   workflowNotifications: WorkflowNotification[];
+  /**
+   * Everything waiting on the person right now, from the server's state (GET /needs-you) — not
+   * events. It stays until the thing is done, whether or not the bell saw it happen.
+   */
+  needsYou?: NeedsYouItem[];
   agents: Agent[];
   onDecide: (id: string, decision: 'allowed' | 'denied', response?: Record<string, unknown>) => void;
   onDismissStuck: (agentId: string) => void;
@@ -170,12 +176,36 @@ function WorkflowNotificationItem({
   );
 }
 
-export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNotifications, agents, onDecide, onDismissStuck, onDismissWorkflow }: Props) {
+const NEEDS_YOU_LABEL: Record<NeedsYouItem['kind'], string> = {
+  questions: 'Questions', plan: 'Plan', start: 'Start', tests: 'Tests', checklist: 'Checklist', cartridge: 'Cartridge',
+  stopped: 'Stopped', run: 'Waiting', 'mark-done': 'Done?', 'merge-blocked': 'Merge', 'merge-yourself': 'Merge',
+};
+
+function NeedsYouRow({ item, onOpen }: { item: NeedsYouItem; onOpen: () => void }) {
+  const link = !!item.goalId;
+  return (
+    <button type="button" onClick={onOpen} disabled={!link} data-testid="needs-you-item"
+      className="w-full text-left p-3.5 rounded-xl border bg-ember-500/[0.07] border-ember-500/35 hover:bg-ember-500/[0.12] disabled:cursor-default">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-ember-500/20 text-ember-200">{NEEDS_YOU_LABEL[item.kind]}</span>
+        <span className="text-[13px] text-gray-100 font-semibold truncate">{item.title}</span>
+      </div>
+      <p className="text-[12px] text-gray-300 mt-1.5 leading-snug line-clamp-4">{item.what}</p>
+    </button>
+  );
+}
+
+/** Open the feature the item is about. A run that is no feature's says what to do in its line. */
+function openNeedsYou(item: NeedsYouItem): void {
+  if (item.goalId) window.location.hash = projectHash(item.projectId || UNFILED, item.goalId);
+}
+
+export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNotifications, needsYou = [], agents, onDecide, onDismissStuck, onDismissWorkflow }: Props) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const total = pendingPermissions.length + stuckAlerts.length + workflowNotifications.length;
+  const total = needsYou.length + pendingPermissions.length + stuckAlerts.length + workflowNotifications.length;
 
   // Close on outside click
   useEffect(() => {
@@ -253,6 +283,14 @@ export function NotificationCenter({ pendingPermissions, stuckAlerts, workflowNo
             {total === 0 && (
               <div className="text-center py-8 text-gray-600 text-xs">
                 No pending notifications
+              </div>
+            )}
+
+            {/* Waiting on you — from state, so it is here whether or not the bell saw it happen */}
+            {needsYou.length > 0 && (
+              <div className="space-y-2" data-testid="needs-you">
+                <div className="text-[11px] uppercase tracking-wider text-ember-300 px-1">Needs you · {needsYou.length}</div>
+                {needsYou.map((item) => <NeedsYouRow key={item.key} item={item} onOpen={() => { openNeedsYou(item); setOpen(false); }} />)}
               </div>
             )}
 

@@ -681,7 +681,7 @@ export function createClient(config: ClientConfig = {}) {
   // The intent fields are what actually reach the agents at dispatch (lib/goal-brief.ts).
   createGoal: (data: { name: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string }) =>
     request<import('./types').Goal>('/goals', { method: 'POST', body: JSON.stringify(data) }),
-  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string; roadmapLane?: '' | 'now' | 'next' | 'later'; area?: string }) =>
+  updateGoal: (id: string, data: { name?: string; description?: string; successMetric?: string; tokenBudget?: number | null; budgetUsd?: number | null; status?: string; acceptanceCriteria?: string; noGos?: string; rabbitHoles?: string; invariants?: string; keyResults?: { metric: string; baseline?: string; target?: string; measure?: string }[]; targetDate?: string; owner?: string; investmentCategory?: string; autonomy?: string; projectId?: string; roadmapLane?: '' | 'todo' | 'progress' | 'qa'; area?: string }) =>
     request<import('./types').Goal>(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteGoal: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
 
@@ -779,6 +779,11 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/start`, { method: 'POST', body: JSON.stringify(data) }),
   /** Every running or paused feature, as the world map draws it. */
   getActiveFeatures: () => request<import('./types').ActiveFeature[]>('/goal-pilots/active'),
+  /** Everything waiting on the person right now, derived from state (server lib/needs-you.ts). */
+  getNeedsYou: () => request<import('./types').NeedsYouItem[]>('/needs-you'),
+  /** Merge automatically at the end, or not (a feature with its own worktrees). */
+  setFeatureMergeMyself: (id: string, mergeMyself: boolean) =>
+    request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace`, { method: 'PUT', body: JSON.stringify({ mergeMyself }) }),
   /** Push a feature's branches and open its PRs now (server lib/feature-workspace.ts). */
   openFeaturePrs: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace/prs`, { method: 'POST' }),
   /** Merge every PR of the feature (all or none), then remove its worktrees, branch and cartridges. */
@@ -824,6 +829,9 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').GoalReport>(`/goal-pilots/${id}/report`, { method: 'POST' }),
 
   // Goal Projects (separate from journal projects)
+  // Archived projects (off the map and the lists), and putting one away or back.
+  getArchivedProjects: () => request<import('./types').Project[]>('/projects?archived=1'),
+  setProjectArchived: (id: string, archived: boolean) => request<import('./types').Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify({ archived }) }),
   getGoalProjects: (goalId?: string) =>
     request<import('./types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),
   createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
@@ -851,6 +859,24 @@ export function createClient(config: ClientConfig = {}) {
   getWorldProgress: () => request<{ totals: Record<string, number>; maps: import('./types').MapProgress[] }>('/rewards/world'),
   getProjectRewards: (projectId: string) => request<import('./types').ProjectRewards>(`/rewards/${projectId}`),
   // The roadmap: vision → epics → features on a timeline. Every write answers with the chart as it now is.
+  /** The Logs: one page of the stream, oldest first (server routes/logs.ts). */
+  getLogs: (p: { before?: string; after?: string; limit?: number; kinds?: readonly string[]; problems?: boolean; q?: string; only?: string; hide?: readonly string[] } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(p)) {
+      if (v === undefined || v === '' || v === false) continue;
+      q.set(k, Array.isArray(v) ? v.join(',') : v === true ? '1' : String(v));
+    }
+    const qs = q.toString();
+    return request<import('./types').LogPage>(`/logs${qs ? `?${qs}` : ''}`);
+  },
+  // Themes: how NeonCore looks and sounds (server lib/custom-themes.ts).
+  getThemes: () => request<import('./types').ThemesList>('/themes'),
+  createTheme: (data: { name: string; from: string }) => request<import('./types').CustomThemeInfo>('/themes', { method: 'POST', body: JSON.stringify(data) }),
+  renameTheme: (id: string, name: string) => request<import('./types').CustomThemeInfo>(`/themes/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+  deleteTheme: (id: string) => request<void>(`/themes/${id}`, { method: 'DELETE' }),
+  setActiveTheme: (id: string) => request<import('./types').ThemesList>('/themes/active', { method: 'PUT', body: JSON.stringify({ id }) }),
+  setThemeAsset: (id: string, path: string, dataBase64: string) => request<import('./types').CustomThemeInfo>(`/themes/${id}/assets`, { method: 'PUT', body: JSON.stringify({ path, dataBase64 }) }),
+  revertThemeAsset: (id: string, path: string) => request<import('./types').CustomThemeInfo>(`/themes/${id}/assets?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   getRoadmap: (projectId: string) => request<import('./types').RoadmapChart>(`/roadmap/${projectId}`),
   setRoadmapVision: (projectId: string, vision: string) =>
     request<import('./types').RoadmapChart>(`/roadmap/${projectId}/vision`, { method: 'PUT', body: JSON.stringify({ vision }) }),
@@ -863,6 +889,7 @@ export function createClient(config: ClientConfig = {}) {
   reorderEpics: (projectId: string, ids: string[]) =>
     request<import('./types').RoadmapChart>(`/roadmap/${projectId}/epics/order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   /** Plan one feature: its epic ('' = none), its dates ('' = clear), what it waits on. Only the fields given change. */
+  getFeatureNeeds: (featureId: string) => request<import('./types').FeatureNeeds>(`/roadmap/features/${featureId}/needs`),
   planFeature: (featureId: string, data: { epicId?: string; startDate?: string; targetDate?: string; dependsOn?: string[] }) =>
     request<import('./types').RoadmapChart>(`/roadmap/features/${featureId}`, { method: 'PUT', body: JSON.stringify(data) }),
   /** The living spec: every feature's intent beside the evidence for each acceptance criterion. */

@@ -1,7 +1,9 @@
 /**
  * QA FOLLOWS THE FEATURE: a feature's acceptance criteria are its QA test, written and run by
- * NeonCore — nobody enters anything. It runs each time a workflow stage of the feature finishes,
- * and the report says, per project and per feature, which criteria pass, with the screenshot.
+ * NeonCore — nobody enters anything. It runs when the feature's EPIC IS FINISHED — every feature
+ * done — never during development ("when an EPIC is finished, not 80%, not during: at the end").
+ * A feature in no epic is an epic of one. The report says, per project and per feature, which
+ * criteria pass, with the screenshot.
  */
 import './helpers/isolated-db.ts';
 import { test, beforeEach } from 'node:test';
@@ -19,7 +21,7 @@ import { setQaRunner } from '../src/lib/qa/runner.ts';
 import { setQaSender, requestsOf } from '../src/lib/qa/dispatch.ts';
 import { createPilotRow, setPhase } from '../src/lib/goal-pilot.ts';
 import { createContract, updateContract, getContract } from '../src/lib/acceptance-contract.ts';
-import { syncFeatureTest, sweepFeatureQa, runFeatureQa, featureQaReport, sentenceFor, type FeatureQa } from '../src/lib/qa/feature-link.ts';
+import { syncFeatureTest, sweepFeatureQa, runFeatureQa, runEpicQa, featureQaReport, sentenceFor, type FeatureQa } from '../src/lib/qa/feature-link.ts';
 
 installStubIO();
 process.env.NEONCORE_QA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-feature-'));
@@ -72,6 +74,17 @@ function feature(projectId: string, name: string, opts: { criteria?: typeof CRIT
   return { goalId, pilotId: pilot.id, stageIds };
 }
 const finishStage = (stageId: string) => db.prepare(`UPDATE goal_pilot_stages SET status = 'completed' WHERE id = ?`).run(stageId);
+let clock = 0;
+/** The person marks the feature done (goals PUT → achieved sets done_at). */
+const markDone = (goalId: string) => db.prepare(`UPDATE goals SET status = 'achieved', done_at = ? WHERE id = ?`).run(`2026-02-01T00:00:${String(++clock).padStart(2, '0')}Z`, goalId);
+const reopen = (goalId: string) => db.prepare(`UPDATE goals SET status = 'active', done_at = '' WHERE id = ?`).run(goalId);
+let en = 0;
+function epic(projectId: string, name: string, goalIds: string[]): string {
+  const id = `qf-e-${++en}`;
+  db.prepare(`INSERT INTO epics (id, project_id, name, outcome, icon, position, created_at, updated_at) VALUES (?, ?, ?, '', '', ?, '2026-01-01', '2026-01-01')`).run(id, projectId, name, en);
+  for (const g of goalIds) db.prepare('UPDATE goals SET epic_id = ? WHERE id = ?').run(id, g);
+  return id;
+}
 const target = (projectId: string) => createTarget({ name: 'App', projectId, baseUrl: 'http://localhost:4061', allowHosts: ['localhost:4061'], agentId: AGENT });
 const cacheFor = (ids: string[]): QaAction[][] => ids.map((id) => [{ do: 'goto', path: '/' }, { do: 'expect', kind: 'visible', target: { name: id } }]);
 const of = (projectId: string) => featureQaReport().find((p) => p.projectId === projectId)!;
@@ -103,11 +116,12 @@ test('without a QA target nothing runs, and the report says exactly what is miss
   assert.throws(() => runFeatureQa('nope'), /feature not found/);
 });
 
-test('the criteria ARE the test: one check sentence each, written once, and nothing runs until something is built', () => {
+test('the criteria ARE the test: one check sentence each, written once, and nothing runs while it is being built', () => {
   const p = project();
   const t = target(p);
   const f = feature(p, 'Expenses');
   assert.deepEqual(sweepFeatureQa(), []);
+  for (const id of f.stageIds) finishStage(id);    // built — but not done
   assert.deepEqual(sweepFeatureQa(), []);
   const tests = featureTests(t.id);
   assert.equal(tests.length, 1, 'one test for the feature, however often the sweep runs');
@@ -121,18 +135,21 @@ test('the criteria ARE the test: one check sentence each, written once, and noth
   const row = feat(p, f.goalId);
   assert.equal(row.state, 'waiting-for-build');
   assert.deepEqual(row.criteria.map((c) => [c.id, c.status]), [['AC-1', 'not-run'], ['AC-2', 'not-run']]);
-  assert.match(row.note, /Runs by itself as soon as the first workflow stage/);
+  assert.match(row.note, /Runs when this feature is done/);
   assert.throws(() => runFeatureQa(feature(p, 'Empty', { criteria: [] }).goalId), /no acceptance criteria/);
 });
 
-test('each finished workflow stage runs the feature\'s test by itself — once — and the report shows every criterion with its screenshot', async () => {
+test('a feature in no epic runs when it is done — once — and the report shows every criterion with its screenshot', async () => {
   const p = project();
   const t = target(p);
   const f = feature(p, 'Expenses');
   const other = feature(p, 'Income');
   sweepFeatureQa();
   finishStage(f.stageIds[0]);
-  assert.deepEqual(sweepFeatureQa(), [f.goalId], 'only the feature that built something');
+  finishStage(f.stageIds[1]);
+  assert.deepEqual(sweepFeatureQa(), [], 'built is not done: nothing runs during development');
+  markDone(f.goalId);
+  assert.deepEqual(sweepFeatureQa(), [f.goalId], 'only the feature that is done');
   assert.deepEqual(sweepFeatureQa(), [], 'not again while it runs');
   await qaSettled();
   const [run] = listRuns(t.id);
@@ -152,13 +169,15 @@ test('each finished workflow stage runs the feature\'s test by itself — once �
   const rep = of(p);
   assert.deepEqual([rep.passed, rep.total, rep.featuresPassing, rep.features.length], [2, 4, 1, 2]);
   assert.equal(feat(p, other.goalId).state, 'waiting-for-build');
-  // Nothing new was built: no new run.
+  // Nothing new finished: no new run.
   assert.deepEqual(sweepFeatureQa(), []);
   assert.equal(listRuns(t.id).length, 1);
 
-  // The next stage breaks AC-2: QA runs again by itself, replays, and the failure is the criterion's.
+  // Reopened, changed (it breaks AC-2), done again: QA runs again by itself, replays, and the failure is the criterion's.
   broken = new Set(['AC-2']);
-  finishStage(f.stageIds[1]);
+  reopen(f.goalId);
+  assert.deepEqual(sweepFeatureQa(), []);
+  markDone(f.goalId);
   assert.deepEqual(sweepFeatureQa(), [f.goalId]);
   await qaSettled();
   const run2 = listRuns(t.id).find((r) => r.id !== run.id)!;
@@ -179,7 +198,8 @@ test('criteria that change rewrite the test — the old result no longer counts,
   const p = project();
   const t = target(p);
   const f = feature(p, 'Expenses');
-  finishStage(f.stageIds[0]);
+  sweepFeatureQa();          // seen while being built, as the 15 s sweep does
+  markDone(f.goalId);
   sweepFeatureQa();
   await qaSettled();
   author(listRuns(t.id)[0].id);
@@ -190,7 +210,7 @@ test('criteria that change rewrite the test — the old result no longer counts,
 
   const c = getContract(f.pilotId)!;
   updateContract(c.id, { criteria: [...c.criteria, { id: 'AC-3', text: 'Totals are shown per month.', expect: 'March total 19.75', verify: 'test' }] });
-  assert.deepEqual(sweepFeatureQa(), [], 'a change of words alone builds nothing: no run');
+  assert.deepEqual(sweepFeatureQa(), [], 'a change of words alone finishes nothing: no run');
   const now = getTest(testId)!;
   assert.equal(featureTests(t.id).length, 1, 'the same test, rewritten');
   assert.equal(now.sentences.length, 3);
@@ -200,16 +220,17 @@ test('criteria that change rewrite the test — the old result no longer counts,
   assert.match(row.note, /criteria changed since the last run/);
 });
 
-test('a feature delivered before its project had a target is not run on its own — it can be run by hand, once at a time', async () => {
+test('an epic finished before its project had a target is not run on its own — it can be run by hand, once at a time', async () => {
   const p = project();
   const f = feature(p, 'Old feature', { stages: 1 });
   finishStage(f.stageIds[0]);
   setPhase(f.pilotId, 'completed');
+  markDone(f.goalId);
   const t = target(p);
   assert.deepEqual(sweepFeatureQa(), []);
   assert.equal(listRuns(t.id).length, 0);
   assert.equal(feat(p, f.goalId).state, 'not-run');
-  assert.match(feat(p, f.goalId).note, /Delivered before QA was set up/);
+  assert.match(feat(p, f.goalId).note, /Finished before QA was set up/);
   const run = runFeatureQa(f.goalId);
   assert.throws(() => runFeatureQa(f.goalId), /already running/);
   await qaSettled();
@@ -217,4 +238,49 @@ test('a feature delivered before its project had a target is not run on its own 
   await qaSettled();
   assert.equal(feat(p, f.goalId).state, 'passed');
   assert.deepEqual(sweepFeatureQa(), []);
+});
+
+test('an epic runs QA once, at the END — every feature done, never before — with all its features in one run', async () => {
+  const p = project();
+  const t = target(p);
+  const fs3 = ['Login', 'Profile', 'Settings'].map((name) => feature(p, name));
+  const e = epic(p, 'Phase 1: Accounts', fs3.map((f) => f.goalId));
+  sweepFeatureQa();
+  for (const [i, f] of fs3.entries()) {
+    for (const id of f.stageIds) finishStage(id);
+    markDone(f.goalId);
+    if (i < fs3.length - 1) {
+      assert.deepEqual(sweepFeatureQa(), [], `${i + 1} of 3 done: the epic is not finished, nothing runs`);
+      assert.match(feat(p, fs3[0].goalId).note, new RegExp(`Runs when its epic "Phase 1: Accounts" is finished — ${i + 1} of 3 features done`));
+    }
+  }
+  assert.deepEqual(sweepFeatureQa().sort(), fs3.map((f) => f.goalId).sort(), 'the epic is finished: all of it runs');
+  assert.deepEqual(sweepFeatureQa(), [], 'once');
+  const runs = listRuns(t.id);
+  assert.equal(runs.length, 1, 'ONE run for the epic');
+  assert.equal(runs[0].testIds.length, 3, 'every feature\'s test in it');
+
+  // A feature added to the epic later: the epic is unfinished again — nothing runs until it is done too.
+  await qaSettled();
+  db.prepare(`UPDATE qa_runs SET status = 'passed' WHERE id = ?`).run(runs[0].id);   // the first run is over
+  const late = feature(p, 'Delete account');
+  db.prepare('UPDATE goals SET epic_id = ? WHERE id = ?').run(e, late.goalId);
+  assert.deepEqual(sweepFeatureQa(), []);
+  markDone(late.goalId);
+  assert.equal(sweepFeatureQa().length, 4, 'finished again: the whole epic runs again');
+});
+
+test('the person can run an epic\'s QA whenever they decide — half-built or finished — once at a time', async () => {
+  const p = project();
+  const t = target(p);
+  const a = feature(p, 'Search'), b = feature(p, 'Filters');
+  epic(p, 'Phase 2: Finding things', [a.goalId, b.goalId]);
+  markDone(a.goalId);                                   // 1 of 2: the sweep would not run it
+  assert.deepEqual(sweepFeatureQa(), []);
+  const run = runEpicQa(b.goalId);
+  assert.equal(run.testIds.length, 2, 'the whole epic, from either of its features');
+  assert.throws(() => runEpicQa(a.goalId), /already running for this epic/);
+  assert.equal(listRuns(t.id).length, 1);
+  assert.deepEqual(feat(p, a.goalId).epic, { id: feat(p, a.goalId).epic.id, name: 'Phase 2: Finding things', done: 1, total: 2 });
+  assert.throws(() => runEpicQa(goal(project(), 'Elsewhere')), /no QA target/);
 });

@@ -3,7 +3,7 @@
  *
  *   Spec          every feature's intent beside the evidence for each acceptance criterion — and the
  *                 features whose delivered work does not (yet) match what was intended
- *   Roadmap       Now / Next / Later / Done, for a roadmap conversation — drag features between columns
+ *   Roadmap       the route (Chart) and the Board: To do → In Progress → QA → Done — drag features between columns
  *   Changelog     what shipped: an entry per feature marked done, edited and released by a person
  *   Architecture  how the product is built
  *
@@ -14,6 +14,8 @@
  * Plus the DocsBar: all of it published into the main repo as docs/product/, on demand or kept in sync.
  * Everything is read from the server (lib/project-spec.ts and friends) — nothing is computed twice.
  */
+import { celebrateFeature } from '../lib/celebrate';
+import { CaptainsLogHeader } from './CaptainsLog';
 import { RoadmapChart } from '../world/roadmap/RoadmapChart';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -329,18 +331,25 @@ export function SpecTab({ project, agents, version, onOpenFeature, onChanged }: 
 
 // ── Roadmap ────────────────────────────────────────────────────────────────────
 
-type Lane = 'now' | 'next' | 'later' | 'done';
-const LANES: { key: Lane; title: string; empty: string; hint: string }[] = [
-  { key: 'now', title: 'Now', empty: 'Nothing in progress.', hint: 'Being built — automatically while its pipeline runs' },
-  { key: 'next', title: 'Next', empty: 'Nothing queued.', hint: 'Automatically the top of the feature list' },
-  { key: 'later', title: 'Later', empty: 'Nothing further on the list.', hint: 'The rest of the list' },
+type Lane = 'todo' | 'progress' | 'qa' | 'done';
+/** The Board, left to right — where the work is. Placed by the server (lib/project-spec.ts placeColumns). */
+export const BOARD_COLUMNS: { key: Lane; title: string; empty: string; hint: string }[] = [
+  { key: 'todo', title: 'To do', empty: 'Nothing waiting.', hint: 'Not started' },
+  { key: 'progress', title: 'In Progress', empty: 'Nothing in progress.', hint: 'Its pipeline is running, or waits on a decision' },
+  { key: 'qa', title: 'QA', empty: 'Nothing waiting for sign-off.', hint: 'Delivered — check it, then mark it done' },
   { key: 'done', title: 'Done', empty: 'Nothing finished yet.', hint: 'Marked done' },
 ];
+const LANES = BOARD_COLUMNS;
+/** Chart or Board: the Roadmap tab opens on the last one used. */
+export const ROADMAP_TAB_KEY = 'neoncore.roadmap.tab';
+function readRoadmapTab(): 'chart' | 'board' { try { return window.localStorage.getItem(ROADMAP_TAB_KEY) === 'board' ? 'board' : 'chart'; } catch { return 'chart'; } }
 
 /** The columns, as the server placed each feature (lib/project-spec.ts) — the page and the exports agree. */
 function lanesOf(features: SpecFeature[]): Record<Lane, SpecFeature[]> {
-  const r: Record<Lane, SpecFeature[]> = { now: [], next: [], later: [], done: [] };
-  for (const f of features) if (f.column) r[f.column].push(f);
+  const r: Record<Lane, SpecFeature[]> = { todo: [], progress: [], qa: [], done: [] };
+  // An older server still says Now / Next / Later: where that work is on this board.
+  const OLD: Record<string, Lane> = { now: 'progress', next: 'todo', later: 'todo' };
+  for (const f of features) if (f.column) (r[(OLD[f.column] ?? f.column) as Lane] ?? r.todo).push(f);
   r.done.sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
   return r;
 }
@@ -354,8 +363,9 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<Lane | null>(null);
   const [err, setErr] = useState('');
-  // The plan (vision → epics → features on a timeline) is the roadmap; the four columns are its board.
-  const [view, setView] = useState<'chart' | 'board'>('chart');
+  // The plan (vision → epics → features, as a route) is the chart; the four columns are its board.
+  const [view, setViewState] = useState<'chart' | 'board'>(readRoadmapTab);
+  const setView = (v: 'chart' | 'board') => { setViewState(v); try { window.localStorage.setItem(ROADMAP_TAB_KEY, v); } catch { /* not remembered */ } };
   if (error) return <p className="text-[13px] text-ember-300">{error}</p>;
   if (!spec) return <p className="text-[13px] text-gray-500">Loading…</p>;
   const lanes = lanesOf(spec.features);
@@ -374,6 +384,7 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
         if (f.status === 'done') return;
         if (!confirm(`Mark "${f.name}" done? Its changelog entry is written from its records.`)) return;
         await api.updateGoal(f.id, { status: 'achieved', roadmapLane: '' });
+        celebrateFeature(f.name);
       } else if (f.status === 'done') {
         await api.updateGoal(f.id, { status: 'active', roadmapLane: to === 'auto' ? '' : to });
       } else {
@@ -436,6 +447,7 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
           return (
             <div
               key={lane.key}
+              data-board-column={lane.key}
               onDragOver={(e) => { if (dragging) { e.preventDefault(); setOver(lane.key); } }}
               onDragLeave={() => setOver((o) => (o === lane.key ? null : o))}
               onDrop={(e) => {
@@ -451,6 +463,7 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
                 {items.length === 0 ? <p className="text-[13px] text-gray-500 italic">{dragging ? 'Drop here' : lane.empty}</p> : items.map((f) => (
                   <div
                     key={f.id}
+                    data-board-card={f.id}
                     draggable
                     onDragStart={(e) => { e.dataTransfer.setData('text/plain', f.id); e.dataTransfer.effectAllowed = 'move'; setDragging(f.id); }}
                     onDragEnd={() => { setDragging(null); setOver(null); }}
@@ -472,7 +485,7 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
                     {f.intent.summary && <div className="text-[12px] text-gray-500 mt-0.5 line-clamp-2">{f.intent.summary}</div>}
                     <div className="flex gap-1.5 flex-wrap mt-1.5 text-[11px]">
                       {f.lane && f.status !== 'done' && <span className="px-1.5 py-0.5 rounded-full bg-white/[0.06] text-gray-400" title="You placed it here — the automatic rule no longer moves it">placed</span>}
-                      {f.lane && f.lane !== 'now' && ['in-progress', 'paused', 'delivered'].includes(f.status) && <span className="px-1.5 py-0.5 rounded-full bg-neon-500/[0.16] text-neon-200">pipeline running</span>}
+                      {f.lane && f.lane !== 'progress' && ['in-progress', 'paused'].includes(f.status) && <span className="px-1.5 py-0.5 rounded-full bg-neon-500/[0.16] text-neon-200">pipeline running</span>}
                       {f.status === 'paused' && <span className="px-1.5 py-0.5 rounded-full bg-red-500/[0.14] text-red-200">needs a decision</span>}
                       {f.status === 'delivered' && <span className="px-1.5 py-0.5 rounded-full bg-ember-500/[0.14] text-ember-300">awaiting sign-off</span>}
                       {f.criteria.length > 0 && f.status !== 'planned' && (
@@ -491,8 +504,8 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
         })}
       </div>
       <p className="text-[12px] text-gray-500">
-        Drag a feature to another column, or use Move… on its card. Without a placement, a feature is in Now while its pipeline runs,
-        and in Next when it is among the top three of the feature list. Moving to Done marks it done; moving out of Done reopens it.
+        Drag a feature to another column, or use Move… on its card. Without a placement a feature is where its work is: To do until it starts,
+        In Progress while its pipeline runs, QA once it is delivered and waits for your sign-off. Moving to Done marks it done; moving out of Done reopens it.
       </p>
       </>}
     </div>
@@ -550,10 +563,9 @@ export function ChangelogTab({ project, agents, version, onChanged }: { project:
   if (!entries) return <p className="text-[13px] text-gray-500">Loading…</p>;
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-[13px] text-gray-500 max-w-xl">An entry is written when a feature is marked done, from its report. Edit them, add your own, and cut a release when they ship.</p>
-        <a href={docUrl(project.id, 'changelog', { download: true })} className="text-[12px] text-gray-400 hover:text-gray-200">Download CHANGELOG.md</a>
-      </div>
+      <CaptainsLogHeader projectId={project.id} projectName={project.name} entries={entries} inFlight={project.featuresActive ?? 0}
+        downloadHref={docUrl(project.id, 'changelog', { download: true })} />
+      <p className="text-[13px] text-gray-500 max-w-xl">An entry is written when a feature is marked done, from its report. Edit them, add your own, and cut a release when they ship.</p>
       <AiGenerate project={project} agents={agents} version={version} onChanged={() => { load(); onChanged(); }} parts={['changelog']}
         title={entries.length ? 'Fill in history from git' : 'Write the changelog so far from git'}
         blurb={entries.length ? undefined : <>A cartridge reads the git history — commits, tags, merges — and any CHANGELOG already in the

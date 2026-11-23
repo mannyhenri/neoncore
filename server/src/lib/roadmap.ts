@@ -89,6 +89,8 @@ export interface ChartFeature {
   dependsOn: string[];
   /** Those of `dependsOn` that are not delivered yet — empty means it can start. */
   blockedBy: string[];
+  /** The epics its OWN epic waits on that are not delivered yet: they must be done before it can be. */
+  waitsOnEpics: string[];
   summary: string;
 }
 
@@ -210,14 +212,33 @@ export function chartOf(projectId: string, now: number = Date.now()): RoadmapCha
     return {
       id: f.id, name: f.name, slug: f.slug, state: stateOf(f, today),
       epicId: String(row.epic_id || ''), startDate: String(row.start_date || ''), targetDate: f.targetDate || '',
-      completedAt: f.completedAt, dependsOn: parseIds(row.depends_on).filter((id) => ids.has(id)), blockedBy: [] as string[],
-      summary: f.intent.summary, position: f.position,
+      completedAt: f.completedAt, dependsOn: parseIds(row.depends_on).filter((id) => ids.has(id)), blockedBy: [] as string[], waitsOnEpics: [] as string[],
+      summary: f.intent.summary, position: f.position, specStatus: f.status,
     };
   });
+  // NEEDS FIRST. A feature MARKED done is delivered, for good — reopening something it needed later
+  // does not undo it. One whose pipeline finished is delivered only once everything it needs is: the
+  // features it depends on, and every epic its own epic depends on. Settled until nothing changes,
+  // so a chain of them settles all the way down.
+  const epicRowsAll = db.prepare('SELECT id, depends_on FROM epics WHERE project_id = ?').all(projectId) as { id: string; depends_on: string }[];
+  const knownEpics = new Set(epicRowsAll.map((e) => e.id));
+  const epicNeeds = new Map(epicRowsAll.map((e) => [e.id, parseIds(e.depends_on).filter((id) => knownEpics.has(id) && id !== e.id)]));
   const delivered = new Set(features.filter((f) => f.state === 'delivered').map((f) => f.id));
-  for (const f of features) f.blockedBy = f.dependsOn.filter((id) => !delivered.has(id));
+  const epicDone = (id: string) => { const mine = features.filter((f) => f.epicId === id); return mine.length > 0 && mine.every((f) => delivered.has(f.id)); };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const f of features) {
+      if (!delivered.has(f.id) || f.specStatus === 'done') continue;
+      const unmet = f.dependsOn.some((id) => !delivered.has(id)) || (epicNeeds.get(f.epicId) ?? []).some((id) => !epicDone(id));
+      if (unmet) { delivered.delete(f.id); f.state = f.targetDate && f.targetDate < today ? 'late' : 'under-way'; f.completedAt = null; changed = true; }
+    }
+  }
+  for (const f of features) {
+    f.blockedBy = f.dependsOn.filter((id) => !delivered.has(id));
+    f.waitsOnEpics = (epicNeeds.get(f.epicId) ?? []).filter((id) => !epicDone(id));
+  }
 
-  const strip = ({ position: _p, ...f }: (typeof features)[number]): ChartFeature => { void _p; return f; };
+  const strip = ({ position: _p, specStatus: _s, ...f }: (typeof features)[number]): ChartFeature => { void _p; void _s; return f; };
   const epicRows = db.prepare('SELECT * FROM epics WHERE project_id = ? ORDER BY position, created_at').all(projectId) as Record<string, unknown>[];
   const known = new Set(epicRows.map((e) => e.id as string));
   const epicFeatures = new Map(epicRows.map((e) => [e.id as string, features.filter((f) => f.epicId === e.id).sort(alongTheTimeline)]));
@@ -234,7 +255,7 @@ export function chartOf(projectId: string, now: number = Date.now()): RoadmapCha
     const deliveredAt = epicDelivered.has(e.id as string) ? epicDelivered.get(e.id as string) || null : null;
     const isDelivered = epicDelivered.has(e.id as string);
     // A blocked epic offers nothing: what it waits on comes first.
-    const next = blockedBy.length > 0 ? undefined : mine.find((f) => (f.state === 'planned' || f.state === 'late') && f.blockedBy.length === 0 && !isUnderWay(f.id));
+    const next = blockedBy.length > 0 ? undefined : mine.find((f) => (f.state === 'planned' || f.state === 'late') && f.blockedBy.length === 0 && f.waitsOnEpics.length === 0 && !isUnderWay(f.id));
     return {
       targetDate, dependsOn, blockedBy, deliveredAt,
       onTime: isDelivered && !!targetDate && !!deliveredAt && deliveredAt.slice(0, 10) <= targetDate,
@@ -247,7 +268,7 @@ export function chartOf(projectId: string, now: number = Date.now()): RoadmapCha
     };
   });
   // A feature whose epic is gone is unassigned, never lost.
-  const unassigned = features.filter((f) => !known.has(f.epicId)).sort(alongTheTimeline).map((f) => ({ ...strip(f), epicId: '' }));
+  const unassigned = features.filter((f) => !known.has(f.epicId)).sort(alongTheTimeline).map((f) => ({ ...strip(f), epicId: '', waitsOnEpics: [] }));
 
   const dates = features.flatMap((f) => [f.startDate, f.targetDate, f.completedAt?.slice(0, 10) ?? '']).concat(epics.map((e) => e.targetDate)).filter(Boolean).concat(today).sort();
   const totals = Object.fromEntries(FEATURE_STATES.map((s) => [s, features.filter((f) => f.state === s).length])) as Record<FeatureState, number>;
@@ -375,6 +396,7 @@ export function planFeature(goalId: string, input: { epicId?: unknown; startDate
     dependsOn = [...new Set(Array.isArray(input.dependsOn) ? input.dependsOn.map(String).filter(Boolean) : [])];
     const siblings = new Map((db.prepare('SELECT id, depends_on FROM goals WHERE project_id = ?').all(projectId) as { id: string; depends_on: string }[])
       .map((r) => [r.id, parseIds(r.depends_on)]));
+    if (dependsOn.includes(goalId)) throw new RoadmapError('a feature cannot depend on itself');
     for (const id of dependsOn) if (!siblings.has(id)) throw new RoadmapError('a feature can only wait on another feature of the same project');
     // Acyclic, checked on write: from each thing it would wait on, can you get back to it?
     siblings.set(goalId, dependsOn);
@@ -409,4 +431,73 @@ export function roadmapContextFor(goalId: string): string {
   if (epic) lines.push(`Epic: ${epic.name}${epic.outcome ? ` — ${epic.outcome}` : ''}${epic.done_when ? ` (done when: ${epic.done_when})` : ''}`);
   if (builtOn.length) lines.push(`Builds on (already delivered, or planned before this): ${builtOn.join('; ')}`);
   return lines.join('\n');
+}
+
+// ── needs first ───────────────────────────────────────────────────────────────
+
+export interface Named { id: string; name: string }
+export interface UnmetNeeds { features: Named[]; epics: Named[] }
+
+/**
+ * What a feature still needs before it can be marked done: the features it depends on that are not
+ * done, and the epics its epic depends on that are not delivered — in plan order. null: no feature.
+ */
+export function unmetNeeds(goalId: string, now: number = Date.now()): UnmetNeeds | null {
+  const g = db.prepare('SELECT project_id FROM goals WHERE id = ?').get(goalId) as { project_id?: string } | undefined;
+  if (!g) return null;
+  const chart = g.project_id ? chartOf(g.project_id, now) : null;
+  const f = chart && [...chart.epics.flatMap((e) => e.features), ...chart.unassigned].find((x) => x.id === goalId);
+  if (!chart || !f) return { features: [], epics: [] };
+  const name = new Map([...chart.epics.flatMap((e) => e.features), ...chart.unassigned].map((x) => [x.id, x.name]));
+  const epicName = new Map(chart.epics.map((e) => [e.id, e.name]));
+  return {
+    features: f.blockedBy.map((id) => ({ id, name: name.get(id) ?? 'another feature' })),
+    epics: f.waitsOnEpics.map((id) => ({ id, name: epicName.get(id) ?? 'another epic' })),
+  };
+}
+
+/** `Not yet: "Points per visit" and the epic "Online ordering" must be done first.` — '' when nothing is missing. */
+export function notYetMessage(u: UnmetNeeds): string {
+  const parts = [...u.features.map((f) => `"${f.name}"`), ...u.epics.map((e) => `the epic "${e.name}"`)];
+  if (parts.length === 0) return '';
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `Not yet: ${list} must be done first.`;
+}
+
+/** Refuse marking a feature done while anything it needs is not. */
+export function assertCanBeDone(goalId: string, now: number = Date.now()): void {
+  const u = unmetNeeds(goalId, now);
+  const msg = u ? notYetMessage(u) : '';
+  if (msg) throw new RoadmapError(msg, 409);
+}
+
+/**
+ * What a feature's "Needs first" panel offers: the other features of its project (not the ones
+ * imported as what the product already does), minus every feature that already depends on it —
+ * directly or through a chain — since choosing one would make a loop.
+ */
+export function needsCandidates(goalId: string): (Named & { state: FeatureState })[] {
+  const g = db.prepare('SELECT project_id FROM goals WHERE id = ?').get(goalId) as { project_id?: string } | undefined;
+  if (!g?.project_id) return [];
+  const chart = chartOf(g.project_id);
+  if (!chart) return [];
+  const all = [...chart.epics.flatMap((e) => e.features), ...chart.unassigned];
+  const deps = new Map(all.map((f) => [f.id, f.dependsOn]));
+  const reaches = (from: string, seen = new Set<string>()): boolean => {
+    if (from === goalId) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (deps.get(from) ?? []).some((id) => reaches(id, seen));
+  };
+  return all.filter((f) => f.id !== goalId && !reaches(f.id)).map((f) => ({ id: f.id, name: f.name, state: f.state }));
+}
+
+/** A feature is going away: nothing waits on it any more. */
+export function forgetFeature(goalId: string): void {
+  const g = db.prepare('SELECT project_id FROM goals WHERE id = ?').get(goalId) as { project_id?: string } | undefined;
+  if (!g) return;
+  for (const r of db.prepare('SELECT id, depends_on FROM goals WHERE project_id = ? AND id != ?').all(g.project_id ?? '', goalId) as { id: string; depends_on: string }[]) {
+    const ids = parseIds(r.depends_on);
+    if (ids.includes(goalId)) db.prepare('UPDATE goals SET depends_on = ? WHERE id = ?').run(JSON.stringify(ids.filter((id) => id !== goalId)), r.id);
+  }
 }

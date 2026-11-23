@@ -30,7 +30,7 @@ import {
   lockedFiles, findTampering, verificationStatus, criteriaText, criteriaHash, criterionStates,
 } from './acceptance-contract.js';
 import {
-  type GoalPilot, type PilotStage, PilotError, getPilot, getRequest, getStage, stagesOf, updateStage, setPhase,
+  type GoalPilot, type PilotStage, PilotError, getPilot, getRequest, getStage, stagesOf, updateStage, setPhase, involvementOf,
 } from './goal-pilot.js';
 import {
   emitPilotUpdate, announcePilot, advancePilot, stopPilot, liveCartridge, dispatchPlannerRequest, requestWentSilent,
@@ -247,6 +247,15 @@ async function submitTests(pilot: GoalPilot, c: AcceptanceContract, requestId: s
   disarmOnReport(db, reqNow.agentId);
   emitPilotUpdate(pilot.id);
   const n = submitted.length;
+  // NO WAIT FOR A CHECK A MACHINE CAN MAKE. What the person checks at this step is that the tests
+  // fail before any work — the baseline. Unless they chose hands-on, NeonCore runs it and locks
+  // when every written test is red; only a test that already passes, or tests that cannot run,
+  // stop for them (evaluateApproval → 'approval-blocked'). The criteria themselves were already
+  // the person's, accepted with the plan.
+  if (involvementOf(pilot.involvement).value !== 'hands-on') {
+    approveTests(pilot.id, { auto: true });
+    return { pilotId: pilot.id, notes: norm.notes, request: getRequest(requestId) };
+  }
   announcePilot(pilot.id, 'tests-ready', `${n} acceptance test${n === 1 ? '' : 's'} to review`,
     `Check that each one encodes what you expect, run them (they should fail — nothing is built yet), then approve to lock them.${c.amending ? ` (Amendment: ${c.amending.criterionIds.join(', ')}.)` : ''}`,
     'action');
@@ -312,11 +321,11 @@ function baselineIsFresh(c: AcceptanceContract): boolean {
  * passes before any work proves nothing about the work — the approval stops there and says which,
  * unless the person confirmed they want it anyway (`confirmPassing`).
  */
-export function approveTests(pilotId: string, opts: { confirmPassing?: boolean } = {}): AcceptanceContract {
+export function approveTests(pilotId: string, opts: { confirmPassing?: boolean; auto?: boolean } = {}): AcceptanceContract {
   pilotOrThrow(pilotId);
   const c = contractOrThrow(pilotId);
   if (c.status !== 'review') throw new PilotError(`the tests are ${c.status}, not waiting for approval`);
-  updateContract(c.id, { approval: { requestedAt: nowIso(), confirmPassing: !!opts.confirmPassing, blocked: '' } });
+  updateContract(c.id, { approval: { requestedAt: nowIso(), confirmPassing: !!opts.confirmPassing, blocked: '', ...(opts.auto ? { auto: true } : {}) } });
   if (baselineIsFresh(c)) evaluateApproval(pilotId);
   else void runBaseline(pilotId).catch((err) => console.warn('[acceptance] baseline failed:', err));
   emitPilotUpdate(pilotId);
@@ -355,7 +364,7 @@ function lockContract(pilotId: string): void {
   if (stage0 && stage0.status === 'review') {
     updateStage(stage0.id, {
       status: 'completed', completed_at: nowIso(), wait_reason: '',
-      result_summary: `${c.draftTests.length} acceptance test${c.draftTests.length === 1 ? '' : 's'} approved and locked (v${version}). Before any work: ${red}/${c.draftTests.length} failing${red === c.draftTests.length ? ', as they should' : ''}.`,
+      result_summary: `${c.draftTests.length} acceptance test${c.draftTests.length === 1 ? '' : 's'} ${c.approval?.auto ? 'locked automatically' : 'approved and locked'} (v${version}). Before any work: ${red}/${c.draftTests.length} failing${red === c.draftTests.length ? ', as they should' : ''}.`,
     });
   }
   console.log(`[acceptance] ${pilotId.slice(0, 8)} contract locked v${version} (${c.draftTests.length} tests)`);

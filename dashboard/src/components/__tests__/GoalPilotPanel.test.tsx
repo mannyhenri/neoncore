@@ -28,6 +28,7 @@ vi.mock('../../lib/api', async () => {
     openFeaturePrs: record('openFeaturePrs'),
     cleanupFeatureWorkspace: record('cleanupFeatureWorkspace'),
     mergeFeaturePrs: record('mergeFeaturePrs'),
+    setFeatureMergeMyself: record('setFeatureMergeMyself'),
     getGoalPilotCandidates: () => Promise.resolve(demo.DEMO_CANDIDATES),
     getGoalPilotRequest: () => Promise.resolve({ prompt: 'the prompt' }),
     createGoalPilot: record('createGoalPilot', { goalId: 'demo-g1', pilot: null, queued: false, error: null }),
@@ -435,20 +436,57 @@ describe('GoalPilotPanel — features side by side', () => {
     expect((calls.createGoalPilot[0][0] as { repos: string[] }).repos).toEqual(['/demo/ledger-svc']);
   });
 
-  it('staffing: only the feature\'s repos are preselected, and it runs on its own branch unless unticked', async () => {
+  it('staffing: only the feature\'s repos are preselected, and it works in the repos\' own checkouts unless "own branch" is ticked', async () => {
     const p = { ...pilotIn('staffing'), featureRepos: ['/demo/atlas-api'] } as GoalPilot;
     const view = await mount(p);
     const own = await view.findByRole('checkbox', { name: /own branch/i });
-    expect((own as HTMLInputElement).checked).toBe(true);
+    expect((own as HTMLInputElement).checked).toBe(false);
     fireEvent.click(await view.findByText(/Start the pipeline/));
     await waitFor(() => expect(calls.startGoalPilot).toHaveLength(1));
     const body = calls.startGoalPilot[0][1] as { repos: { repoPath: string }[]; isolate: boolean };
     expect(body.repos.map((r) => r.repoPath)).toEqual(['/demo/atlas-api']);
-    expect(body.isolate).toBe(true);
+    expect(body.isolate).toBe(false);
     fireEvent.click(own);
     fireEvent.click(await view.findByText(/Start the pipeline/));
     await waitFor(() => expect(calls.startGoalPilot).toHaveLength(2));
-    expect((calls.startGoalPilot[1][1] as { isolate: boolean }).isolate).toBe(false);
+    expect((calls.startGoalPilot[1][1] as { isolate: boolean }).isolate).toBe(true);
+  });
+
+  it('starting on its own branch asks nothing about merging — that is the done step\'s choice', async () => {
+    const view = await mount({ ...pilotIn('staffing'), featureRepos: ['/demo/atlas-api'] } as GoalPilot);
+    await view.findByRole('checkbox', { name: /own branch/i });
+    expect(view.queryByRole('checkbox', { name: /merge automatically/i })).toBeNull();
+    fireEvent.click(await view.findByText(/Start the pipeline/));
+    await waitFor(() => expect(calls.startGoalPilot).toHaveLength(1));
+    expect(calls.startGoalPilot[0][1]).not.toHaveProperty('autoMerge');
+  });
+
+  it.each([false, true])('done step on its own branch, "I\'ll merge it myself" ticked %s: says what happens, saves the choice, then marks done', async (myself) => {
+    const p = { ...pilotIn('completed'), workspace: {
+      branch: 'feature/metered-billing', prsAt: '2026-11-19T12:00:00Z',
+      repos: [{ repoPath: '/demo/ledger-svc', worktreePath: '/demo/ledger-svc-feature-metered-billing', agentType: 'claude', base: 'main', pr: { url: 'https://github.com/x/ledger/pull/7', number: 7, state: 'open' }, error: '', removed: false }],
+    } } as GoalPilot;
+    const view = await mount(p);
+    const step = await view.findByTestId('done-step');
+    const box = view.getByRole('checkbox', { name: /I'll merge it myself/i }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(step.textContent).toMatch(/merges every PR into main.*removes the worktrees/);
+    if (myself) fireEvent.click(box);
+    expect(step.textContent).toMatch(myself ? /left open for you or a teammate to merge/ : /merges every PR into main/);
+    fireEvent.click(view.getByRole('button', { name: myself ? 'Mark feature done' : 'Mark done — merge into main' }));
+    await waitFor(() => expect(calls.updateGoal).toHaveLength(1));
+    expect(calls.setFeatureMergeMyself ?? []).toEqual(myself ? [[p.id, true]] : []);
+    expect(calls.updateGoal[0]).toEqual([p.goalId, { status: 'achieved' }]);
+  });
+
+  it('the workspace card says when the PRs will land', async () => {
+    const p = { ...pilotIn('running'), workspace: {
+      branch: 'feature/metered-billing', prsAt: null,
+      repos: [{ repoPath: '/demo/ledger-svc', worktreePath: '/demo/ledger-svc-feature-metered-billing', agentType: 'claude', base: 'main', pr: null, error: '', removed: false }],
+    } } as GoalPilot;
+    const view = await mount(p);
+    expect((await view.findByTestId('workspace-card')).textContent).toContain('the PRs open when the pipeline finishes');
+    expect(view.queryByRole('checkbox', { name: /merge/i })).toBeNull();
   });
 
   it('running on its own branch: the branch, each repo\'s PR or why not, and the actions', async () => {

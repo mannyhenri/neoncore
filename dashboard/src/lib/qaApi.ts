@@ -117,6 +117,8 @@ export const qaApi = {
   /** QA per project and per feature: criteria passing, and what was on screen. */
   features: async () => arr<QaProjectFeatures>(await request('/features')).map((p) => ({ ...p, features: arr<QaFeature>(p.features).map((f) => ({ ...f, criteria: arr<QaFeature['criteria'][number]>(f.criteria) })) })),
   runFeature: (goalId: string) => request<QaRun>(`/features/${encodeURIComponent(goalId)}/run`, { method: 'POST' }),
+  /** The whole epic of this feature, now. */
+  runEpic: (goalId: string) => request<QaRun>(`/features/${encodeURIComponent(goalId)}/run-epic`, { method: 'POST' }),
   targets: async () => list<Partial<QaTarget>>(await request('/targets'), 'targets').map(normTarget),
   createTarget: async (t: Omit<QaTarget, 'id'>) => normTarget(await request<Partial<QaTarget>>('/targets', post(t))),
   updateTarget: async (t: QaTarget) => normTarget(await request<Partial<QaTarget>>(`/targets/${encodeURIComponent(t.id)}`, put(t))),

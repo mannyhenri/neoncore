@@ -6,7 +6,7 @@
  * `__tests__/views.registry.test.ts` iterates this list, so a view cannot be added without a
  * switch in the view bar, a title and a working surface.
  */
-export const VIEWS = ['projects', 'agents', 'workflows', 'tasks', 'tokens', 'qa', 'triage'] as const;
+export const VIEWS = ['projects', 'agents', 'workflows', 'tasks', 'tokens', 'logs', 'qa', 'triage'] as const;
 export type View = (typeof VIEWS)[number];
 
 export const VIEW_TITLE: Record<View, string> = {
@@ -15,6 +15,7 @@ export const VIEW_TITLE: Record<View, string> = {
   workflows: 'Workflows',
   tasks: 'Tasks',
   tokens: 'Tokens',
+  logs: 'Logs',
   qa: 'QA',
   triage: 'Triage',
 };

@@ -106,7 +106,7 @@ Enforced by the last two tests in `designGuard.test.ts`.
 
 | Prop | What it says |
 |---|---|
-| Signpost | The project's name, on the drawn board. The board is cut from the signpost art into a left end, a middle and a right end, and the middle stretches to the name (`scripts/world/build_signpost.py`; the sci-fi board is straightened first). A plaque under the post keeps the feature counts and the badges; with features running it is the name only |
+| Signpost | The project's name, on the drawn board. The board is cut from the signpost art into a left end, a middle and a right end, and the middle stretches to the name (`scripts/world/build_signpost.py`; the sci-fi board is straightened first). A plaque under the post keeps the feature counts and the badges; with features running it is the name only, and **the running features' plates hang in a stack right under the post** (`FeaturePlates.tsx`: name, stage, needs you, its badges) — at most three, those that need you first, then the furthest along, and "+N more under way"; the project's medals hang under them. (They used to float over whichever agents were working, often in the middle of nowhere.) |
 | Marker under the signpost | **Yellow, pulsing** = a feature of the project waits on you (the same rules as the "needs you" labels in Projects: `lib/featureStatus.ts`); **green** = features are in their pipeline and moving; none = nothing is in a pipeline. Hover lists the features, click opens the first one in Projects |
 | Gauge and pennant | Deadline and delivery (`milestones.ts`), in a row with the marker beside the post's foot |
 | Statue | A feature of the project has been delivered for 24 hours or more (hover: how many) |
@@ -172,11 +172,40 @@ The captain is a drawn sprite sheet with one look per state, like the crew: **ca
 
 **Deadlines, delivery and badges** (`world/milestones.ts`). Each pod with a dated open feature has an oxygen gauge that drains toward the NEAREST target date (full → three-quarters → half → quarter, then a blinking red light under 10% of the time left, then empty and blinking once the date has passed). Each pod with planned features has a pennant that climbs its pole as they are delivered, and a flare goes up over the pod each time one more is. The project's banner carries seven BADGES, one per step of the feature under way — scoped, questions answered, planned, plan accepted, staffed and running, built, delivered — lit as each step is passed. They reset when a new feature starts; after a delivery the full row stays until then. The captain adds three looks: keeping the log (work under way), celebrating (a delivery just landed), worrying (a date is tight or past). The airlock-barrier art is in the kit but unused: the records have no "depends on" link to drive it.
 
+**Fireworks when a feature is marked done** (`components/Fireworks.tsx`, `lib/celebrate.ts`), on whatever screen you are on: seven rockets rise and burst over the page, a banner says "✦ Feature complete ✦" and the feature's name, and the *delivered* cue plays; gone after 5.6 s, never in the way of a click. Fired by every way a person marks a feature done — **Mark done** on the feature page, a drag to **Done** on the Board, the pipeline panel's Done step — once the server has accepted it. With reduced motion, the banner only.
+
 ## Themes — the same game in another world
 
 A theme is an **art pack and a vocabulary**, nothing else: the same screens, the same records, the same
-animations meaning the same states. Settings → Theme chooses it; the choice is kept in this browser
-(`localStorage['neoncore.theme']`) and is read once when the page loads, so choosing reloads the page.
+animations meaning the same states. **Settings → Themes** lists them; **one is in use for everyone**
+(the server's `theme.active` setting). A browser follows it: on load it asks the server and, if it was
+built with the other base, switches once (`lib/activeTheme.ts`; remembered in
+`localStorage['neoncore.theme']`, read once when the page loads, so a switch reloads the page).
+
+**Themes of your own — the theme creator** (`components/ThemesSettings.tsx`, `components/AssetBrowser.tsx`,
+server `lib/custom-themes.ts`). Two themes are built in (*Neon Outpost* = `scifi`, *Guild Village* =
+`fantasy`). Each card shows its captain and its home map, the badges *Built in* / *In use for
+everyone*, and **Browse its assets** (built in) or **Edit its pictures and sounds** (yours),
+**Duplicate** (asks for a name), **Use for everyone**, and for your own **Rename** and **Delete**.
+The browser shows every picture and sound grouped — Captain, Bridge crew, Bridge decks, Crew on the
+map, World map, Further maps, Map props, Ambient motion, Roadmap, Sounds (`lib/themeCatalog.ts`):
+each with its path, a checkerboard preview, its size (and for a sheet "4 × 6 frames of 224 × 320"),
+**Download**, and for a sheet **Show the N sets** (each row animated, by name). In a theme of your
+own, **Replace…** fits the picture to the shape it replaces before anything is kept
+(`lib/fitImage.ts`): a sprite sheet is cut into its grid, each frame trimmed and drawn at one scale,
+bottom-centred; a map is cropped to cover; an icon is contained — with **Make a plain background
+see-through** on by default (off for maps). You see the result, then **Use this**; **Revert to the
+original** takes a replacement back. Sounds are kept as they are.
+
+A theme of your own is a base (`scifi` or `fantasy`) plus replacements, stored in
+`~/.neoncore/themes/<id>/` (`NEONCORE_THEMES_DIR`) with `theme.json`; the server serves each
+replacement **at the original's own address** while that theme is in use (no-cache), so no screen
+knows a picture was replaced. A replacement keeps the original's shape (a sheet its grid, a map its
+proportions — everything on it is placed by fractions); it may be larger or smaller. Allowed: PNG,
+JPEG, GIF, WebP, MP3, WAV, OGG, by their bytes, up to 20 MB, under `/world/ /sound/ /rewards/ /qa/
+/triage/`. API: `GET/POST /api/themes`, `PUT /api/themes/active {id}`, `PUT/DELETE /api/themes/:id`,
+`PUT /api/themes/:id/assets {path, dataBase64}`, `DELETE /api/themes/:id/assets?path=`,
+`GET /api/themes/:id/files?path=` (to preview a theme not in use).
 
 | | `scifi` (default) | `fantasy` |
 |---|---|---|
@@ -195,14 +224,13 @@ animations meaning the same states. Settings → Theme chooses it; the choice is
 
 ## The roadmap deck
 
-`world/roadmap/RoadmapChart.tsx` (Projects → a project → Roadmap). It is its own screen: it fills the work area over the project page (`RoadmapDeck` in `components/ProjectHub.tsx`; "← Board" goes back to the four columns), on the theme's drawn deck.
+`world/roadmap/RoadmapChart.tsx` (Projects → a project → Roadmap). It is its own screen: it fills the work area over the project page (`RoadmapDeck` in `components/ProjectHub.tsx`; "← Board" goes to the four columns), on the theme's drawn deck. It has one view: **the Route**.
 
 - **Vision** across the top: the sentence (click to edit), three half-ring gauges — Delivery (delivered), Scope (has a place on the chart), Readiness (not late) — and the destination.
 - **The officer of the deck** at the left: `worry` when a feature is late, `log` when one is under way, else `idle`.
-- **The chart**: a whole calendar year of months with the TODAY pill and line; a bordered lane per epic (glyph, EPIC n, name, outcome); a node per feature — green filled = delivered, blue ring = under way, white ring = planned, orange ring with ⚠ = late — with its name tag under it. A lane's route is green up to its last delivery, blue from there to what is under way, faint beyond. Dotted lines are dependencies (orange while still blocking).
-- **Two views of one plan: the Route and the Timeline** (a switch in the chart's header; the last one used is remembered, and it opens on the Route). **The Route** (`RouteView.tsx`, `routeLayout.ts`) is the plan as a flight path: the project launches at the left and flies to its destination — the vision's planet — at the right, and every epic is a **stop** on the way, in plan order, alternately above and below the line so their names never meet. A stop is the epic's glyph in a ring that fills as its features are delivered, lit by where the epic stands: delivered (green; gold with a star when it was on time — a commendation), under way (blue, breathing), late (orange), waiting on another epic (amber, locked), planned (grey). The line behind the ship is solid green, the leg being flown is blue and moving, the rest is faint and dashed; the ship is where the project is now — at its stop once that epic has started, on the way to it before. Selecting a stop shows the epic under the route: its outcome and gate, what its date says, a progress bar, **Start next**, **+ Feature**, **Edit epic**, and its features as chips that open the same card as on the timeline. Features in no epic are listed under it. A plan with more stops than fit makes the route wider (it scrolls, opening on the ship) rather than tighter; with no epic yet the route runs straight to the destination with one button, "Plot the first epic on the route". **The Timeline** is the dated chart described below: lanes, months, dragging.
-- **Top down: vision → epics → features.** "+ Add epic" is in the chart's header and as a row under the lanes; every epic's cell has "+ Feature" (a name and, if known, a target date — it is created in the project, in that epic). A project with no epic yet shows the three steps with the next one offered. The project's features with no date wait in "Features not on the chart yet": drag one onto an epic's lane to give it that epic and that date, or select it to plan it.
-- **An epic has a date and can wait on other epics.** "edit" on an epic's cell sets its name, outcome and glyph, the day the whole epic is **due**, and the epics it **waits on** (any other epic of the project; never itself, never in a circle — the server refuses). The cell's top line says where it stands: "Due Dec 24", "Late · was due Nov 1", "Waits on Epic 2", "Delivered Nov 13 · 3 days after its date", or "★ Commendation · delivered Nov 18, due Nov 20". The date is a dashed line down the epic's lane (gold once it is a commendation, red while late). A waiting epic offers nothing to start — no "Start next" — until what it waits on is delivered.
+- **The Route** — the only view (a dated timeline of lanes and months was retired: it read as noise) (`RouteView.tsx`, `routeLayout.ts`) is the plan as a flight path: the project launches at the left and flies to its destination — the vision's planet — at the right, and every epic is a **stop** on the way, in plan order, alternately above and below the line so their names never meet. A stop is the epic's glyph in a ring that fills as its features are delivered, lit by where the epic stands: delivered (green; gold with a star when it was on time — a commendation), under way (blue, breathing), late (orange), waiting on another epic (amber, locked), planned (grey). The line behind the ship is solid green, the leg being flown is blue and moving, the rest is faint and dashed; the ship is where the project is now — at its stop once that epic has started, on the way to it before. Under the route, **the epic cards** (`EpicCards.tsx`): a summary line ("The route · 4 epics · 7 of 12 features done") and **+ New epic**, then one card per epic in plan order — its glyph, EPIC n and name, pills for its state, its date ("🎖 On time · due Dec 13, 2026", "Late · was due …", "Delivered 3 days after …") and what it waits on (struck through once met), its outcome, a progress bar, its features as chips (drag a chip onto another card to move the feature there), **+ Feature**, **Start next**, ← → to reorder, **Edit** and **Delete** (asks first; its features stay in the project). Selecting a stop highlights its card; features in no epic are listed after them. A plan with more stops than fit makes the route wider (it scrolls, opening on the ship) rather than tighter; with no epic yet the route runs straight to the destination with one button, "Plot the first epic on the route".
+- **Top down: vision → epics → features.** "+ Add epic" is in the chart's header and "+ New epic" over the cards; every epic's card has "+ Feature" (a name and, if known, a target date — it is created in the project, in that epic). With no epic yet the route offers "Plot the first epic on the route".
+- **An epic has a date and can wait on other epics.** **Edit** on its card sets its name, outcome and glyph, the day the whole epic is **due**, and the epics it **waits on** (any other epic of the project; never itself, never in a circle — the server refuses). Its card's pills say where it stands ("Due Dec 24, 2026", "Late · was due …", "Delivered 3 days after …", "🎖 On time · due …", "⛓ Needs Epic 2"), and its stop on the route is lit the same way. A waiting epic offers nothing to start — no "Start next" — until what it waits on is delivered.
 - **The officer wears the project's rank** (see *Commendations and the captain's rank*): the plate under him shows it.
 - **The selected waypoint's card**, bottom right: its epic, date and state, its summary, START (OPEN once it has started; disabled with the reason while it waits on another feature), and "Edit plan" for its epic, dates and what it waits on.
 
@@ -233,6 +261,22 @@ Interface: a tap on buttons, tabs and switches, a brighter one on primary button
 Controls: the speaker button beside the bell mutes everything; Settings → Sound has the volume, switches for interface sounds and event cues, and a Preview for each cue. Kept in this browser (`neoncore.sound`). A browser only allows sound after the first click on the page.
 
 The server labels every bell notification with its kind — `needs-you`, `failed`, `finished`, `notice` (`server/src/lib/notification-kind.ts`); for an older server the kind is read off the title.
+
+## Logs
+
+**Logs** in the left bar, after Tokens (`components/LogsPage.tsx`; server `lib/log-stream.ts`,
+`GET /api/logs`). One stream, newest at the bottom, of three kinds:
+
+- **Events** — every machine's activity, read straight from the activity record.
+- **Terminal** — output of background work NeonCore runs on this machine: QA runs (`qa · <host>`) and
+  the repo commands it runs itself (source = the repo's folder). Cartridges run in their own visible
+  terminals, so their output is not here.
+- **NeonCore** — the server's own console (`installConsoleCapture`; warnings and errors are problems).
+
+Each source is a chip in its own colour: a click hides or shows it, a double-click shows it alone.
+Filters for the three kinds, **Problems only**, a search, and **Pause**. The stream follows the newest
+line until you scroll up; scrolling to the top loads older lines (cursor paging, newest first). Kept:
+the last 20,000 terminal and console lines (`pruneLogs`); events are as old as the activity record.
 
 ## A project's design system — step 1: the direction
 
@@ -292,6 +336,13 @@ project's captain one rank (`RANKS` in `lib/project-rewards.ts`, `rankFor`):
 | Commendations | 0 | 1 | 2 | 3 | 4+ |
 |---|---|---|---|---|---|
 | Rank | Captain | General | Commander | Admiral | President |
+
+The medals are earned at 1, 2, 3, 4 and 10 commendations and named **General's Star**, **Commander's
+Cross**, **Admiral's Anchor**, **Presidential Medal** and **Order of the Fleet**
+(`COMMENDATION_NAMES`). Each is drawn as a laurel wreath and a red ribbon with the explorer statue in
+the middle and its threshold on a plate (`components/rewards/Commendation.tsx`), named under it in the
+trophy case; under the family, **the rank ladder** shows the five ranks with the current one lit and
+those passed ticked.
 
 The rank is the project's own and is counted, never set. It shows as a **rank plate** — five stars,
 one lit per rank reached, and the title — under the captain on the Projects bridge (for the project

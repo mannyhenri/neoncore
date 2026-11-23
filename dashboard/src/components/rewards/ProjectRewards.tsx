@@ -10,6 +10,12 @@ import { useEffect, useState } from 'react';
 import type { Project, ProjectRewards as Rewards, RewardFamily } from '../../types';
 import { api } from '../../lib/api';
 import { RewardMedal } from './RewardMedal';
+import { CommendationMedal, RankLadder } from './Commendation';
+
+/** A family's medal: the commendation is a decoration of its own (Commendation.tsx). */
+function Medal(p: { family: RewardFamily['id']; tier: number; threshold: number; earned: boolean; label: string; name?: string; size?: number }) {
+  return p.family === 'commend' ? <CommendationMedal {...p} size={p.size ? Math.round(p.size * 1.3) : 58} /> : <RewardMedal {...p} />;
+}
 
 /** The highest tier earned in a family: its index, or -1 when none is. */
 export const topTier = (f: Pick<RewardFamily, 'tiers'>): number => f.tiers.reduce((top, t, i) => (t.earned ? i : top), -1);
@@ -34,7 +40,7 @@ export function ProjectRewards({ project, version = 0 }: { project: Pick<Project
         <span data-rewards-top className="flex items-center gap-2.5 flex-wrap">
           {earnedFamilies.map((f) => {
             const i = topTier(f);
-            return <RewardMedal key={f.id} family={f.id} tier={i} threshold={f.tiers[i].threshold} earned label={f.tiers[i].label} size={38} />;
+            return <Medal key={f.id} family={f.id} tier={i} threshold={f.tiers[i].threshold} earned label={f.tiers[i].label} name={f.tiers[i].name} size={38} />;
           })}
           {earnedFamilies.length === 0 && <span className="text-[13px] text-gray-400">None yet — the first comes with the first feature {project.name} delivers.</span>}
         </span>
@@ -54,9 +60,16 @@ export function ProjectRewards({ project, version = 0 }: { project: Pick<Project
                     {f.next === null ? `${f.count} — every medal earned` : `${f.count} so far · ${f.next - f.count} more to the next`}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 flex-wrap mt-2.5 pb-1.5">
-                  {f.tiers.map((t, i) => <RewardMedal key={t.threshold} family={f.id} tier={i} threshold={t.threshold} earned={t.earned} label={t.label} />)}
+                <div className="flex items-start gap-3 flex-wrap mt-2.5 pb-1.5">
+                  {f.tiers.map((t, i) => (
+                    <span key={t.threshold} className="inline-flex flex-col items-center gap-1">
+                      <Medal family={f.id} tier={i} threshold={t.threshold} earned={t.earned} label={t.label} name={t.name} />
+                      {t.name && <span data-medal-name className={`text-[11px] font-semibold text-center leading-tight w-[72px] ${t.earned ? 'text-[#FFE39A]' : 'text-gray-500'}`}>{t.name}</span>}
+                    </span>
+                  ))}
                 </div>
+                {/* The commendations promote the captain: his ladder, the current rank lit. */}
+                {f.id === 'commend' && rewards.rank && <div className="mt-2"><RankLadder rank={rewards.rank} /></div>}
                 <div role="progressbar" aria-label={`${f.label}: progress to the next medal`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
                   className="mt-2 h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
                   <span className="block h-full bg-neon-400 transition-[width] duration-500" style={{ width: `${pct}%` }} />

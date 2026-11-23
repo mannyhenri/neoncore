@@ -30,6 +30,7 @@
  * existence in `startPilot` — both explicit actions.
  */
 import db from '../db.js';
+import { featureStageProblem } from './feature-stages.js';
 import { randomUUID } from 'crypto';
 import { availableTemplates, templateIdForName } from './goal-decomposition.js';
 import { type Criterion, type FeatureSize, normalizeCriteria, acceptedCriteria, criteriaText, deleteContract, FEATURE_SIZES, DEFAULT_FEATURE_SIZE, featureSize, overBudget } from './acceptance-contract.js';
@@ -58,15 +59,15 @@ export const WORK_TYPES: ChoiceOption[] = [
 export const INVOLVEMENT_LEVELS = [
   {
     value: 'hands-on', label: 'Hands-on', goalAutonomy: 'supervised', runAutonomy: 'manual',
-    hint: 'Every gate, decision and held step waits for you.',
+    hint: 'You review the acceptance tests, and every gate, decision and held step waits for you.',
   },
   {
     value: 'balanced', label: 'Balanced', goalAutonomy: 'collaborative', runAutonomy: 'advance',
-    hint: 'Held steps advance on their own; decisions and agent questions wait for you.',
+    hint: 'You approve the plan and the result. In between it runs on: tests lock when they fail before the work, held steps advance, workflow decisions take their recommendation (reversible). Agent questions and anything it cannot settle wait for you.',
   },
   {
     value: 'hands-off', label: 'Hands-off', goalAutonomy: 'assisted', runAutonomy: 'full',
-    hint: 'Decisions are settled for you too (reversible for 5 minutes). Only breakage stops it.',
+    hint: 'Like balanced, and agent questions are answered for you too (reversible for 5 minutes). Only breakage stops it.',
   },
 ] as const;
 export type Involvement = (typeof INVOLVEMENT_LEVELS)[number]['value'];
@@ -262,6 +263,12 @@ export interface FeatureWorkspace {
   mergedAt?: string | null;
   /** Every worktree removed. */
   cleanedAt?: string | null;
+  /**
+   * Chosen on the "mark done" step: true = "I'll merge it myself" — marking the feature done opens
+   * the PRs and leaves them open (cleaned up once merged on GitHub). Absent or false: marking it done
+   * merges every PR into its base and removes the worktrees, branches and cartridges.
+   */
+  mergeMyself?: boolean;
 }
 
 export type PilotPhase =
@@ -525,7 +532,7 @@ export function normalizeBrief(raw: unknown, notes: string[] = [], hasCriteria =
 // ── planner output: pipeline ──────────────────────────────────────────────────
 
 /** Templates by validated name. Only live template rows can be proposed — see availableTemplates. */
-export function normalizePipelineResult(raw: unknown): Normalized<PipelineProposal> {
+export function normalizePipelineResult(raw: unknown, ctx: { size?: string } = {}): Normalized<PipelineProposal> {
   const notes: string[] = [];
   const fail = (error: string): Normalized<PipelineProposal> => ({ value: null, notes, error });
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail('the submission was not an object');
@@ -555,6 +562,12 @@ export function normalizePipelineResult(raw: unknown): Normalized<PipelinePropos
     });
   });
   if (stages.length === 0) return fail('no usable workflows were proposed');
+  // Write the tests → build → deliver (lib/feature-stages.ts). Refused, never trimmed: the planner
+  // re-plans knowing why, instead of the person finding a stage quietly gone.
+  const wrong = stages.map((st) => ({ st, why: featureStageProblem(st.template, ctx.size) })).filter((x) => x.why);
+  if (wrong.length) {
+    return fail(`not a stage of this feature: ${wrong.map((x) => `"${x.st.template}" — ${x.why}`).join('; ')}. A feature's pipeline is the workflows that build it; propose those only.`);
+  }
 
   const alternatives = (Array.isArray(r.alternatives) ? r.alternatives : [])
     .map((a) => (a && typeof a === 'object' ? a as Record<string, unknown> : {}))
@@ -859,7 +872,7 @@ export function submitPlannerResult(requestId: string, raw: unknown): SubmitOutc
     return { request: getRequest(req.id)!, pilot: getPilot(pilot.id)!, needsPipeline: v.status === 'complete' };
   }
 
-  const out = normalizePipelineResult(raw);
+  const out = normalizePipelineResult(raw, { size: pilot.brief?.size });
   if (!out.value) throw new PilotError(`submission rejected: ${out.error}${out.notes.length ? ` (${out.notes.join('; ')})` : ''}`, 422);
   const tx = db.transaction(() => {
     finish('ready', out.value, out.notes, '');

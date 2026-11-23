@@ -12,7 +12,8 @@
  *              passing on NeonCore's own evidence
  *   streak     the longest run of clean deliveries in a row         3 · 5 · 10
  *   ontime     features delivered on or before their target date    5 · 10 · 25
- *   commend    COMMENDATIONS: epics delivered on or before their date  1 · 2 · 3 · 4 — each one a promotion (RANKS)
+ *   commend    COMMENDATIONS: epics delivered on or before their date  1 · 2 · 3 · 4 · 10 — named (COMMENDATION_NAMES);
+ *              the first four are each a promotion (RANKS)
  *   fastfix    bugs taken from report to pull request within an     1 · 5 · 10
  *              hour
  *
@@ -34,10 +35,12 @@ export const REWARD_FAMILIES = [
   { id: 'streak', label: 'Clean streak', one: 'clean delivery in a row', many: 'clean deliveries in a row', tiers: [3, 5, 10] },
   { id: 'ontime', label: 'On time', one: 'feature delivered on time', many: 'features delivered on time', tiers: [5, 10, 25] },
   { id: 'fastfix', label: 'Fast fixes', one: 'bug fixed within the hour', many: 'bugs fixed within the hour', tiers: [1, 5, 10] },
-  { id: 'commend', label: 'Commendations', one: 'epic delivered on or before its date', many: 'epics delivered on or before their date', tiers: [1, 2, 3, 4] },
+  { id: 'commend', label: 'Commendations', one: 'epic delivered on or before its date', many: 'epics delivered on or before their date', tiers: [1, 2, 3, 4, 10] },
 ] as const;
 export type RewardFamilyId = (typeof REWARD_FAMILIES)[number]['id'];
 export const FAST_FIX_MS = 60 * 60_000;
+/** The commendation medals, by tier: the first four come with a promotion, the fifth at ten. */
+export const COMMENDATION_NAMES = ["General's Star", "Commander's Cross", "Admiral's Anchor", 'Presidential Medal', 'Order of the Fleet'] as const;
 
 /**
  * THE CAPTAIN'S RANK. Every commendation — an epic delivered on or before its date — promotes the
@@ -68,7 +71,7 @@ export function rankFor(commendations: number): ProjectRank {
 export interface RewardFamily {
   id: RewardFamilyId; label: string; count: number;
   /** Every tier, in order: its threshold, whether the count has reached it, and what it says. */
-  tiers: { threshold: number; earned: boolean; label: string }[];
+  tiers: { threshold: number; earned: boolean; label: string; /** A medal with a name of its own (commendations). */ name?: string }[];
   /** The next threshold to reach, or null when every tier is earned. */
   next: number | null;
 }
@@ -143,8 +146,11 @@ export function projectRewards(projectId: string, now = Date.now()): ProjectRewa
     const count = counts[f.id];
     return {
       id: f.id, label: f.label, count,
-      // A commendation's medal names the rank it brings.
-      tiers: f.tiers.map((threshold, i) => ({ threshold, earned: count >= threshold, label: `${project.name} — ${f.id === 'commend' ? `${RANKS[Math.min(i + 1, RANKS.length - 1)].title}: ` : ''}${rewardLabel(f, threshold)}` })),
+      // A commendation's medal has a name of its own.
+      tiers: f.tiers.map((threshold, i) => {
+        const name = f.id === 'commend' ? COMMENDATION_NAMES[i] : undefined;
+        return { threshold, earned: count >= threshold, label: `${project.name} — ${name ? `${name}: ` : ''}${rewardLabel(f, threshold)}`, ...(name ? { name } : {}) };
+      }),
       next: f.tiers.find((t) => count < t) ?? null,
     };
   });

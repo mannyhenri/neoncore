@@ -169,6 +169,8 @@ export interface FeatureWorkspace {
   mergedAt?: string | null;
   /** Every worktree removed. */
   cleanedAt?: string | null;
+  /** "I'll merge it myself": marking the feature done opens the PRs and leaves them open. Else done merges and cleans up. */
+  mergeMyself?: boolean;
 }
 
 /** A file attached to a feature (server lib/feature-files.ts). */
@@ -832,8 +834,8 @@ export interface Goal {
   origin?: 'imported' | '';
   /** When it was marked done ('' while it is not). */
   doneAt?: string;
-  /** Where the person placed it on the roadmap: '' = automatic, else 'now' | 'next' | 'later'. */
-  roadmapLane?: '' | 'now' | 'next' | 'later';
+  /** Where the person placed it on the board: '' = where its state puts it, else 'todo' | 'progress' | 'qa'. */
+  roadmapLane?: '' | 'todo' | 'progress' | 'qa';
   /** Its capability group on the spec: '<group> · <sub-area>', '<group>', or '' (unsorted). */
   area?: string;
   /** Where the feature's pipeline stands (its latest pilot); null when it was never started. */
@@ -906,6 +908,8 @@ export interface PortfolioSummary {
 }
 
 export interface Project {
+  /** When it was archived ('' = in use): off the map and the lists until restored. */
+  archivedAt?: string;
   id: string;
   goalId: string | null;
   goalName?: string;
@@ -1338,9 +1342,9 @@ export interface SpecFeature {
   } | null;
   targetDate: string;
   /** Where the person placed it on the roadmap ('' = automatic). */
-  lane: '' | 'now' | 'next' | 'later';
+  lane: '' | 'todo' | 'progress' | 'qa';
   /** The roadmap column it is in, decided by the server — null for an existing feature (not on the roadmap). */
-  column: 'now' | 'next' | 'later' | 'done' | null;
+  column: 'todo' | 'progress' | 'qa' | 'done' | null;
   completedAt: string | null;
   updatedAt: string;
 }
@@ -1476,7 +1480,21 @@ export interface RoadmapFeature {
   dependsOn: string[];
   /** Those of `dependsOn` not delivered yet — empty means it can start. */
   blockedBy: string[];
+  /** The epics its own epic waits on that are not delivered yet (absent from an older server). */
+  waitsOnEpics?: string[];
   summary: string;
+}
+
+/** What a feature needs first (server GET /api/roadmap/features/:id/needs). */
+export interface FeatureNeeds {
+  /** The features ticked on its Needs first panel. */
+  chosen: string[];
+  /** What is still missing: those features not done, and the epics its epic waits on. */
+  unmet: { features: { id: string; name: string }[]; epics: { id: string; name: string }[] };
+  /** 'Not yet: … must be done first.' — '' when nothing is missing. */
+  message: string;
+  /** What can be ticked: the project's other features, minus any that already depend on this one. */
+  candidates: { id: string; name: string; state: RoadmapFeatureState }[];
 }
 
 export interface RoadmapEpic {
@@ -1589,7 +1607,7 @@ export interface DesignPublished { version: number; at: string; repos: DesignRep
 export type RewardFamilyId = 'features' | 'epics' | 'releases' | 'bugs' | 'qa' | 'clean' | 'streak' | 'ontime' | 'fastfix' | 'commend';
 export interface RewardFamily {
   id: RewardFamilyId; label: string; count: number;
-  tiers: { threshold: number; earned: boolean; label: string }[];
+  tiers: { threshold: number; earned: boolean; label: string; /** A medal with a name of its own (commendations). */ name?: string }[];
   /** The next threshold to reach, or null when every tier is earned. */
   next: number | null;
 }
@@ -1599,3 +1617,29 @@ export interface ProjectRewards { projectId: string; name: string; color: string
 /** A new map the whole outfit can unlock (server lib/project-rewards.ts worldProgress). */
 export interface MapRequirement { family: RewardFamilyId; label: string; count: number; target: number; met: boolean }
 export interface MapProgress { id: string; name: string; requirements: MapRequirement[]; met: number; total: number; unlocked: boolean; unlockedAt: string | null }
+
+/** The Logs section (server lib/log-stream.ts). */
+export type LogKind = 'event' | 'terminal' | 'neoncore';
+export interface LogLine { cursor: string; at: string; kind: LogKind; source: string; engine: string; machine: string; level: 'info' | 'problem'; text: string }
+export interface LogSource { source: string; kind: LogKind; engine: string; machine: string; count: number }
+export interface LogPage { lines: LogLine[]; hasMore: boolean; sources: LogSource[] }
+
+/** Themes (server lib/custom-themes.ts). */
+export interface CustomThemeInfo { id: string; name: string; base: string; createdAt: string; updatedAt: string; overrides: Record<string, { file: string; bytes: number; at: string }> }
+export interface ThemesList { active: string; activeBase: string; builtIn: { id: string; name: string; blurb: string }[]; custom: CustomThemeInfo[] }
+
+/** Something waiting on the person right now (server lib/needs-you.ts). Gone when its state changes. */
+export type NeedsYouKind =
+  | 'questions' | 'plan' | 'start' | 'tests' | 'checklist' | 'cartridge' | 'stopped'
+  | 'run' | 'mark-done' | 'merge-blocked' | 'merge-yourself';
+export interface NeedsYouItem {
+  key: string;
+  kind: NeedsYouKind;
+  title: string;
+  what: string;
+  since: string;
+  projectId: string;
+  goalId: string;
+  pilotId: string;
+  workflowId: string;
+}

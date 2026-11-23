@@ -254,7 +254,7 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
             </BodyText>
             <BodyText>
               Beside the list, the project's Spec shows every feature's intent next to what was verified;
-              the Roadmap is a Now / Next / Later / Done view (drag features between columns) with a
+              the Roadmap is a route of epics and a To do / In Progress / QA / Done board (drag features between columns) with a
               shareable page; the Changelog gets an entry each time a feature is marked done; Architecture
               holds how the product is built. For a codebase new to NeonCore, ✦ Generate with AI has a
               cartridge write the architecture, the existing features with their specs, the changelog from

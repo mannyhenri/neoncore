@@ -16,7 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import db from '../src/db.js';
 import { chartOf, createEpic, updateEpic, removeEpic, planFeature, RoadmapError } from '../src/lib/roadmap.js';
-import { REWARD_FAMILIES, RANKS, rankFor, rewardCounts, projectRewards } from '../src/lib/project-rewards.js';
+import { REWARD_FAMILIES, RANKS, COMMENDATION_NAMES, rankFor, rewardCounts, projectRewards } from '../src/lib/project-rewards.js';
 
 let n = 0;
 const NOW = Date.parse('2026-11-22T12:00:00Z');
@@ -134,10 +134,11 @@ test('a waiting epic is blocked until what it waits on is delivered — and offe
   assert.deepEqual(epicOf(p, second).blockedBy, [empty]);
 });
 
-test('commendations: one per epic delivered on or before its date — and the captain\'s rank for 0 to 6 of them', () => {
+test('commendations: one per epic delivered on or before its date — the captain\'s rank and the named medals for 0 to 11 of them', () => {
   assert.deepEqual(RANKS.map((r) => r.title), ['Captain', 'General', 'Commander', 'Admiral', 'President']);
   const family = REWARD_FAMILIES.find((f) => f.id === 'commend')!;
-  assert.deepEqual(family.tiers, [1, 2, 3, 4], 'one medal per promotion');
+  assert.deepEqual(family.tiers, [1, 2, 3, 4, 10], 'one medal per promotion, and the Order of the Fleet at ten');
+  assert.deepEqual(COMMENDATION_NAMES, ["General's Star", "Commander's Cross", "Admiral's Anchor", 'Presidential Medal', 'Order of the Fleet']);
   const p = project('Gridlight');
   // What does NOT count: late, undated, unfinished, empty.
   const late = createEpic(p, { name: 'Late', targetDate: '2026-11-01' }).id; feature(p, late, '2026-11-02');
@@ -146,7 +147,7 @@ test('commendations: one per epic delivered on or before its date — and the ca
   createEpic(p, { name: 'Empty', targetDate: '2026-12-30' });
   assert.equal(rewardCounts(p, NOW)!.commend, 0);
   assert.equal(rewardCounts(p, NOW)!.epics, 2, 'they are still epics delivered');
-  for (let k = 0; k <= 6; k++) {
+  for (let k = 0; k <= 11; k++) {
     if (k > 0) { const e = createEpic(p, { name: `On time ${k}`, targetDate: '2026-11-20' }).id; feature(p, e, '2026-11-19'); }
     const r = projectRewards(p, NOW)!;
     const want = Math.min(k, RANKS.length - 1);
@@ -155,9 +156,10 @@ test('commendations: one per epic delivered on or before its date — and the ca
     assert.deepEqual(r.rank.next, want < RANKS.length - 1 ? { title: RANKS[want + 1].title, at: want + 1 } : null, `${k}: next`);
     assert.deepEqual(rankFor(k), r.rank);
     const medals = r.families.find((f) => f.id === 'commend')!;
-    assert.deepEqual(medals.tiers.map((t) => t.earned), [1, 2, 3, 4].map((t) => k >= t), `${k}: medals`);
-    // Each medal names the rank it brings.
-    assert.deepEqual(medals.tiers.map((t) => t.label), RANKS.slice(1).map((rank, i) => `Gridlight — ${rank.title}: ${i + 1} ${i === 0 ? 'epic' : 'epics'} delivered on or before ${i === 0 ? 'its' : 'their'} date`));
+    assert.deepEqual(medals.tiers.map((t) => t.earned), [1, 2, 3, 4, 10].map((t) => k >= t), `${k}: medals`);
+    // Each medal has its name, and says what earned it.
+    assert.deepEqual(medals.tiers.map((t) => t.name), COMMENDATION_NAMES, `${k}: names`);
+    assert.deepEqual(medals.tiers.map((t) => t.label), [1, 2, 3, 4, 10].map((n, i) => `Gridlight — ${COMMENDATION_NAMES[i]}: ${n} ${n === 1 ? 'epic' : 'epics'} delivered on or before ${n === 1 ? 'its' : 'their'} date`));
   }
   // Another project's commendations are its own.
   assert.equal(projectRewards(project('Fresh'), NOW)!.rank.title, 'Captain');

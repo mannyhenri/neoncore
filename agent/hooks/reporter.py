@@ -23,6 +23,9 @@ from _fleet import auth_headers
 
 ORCHESTRATOR_URL = os.environ.get("NEONCORE_URL", "http://localhost:4040")
 
+# Hook events that mean the agent is acting (server WORKING_EVENTS, in Claude Code's hook names).
+WORKING_HOOKS = {"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+
 # Which engine these hooks report for. Every payload carries it, because a repo can
 # hold a Claude cartridge and a Codex cartridge at once and the server has to tell
 # them apart — an untyped payload used to resolve to whichever row was created
@@ -136,15 +139,21 @@ def main():
         }))
         sys.exit(0)
 
-    # Build register body — always mark 'working' since a hook firing means activity
+    # Build register body. ONLY an event that means the agent is acting says 'working' — the
+    # same set the server classifies (server/src/lib/activity-status.ts WORKING_EVENTS). Any
+    # other event (a background subagent finishing after the turn ended, Claude Code's idle
+    # "waiting for your input", a compaction) leaves the status as it is: hardcoding 'working'
+    # here re-marked an idle cartridge busy, and NeonCore held its next request until the
+    # staleness sweep let it go (FacetDB's planner, 2026-11-23). server/test/reporter-hook-status.test.ts
     register = {
         "sessionId": session_id,
         "machine": machine,
         "repoPath": cwd,
         "repoName": repo_name,
         "agentType": AGENT_TYPE,
-        "status": "working",
     }
+    if hook_event in WORKING_HOOKS:
+        register["status"] = "working"
     # Per-machine opt-in: NEONCORE_TRUST=1 means new agents from this machine start in trust mode
     if os.environ.get("NEONCORE_TRUST", "").strip().lower() in ("1", "true", "yes", "on"):
         register["trustMode"] = True

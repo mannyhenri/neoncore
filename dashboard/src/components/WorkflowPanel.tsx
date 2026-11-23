@@ -61,7 +61,6 @@ type TemplateTab = 'all' | 'strategy' | 'planning' | 'development' | 'quality' |
 const TEMPLATE_CATEGORY: Record<string, TemplateTab> = {
   'Product Strategy Session':       'strategy',
   'Deep Research':                  'strategy',
-  'CE: Phase 1 — Interrogate':      'strategy',
   'Engineering Architecture Review':'planning',
   'CE: Phase 2 — Plan':             'planning',
   'Confer':                         'development',

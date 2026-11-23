@@ -1,5 +1,5 @@
+import { ThemesSettings } from './ThemesSettings';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { THEMES, THEME, THEME_LABEL, chooseTheme } from '../world/theme';
 import { SoundSettingsPanel } from './SoundControls';
 import { api } from '../lib/api';
 import { isDemoEnabled, setDemoEnabled, resetDemoData } from '../lib/demoMode';
@@ -206,20 +206,7 @@ export function SettingsModal({ onClose }: Props) {
         ) : tab === 'sound' ? (
           <SoundSettingsPanel />
         ) : tab === 'theme' ? (
-          <div className="px-4 py-4 md:px-6 space-y-3" data-theme-settings>
-            <p className="text-[15px] text-gray-200">World theme</p>
-            <p className="text-[13px] text-gray-400 max-w-[560px]">
-              How the map, the deck figures and the roadmap are drawn and named. It changes nothing in your projects, features or agents,
-              and it is kept in this browser. Choosing another theme reloads the page.
-            </p>
-            {THEMES.map((id) => (
-              <label key={id} className={`flex items-center gap-3 cursor-pointer rounded-[12px] border px-4 py-3 max-w-[560px] ${THEME === id ? 'border-neon-500/60 bg-neon-500/[0.06]' : 'border-white/[0.1] hover:border-white/[0.2]'}`}>
-                <input type="radio" name="world-theme" value={id} checked={THEME === id} onChange={() => chooseTheme(id)} className="accent-neon-500" />
-                <span className="text-[14px] text-gray-100">{THEME_LABEL[id]}</span>
-                {THEME === id && <span className="ml-auto text-[12px] text-neon-300">in use</span>}
-              </label>
-            ))}
-          </div>
+          <ThemesSettings />
         ) : tab === 'demo' ? (
           <div className="px-4 py-4 md:px-6 space-y-3">
             <label className="flex items-start gap-3 cursor-pointer">

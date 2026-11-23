@@ -381,3 +381,16 @@ select.glass-input optgroup {
 @keyframes route-ship { 0%, 100% { margin-top: 0; } 50% { margin-top: -5px; } }
 .route-ship { animation: route-ship 2.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .route-flying, .route-pulse, .route-ship { animation: none; } }
+
+/* FIREWORKS (components/Fireworks.tsx): a rocket rises to its burst point, it flashes, then its sparks fly out and fall. */
+.fw-rocket { position: absolute; left: -3px; top: -3px; width: 6px; height: 22px; border-radius: 3px; opacity: 0; animation-name: fw-rise; animation-timing-function: cubic-bezier(.2,.7,.4,1); animation-fill-mode: both; }
+@keyframes fw-rise { 0% { transform: translateY(var(--from)); opacity: 1; } 85% { opacity: 1; } 100% { transform: translateY(0); opacity: 0; } }
+.fw-flash { position: absolute; left: -90px; top: -90px; width: 180px; height: 180px; border-radius: 50%; opacity: 0; animation: fw-flash .7s ease-out both; mix-blend-mode: screen; }
+@keyframes fw-flash { 0% { transform: scale(.2); opacity: 0; } 15% { opacity: .95; } 100% { transform: scale(1.4); opacity: 0; } }
+.fw-spark { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 50%; opacity: 0; animation: fw-spark 2.1s cubic-bezier(.12,.8,.3,1) both; }
+@keyframes fw-spark { 0% { transform: translate(0, 0) scale(1.4); opacity: 0; } 5% { opacity: 1; } 65% { opacity: 1; } 100% { transform: translate(var(--dx), calc(var(--dy) + 60px)) scale(.55); opacity: 0; } }
+.fw-night { animation: fw-night 5.6s ease both; }
+@keyframes fw-night { 0% { background: rgba(2,4,10,0); } 8%, 82% { background: rgba(2,4,10,.55); } 100% { background: rgba(2,4,10,0); } }
+.fw-banner { animation: fw-banner 5.6s ease both; }
+@keyframes fw-banner { 0% { opacity: 0; transform: translate(-50%, -12px) scale(.96); } 8%, 85% { opacity: 1; transform: translate(-50%, 0) scale(1); } 100% { opacity: 0; transform: translate(-50%, -6px); } }
+@media (prefers-reduced-motion: reduce) { .fw-rocket, .fw-spark, .fw-flash { display: none; } .fw-banner { animation: none; } }

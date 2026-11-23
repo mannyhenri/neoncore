@@ -297,7 +297,8 @@ export interface AcceptanceContract {
   /** An amendment in progress: which criteria were unlocked and why. */
   amending: { criterionIds: string[]; reason: string } | null;
   /** The person asked to approve: lock as soon as a baseline shows the tests red (or they confirmed). */
-  approval: { requestedAt: string; confirmPassing: boolean; blocked: string } | null;
+  /** `auto`: requested by NeonCore itself (not hands-on) — locks on a red baseline, asks otherwise. */
+  approval: { requestedAt: string; confirmPassing: boolean; blocked: string; auto?: boolean } | null;
   baseline: BaselineRun | null;
   verifications: Verification[];
   checklist: ChecklistReview | null;

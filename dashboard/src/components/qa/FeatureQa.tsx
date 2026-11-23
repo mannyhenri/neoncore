@@ -21,7 +21,7 @@ export const FEATURE_STATE: Record<QaFeatureState, { label: string; tone: string
   running: { label: 'Testing…', tone: 'border-neon-400/60 text-neon-200 bg-neon-500/10' },
   error: { label: 'Could not run', tone: 'border-ember-400/60 text-ember-300 bg-ember-500/10' },
   'not-run': { label: 'Not run yet', tone: 'border-white/20 text-gray-300 bg-white/[0.04]' },
-  'waiting-for-build': { label: 'Waiting for the build', tone: 'border-white/20 text-gray-300 bg-white/[0.04]' },
+  'waiting-for-build': { label: 'Waiting for its epic', tone: 'border-white/20 text-gray-300 bg-white/[0.04]' },
   'no-criteria': { label: 'No criteria yet', tone: 'border-white/20 text-gray-400 bg-white/[0.03]' },
   'no-target': { label: 'No target', tone: 'border-amber-400/50 text-amber-300 bg-amber-400/10' },
 };
@@ -45,7 +45,7 @@ function Bar({ passed, total, failed = 0, label }: { passed: number; total: numb
   );
 }
 
-function FeatureRow({ f, busy, onRun }: { f: QaFeature; busy: boolean; onRun: () => void }) {
+function FeatureRow({ f, busy, onRun, onRunEpic }: { f: QaFeature; busy: boolean; onRun: () => void; onRunEpic: () => void }) {
   const state = FEATURE_STATE[f.state];
   const failed = f.criteria.filter((c) => c.status === 'failed').length;
   // Open by default where there is something to look at: a failure, or a run in progress.
@@ -59,9 +59,13 @@ function FeatureRow({ f, busy, onRun }: { f: QaFeature; busy: boolean; onRun: ()
         <span data-qa-feature-state className={`rounded-full border px-2.5 py-0.5 text-[12px] font-semibold whitespace-nowrap ${state.tone}`}>{state.label}</span>
         {f.total > 0 && <span data-qa-feature-count className="font-display text-[16px] font-bold text-gray-100 whitespace-nowrap">{f.passed}/{f.total}</span>}
         {f.reportUrl && <a href={f.reportUrl} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-neon-300 hover:text-white whitespace-nowrap">Report ↗</a>}
-        {RUNNABLE.has(f.state) && (
+        {RUNNABLE.has(f.state) && (<>
           <button data-qa-feature-run disabled={busy} onClick={onRun} className={`${BTN_GHOST} h-8 px-3 text-[12px]`}>{f.runId ? '↻ Run again' : '▶ Run now'}</button>
-        )}
+          {f.epic?.id && (
+            <button data-qa-epic-run disabled={busy} onClick={onRunEpic} title={`Every feature of "${f.epic.name}" (${f.epic.done} of ${f.epic.total} done), in one run`}
+              className={`${BTN_GHOST} h-8 px-3 text-[12px]`}>▶ Run the epic</button>
+          )}
+        </>)}
       </div>
       {f.total > 0 && <div className="mt-2"><Bar passed={f.passed} failed={failed} total={f.total} label={`${f.passed} of ${f.total} criteria passing`} /></div>}
       {(f.note || f.runAt) && (
@@ -118,10 +122,10 @@ export function FeatureQa({ api = defaultApi, tick = 0, pollMs = 8000, onAddTarg
     return () => clearInterval(t);
   }, [running, load, pollMs]);
 
-  const run = async (goalId: string) => {
+  const run = async (goalId: string, whole = false) => {
     setBusy(goalId); setError(null);
     let refused: string | null = null;
-    try { await api.runFeature(goalId); } catch (e) { refused = (e as Error).message; }
+    try { await (whole ? api.runEpic(goalId) : api.runFeature(goalId)); } catch (e) { refused = (e as Error).message; }
     await load();
     // Said after the reload, which clears an older error.
     if (refused) setError(refused);
@@ -136,13 +140,13 @@ export function FeatureQa({ api = defaultApi, tick = 0, pollMs = 8000, onAddTarg
         <QaArt name="module-runner" className="w-12 h-12 shrink-0" />
         <div>
           <h3 className="font-display text-[20px] font-semibold text-gray-100">Features under test</h3>
-          <p className="text-[13px] text-gray-400">A feature’s acceptance criteria are its test. It runs by itself every time a stage of the feature finishes — nothing to enter.</p>
+          <p className="text-[13px] text-gray-400">A feature’s acceptance criteria are its test. QA runs by itself when its epic is finished — every feature done — and whenever you run it. Nothing to enter.</p>
         </div>
       </div>
       <ErrorNote error={error} />
       {withFeatures.length === 0 && !error && (
         <p data-qa-features-empty className={`${CARD} text-[14px] text-gray-300`}>
-          No feature is being developed yet. Start one from a project’s Features list: as soon as it has acceptance criteria it appears here, and QA tests it as it is built.
+          No feature is being developed yet. Start one from a project’s Features list: as soon as it has acceptance criteria it appears here, and QA tests it when its epic is finished.
         </p>
       )}
       {withFeatures.map((p) => {
@@ -164,7 +168,7 @@ export function FeatureQa({ api = defaultApi, tick = 0, pollMs = 8000, onAddTarg
             </div>
             <div className="mt-2.5"><Bar passed={p.passed} failed={failed} total={p.total} label={`${p.name}: ${p.passed} of ${p.total} criteria passing`} /></div>
             <ul className="mt-3 space-y-2">
-              {p.features.map((f) => <FeatureRow key={`${f.goalId}:${f.state}`} f={f} busy={busy !== ''} onRun={() => void run(f.goalId)} />)}
+              {p.features.map((f) => <FeatureRow key={`${f.goalId}:${f.state}`} f={f} busy={busy !== ''} onRun={() => void run(f.goalId)} onRunEpic={() => void run(f.goalId, true)} />)}
             </ul>
           </div>
         );

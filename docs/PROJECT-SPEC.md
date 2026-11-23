@@ -14,7 +14,7 @@ the repos: **✦ Generate with AI** (below).
                 │ intent (agreed when scoped)  +  evidence (NeonCore's checks)
                 ▼
    Spec ─────── every feature: intent beside what was verified, and where they differ
-   Roadmap ──── Now / Next / Later / Done — a shareable page for a roadmap conversation
+   Roadmap ──── the route of epics, and the Board: To do / In Progress / QA / Done — a shareable page
    Changelog ── an entry per feature marked done; you edit, add, and cut releases
    Architecture how the product is built — generated from the codebase or written by you
                 │
@@ -65,26 +65,33 @@ Statuses: **Planned** (on the list), **In progress** (being scoped, planned or b
 (the pipeline finished — read the report and sign it off), **Done** (marked done), **Paused** (the
 pipeline needs a decision), **Existing** (already in the product when the project was taken on).
 
-## Roadmap — for executives
+## The Board — To do → In Progress → QA → Done
 
-**Now**, **Next**, **Later**, **Done** (newest first), with progress, dates and how many features are
-verified against their criteria.
+The Roadmap tab has two views of the same features — the **Chart** (the route, below) and the **Board** —
+and opens on the last one used (`localStorage['neoncore.roadmap.tab']`). The Board is four columns, left
+to right, where the work is (server `lib/project-spec.ts` `placeColumns`, so the page and the exports agree):
 
-**You decide where a feature goes**: drag its card to another column, or use **Move…** on the card (or
-the *Roadmap* picker on the feature's own page). A placed feature shows *placed* and stays where you put
-it. A feature you have not placed follows the automatic rule: **Now** while its pipeline runs (in
-progress, delivered awaiting sign-off, paused), **Next** when it is among the top three not-started
-features of the list, **Later** otherwise. **Move… → back to automatic** hands it back to the rule.
+| Column | A feature is here when |
+|---|---|
+| **To do** | nothing has started |
+| **In Progress** | its pipeline is running, or waits on a decision (*needs a decision*) |
+| **QA** | it is delivered and waits for your sign-off |
+| **Done** | it is marked done (newest first) |
 
-**Done is a status, not a placement**: moving a card to Done marks the feature done (after a
-confirmation — its changelog entry is written), and moving it out of Done reopens it, into the column
-you dropped it on. A placed feature whose pipeline is running still shows *pipeline running* on its card. **Open shareable
-page** is a self-contained HTML page with no controls and no implementation detail — send it, print it,
-or put it on a screen. Also as Markdown.
+**You can put a feature somewhere else**: drag its card to another column, or use **Move…** on the card (or
+the *Board* picker on the feature's own page). A placed feature shows *placed* and stays where you put it;
+**Move… → back to automatic** hands it back. The old Now / Next / Later placements were priorities, not
+where the work is: a feature placed with them follows its state again.
 
-## Roadmap chart — vision, epics, features on a timeline
+**Done is a status, not a placement**: moving a card to Done marks the feature done (after a confirmation —
+its changelog entry is written, and the fireworks go up), refused while anything it needs first is not done;
+moving it out of Done reopens it, into the column you dropped it on. **Open shareable page** is a
+self-contained HTML page of the four columns with no controls — send it, print it, or put it on a screen.
+Also as Markdown.
 
-The Roadmap tab opens on the **Chart** (the four columns above are its **Board**; both are the same features).
+## Roadmap chart — vision, epics, features on the route
+
+The **Chart** is the plan as a route: the vision, then every epic a stop on the way to the destination, with its card under the route (DESIGN.md, *The roadmap deck*). There is no dated timeline.
 
 ```
 VISION ──── one or two sentences: where the project is going   (projects.vision)
@@ -96,9 +103,8 @@ VISION ──── one or two sentences: where the project is going   (projects
   running or its work has started), *delivered* (marked done), *late* (target date passed, not delivered).
 - **Waits on**: a feature can wait on other features of the same project. A loop is refused. A feature
   that waits on an undelivered one cannot be started from the chart, and says which one it waits on.
-- **Planning**: drag a waypoint along its lane to change its target date, or into another lane to change
-  its epic; select it to set its epic, start and target dates and what it waits on. A feature with no
-  date is listed at the bottom of its lane.
+- **Planning**: select a feature on its epic's card to set its epic, start and target dates and what it
+  waits on; drag a feature's chip onto another epic's card to move it there.
 - **Executing**: *Start* on a selected feature, or *Start next* on an epic (the earliest feature of it
   that can start), opens the feature — its pipeline starts from there, as always.
 - **Told to the agents**: a feature started while it is on the roadmap is given a short *Where this
@@ -126,6 +132,27 @@ close a circle; removing an epic leaves nobody waiting on it. The chart derives,
 `onTime` (delivered on or before its date — a commendation, which promotes the project's captain:
 see DESIGN.md) and `late` (its date has passed and it is not delivered).
 
+**Needs first — what must be done before a feature is done.** A feature's page has a **Needs first**
+panel ("⛓ Add what must be done first"): it offers the project's other features, minus anything that
+already depends on this one. An epic's Needs first applies to every feature inside it. A feature that
+waits can be **started** but not **marked done**: Mark done is disabled and says what it waits on,
+and the server refuses everywhere — the page, the API, a drag to Done on the Board — with
+`Not yet: "Points per visit" and the epic "Online ordering" must be done first.` (409; `assertCanBeDone`
+in `lib/roadmap.ts`). The feature list says "⛓ Waits on …", the Roadmap shows ⛓. Loops, the feature
+itself and other projects' features are refused with a reason; deleting a feature clears it from
+whatever waited on it; reopening a dependency later does not undo work already marked done.
+`GET /api/roadmap/features/:featureId/needs` → `{ chosen, unmet, message, candidates }`.
+
+## Archive a project
+
+**Archive** on a project's page puts it away: it leaves the map, the project list and every picker (the
+server leaves it out of `GET /api/projects`), and nothing of it is deleted — its features, changelog,
+roadmap and cartridges stay as they were. It is refused while a feature of it is under way ("Not while 2
+features are under way — finish or stop them first."). **Archived**, at the bottom of the project list,
+lists them with **Restore**, which brings the project back and on screen. Its cartridges are still
+cartridges: an agent working in one of its repos shows on open land, as any repo no project owns.
+`PUT /api/projects/:id { archived: true | false }` · `GET /api/projects?archived=1` (`projects.archived_at`).
+
 ## Changelog
 
 When a feature is **marked done**, NeonCore writes its changelog entry from the feature's own records:
@@ -144,6 +171,12 @@ the repo, and proposes entries grouped by release — a release the repo's own C
 as written, chores nobody outside the team would notice are left out, and entries already in the
 project's changelog are not proposed again. You tick what to keep; kept entries keep their dates and
 their release. (With several repos, releases are named after their repo: *harbour-ledger 0.3.0*.)
+
+**The Captain's Log** heads the Changelog tab (`components/CaptainsLog.tsx`): the project's
+captain in his rank's costume, writing (his `log` cycle), a "● Recording" light, the stardate
+(`(year − 2000) × 1000 + the fraction of the year × 1000`, one decimal), "N entries · M missions
+logged · K in flight" (missions = entries written from a delivered feature; in flight = features under
+way), and "↓ Download CHANGELOG.md".
 
 ## Architecture
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-NeonCore seeds **22 workflow templates** on every server boot (`server/src/lib/templates/`). They
+NeonCore seeds **21 workflow templates** on every server boot (`server/src/lib/templates/`). They
 appear in the **Workflows** panel under **Templates**, filed under six tabs: Strategy, Plan, Dev,
 Quality, Delivery and Learn. Run any of them as many times as you like on any cartridge or project,
 or build your own with **+ New Workflow** in the canvas editor.
@@ -35,13 +35,12 @@ Standard Check** — see [below](#the-work-standard-check-and-the-completion-rep
   `docs/plans/tasks/`).
 - **Product Strategy Session** — premise challenge → alternatives → dream state → CEO-vs-PM debate →
   10-dimension review → action plan (you review it).
-- **CE: Phase 1 — Interrogate** — challenge the idea before planning; writes
-  `docs/<slug>/brainstorm.md`.
 
 **Plan**
 - **Engineering Architecture Review** — map an existing system → bottlenecks and risks →
   alternatives → recommendation (you review it) → roadmap.
-- **CE: Phase 2 — Plan** — CEO, engineering and research reviews in parallel → `docs/<slug>/plan.md`.
+- **CE: Phase 2 — Plan** — from the feature's scope (what scoping settled with you), CEO, engineering and
+  research reviews in parallel → `docs/<slug>/plan.md`. There is no Phase 1: feature scoping replaced it.
 
 **Dev**
 - **Confer** — two or more cartridges, usually in different repos, agree a plan, split the work and

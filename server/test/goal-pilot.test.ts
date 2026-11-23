@@ -33,6 +33,7 @@ import { buildScopePrompt, buildPipelinePrompt, PILOT_DATA_MARKER } from '../src
 import {
   advancePilot, sweepPilots, startGoalPilotRunner, stopGoalPilotRunner, buildStageContext,
 } from '../src/lib/goal-pilot-runner.ts';
+import { featureStageProblem } from '../src/lib/feature-stages.ts';
 import { availableTemplates } from '../src/lib/goal-decomposition.ts';
 import { emitRunFinished } from '../src/lib/run-events.ts';
 import { tickWorkflowsOnce } from '../src/lib/workflow-executor-v2.ts';
@@ -289,9 +290,10 @@ test('a new goal goes intake → questions → brief → pipeline → staffing �
   const p3 = lastPrompt(planner);
   const r3 = requestIdIn(p3);
   assert.match(p3, /pipeline request/);
-  for (const t of availableTemplates()) assert.ok(p3.includes(`· ${t.name}`), `the pipeline prompt does not offer "${t.name}"`);
+  // Every template that may be a stage of this feature is offered; the rest are not (lib/feature-stages.ts).
+  for (const t of availableTemplates()) assert.equal(p3.includes(`· ${t.name}`), !featureStageProblem(t.name, 'medium'), `the pipeline prompt ${featureStageProblem(t.name, 'medium') ? 'offers' : 'does not offer'} "${t.name}"`);
 
-  const piped = await post(`/api/goal-pilots/requests/${r3}/submit`, { result: pipelineOf('QA Testing Guide', 'Release Documentation') });
+  const piped = await post(`/api/goal-pilots/requests/${r3}/submit`, { result: pipelineOf('Feature Validation', 'Release Documentation') });
   assert.equal(piped.status, 200, JSON.stringify(piped.json));
   assert.equal(piped.json.phase, 'proposed');
 
@@ -299,7 +301,7 @@ test('a new goal goes intake → questions → brief → pipeline → staffing �
   const edited = { ...BRIEF, inScope: 'Expense entry form\nMonthly totals\nCSV export', rabbitHoles: '' };
   const accepted = await post(`/api/goal-pilots/${pilotId}/accept-plan`, {
     brief: edited,
-    stages: [pipelineOf('Release Documentation', 'QA Testing Guide').stages[0], pipelineOf('QA Testing Guide').stages[0]],
+    stages: [pipelineOf('Release Documentation', 'Feature Validation').stages[0], pipelineOf('Feature Validation').stages[0]],
   });
   assert.equal(accepted.status, 200, JSON.stringify(accepted.json));
   assert.equal(accepted.json.phase, 'staffing');
@@ -308,7 +310,7 @@ test('a new goal goes intake → questions → brief → pipeline → staffing �
     const expected = f.key === 'rabbitHoles' ? '' : String((getPilot(pilotId)!.plan!.brief as Record<string, string>)[f.key]);
     assert.equal(g2[f.goalColumn!], expected, `${f.key} did not land on goals.${f.goalColumn}`);
   }
-  assert.deepEqual(getPilot(pilotId)!.plan!.stages.map((s) => s.template), ['Release Documentation', 'QA Testing Guide'], 'the person\'s order wins');
+  assert.deepEqual(getPilot(pilotId)!.plan!.stages.map((s) => s.template), ['Release Documentation', 'Feature Validation'], 'the person\'s order wins');
 
   // ⑦ Start: a project per repo under the goal, the first stage launched on the live cartridge.
   const started = await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
@@ -323,7 +325,7 @@ test('a new goal goes intake → questions → brief → pipeline → staffing �
   assert.equal(run1.project_id, projects[0].id);
   assert.equal(run1.autonomy, 'advance', 'balanced involvement → advance run posture');
   const ctx1 = String(run1.initial_context);
-  for (const needle of ['stage 1 of 3', 'Feature slug: expenses-tracking', 'CSV export', 'FOCUS-1', 'Which currency do expenses use? → Per expense', 'Next: Stage 1 (QA Testing Guide)']) {
+  for (const needle of ['stage 1 of 3', 'Feature slug: expenses-tracking', 'CSV export', 'FOCUS-1', 'Which currency do expenses use? → Per expense', 'Next: Stage 1 (Feature Validation)']) {
     assert.ok(ctx1.includes(needle), `stage 1 context lacks "${needle}"`);
   }
   const deferred = db.prepare(`SELECT COUNT(*) AS n FROM workflow_steps WHERE workflow_id = ? AND executor_id = '__deferred__'`).get(stages[0].runId) as { n: number };
@@ -375,7 +377,7 @@ async function stagedPilot(repo: string, templates: string[], intake: Partial<ty
 
 test('a stage with no live cartridge WAITS, says why, and starts by itself when one connects', async () => {
   const repo = '/tmp/pilot-wait-repo';
-  const { pilotId } = await stagedPilot(repo, ['QA Testing Guide']);
+  const { pilotId } = await stagedPilot(repo, ['Feature Validation']);
   const started = await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'codex' }] });
   assert.equal(started.status, 200, JSON.stringify(started.json));
   let [s] = stagesOf(pilotId);
@@ -398,7 +400,7 @@ test('a stage with no live cartridge WAITS, says why, and starts by itself when 
 test('a failed stage pauses the pipeline; resume is refused until it is retried or skipped', async () => {
   const repo = '/tmp/pilot-fail-repo';
   cartridge(repo);
-  const { pilotId } = await stagedPilot(repo, ['QA Testing Guide', 'Release Documentation']);
+  const { pilotId } = await stagedPilot(repo, ['Feature Validation', 'Release Documentation']);
   await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
   let stages = stagesOf(pilotId);
   const firstRun = stages[0].runId;
@@ -436,7 +438,7 @@ test('a failed stage pauses the pipeline; resume is refused until it is retried 
 test('pause / resume / cancel carry through to the current run', async () => {
   const repo = '/tmp/pilot-steer-repo';
   cartridge(repo);
-  const { pilotId } = await stagedPilot(repo, ['QA Testing Guide', 'Release Documentation']);
+  const { pilotId } = await stagedPilot(repo, ['Feature Validation', 'Release Documentation']);
   await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
   const runId = stagesOf(pilotId)[0].runId;
   const runState = () => (db.prepare('SELECT status FROM workflows WHERE id = ?').get(runId) as { status: string }).status;
@@ -454,7 +456,7 @@ test('pause / resume / cancel carry through to the current run', async () => {
 test('the goal budget stops the pipeline before the next stage spends past it', async () => {
   const repo = '/tmp/pilot-budget-repo';
   const agent = cartridge(repo);
-  const { pilotId, goalId } = await stagedPilot(repo, ['QA Testing Guide'], { budgetUsd: '0.01' });
+  const { pilotId, goalId } = await stagedPilot(repo, ['Feature Validation'], { budgetUsd: '0.01' });
   // The goal must own the repo for its cost to count — exactly what start does.
   const proj = 'pilot-budget-proj';
   db.prepare(`INSERT INTO projects (id, goal_id, name, primary_repo, created_at, updated_at) VALUES (?, ?, 'b', ?, ?, ?)`)
@@ -517,7 +519,7 @@ test('one live pilot per goal; replace cancels the old one', async () => {
 test('deleting the goal stops its pipeline and removes the pilot rows', async () => {
   const repo = '/tmp/pilot-delete-repo';
   cartridge(repo);
-  const { pilotId, goalId } = await stagedPilot(repo, ['QA Testing Guide']);
+  const { pilotId, goalId } = await stagedPilot(repo, ['Feature Validation']);
   await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
   const runId = stagesOf(pilotId)[0].runId;
   const del = await call('DELETE', `/api/goals/${goalId}`);
@@ -539,7 +541,7 @@ test('every involvement level maps to a goal autonomy and a run posture that exi
 test('brief fields without a goal column reach the stage context instead', async () => {
   const repo = '/tmp/pilot-ctx-repo';
   cartridge(repo);
-  const { pilotId } = await stagedPilot(repo, ['QA Testing Guide']);
+  const { pilotId } = await stagedPilot(repo, ['Feature Validation']);
   await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
   const pilot = getPilot(pilotId)!;
   const stages = stagesOf(pilotId);
@@ -568,7 +570,7 @@ test('a run attached to a project gets THAT project\'s goal brief, even when an 
   mkProject('proj-older', 'goal-older', '2020-01-01T00:00:00Z');
   mkProject('proj-pilot', 'goal-pilot', t);
 
-  const templateId = availableTemplates().find((x) => x.name === 'QA Testing Guide')!.id;
+  const templateId = availableTemplates().find((x) => x.name === 'Feature Validation')!.id;
   const runId = cloneTemplateAsRun(templateId, 'proj-pilot', 'context', { agentId: agent })!;
   const before = io.emissions.length;
   tickWorkflowsOnce();
@@ -591,7 +593,8 @@ test('prompts: the PILOT-DATA block is valid JSON and agrees with the prose', as
 
   db.prepare('UPDATE goal_pilots SET brief = ? WHERE id = ?').run(JSON.stringify({ ...BRIEF, slug: 'x', inScope: 'a' }), pilot.id);
   const pipe = extract(buildPipelinePrompt(getPilot(pilot.id)!, 'req-y'));
-  assert.deepEqual(pipe.templates.map((t: { name: string }) => t.name), availableTemplates().map((t) => t.name));
+  // The data block offers what the prose offers: the templates that may be a stage of this feature.
+  assert.deepEqual(pipe.templates.map((t: { name: string }) => t.name), availableTemplates().map((t) => t.name).filter((n) => !featureStageProblem(n, undefined)));
 });
 
 // ── a busy planner: the request waits in the queue as its own kind ────────────
@@ -671,7 +674,7 @@ test('a busy planner gets the queued request the moment its turn ends — not af
 test('the next stage starts the moment the cartridge\'s turn ends — not on the idle timer, not on the sweep', async () => {
   const repo = '/tmp/pilot-stage-turn-over';
   const agent = cartridge(repo, { status: 'working' });
-  const { pilotId } = await stagedPilot(repo, ['QA Testing Guide']);
+  const { pilotId } = await stagedPilot(repo, ['Feature Validation']);
   await post(`/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
   assert.equal(stagesOf(pilotId)[0].status, 'waiting', 'mid-turn: the stage must wait');
   const session = (db.prepare('SELECT session_id FROM agents WHERE id = ?').get(agent) as { session_id: string }).session_id;

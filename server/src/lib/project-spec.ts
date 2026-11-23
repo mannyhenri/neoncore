@@ -96,7 +96,7 @@ export interface SpecFeature {
   } | null;
   targetDate: string;
   /** Where the person placed it on the roadmap ('' = automatic). */
-  lane: '' | 'now' | 'next' | 'later';
+  lane: BoardLane;
   /** The roadmap column it is in (placeColumns) — null for an existing feature, which is not on the roadmap. */
   column: RoadmapColumn | null;
   /** When it was marked done (done), or when its pipeline finished (delivered). */
@@ -247,7 +247,7 @@ function specFeature(goal: Record<string, unknown>): SpecFeature {
     criteriaMet: criteria.filter((c) => c.result === 'met').length,
     delivery,
     targetDate: nonEmpty(goal.target_date),
-    lane: (['now', 'next', 'later'].includes(goal.roadmap_lane as string) ? goal.roadmap_lane : '') as SpecFeature['lane'],
+    lane: laneOf(goal.roadmap_lane),
     column: null,
     completedAt: status === 'done' || status === 'existing' ? (nonEmpty(goal.done_at) || (goal.updated_at as string))
       : status === 'delivered' ? (pilot?.completedAt ?? null) : null,
@@ -335,41 +335,48 @@ export function buildProjectSpec(projectId: string): ProjectSpec | null {
   };
 }
 
-// ── the roadmap: Now / Next / Later / Done ─────────────────────────────────────
+// ── the board: To do / In Progress / QA / Done ─────────────────────────────────
 
-export type RoadmapColumn = 'now' | 'next' | 'later' | 'done';
-
-export interface Roadmap {
-  now: SpecFeature[];
-  next: SpecFeature[];
-  later: SpecFeature[];
-  done: SpecFeature[];
+export type RoadmapColumn = 'todo' | 'progress' | 'qa' | 'done';
+/** Where the person PUT a feature: one of the three working columns, or '' = where its state puts it. */
+export type BoardLane = '' | 'todo' | 'progress' | 'qa';
+export const BOARD_LANES: readonly Exclude<BoardLane, ''>[] = ['todo', 'progress', 'qa'];
+/**
+ * A stored placement, read. The old Now / Next / Later were priorities, not where the work is: a
+ * feature placed with them follows its state again. Done is a status, never a placement.
+ */
+export function laneOf(stored: unknown): BoardLane {
+  return (BOARD_LANES as readonly unknown[]).includes(stored) ? stored as BoardLane : '';
 }
 
-/** How many not-started features count as "Next" — the rest of the list is "Later". */
-const NEXT_COUNT = 3;
+export interface Roadmap {
+  todo: SpecFeature[];
+  progress: SpecFeature[];
+  qa: SpecFeature[];
+  done: SpecFeature[];
+}
 
 /**
  * Which column each feature is in — decided here once, so the page, the exports and the published
  * docs agree. Done follows its status (mark done / reopen). Otherwise the person's placement wins;
- * unplaced features go where their state puts them: Now while their pipeline is live, else Next for
- * the top NEXT_COUNT unplaced planned features in list order, Later for the rest. Features that
- * already existed (imported) are not on the roadmap.
+ * unplaced features go where their state puts them: To do when nothing has started, In Progress
+ * while the pipeline runs or waits on a decision, QA once it is delivered and waits for sign-off.
+ * Features that already existed (imported) are not on the board.
  */
-function placeColumns(features: SpecFeature[]): SpecFeature[] {
-  let autoNext = 0;
+export function placeColumns(features: SpecFeature[]): SpecFeature[] {
   for (const f of features) {
     f.column = f.status === 'existing' ? null
       : f.status === 'done' ? 'done'
       : f.lane ? f.lane
-      : f.status !== 'planned' ? 'now'
-      : autoNext++ < NEXT_COUNT ? 'next' : 'later';
+      : f.status === 'planned' ? 'todo'
+      : f.status === 'delivered' ? 'qa'
+      : 'progress';
   }
   return features;
 }
 
 export function roadmapOf(spec: ProjectSpec): Roadmap {
-  const r: Roadmap = { now: [], next: [], later: [], done: [] };
+  const r: Roadmap = { todo: [], progress: [], qa: [], done: [] };
   for (const f of spec.features) if (f.column) r[f.column].push(f);
   r.done.sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
   return r;
@@ -533,9 +540,9 @@ export function renderRoadmapMarkdown(spec: ProjectSpec): string {
     `> ${GENERATED_NOTE} As of ${day(spec.generatedAt)}.`, '',
     `${t.done} of ${t.features - t.existing} planned features done · ${t.inProgress + t.paused + t.delivered} in progress · ${t.planned} to go`
       + `${t.verified ? ` · ${t.verified} verified against their acceptance criteria` : ''}.`, '',
-    ...section('Now', r.now, 'Nothing in progress.'),
-    ...section('Next', r.next, 'Nothing queued.'),
-    ...section('Later', r.later, 'Nothing further on the list.'),
+    ...section('To do', r.todo, 'Nothing waiting.'),
+    ...section('In Progress', r.progress, 'Nothing in progress.'),
+    ...section('QA', r.qa, 'Nothing waiting for sign-off.'),
     ...section('Done', r.done, 'Nothing finished yet.'),
   ].join('\n').trimEnd()}\n`;
 }
@@ -582,7 +589,7 @@ export function renderRoadmapHtml(spec: ProjectSpec): string {
 <header><h1>${esc(spec.project.name)} — roadmap</h1>${spec.project.description ? `<p>${esc(spec.project.description)}</p>` : ''}
 <div class="bar"><i></i></div>
 <div class="stats"><div><b>${t.done}/${planned}</b>features done</div><div><b>${t.inProgress + t.paused + t.delivered}</b>in progress</div><div><b>${t.planned}</b>to go</div><div><b>${t.verified}</b>verified against criteria</div></div></header>
-<main>${col('Now', r.now, 'Nothing in progress.')}${col('Next', r.next, 'Nothing queued.')}${col('Later', r.later, 'Nothing further.')}${col('Done', r.done, 'Nothing finished yet.')}</main>
+<main>${col('To do', r.todo, 'Nothing waiting.')}${col('In Progress', r.progress, 'Nothing in progress.')}${col('QA', r.qa, 'Nothing waiting for sign-off.')}${col('Done', r.done, 'Nothing finished yet.')}</main>
 <footer>As of ${esc(day(spec.generatedAt))} · generated by NeonCore from the project's feature list.</footer>
 </body></html>
 `;

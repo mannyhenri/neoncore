@@ -1,82 +1,41 @@
-/** Standard workflow templates: the seven CE phase templates. Seeded on every boot by ./index.ts. */
+/**
+ * Standard workflow templates: the CE phase templates. Seeded on every boot by ./index.ts.
+ *
+ * There is no Phase 1 — Interrogate any more. Feature scoping asks the person the questions and
+ * writes the brief every stage receives, so Phase 1 re-ran the same interrogation with an agent
+ * answering its own questions. Phase 2 plans from that scope; the phases keep their numbers so a
+ * name the person knows still means the same thing.
+ */
 import { randomUUID } from 'crypto';
 import type { SeedKit } from './kit.js';
 
 export function seedCompoundEngineering({ now, stableId, insertWorkflow, step, cc, gate }: SeedKit): void {
-  // ── CE Phase 1 — Interrogate ─────────────────────────────────────────
-  {
-    const wfId = stableId('CE: Phase 1 — Interrogate');
-    const s1 = randomUUID(), s2 = randomUUID(), s2b = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID();
-    insertWorkflow.run(wfId, 'CE: Phase 1 — Interrogate',
-      'Challenge the idea before any planning begins. Enter the feature slug + description in launch context. Outputs docs/[slug]/brainstorm.md.', now);
-
-    step(wfId, s1, 'Load Prior Work',
-      'Search CLAUDE.md and docs/solutions/ for existing patterns and prior decisions related to this feature.',
-      300, 80, 'claude-code',
-      { ...cc('researcher'), workflowContext: true, prompt: 'The feature name/slug is in the workflow context above.\n\n1. READ CLAUDE.md — extract patterns, anti-patterns, taste decisions, and caveats relevant to this feature area.\n2. SEARCH docs/solutions/ for any compound docs related to this domain. Read any relevant ones.\n3. SEARCH docs/brainstorms/ and docs/plans/ for any prior work on this feature.\n\nOutput a Prior Work Summary:\n```\n## Prior Work Summary\n\n### CLAUDE.md Relevant Notes\n[bullet list — or "None"]\n\n### Prior Compound Docs Found\n[names and 1-sentence summary each — or "None"]\n\n### Prior Brainstorms / Plans Found\n[names and key decisions — or "None"]\n\n### Verdict\n[CLEAN START — no relevant prior work] or [PRIOR WORK EXISTS — key context: ...]\n```' }, []);
-
-    step(wfId, s2, 'Office Hours — Interrogate',
-      'Run /office-hours: 6 forcing questions to challenge the idea, surface assumptions, and generate 2–3 approaches with effort estimates.',
-      300, 255, 'claude-code',
-      { ...cc('planner'), prompt: 'Run /office-hours. Prior work findings are above.\n\nAsk 6 forcing questions — answer each based on the feature context:\n\n**Q1 — DEMAND REALITY**: Who specifically wants this? How do we know?\n**Q2 — STATUS QUO**: What are users doing right now without this? Why is that not enough?\n**Q3 — DESPERATE SPECIFICITY**: Describe the one person most desperate for this. What is their exact situation?\n**Q4 — NARROWEST WEDGE**: What is the smallest version that still delivers real value?\n**Q5 — OBSERVATION**: Have we watched someone try to do this? What actually happened?\n**Q6 — FUTURE FIT**: In 2 years, does this feature become more or less relevant? Why?\n\nThen generate 2–3 implementation approaches. When the choice depends on an uncertain interface, interaction, or feasibility question, run CE /ce-prototype to answer it cheaply. When two viable implementations remain and evidence can choose between them, run CE /ce-bakeoff against the same acceptance criteria. Record the evidence and discard exploratory code.\n\nFor each: name, one-sentence description, effort (S/M/L), key assumption, biggest risk.\n\nEnd with:\n```\n## Recommended Approach\n[name]: [why]\n\n## Key Assumptions\n- [list]\n\n## Estimated Effort: [S/M/L]\n```' }, [s1]);
-
-    step(wfId, s2b, 'Pick Approach',
-      'Human decision: choose which implementation approach from Office Hours to carry into the brainstorm and plan.',
-      300, 430, 'decision',
-      {
-        question: 'Which implementation approach should we pursue?',
-        eli10: 'Office Hours just explored 2–3 ways to build this. Pick one — it shapes the entire plan. Read the step output above before choosing.',
-        stakes: 'This choice locks the architecture for the sprint. Switching approaches mid-build is expensive.',
-        recommendation: 'approach-recommended',
-        options: [
-          { id: 'approach-recommended', label: 'Recommended approach', description: 'Pursue the approach Office Hours flagged as recommended. Details in the output above.' },
-          { id: 'approach-alternative', label: 'Alternative approach', description: 'Use one of the non-recommended alternatives. Specify which in the CE Brainstorm step.' },
-          { id: 'approach-minimal', label: 'Narrowest wedge only', description: 'Build the absolute minimum version — fastest to ship but least complete.' },
-        ],
-      }, [s2]);
-
-    step(wfId, s3, 'CE Brainstorm',
-      'Run CE /ce-brainstorm: lightweight repo research, clarify purpose/users/constraints, define what "done" looks like.',
-      300, 605, 'claude-code',
-      { ...cc('researcher'), prompt: 'Run /ce-brainstorm. The chosen approach (from the decision step above) and Office Hours output are in context — build on them, do not repeat.\n\n1. REPO RESEARCH:\n   - Find existing code related to this feature\n   - Identify files and modules that will be touched\n   - Note established patterns you must follow\n   - Flag constraints (locked interfaces, technical debt)\n\n2. CLARIFY (for the CHOSEN approach only):\n   - Purpose (what does this solve at the code level?)\n   - Users (which flows are affected?)\n   - Hard constraints (what must NOT change?)\n   - Top 3 edge cases\n\n3. DEFINE DONE — concrete, observable criteria.\n\nOutput:\n```\n## CE Brainstorm\n\n### Chosen Approach\n[restate the chosen approach from the decision step]\n\n### Repo Research\n[files affected, patterns to follow, constraints]\n\n### Clarified Purpose\n[one paragraph]\n\n### Users & Flows Affected\n[bullet list]\n\n### Top Edge Cases\n1. [case + handling]\n2. [case + handling]\n3. [case + handling]\n\n### Definition of Done\n- [ ] [criterion]\n- [ ] [criterion]\n```' }, [s2b]);
-
-    step(wfId, s4, 'Write Brainstorm Doc',
-      'Merge all outputs into docs/[slug]/brainstorm.md. Pauses for human review before Phase 2 begins.',
-      300, 780, 'claude-code',
-      { ...cc('planner'), prompt: 'Merge all prior step outputs into a canonical brainstorm document.\n\n1. Determine the feature slug from context (lowercase-hyphenated, e.g. "user-auth-v2").\n2. Create docs/[slug]/ directory if needed.\n3. WRITE docs/[slug]/brainstorm.md:\n   - ## Problem Statement\n   - ## Chosen Approach (from decision step — one sentence)\n   - ## Approaches Considered (table: name | effort | key assumption | risk)\n   - ## Scoped Definition (in / out)\n   - ## Files / Modules Affected\n   - ## Constraints\n   - ## Top Edge Cases\n   - ## Definition of Done (checklist)\n   - ## Open Questions\n   - ## Prior Work References\n   - ## Effort Estimate: [S/M/L]\n\n4. Output gate summary:\n```\n## Phase 1 — AWAITING HUMAN REVIEW\n\nFeature: [name] | Slug: [slug]\nChosen approach: [one sentence]\nKey assumptions: [bullet list]\nEstimated effort: [S/M/L]\nFile written: docs/[slug]/brainstorm.md\n```', }, [s3], false);
-
-    step(wfId, s5, 'Phase 1 Complete',
-      'Phase 1 — Interrogate complete. Brainstorm doc is ready for review.',
-      300, 955, 'connector',
-      { connectorType: 'system-notify', title: 'CE Phase 1 — Interrogate Done', message: 'Brainstorm doc ready. Review docs/[slug]/brainstorm.md then advance to Phase 2.' }, [s4]);
-  }
-
   // ── CE Phase 2 — Plan ─────────────────────────────────────────────────
   {
     const wfId = stableId('CE: Phase 2 — Plan');
     const s1 = randomUUID(), s2 = randomUUID(), s3 = randomUUID(), s4 = randomUUID(), s5 = randomUUID(), s6 = randomUUID();
     insertWorkflow.run(wfId, 'CE: Phase 2 — Plan',
-      'Pressure-test the plan from 3 angles before any code is written. Load brainstorm → CEO review → Eng review → CE Plan research → merge to docs/[slug]/plan.md.', now);
+      'Pressure-test the plan from 3 angles before any code is written. Load the feature scope → CEO review → Eng review → CE Plan research → merge to docs/[slug]/plan.md.', now);
 
-    step(wfId, s1, 'Load Brainstorm',
-      'Read docs/[slug]/brainstorm.md and prepare a structured summary for the three reviews.',
+    step(wfId, s1, 'Load Scope',
+      'Read the feature scope from the workflow context (and docs/[slug]/brainstorm.md when one exists) and prepare a structured summary for the three reviews.',
       450, 80, 'claude-code',
-      { ...cc('researcher'), workflowContext: true, prompt: 'The feature slug is in workflow context above.\n\nREAD docs/[slug]/brainstorm.md in full.\n\nOutput a structured summary:\n```\n## Brainstorm Summary for Plan Review\n\nFeature: [name] | Slug: [slug]\nRecommended Approach: [one sentence]\nEffort: [S/M/L]\n\n### Files / Modules Affected\n[list]\n\n### Key Constraints\n[list]\n\n### Open Questions from Phase 1\n[list]\n\n### Definition of Done\n[checklist]\n```' }, []);
+      { ...cc('researcher'), workflowContext: true, prompt: 'The feature scope is in workflow context above — the brief, in/out of scope, assumptions and the decisions the person made while scoping. Treat it as settled.\n\nIf docs/[slug]/brainstorm.md exists, read it too (older features have one). Read CLAUDE.md and docs/solutions/ for patterns and prior decisions that touch this feature.\n\nOutput a structured summary:\n```\n## Scope Summary for Plan Review\n\nFeature: [name] | Slug: [slug]\nApproach: [one sentence]\nEffort: [S/M/L]\n\n### Files / Modules Affected\n[list]\n\n### Key Constraints\n[list]\n\n### Still Open\n[list — or "None"]\n\n### Definition of Done\n[checklist]\n```' }, []);
 
     step(wfId, s2, '/plan-ceo-review',
       'Scope check, 10-star product test, 4 scope modes.',
       150, 255, 'claude-code',
-      { ...cc('planner'), prompt: 'Run /plan-ceo-review. Brainstorm summary is above.\n\nPick ONE of 4 scope modes and argue it:\n- EXPANSION: should we build MORE? What value are we leaving on the table?\n- SELECTIVE EXPANSION: core + one high-value addition. What is the addition?\n- HOLD SCOPE: the proposal is right as stated. Defend it.\n- REDUCTION: we are overbuilding. What is the minimum that still delivers real value?\n\nRun the 10-star product test:\n- 7/10 version (mediocre but ships): [description]\n- 10/10 version (legendary, 10x longer): [description]\n- Recommended target: [N/10] — [why]\n\nOutput:\n```\n## CEO Review\n\n### Mode: [NAME]\n[3-4 sentence argument]\n\n### 10-Star Test\n7/10: [description]\n10/10: [description]\nTarget: [N/10] — [why]\n\n### Scope Recommendation\nIn: [list] | Out: [list]\n\n### Risk Flags\n- [flag]\n- [flag]\n```' }, [s1]);
+      { ...cc('planner'), prompt: 'Run /plan-ceo-review. The scope summary is above.\n\nPick ONE of 4 scope modes and argue it:\n- EXPANSION: should we build MORE? What value are we leaving on the table?\n- SELECTIVE EXPANSION: core + one high-value addition. What is the addition?\n- HOLD SCOPE: the proposal is right as stated. Defend it.\n- REDUCTION: we are overbuilding. What is the minimum that still delivers real value?\n\nRun the 10-star product test:\n- 7/10 version (mediocre but ships): [description]\n- 10/10 version (legendary, 10x longer): [description]\n- Recommended target: [N/10] — [why]\n\nOutput:\n```\n## CEO Review\n\n### Mode: [NAME]\n[3-4 sentence argument]\n\n### 10-Star Test\n7/10: [description]\n10/10: [description]\nTarget: [N/10] — [why]\n\n### Scope Recommendation\nIn: [list] | Out: [list]\n\n### Risk Flags\n- [flag]\n- [flag]\n```' }, [s1]);
 
     step(wfId, s3, '/plan-eng-review',
       'Architecture, data flow diagram, edge cases, test matrix, security concerns.',
       450, 255, 'claude-code',
-      { ...cc('architect'), prompt: 'Run /plan-eng-review. Brainstorm summary is above.\n\n1. DATA FLOW — draw ASCII diagram: User action → [layers] → DB/API → response → UI state\n\n2. AFFECTED FILES — table: File | Change Type | Why\n\n3. KEY INTERFACES — types/interfaces to create or modify\n\n4. EDGE CASES — top 5: Case | Input | Expected behavior | Failure mode\n\n5. TEST MATRIX — minimum test coverage: Test | Type (unit/integration/e2e) | What it verifies\n\n6. FAILURE MODES — what breaks in production if this fails?\n\n7. SECURITY CONCERNS — auth, authorization, input validation, data exposure at design level\n\nOutput all sections clearly labeled.' }, [s1]);
+      { ...cc('architect'), prompt: 'Run /plan-eng-review. The scope summary is above.\n\nWhen the design depends on an uncertain interface, interaction, or feasibility question, run CE /ce-prototype to answer it cheaply. When two viable implementations remain and evidence can choose between them, run CE /ce-bakeoff against the same acceptance criteria. Record the evidence and discard exploratory code.\n\n1. DATA FLOW — draw ASCII diagram: User action → [layers] → DB/API → response → UI state\n\n2. AFFECTED FILES — table: File | Change Type | Why\n\n3. KEY INTERFACES — types/interfaces to create or modify\n\n4. EDGE CASES — top 5: Case | Input | Expected behavior | Failure mode\n\n5. TEST MATRIX — minimum test coverage: Test | Type (unit/integration/e2e) | What it verifies\n\n6. FAILURE MODES — what breaks in production if this fails?\n\n7. SECURITY CONCERNS — auth, authorization, input validation, data exposure at design level\n\nOutput all sections clearly labeled.' }, [s1]);
 
     step(wfId, s4, 'CE Plan Research',
       'Research repo patterns, framework docs, and best practices.',
       750, 255, 'claude-code',
-      { ...cc('researcher'), prompt: 'Run /ce-plan research. Brainstorm summary is above.\n\n**REPO PATTERNS**: existing patterns for this feature type, prior similar implementations, naming/file/test conventions.\n\n**FRAMEWORK DOCS**: for each framework/library this feature uses: official approach, version constraints, recommended patterns.\n\n**BEST PRACTICES**: industry-standard approaches, what senior engineers get wrong on this type of feature, security/performance best practices.\n\nSynthesize into:\n```\n## CE Plan Research\n\n### Existing Codebase Patterns\n[what to follow, what already exists]\n\n### Framework Guidance\n[official approach + version constraints]\n\n### Industry Best Practices\n[key patterns + pitfalls to avoid]\n\n### Implementation Recommendations\n- [specific recommendation]\n- [specific recommendation]\n- [specific recommendation]\n```' }, [s1]);
+      { ...cc('researcher'), prompt: 'Run /ce-plan research. The scope summary is above.\n\n**REPO PATTERNS**: existing patterns for this feature type, prior similar implementations, naming/file/test conventions.\n\n**FRAMEWORK DOCS**: for each framework/library this feature uses: official approach, version constraints, recommended patterns.\n\n**BEST PRACTICES**: industry-standard approaches, what senior engineers get wrong on this type of feature, security/performance best practices.\n\nSynthesize into:\n```\n## CE Plan Research\n\n### Existing Codebase Patterns\n[what to follow, what already exists]\n\n### Framework Guidance\n[official approach + version constraints]\n\n### Industry Best Practices\n[key patterns + pitfalls to avoid]\n\n### Implementation Recommendations\n- [specific recommendation]\n- [specific recommendation]\n- [specific recommendation]\n```' }, [s1]);
 
     step(wfId, s5, 'Write Plan Doc',
       'Merge CEO review, Eng review, and CE research into docs/[slug]/plan.md. Pauses for human review.',
@@ -315,7 +274,7 @@ export function seedCompoundEngineering({ now, stableId, insertWorkflow, step, c
     step(wfId, s3, 'Retro',
       'Run /retro: velocity vs estimate, top 3 blockers, coverage trend. Write docs/retros/[date]-[slug].md.',
       300, 430, 'claude-code',
-      { ...cc('planner'), prompt: 'Run /retro for the [slug] sprint.\n\nGather from git log, todos, and build summary:\n1. VELOCITY: estimated effort (from Phase 1) vs. actual time spent\n2. COVERAGE TREND: coverage at start of sprint vs. end\n3. PHASE ANALYSIS: which phase took longest? Which was smoothest?\n4. TOP 3 BLOCKERS: what slowed the team down most?\n5. WHAT TO REPEAT: what went well that we should do more of?\n6. WHAT TO CHANGE: what would we do differently?\n\nToday\'s date: use the current date.\n\nWRITE docs/retros/[today-date]-[slug].md with all sections.\n\nOutput a summary: velocity ratio (estimated/actual), coverage delta, top 3 blockers.' }, [s2]);
+      { ...cc('planner'), prompt: 'Run /retro for the [slug] sprint.\n\nGather from git log, todos, and build summary:\n1. VELOCITY: estimated effort (in the plan) vs. actual time spent\n2. COVERAGE TREND: coverage at start of sprint vs. end\n3. PHASE ANALYSIS: which phase took longest? Which was smoothest?\n4. TOP 3 BLOCKERS: what slowed the team down most?\n5. WHAT TO REPEAT: what went well that we should do more of?\n6. WHAT TO CHANGE: what would we do differently?\n\nToday\'s date: use the current date.\n\nWRITE docs/retros/[today-date]-[slug].md with all sections.\n\nOutput a summary: velocity ratio (estimated/actual), coverage delta, top 3 blockers.' }, [s2]);
 
     step(wfId, s4, 'Learn & Final Review',
       'Run /learn: review new learnings, prune superseded ones. Final human sign-off.',

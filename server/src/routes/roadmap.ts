@@ -8,6 +8,7 @@
  *   PUT    /api/roadmap/epics/:epicId             { name?, outcome?, icon?, targetDate?, dependsOn? }
  *   DELETE /api/roadmap/epics/:epicId             its features stay, in no epic
  *   PUT    /api/roadmap/features/:featureId       { epicId?, startDate?, targetDate?, dependsOn? }
+ *   GET    /api/roadmap/features/:featureId/needs  what it needs first: chosen, still missing, and what can be chosen
  *
  * Every write answers with the project's chart as it now is.
  */
@@ -15,6 +16,7 @@ import { Router, type Response } from 'express';
 import db from '../db.js';
 import {
   chartOf, setVision, createEpic, updateEpic, removeEpic, reorderEpics, planFeature, RoadmapError,
+  unmetNeeds, notYetMessage, needsCandidates,
 } from '../lib/roadmap.js';
 
 const router = Router();
@@ -39,6 +41,14 @@ router.put('/epics/:epicId', (req, res) => {
 });
 router.delete('/epics/:epicId', (req, res) => {
   try { const p = projectOfEpic(req.params.epicId); removeEpic(req.params.epicId); chart(res, p); } catch (err) { fail(res, err); }
+});
+router.get('/features/:featureId/needs', (req, res) => {
+  const unmet = unmetNeeds(req.params.featureId);
+  if (!unmet) { res.status(404).json({ error: 'feature not found' }); return; }
+  const row = db.prepare('SELECT depends_on FROM goals WHERE id = ?').get(req.params.featureId) as { depends_on?: string } | undefined;
+  let chosen: string[] = [];
+  try { const v = JSON.parse(String(row?.depends_on || '[]')); chosen = Array.isArray(v) ? v.map(String) : []; } catch { chosen = []; }
+  res.json({ chosen, unmet, message: notYetMessage(unmet), candidates: needsCandidates(req.params.featureId) });
 });
 router.put('/features/:featureId', (req, res) => {
   try { planFeature(req.params.featureId, req.body ?? {}); chart(res, projectOfFeature(req.params.featureId)); } catch (err) { fail(res, err); }

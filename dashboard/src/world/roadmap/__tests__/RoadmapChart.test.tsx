@@ -1,6 +1,7 @@
 /**
- * The roadmap chart draws THE WHOLE PLAN the server sends — every epic a lane, every feature a
- * waypoint in its state — and every control on it is one call to the server.
+ * The roadmap deck around the route: the vision and its gauges, the officer, the deck's controls,
+ * and the selected feature's card — every control on it one call to the server. (The route and the
+ * epic cards themselves: RoadmapChart.route.test.tsx.)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -32,7 +33,7 @@ const CHART: Chart = {
 };
 
 const calls = vi.hoisted(() => ({
-  getRoadmap: vi.fn(), createGoal: vi.fn(), setRoadmapVision: vi.fn(), createEpic: vi.fn(), updateEpic: vi.fn(), deleteEpic: vi.fn(), reorderEpics: vi.fn(), planFeature: vi.fn(),
+  getRoadmap: vi.fn(), createGoal: vi.fn(), setRoadmapVision: vi.fn(), createEpic: vi.fn(), updateEpic: vi.fn(), deleteEpic: vi.fn(), reorderEpics: vi.fn(), planFeature: vi.fn(), getProjectRewards: vi.fn(),
 }));
 vi.mock('../../../lib/api', () => ({ api: calls }));
 import { RoadmapChart, officerAnim } from '../RoadmapChart';
@@ -40,100 +41,63 @@ import { RoadmapChart, officerAnim } from '../RoadmapChart';
 const project = { id: 'p1', name: 'Orbit' } as never;
 const mount = async (onOpenFeature = vi.fn(), onChanged = vi.fn()) => {
   const view = render(<RoadmapChart project={project} version={0} onOpenFeature={onOpenFeature} onChanged={onChanged} />);
-  await waitFor(() => expect(view.container.querySelector('[data-roadmap-chart]')).not.toBeNull());
+  await waitFor(() => expect(view.container.querySelector('[data-route-view]')).not.toBeNull());
   return { ...view, onOpenFeature, onChanged };
 };
+const pick = (container: HTMLElement, id: string) => fireEvent.click(container.querySelector(`[data-epic-feature="${id}"], [data-route-feature="${id}"]`)!);
 
 beforeEach(() => {
-  // These are the TIMELINE's tests; the roadmap opens on the route (RoadmapChart.route.test.tsx).
-  window.localStorage.setItem('neoncore.roadmap.view', 'timeline');
+  window.localStorage.clear();
   for (const f of Object.values(calls)) { f.mockReset(); f.mockResolvedValue(CHART); }
   calls.createGoal.mockResolvedValue({ id: 'new-goal' });
+  calls.getProjectRewards.mockResolvedValue({ families: [] });
 });
 
-describe('the roadmap chart', () => {
-  it('draws every epic as a lane and every feature as a waypoint in its state', async () => {
+describe('the roadmap deck', () => {
+  it('shows which project it is, the vision, its three gauges and the legend', async () => {
     const { container } = await mount();
-    const all = [...CHART.epics.flatMap((e) => e.features), ...CHART.unassigned];
-    const drawn = new Map([...container.querySelectorAll('[data-waypoint]')].map((n) => [n.getAttribute('data-waypoint'), n.getAttribute('data-state')]));
-    expect([...drawn.keys()].sort()).toEqual(all.map((f) => f.id).sort());
-    for (const f of all) expect(drawn.get(f.id), f.id).toBe(f.state);
-    // An epic a lane; a feature in no epic and with no date is off the chart, in the tray under it.
-    expect([...container.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'))).toEqual(['e1', 'e2']);
-    expect(container.querySelector('[data-unplanned] [data-waypoint="f6"]')).not.toBeNull();
-    expect(container.querySelector('[data-waypoint="f6"]')!.hasAttribute('data-unscheduled')).toBe(true);
-  });
-
-  /**
-   * REPORTED: "the chart roadmap has epics but no features under each". A plan read from a document
-   * with phases and no calendar dates (Facet DB: 10 phases, 64 features, not one date) drew ten empty
-   * lanes and piled all 64 features in the tray under the chart. SET-BASED: every feature of every
-   * epic — dated or not — is drawn INSIDE its own epic's lane; the tray holds only features in no epic.
-   */
-  it('puts every feature of every epic in its own lane, dated or not', async () => {
-    const undated = (epic: string, n: number) => Array.from({ length: n }, (_, i) => feature(`${epic}-u${i}`, 'planned', { epicId: epic }));
-    const chart: Chart = {
-      ...CHART,
-      epics: [
-        { ...CHART.epics[0], features: [...CHART.epics[0].features, ...undated('e1', 3)] },
-        { ...CHART.epics[1], features: undated('e2', 9) },
-        { id: 'e3', name: 'Later', outcome: '', icon: '', position: 2, progress: { done: 0, total: 1 }, nextUp: null, features: undated('e3', 1) },
-      ],
-      unassigned: [feature('f6', 'planned')],
-    };
-    for (const f of Object.values(calls)) f.mockResolvedValue(chart);
-    const { container } = await mount();
-    for (const epic of chart.epics) {
-      const lane = container.querySelector(`[data-lane="${epic.id}"]`);
-      expect(lane, epic.id).not.toBeNull();
-      for (const f of epic.features) {
-        const node = container.querySelector(`[data-waypoint="${f.id}"]`);
-        expect(node, `${f.id} is drawn`).not.toBeNull();
-        expect(node!.closest('[data-unplanned]'), `${f.id} is not in the tray`).toBeNull();
-        expect(node!.getAttribute('data-in-lane'), `${f.id} is in its epic's lane`).toBe(epic.id);
-      }
-    }
-    expect([...container.querySelectorAll('[data-unplanned] [data-waypoint]')].map((n) => n.getAttribute('data-waypoint'))).toEqual(['f6']);
-  });
-
-  it('shows the vision, a column per month, today, and every dependency', async () => {
-    const { container } = await mount();
+    const badge = container.querySelector('[data-roadmap-project]')!;
+    expect(badge.textContent).toMatch(/Project roadmap/);
+    expect(badge.textContent).toContain('Orbit');
+    expect(container.querySelector('[data-vision]')!.firstElementChild).toBe(badge);
     expect(screen.getByText(CHART.vision)).toBeTruthy();
-    // A whole calendar year, JAN to DEC, though the plan covers two months.
-    expect([...container.querySelectorAll('[data-month]')].map((n) => n.getAttribute('data-month'))).toEqual(Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`));
-    expect([...container.querySelectorAll('[data-month]')].map((n) => n.textContent)).toEqual(['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']);
-    expect(container.querySelector('[data-today-pill]')!.textContent).toBe('TODAY');
-    expect(container.querySelector('[data-today]')).not.toBeNull();
-    expect([...container.querySelectorAll('[data-dependency]')].map((n) => n.getAttribute('data-dependency')).sort()).toEqual(['f1>f2', 'f4>f5']);
     expect([...container.querySelectorAll('[data-vision-gauge]')].map((n) => n.getAttribute('data-vision-gauge'))).toEqual(['delivery', 'scope', 'readiness']);
     expect([...container.querySelectorAll('[data-legend]')].map((n) => n.getAttribute('data-legend'))).toEqual(['delivered', 'under-way', 'planned', 'late']);
   });
 
-  it('"Start next" opens the feature the server says is next, and only where there is one', async () => {
-    const { container, onOpenFeature } = await mount();
-    expect([...container.querySelectorAll('[data-start-next]')].map((n) => n.getAttribute('data-start-next'))).toEqual(['e1']);
-    fireEvent.click(container.querySelector('[data-start-next="e1"]')!);
-    expect(onOpenFeature).toHaveBeenCalledWith('f3');
-  });
-
   it('Start is refused, with the reason, for a feature that waits on another — and allowed for one that does not', async () => {
     const { container, onOpenFeature } = await mount();
-    fireEvent.keyDown(container.querySelector('[data-waypoint="f5"]')!, { key: 'Enter' });
-    const blocked = container.querySelector('[data-start]') as HTMLButtonElement;
+    pick(container, 'f5');
+    const blocked = container.querySelector('[data-selected-feature="f5"] [data-start]') as HTMLButtonElement;
     expect(blocked.disabled).toBe(true);
     expect(blocked.title).toContain('Feature f4');
-    fireEvent.keyDown(container.querySelector('[data-waypoint="f3"]')!, { key: 'Enter' });
-    const free = container.querySelector('[data-start]') as HTMLButtonElement;
+    pick(container, 'f3');
+    const free = container.querySelector('[data-selected-feature="f3"] [data-start]') as HTMLButtonElement;
     expect(free.disabled).toBe(false);
     fireEvent.click(free);
     expect(onOpenFeature).toHaveBeenCalledWith('f3');
   });
 
+  it('the selected feature\'s card says its epic, its date and its state; the planning controls open on request', async () => {
+    const { container } = await mount();
+    pick(container, 'f2');
+    const card = container.querySelector('[data-selected-feature="f2"]')!;
+    expect(card.textContent).toContain('EPIC 1 — Core');
+    expect(card.textContent).toContain('NOV 25');
+    expect(card.textContent).toContain('Under way');
+    expect(card.querySelector('[data-plan]')).toBeNull();
+    expect(card.querySelector('[data-start]')).toBeNull();
+    expect(card.querySelector('[data-open-feature]')!.textContent).toBe('OPEN ▸');
+    fireEvent.click(card.querySelector('[data-plan-toggle]')!);
+    expect(card.querySelectorAll('[data-plan] select, [data-plan] input[type="date"]').length).toBe(3);
+  });
+
   it('every planning control is one call for that feature, and tells the page', async () => {
     const { container, onChanged } = await mount();
-    fireEvent.click(container.querySelector('[data-waypoint="f6"]')!);
+    pick(container, 'f6');
     const panel = container.querySelector('[data-selected-feature="f6"]')!;
-    fireEvent.change(panel.querySelector('select')!, { target: { value: 'e2' } });
+    fireEvent.click(panel.querySelector('[data-plan-toggle]')!);
+    fireEvent.change(panel.querySelector('[data-plan] select')!, { target: { value: 'e2' } });
     const [starts, target] = [...panel.querySelectorAll('input[type="date"]')];
     fireEvent.change(starts, { target: { value: '2026-12-01' } });
     fireEvent.change(target, { target: { value: '2026-12-15' } });
@@ -145,7 +109,18 @@ describe('the roadmap chart', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(4));
   });
 
-  it('saves the vision and adds an epic', async () => {
+  it('says what went wrong when a change is refused, and keeps the route', async () => {
+    const { container } = await mount();
+    calls.planFeature.mockRejectedValueOnce(new Error('That would make a loop'));
+    pick(container, 'f6');
+    const panel = container.querySelector('[data-selected-feature="f6"]')!;
+    fireEvent.click(panel.querySelector('[data-plan-toggle]')!);
+    fireEvent.change(panel.querySelector('[data-plan] select')!, { target: { value: 'e1' } });
+    await waitFor(() => expect(screen.getByText('That would make a loop')).toBeTruthy());
+    expect(container.querySelectorAll('[data-route-stop]').length).toBe(2);
+  });
+
+  it('saves the vision and adds an epic from the header', async () => {
     const { container } = await mount();
     fireEvent.click(screen.getByTitle('Edit the vision'));
     fireEvent.change(screen.getByLabelText("The project's vision"), { target: { value: 'New aim' } });
@@ -155,44 +130,6 @@ describe('the roadmap chart', () => {
     fireEvent.change(screen.getByLabelText('New epic name'), { target: { value: 'Launch' } });
     fireEvent.click(screen.getByText('Add'));
     await waitFor(() => expect(calls.createEpic).toHaveBeenCalledWith('p1', { name: 'Launch' }));
-    expect(container.querySelector('[data-roadmap-chart]')).not.toBeNull();
-  });
-
-  it('says what went wrong when a change is refused, and keeps the chart', async () => {
-    const { container } = await mount();
-    calls.planFeature.mockRejectedValueOnce(new Error('That would make a loop'));
-    fireEvent.click(container.querySelector('[data-waypoint="f6"]')!);
-    fireEvent.change(container.querySelector('[data-selected-feature] select')!, { target: { value: 'e1' } });
-    await waitFor(() => expect(screen.getByText('That would make a loop')).toBeTruthy());
-    expect(container.querySelectorAll('[data-waypoint]').length).toBe(6);
-  });
-
-  it('the route in a lane is green up to its last delivery, blue from there to what is under way, faint beyond — and a late feature is marked', async () => {
-    const { container } = await mount();
-    const routes = (lane: string) => [...container.querySelectorAll(`[data-lane="${lane}"] [data-route]`)].map((n) => n.getAttribute('data-route')).sort();
-    expect(routes('e1')).toEqual(['ahead', 'delivered', 'under-way']);   // f1 delivered, f2 under way, f3 planned
-    expect(routes('e2')).toEqual(['ahead']);                             // nothing delivered or under way
-    // One node per waypoint on the chart, drawn in its state; the late one carries the warning sign.
-    for (const f of CHART.epics.flatMap((e) => e.features)) {
-      const w = container.querySelector(`[data-timeline] [data-waypoint="${f.id}"]`)!;
-      expect(w.querySelector('[data-node]')!.getAttribute('data-node'), f.id).toBe(f.state);
-      expect(w.textContent!.includes('⚠'), f.id).toBe(f.state === 'late');
-    }
-  });
-
-  it('the selected waypoint\'s card says its epic, its date and its state; the planning controls open on request', async () => {
-    const { container } = await mount();
-    fireEvent.keyDown(container.querySelector('[data-waypoint="f2"]')!, { key: 'Enter' });
-    const card = container.querySelector('[data-selected-feature="f2"]')!;
-    expect(card.textContent).toContain('EPIC 1 — Core');
-    expect(card.textContent).toContain('NOV 25');
-    expect(card.textContent).toContain('Under way');
-    expect(card.querySelector('[data-plan]')).toBeNull();
-    // Under way: it is opened, not started.
-    expect(card.querySelector('[data-start]')).toBeNull();
-    expect(card.querySelector('[data-open-feature]')!.textContent).toBe('OPEN ▸');
-    fireEvent.click(card.querySelector('[data-plan-toggle]')!);
-    expect(card.querySelectorAll('[data-plan] select, [data-plan] input[type="date"]').length).toBe(3);
   });
 
   it('the officer of the deck looks as the plan stands — for every mix of states', () => {
@@ -203,59 +140,11 @@ describe('the roadmap chart', () => {
   it('the deck\'s controls are stacked in the officer\'s column, so they never run over the chart\'s title', async () => {
     const view = render(<RoadmapChart project={project} version={0} onOpenFeature={vi.fn()} onChanged={vi.fn()}
       toolbar={<><button>← Board</button><button>✦ Plan from a document</button></>} />);
-    await waitFor(() => expect(view.container.querySelector('[data-lane]')).not.toBeNull());
+    await waitFor(() => expect(view.container.querySelector('[data-route-view]')).not.toBeNull());
     const bar = view.container.querySelector('[data-roadmap-toolbar]')!;
-    // Inside the officer's column (176 px wide), one control per row, none wider than the column.
     expect(bar.closest('[data-officer]')).not.toBeNull();
     expect(bar.className).toMatch(/\bflex-col\b/);
     expect(bar.className).toContain('[&>*]:max-w-full');
     expect([...bar.children].map((b) => b.textContent)).toEqual(['← Board', '✦ Plan from a document']);
-    expect([...bar.children].every((b) => b.tagName === 'BUTTON'), 'each control is its own row, not one wrapped row').toBe(true);
-  });
-
-  it('VISION → EPICS → FEATURES: an epic can be added from the header and from the row under the lanes, and a feature from inside each epic', async () => {
-    const { container, onChanged } = await mount();
-    // The deck says which project it is, before anything else on it.
-    const badge = container.querySelector('[data-roadmap-project]')!;
-    expect(badge.textContent).toMatch(/Project roadmap/);
-    expect(badge.textContent).toContain('Orbit');
-    expect(container.querySelector('[data-vision]')!.firstElementChild).toBe(badge);
-    // Two ways to add an epic, both always on screen.
-    expect(container.querySelector('[data-add-epic]')!.textContent).toBe('+ Add epic');
-    fireEvent.click(container.querySelector('[data-add-epic-row]')!);
-    fireEvent.change(screen.getByLabelText('New epic name'), { target: { value: 'Launch' } });
-    fireEvent.click(screen.getByText('Add'));
-    await waitFor(() => expect(calls.createEpic).toHaveBeenCalledWith('p1', { name: 'Launch' }));
-    // Every epic offers "+ Feature"; the feature is created in the project, then put in that epic on its date.
-    expect([...container.querySelectorAll('[data-add-feature]')].map((n) => n.getAttribute('data-add-feature'))).toEqual(['e1', 'e2']);
-    fireEvent.click(container.querySelector('[data-add-feature="e2"]')!);
-    fireEvent.change(screen.getByLabelText('Feature name'), { target: { value: 'Referrals' } });
-    fireEvent.change(screen.getByLabelText('Target date of the new feature'), { target: { value: '2026-12-01' } });
-    fireEvent.click(screen.getByText('Add feature'));
-    await waitFor(() => expect(calls.planFeature).toHaveBeenCalledWith('new-goal', { epicId: 'e2', targetDate: '2026-12-01' }));
-    expect(calls.createGoal).toHaveBeenCalledWith({ name: 'Referrals', projectId: 'p1' });
-    // One and the same: it is made as a feature OF THE PROJECT (no roadmap-only copy), and the page is told so its Features list reloads.
-    expect(calls.createGoal).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(onChanged).toHaveBeenCalled());
-    // With no date it is created in the epic and waits in the tray.
-    fireEvent.click(container.querySelector('[data-add-feature="e1"]')!);
-    fireEvent.change(screen.getByLabelText('Feature name'), { target: { value: 'Later thing' } });
-    fireEvent.click(screen.getByText('Add feature'));
-    await waitFor(() => expect(calls.planFeature).toHaveBeenLastCalledWith('new-goal', { epicId: 'e1' }));
-  });
-
-  it('a project with no epic yet is told the order — vision, epics, features — and offered the first epic; its features wait below', async () => {
-    calls.getRoadmap.mockResolvedValue({ ...CHART, vision: '', epics: [], unassigned: [CHART.unassigned[0], { ...CHART.unassigned[0], id: 'f7', name: 'Feature f7' }], totals: { planned: 2, 'under-way': 0, delivered: 0, late: 0 } });
-    const { container } = await mount();
-    const start = container.querySelector('[data-roadmap-start]')!;
-    expect(start.textContent).toMatch(/1 · Vision[\s\S]*2 · Epics[\s\S]*3 · Features/);
-    expect(container.querySelectorAll('[data-lane]')).toHaveLength(0);
-    expect([...container.querySelectorAll('[data-unplanned] [data-waypoint]')].map((n) => n.getAttribute('data-waypoint'))).toEqual(['f6', 'f7']);
-    fireEvent.click(screen.getByText('Write the vision'));
-    expect(screen.getByLabelText("The project's vision")).toBeTruthy();
-    fireEvent.click(start.querySelector('[data-add-first-epic]')!);
-    fireEvent.change(screen.getByLabelText('New epic name'), { target: { value: 'Core' } });
-    fireEvent.click(screen.getByText('Add'));
-    await waitFor(() => expect(calls.createEpic).toHaveBeenCalledWith('p1', { name: 'Core' }));
   });
 });

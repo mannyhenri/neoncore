@@ -1,3 +1,6 @@
+import { useActiveTheme } from './lib/activeTheme';
+import { Fireworks } from './components/Fireworks';
+import { LogsPage } from './components/LogsPage';
 import { useState, useEffect, useCallback } from 'react';
 import { SoundButton } from './components/SoundControls';
 import { useSoundEvents } from './lib/sound/useSoundEvents';
@@ -22,6 +25,7 @@ import { TokensPage } from './components/TokensPage';
 import { QaPage } from './components/qa/QaPage';
 import { TriagePage } from './components/triage/TriagePage';
 import { api } from './lib/api';
+import { useNeedsYou } from './hooks/useNeedsYou';
 import type { AgentType, Activity, VirtualCartridge } from './types';
 import { IS_DEMO } from './lib/api';
 import { setDemoEnabled, resetDemoData } from './lib/demoMode';
@@ -53,6 +57,8 @@ function NavItem({ active, onClick, label, badge, children }: { active: boolean;
 const ICON = 'w-[22px] h-[22px]';
 
 export default function App() {
+  // The theme in use for everyone (Settings → Themes) decides how this browser draws NeonCore.
+  useActiveTheme();
   // Virtual cartridges
   const [virtualCartridges, setVirtualCartridges] = useState<VirtualCartridge[]>([]);
 
@@ -98,6 +104,8 @@ export default function App() {
   } = useAgents(handleVirtualCartridgeUpdated);
   // SOUND (lib/sound): one cue per kind of thing that just happened, and the interface sounds.
   useSoundEvents({ agents, pendingPermissions, stuckAlerts: stuckAlertsArray, workflowNotifications, tasks });
+  // What waits on you, from state — the bell's events can be missed (server lib/needs-you.ts).
+  const needsYou = useNeedsYou(workflowNotifications[0]?.id);
 
   const [typeFilter, setTypeFilter] = useState<AgentType | 'all'>('all');
   // Status selection lives here so it can render in the rail; the counts come back up
@@ -198,6 +206,10 @@ export default function App() {
         <NavItem active={activeView === 'tokens'} onClick={() => setActiveView('tokens')} label="Tokens">
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M22 19H2" /></svg>
         </NavItem>
+        <NavItem active={activeView === 'logs'} onClick={() => setActiveView('logs')} label="Logs">
+          {/* A terminal window: every session's log and NeonCore's own. */}
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9l3 3-3 3M12 15h5" /></svg>
+        </NavItem>
         <NavItem active={activeView === 'qa'} onClick={() => setActiveView('qa')} label="QA">
           {/* A flask with a check: testing the app. */}
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v6.5L4.8 18.2A1.8 1.8 0 0 0 6.4 21h11.2a1.8 1.8 0 0 0 1.6-2.8L14 9.5V3" /><path d="M9.5 15l1.8 1.8 3.4-3.6" /></svg>
@@ -253,6 +265,7 @@ export default function App() {
         <SoundButton />
         <NotificationCenter
           pendingPermissions={pendingPermissions}
+          needsYou={needsYou}
           stuckAlerts={stuckAlertsArray}
           workflowNotifications={workflowNotifications}
           agents={agents}
@@ -293,6 +306,9 @@ export default function App() {
               <aside><CorePost /></aside>
               <div className="min-w-0"><div className="bridge-panel bridge-console"><TokensPage servers={servers} /></div><TokenGauges /></div>
             </div>
+          ) : activeView === 'logs' ? (
+            /* Logs: every session's events, background terminal output and NeonCore's own console (server lib/log-stream.ts). */
+            <div className="bridge-panel bridge-console h-full"><LogsPage /></div>
           ) : activeView === 'qa' ? (
             /* QA: tests a web app with no hand-written scripts (components/qa, docs/plans/qa-section.md). */
             <QaPage agents={agents} />
@@ -411,6 +427,9 @@ export default function App() {
       </div>
       </ProjectsProvider>
       </div>
+
+      {/* A feature marked done: fireworks (lib/celebrate.ts). */}
+      <Fireworks />
 
       {/* Guide Modal */}
       {guideOpen && (

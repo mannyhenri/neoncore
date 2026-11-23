@@ -259,3 +259,16 @@ export function parseDuration(text: string): number | null {
   const unit = m[2].toLowerCase();
   return n * (unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000);
 }
+
+/**
+ * Is this run a stage of a feature (Goal Pilot) whose person did not choose hands-on? Such a run
+ * takes its template decision gates' recommendations without asking — the person's gates on a
+ * feature are its plan and its "done" (lib/attention-notifier.ts tryAutoResolve).
+ */
+export function featureTakesDecisions(workflowId: string): boolean {
+  const row = db.prepare(`
+    SELECT p.involvement FROM workflows w JOIN goal_pilots p ON p.goal_id = w.goal_id
+     WHERE w.id = ? AND w.goal_id IS NOT NULL AND w.goal_id != '' AND p.phase IN ('running', 'paused')
+     ORDER BY p.created_at DESC LIMIT 1`).get(workflowId) as { involvement?: string } | undefined;
+  return !!row && row.involvement !== 'hands-on';
+}

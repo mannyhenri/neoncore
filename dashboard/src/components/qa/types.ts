@@ -45,6 +45,8 @@ export interface QaFeature {
   goalId: string; name: string; phase: string; state: QaFeatureState; note: string;
   criteria: { id: string; text: string; expect: string; status: QaCriterionStatus; error: string; screenshot: string }[];
   passed: number; total: number; runId: string; runAt: string; repaired: boolean; reportUrl: string;
+  /** Its epic and how far it is; QA runs by itself when it is finished. Empty id: in no epic. */
+  epic?: { id: string; name: string; done: number; total: number };
 }
 export interface QaProjectFeatures {
   projectId: string; name: string; color: string;

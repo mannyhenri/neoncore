@@ -25,7 +25,7 @@ describe('the feature workspace card — merge at the end', () => {
     const act = vi.fn((fn: () => Promise<unknown>) => { void fn(); });
     mocks.merge.mockResolvedValue({});
     render(<WorkspaceCard pilot={pilot([repo('alpha', 'open'), repo('beta', 'open')])} busy={false} act={act} />);
-    expect(screen.getByText(/2 PRs ready — review, then merge/)).toBeInTheDocument();
+    expect(screen.getByText(/2 PRs ready — merged when you mark the feature done/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Merge 2 PRs…' }));
     expect(screen.getByText(/none if any one cannot be/)).toBeInTheDocument();
     expect(mocks.merge).not.toHaveBeenCalled();

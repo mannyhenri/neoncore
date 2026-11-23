@@ -17,6 +17,7 @@
  * Rules (what is required, what a delegation means) live on the server; lib/goalPilot.ts mirrors
  * them only so the panel can say what is missing before a request is refused.
  */
+import { celebrateFeature } from '../lib/celebrate';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverageChoice, RunProgressModal } from './RunProgress';
 import { api } from '../lib/api';
@@ -728,7 +729,8 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
   const [assign, setAssign] = useState<Record<string, string>>({});      // stage key → repoPath
   const [teamPick, setTeamPick] = useState<Record<string, string[]>>({}); // team stage key → repoPaths
   // Its own branch: a worktree + cartridge per repo, a PR per repo at the end — so it can run beside other features.
-  const [ownBranch, setOwnBranch] = useState(true);
+  // Off by default: a feature works in the repos' own checkouts unless the person ticks it.
+  const [ownBranch, setOwnBranch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const stages = pilot.plan?.stages ?? [];
@@ -790,7 +792,7 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
           <input type="checkbox" className="accent-violet-500 mt-0.5" checked={ownBranch} onChange={() => setOwnBranch((v) => !v)} />
           <span>
             Work on its own branch
-            <span className="block text-[12px] text-gray-500">A git worktree and a cartridge per repo, so it runs beside other features; a PR per repo when it is done. Untick to work in the repos' own checkouts.</span>
+            <span className="block text-[12px] text-gray-500">A git worktree and a cartridge per repo, so it runs beside other features. When you mark it done, its PRs are merged and the worktrees removed. Left unticked, it works in the repos' own checkouts.</span>
           </span>
         </label>
         <p className="text-[12px] text-gray-500 mb-2">
@@ -1135,7 +1137,7 @@ export function WorkspaceCard({ pilot, busy, act }: { pilot: GoalPilot; busy: bo
   const mergedNotCleaned = live.some((r) => r.pr?.state === 'merged');
   const into = [...new Set(open.map((r) => r.base))].join(', ');
   const status = ws.cleanedAt ? 'merged — worktrees, branch and cartridges removed'
-    : open.length ? `${open.length} PR${open.length === 1 ? '' : 's'} ready — review, then merge`
+    : open.length ? `${open.length} PR${open.length === 1 ? '' : 's'} ready — ${ws.mergeMyself ? 'left for you to merge' : 'merged when you mark the feature done'}`
     : ws.prsAt ? '' : 'a worktree and a cartridge per repo; the PRs open when the pipeline finishes';
   return (
     <div className="rounded-xl border border-white/[0.08] bg-gl-code/60 px-3.5 py-3 space-y-2" data-testid="workspace-card">
@@ -1184,6 +1186,54 @@ export function WorkspaceCard({ pilot, busy, act }: { pilot: GoalPilot; busy: bo
   );
 }
 
+/**
+ * Accepting the finished feature. Built on its own branch, marking it done lands it: every PR merged
+ * into its base, then the worktrees, the branch and their cartridges removed (server shipOnDone) —
+ * unless "I'll merge it myself" is ticked: the PRs are opened and left for a person to merge.
+ */
+export function DoneStep({ pilot, goal, busy, act, onGoalChanged }: {
+  pilot: GoalPilot; goal: Goal; busy: boolean; act: (fn: () => Promise<unknown>) => void; onGoalChanged: () => void;
+}) {
+  const ws = pilot.workspace && !pilot.workspace.cleanedAt ? pilot.workspace : null;
+  const [mergeMyself, setMergeMyself] = useState(ws?.mergeMyself === true);
+  const into = ws ? [...new Set(ws.repos.filter((r) => !r.removed).map((r) => r.base))].join(', ') || 'the base' : '';
+  const markDone = () => act(async () => {
+    if (ws && mergeMyself !== (ws.mergeMyself === true)) await api.setFeatureMergeMyself(pilot.id, mergeMyself);
+    await api.updateGoal(goal.id, { status: 'achieved' });
+    celebrateFeature(goal.name);
+    onGoalChanged();
+  });
+  return (
+    <div className="px-3 py-2.5 rounded-lg bg-emerald-900/20 border border-emerald-700/40 space-y-2" data-testid="done-step">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[14px] text-emerald-200">
+          Every stage finished.{pilot.acceptance && pilot.acceptance.total > 0
+            ? ` ${pilot.acceptance.passing} of ${pilot.acceptance.total} acceptance criteria pass on NeonCore's own check.`
+            : ' Check the results against “done when”.'} Then mark the feature done.
+        </p>
+        {goal.status !== 'achieved' && (
+          <button disabled={busy} onClick={markDone} className={primaryBtn}>
+            {ws && !mergeMyself ? `Mark done — merge into ${into}` : 'Mark feature done'}
+          </button>
+        )}
+      </div>
+      {ws && goal.status !== 'achieved' && (
+        <>
+          <p className="text-[12px] text-gray-400">
+            {mergeMyself
+              ? 'The PRs are opened and left open for you or a teammate to merge. Once merged on GitHub, NeonCore removes the worktrees, the branch and their cartridges.'
+              : `Marking it done merges every PR into ${into} — none if any one cannot be, and you are told why — then removes the worktrees, the ${ws.branch} branch and their cartridges.`}
+          </p>
+          <label className="flex items-center gap-2 text-[12px] text-gray-300 cursor-pointer w-fit">
+            <input type="checkbox" className="accent-violet-500" disabled={busy} checked={mergeMyself} onChange={() => setMergeMyself((v) => !v)} />
+            I'll merge it myself
+          </label>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
   pilot: GoalPilot; goal: Goal; agents: Agent[]; onChanged: () => void; onGoalChanged: () => void;
 }) {
@@ -1219,20 +1269,7 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
           <button disabled={busy} onClick={() => act(() => api.buildGoalPilotReport(pilot.id))} className={quietBtn}>Build report</button>
         </div>
       )}
-      {pilot.phase === 'completed' && (
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-emerald-900/20 border border-emerald-700/40">
-          <p className="text-[14px] text-emerald-200">
-            Every stage finished.{pilot.acceptance && pilot.acceptance.total > 0
-              ? ` ${pilot.acceptance.passing} of ${pilot.acceptance.total} acceptance criteria pass on NeonCore's own check.`
-              : ' Check the results against “done when”.'} Then mark the feature done.
-          </p>
-          {goal.status !== 'achieved' && (
-            <button disabled={busy} onClick={() => act(async () => { await api.updateGoal(goal.id, { status: 'achieved' }); onGoalChanged(); })} className={primaryBtn}>
-              Mark feature done
-            </button>
-          )}
-        </div>
-      )}
+      {pilot.phase === 'completed' && <DoneStep pilot={pilot} goal={goal} busy={busy} act={act} onGoalChanged={onGoalChanged} />}
 
       <div className="space-y-2">
         {pilot.stages.map((s, i) => <StageRow key={s.id} pilot={pilot} stage={s} index={i} onOpenRun={setOpenRun} onChanged={onChanged} />)}

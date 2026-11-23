@@ -24,7 +24,7 @@ import { seedPrConflicts } from './pr-conflicts.js';
 // (the executor falls back to `description || name`). They looked like the real templates in the
 // picker, which is most of why the list read as convoluted. Both are in `deprecatedNames` below
 // so they are deleted from existing databases too, not merely unlisted.
-export const STANDARD_TEMPLATE_NAMES = ['Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Super QA', 'Bug Investigation', 'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'Resolve PR Conflicts'] as const;
+export const STANDARD_TEMPLATE_NAMES = ['Confer', 'QA Testing Guide', 'Release Documentation', 'Bug Hunter', 'Feature Validation', 'Deep Research', 'Jira Tasks Validation', 'Epic: Task by Task', 'CE Develop and Optimize', 'Epic: Two Repos', 'Product Strategy Session', 'Engineering Architecture Review', 'Super QA', 'Bug Investigation', 'CE: Phase 2 — Plan', 'CE: Phase 3 — Implement', 'CE: Phase 4 — Review', 'CE: Phase 5 — QA', 'CE: Phase 6 — Ship', 'CE: Phase 7 — Compound', 'Resolve PR Conflicts'] as const;
 
 /**
  * Templates launched WITHOUT the auto-added Work Standard Check (workflows.standard_gate = 'off').
@@ -39,7 +39,7 @@ export const STANDARD_TEMPLATE_NAMES = ['Confer', 'QA Testing Guide', 'Release D
 export const NO_STANDARD_GATE_TEMPLATES = [
   'Deep Research', 'Product Strategy Session',
   'Engineering Architecture Review', 'Release Documentation', 'Jira Tasks Validation',
-  'CE: Phase 1 — Interrogate', 'CE: Phase 2 — Plan', 'CE: Phase 7 — Compound', 'Super QA',
+  'CE: Phase 2 — Plan', 'CE: Phase 7 — Compound', 'Super QA',
 ] as const;
 
 /**
@@ -50,7 +50,7 @@ export const NO_STANDARD_GATE_TEMPLATES = [
  */
 export const RETIRED_TEMPLATE_NAMES: readonly string[] = ['Feature Fix', 'Code Improvement', 'Refactor', 'Jira Tasks Completion', 'New Feature', 'CI/CD Pipeline',
   'CE: Full Delivery', 'Spec Intake → Dev Spec', 'Epic: Confer Across Repos', 'Full QA Review', 'Code Review & Audit',
-  'Daily AI Research Digest', 'Daily AI Filmmaking Digest'];
+  'Daily AI Research Digest', 'Daily AI Filmmaking Digest', 'CE: Phase 1 — Interrogate'];
 
 export function runStandardTemplateSeed(db: DatabaseType): void {
   const standardNames = STANDARD_TEMPLATE_NAMES;
@@ -86,6 +86,8 @@ export function runStandardTemplateSeed(db: DatabaseType): void {
   //   Epic: Confer Across Repos — merged into Confer (give it a Jira epic).
   //   Full QA Review, Code Review & Audit — merged into Super QA.
   //   Daily AI Research Digest, Daily AI Filmmaking Digest — no longer wanted.
+  //   CE: Phase 1 — Interrogate — feature scoping already asks the person and writes the brief
+  //     every stage receives; Phase 2 plans from that scope.
   for (const name of RETIRED_TEMPLATE_NAMES) {
     const rows = db.prepare("SELECT id FROM workflows WHERE name = ? AND template_id IS NULL").all(name) as { id: string }[];
     for (const row of rows) {

@@ -17,6 +17,8 @@
  * view switches and fetches only while the view is active. The selection lives in the URL
  * (lib/projectSelection.ts), so a project and a feature can be linked to and survive a refresh.
  */
+import { celebrateFeature } from '../lib/celebrate';
+import { MarkDoneButton, NeedsFirstPanel, WaitsOn, useFeatureNeeds, useProjectWaits } from './NeedsFirst';
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, createContext, useContext, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { ProjectRewards } from './rewards/ProjectRewards';
@@ -325,7 +327,18 @@ const NeedsYou = ({ n }: { n: number }) => (n > 0 ? (
  * is and whether it needs you, then the features that belong to no project, then "+ New project".
  */
 export function ProjectPicker() {
-  const { projects, features, loading, selection, selectProject, setModal } = useProjects();
+  const { projects, features, loading, selection, selectProject, setModal, refresh, version } = useProjects();
+  // ARCHIVED projects: off the map and this list; here to restore.
+  const [archived, setArchived] = useState<Project[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  useEffect(() => { Promise.resolve(api.getArchivedProjects?.()).then((a) => setArchived(Array.isArray(a) ? a : [])).catch(() => setArchived([])); }, [version]);
+  const restore = async (id: string) => {
+    await api.setProjectArchived(id, false);
+    await refresh();
+    selectProject(id);
+    setShowArchived(false);
+    setOpen(false);
+  };
   const unfiled = features.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId));
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -411,6 +424,21 @@ export function ProjectPicker() {
               </button>
             );
           })}
+          {archived.length > 0 && (
+            <div data-archived className="mt-1 pt-1.5 border-t border-white/[0.08]">
+              <button type="button" data-archived-toggle aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}
+                className="w-full flex items-center justify-between px-3 h-9 rounded-[10px] text-[13px] text-gray-400 hover:text-gray-200 hover:bg-white/[0.03]">
+                Archived<span className="tabular-nums text-gray-500">{archived.length}</span>
+              </button>
+              {showArchived && archived.map((p) => (
+                <div key={p.id} data-archived-project={p.id} className="flex items-center gap-2 px-3 py-2 rounded-[10px]">
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 opacity-50" style={{ backgroundColor: p.color }} />
+                  <span className="text-[14px] text-gray-400 truncate flex-1">{p.name}</span>
+                  <button type="button" data-restore onClick={() => void restore(p.id)} className="h-8 px-3 rounded-[9px] border border-white/[0.16] text-[12px] font-semibold text-gray-200 hover:border-white/30">Restore</button>
+                </div>
+              ))}
+            </div>
+          )}
           {unfiled.length > 0 && (
             <button role="option" aria-selected={onUnfiled} data-project-option={UNFILED} onClick={() => pick(UNFILED)}
               className={`w-full text-left rounded-[10px] border border-dashed px-3 py-2.5 transition-colors ${onUnfiled ? 'bg-ember-500/[0.08] border-ember-500/50' : 'border-white/[0.16] hover:bg-white/[0.03]'}`}>
@@ -427,7 +455,9 @@ export function ProjectPicker() {
 
 // ── the project: its features ─────────────────────────────────────────────────
 
-function FeatureRow({ feature, index, count, highlight }: { feature: Goal; index: number; count: number; highlight: boolean }) {
+function FeatureRow({ feature, index, count, highlight, waits = [] }: { feature: Goal; index: number; count: number; highlight: boolean;
+  /** What it waits on before it can be marked done (NeedsFirst.tsx). */
+  waits?: string[] }) {
   const { openFeature, moveFeature } = useProjects();
   const st = featureStatus(feature);
   const start = st.key === 'backlog';
@@ -457,6 +487,7 @@ function FeatureRow({ feature, index, count, highlight }: { feature: Goal; index
           <SegMeter pct={st.progress * 100} cells={16} height={8} className="mt-2 max-w-[240px]" />
         )}
         {st.key === 'thinking' && <AiWorkingBar label={st.label} cells={16} className="mt-2 max-w-[240px]" />}
+        {st.key !== 'done' && <WaitsOn names={waits} className="mt-1" />}
       </button>
       <StatusPill status={st} className="hidden sm:inline-flex" />
       <button
@@ -576,6 +607,15 @@ function ExistingFeatures({ list, onOpenSpec }: { list: Goal[]; onOpenSpec: () =
 
 function ProjectDetail({ project }: { project: Project }) {
   const { features, tasks, agents, setModal, deleteProject, openFeature, refresh, version } = useProjects();
+  // ARCHIVE: off the map and the lists, nothing deleted; refused while a feature is under way.
+  const [archiveError, setArchiveError] = useState('');
+  const archive = async () => {
+    if (!confirm(`Archive "${project.name}"? It leaves the map and the project list; nothing of it is deleted. Restore it any time from Archived, at the bottom of the project list.`)) return;
+    setArchiveError('');
+    try { await api.setProjectArchived(project.id, true); await refresh(); } catch (e) { setArchiveError(e instanceof Error ? e.message : String(e)); }
+  };
+  // What each feature waits on before it can be marked done (NeedsFirst.tsx).
+  const waits = useProjectWaits(project.id, version);
   const [tab, setTab] = useState<ProjectTab>('features');
   const all = features.filter((f) => f.projectId === project.id);
   const mine = all.filter((f) => f.origin !== 'imported');
@@ -606,8 +646,10 @@ function ProjectDetail({ project }: { project: Project }) {
             <button onClick={() => setModal({ type: 'run', project })} className={iconBtn} title="Run one workflow in this project, outside a feature">Run a workflow</button>
             <button onClick={() => setModal({ type: 'heartbeats', project })} className={iconBtn} title="Recurring runs">Schedule</button>
             <button onClick={() => setModal({ type: 'learnings', project })} className={iconBtn} title="What earlier runs learned">Learnings</button>
+            <button data-archive-project onClick={() => void archive()} className={iconBtn} title="Off the map and the project list — nothing is deleted; restore it from Archived">Archive</button>
             <button onClick={() => deleteProject(project)} className="h-9 px-3 rounded-[10px] text-[12px] font-semibold border border-red-400/45 text-red-200 hover:bg-red-500/10 transition-colors">Delete</button>
           </div>
+          {archiveError && <p data-archive-error className="basis-full text-[13px] text-ember-300">{archiveError}</p>}
         </div>
       </div>
 
@@ -683,7 +725,7 @@ function ProjectDetail({ project }: { project: Project }) {
 
         <div className="flex flex-col gap-2">
           {mine.map((f, i) => (
-            <FeatureRow key={f.id} feature={f} index={i} count={mine.length} highlight={!busy && next?.id === f.id} />
+            <FeatureRow key={f.id} feature={f} index={i} count={mine.length} highlight={!busy && next?.id === f.id} waits={waits.get(f.id)} />
           ))}
         </div>
         <div className="mt-2">
@@ -726,7 +768,9 @@ function ProjectDetail({ project }: { project: Project }) {
 // ── one feature: its pipeline ─────────────────────────────────────────────────
 
 function FeatureDetail({ feature, project }: { feature: Goal; project: Project | undefined }) {
-  const { features, agents, setModal, deleteFeature, selectProject, openFeature, refresh, startRequested, updateFeature } = useProjects();
+  const { features, agents, setModal, deleteFeature, selectProject, openFeature, refresh, startRequested, updateFeature, version } = useProjects();
+  // NEEDS FIRST: what must be done before this one can be marked done.
+  const { needs, reload: reloadNeeds } = useFeatureNeeds(feature.id, version);
   // "Feature 3 of 7" counts the build list; an existing (documented) feature counts among its own kind.
   const siblings = features.filter((f) => (f.projectId || '') === (feature.projectId || '') && (project || !f.projectId)
     && (f.origin === 'imported') === (feature.origin === 'imported'));
@@ -771,15 +815,15 @@ function FeatureDetail({ feature, project }: { feature: Goal; project: Project |
           {feature.origin !== 'imported' && st.key !== 'done' && project && (
             <select
               aria-label="Roadmap column"
-              title="Where it sits on the project's roadmap. Automatic: Now while its pipeline runs, else Next/Later by list position."
+              title="Its column on the project's Board. Automatic: To do until it starts, In Progress while its pipeline runs, QA once delivered."
               value={feature.roadmapLane || ''}
-              onChange={(e) => updateFeature(feature.id, { roadmapLane: e.target.value as '' | 'now' | 'next' | 'later' })}
+              onChange={(e) => updateFeature(feature.id, { roadmapLane: e.target.value as '' | 'todo' | 'progress' | 'qa' })}
               className="h-9 text-[12px] font-semibold text-gray-300 glass-input rounded-[10px] px-2.5"
             >
-              <option value="">Roadmap: automatic</option>
-              <option value="now">Roadmap: Now</option>
-              <option value="next">Roadmap: Next</option>
-              <option value="later">Roadmap: Later</option>
+              <option value="">Board: automatic</option>
+              <option value="todo">Board: To do</option>
+              <option value="progress">Board: In Progress</option>
+              <option value="qa">Board: QA</option>
             </select>
           )}
           {project && (
@@ -793,7 +837,7 @@ function FeatureDetail({ feature, project }: { feature: Goal; project: Project |
           <button onClick={() => setModal({ type: 'edit-feature', feature })} className={iconBtn}>Edit</button>
           <button onClick={() => setModal({ type: 'move-feature', feature })} className={iconBtn} title="Move it to another project">Move to project…</button>
           {st.key === 'finished' && (
-            <button onClick={() => updateFeature(feature.id, { status: 'achieved' })} className={primaryBtn}>✓ Mark done</button>
+            <MarkDoneButton needs={needs} onClick={() => void updateFeature(feature.id, { status: 'achieved' }).then(() => celebrateFeature(feature.name), () => {})} className={primaryBtn} />
           )}
           {st.key === 'done' && (
             <button onClick={() => updateFeature(feature.id, { status: 'active' })} className={iconBtn}>Reopen</button>
@@ -801,6 +845,8 @@ function FeatureDetail({ feature, project }: { feature: Goal; project: Project |
           <button onClick={() => deleteFeature(feature)} className="h-9 px-3 rounded-[10px] text-[12px] font-semibold border border-red-400/45 text-red-200 hover:bg-red-500/10 transition-colors">Delete</button>
         </div>
       </div>
+
+      {project && feature.origin !== 'imported' && <NeedsFirstPanel featureId={feature.id} needs={needs} onChanged={() => { reloadNeeds(); void refresh(); }} />}
 
       {!project && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-ember-500/45 bg-ember-500/[0.08] shadow-[0_0_22px_rgba(255,138,61,0.12)] px-3 py-2.5">

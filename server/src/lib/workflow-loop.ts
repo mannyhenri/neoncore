@@ -270,7 +270,7 @@ export const PER_DISPATCH_KEYS = ['_nudges', '_lastNudgeAt', '_freshSession'] as
  * set, since a key cleared between dispatches is certainly cleared between runs.
  */
 export const LOOP_RUN_KEYS = [
-  '_currentLoop', '_resolvedLoopCount', '_loopExtensions', '_lastLoopResult', ...PER_DISPATCH_KEYS,
+  '_currentLoop', '_resolvedLoopCount', '_loopExtensions', '_lastLoopResult', '_lastRemaining', '_noProgress', ...PER_DISPATCH_KEYS,
 ] as const;
 
 /**
@@ -425,6 +425,48 @@ export function isRepeatedClaim(previousResult: string | undefined, result: stri
   return prev.verdict === cur.verdict
     && prev.taskId.toLowerCase() === cur.taskId.toLowerCase()
     && prev.remaining === cur.remaining;
+}
+
+/**
+ * ── A DISPATCH THAT MOVED NOTHING (LOOP-004) ──────────────────────────────────────────
+ *
+ * LIVE FAILURE, run 26cf47f8 (2026-11-21/22): 314 dispatches, 288 under a minute apart, each
+ * answering in prose — "no task workable … WAITING ON the person's v2 prompts lock … every
+ * further dispatch is a no-op. 3 remaining." `isRepeatedClaim` needs a report that LEADS with a
+ * verdict, so it never fired, and "3 remaining" extended the budget a hundred times.
+ *
+ * Progress is judged on substance, not shape: a dispatch that finished no task (no DONE claim,
+ * no sentinel) and left the remaining count where the previous one had it moved nothing. One
+ * that SAYS nothing can be worked is `explicit` — the loop ends at once; otherwise the caller
+ * ends it after NO_PROGRESS_LIMIT in a row, which still lets a cartridge try a second blocked
+ * task before giving up. A report with no count is never judged: silence is not evidence.
+ */
+export const NO_PROGRESS_LIMIT = 2;
+const NOTHING_WORKABLE = /\bno (?:task|work|item)s? (?:is |are )?(?:workable|runnable|can be (?:worked|done|started))\b|\bnothing (?:is )?(?:workable|runnable)\b|\bevery further dispatch (?:is|would be) a no-?op\b|\bno task (?:is )?(?:left )?that can be worked\b/i;
+
+export function madeNoProgress(previousRemaining: number | null | undefined, result: string): { stalled: boolean; explicit: boolean; remaining: number | null } {
+  const report = agentReportOf(result);
+  const remaining = loopClaim(result)?.remaining ?? remainingFrom(report);
+  if (loopClaim(result)?.verdict === 'DONE' || /^\s*ALL TASKS COMPLETE\b/im.test(report)) return { stalled: false, explicit: false, remaining };
+  if (NOTHING_WORKABLE.test(report)) return { stalled: true, explicit: true, remaining };
+  const stalled = previousRemaining != null && remaining != null && remaining >= previousRemaining;
+  return { stalled, explicit: false, remaining };
+}
+
+/**
+ * What the agent asks a PERSON to do, from its `NEXT:` line — '' when its next step is its own.
+ * This is the line that turns "the loop stopped" into something a person can act on.
+ */
+export function personAskFrom(result: string): string {
+  // The whole result: the webhook puts the agent's `next` hand-off on top as `NEXT: …`, which
+  // agentReportOf strips — and that hand-off is exactly the line wanted here.
+  for (const raw of (result || '').split(/\r?\n/)) {
+    const m = raw.trim().match(/^NEXT:\s*(.+)$/i);
+    if (!m) continue;
+    const ask = m[1].trim();
+    if (/\b(person|human|owner|user|you|your|manny|approve|approval|decide|decision|lock|sign[- ]off|confirm)\b/i.test(ask)) return ask.length > 300 ? ask.slice(0, 297) + '...' : ask;
+  }
+  return '';
 }
 
 /**

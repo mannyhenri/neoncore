@@ -391,8 +391,8 @@ export interface Goal {
   origin?: 'imported' | '';
   /** When it was marked done ('' while it is not). */
   doneAt?: string;
-  /** Where the person placed it on the roadmap: '' = automatic, else 'now' | 'next' | 'later'. */
-  roadmapLane?: '' | 'now' | 'next' | 'later';
+  /** Where the person placed it on the board: '' = where its state puts it, else 'todo' | 'progress' | 'qa'. */
+  roadmapLane?: '' | 'todo' | 'progress' | 'qa';
   /** Its capability group on the spec: '<group> · <sub-area>', '<group>', or '' (unsorted). */
   area?: string;
   /** Where the feature's pipeline stands (its latest pilot); null when it was never started. */
@@ -458,6 +458,8 @@ export interface Goal {
 }
 
 export interface Project {
+  /** When it was archived ('' = in use): off the map and the lists until restored. */
+  archivedAt?: string;
   id: string;
   goalId: string | null;
   goalName?: string;

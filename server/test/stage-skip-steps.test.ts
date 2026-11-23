@@ -53,8 +53,8 @@ test('the opening step, confers, decisions, gates, the report and routing target
 });
 
 test('automatic: Notify always, Capture Learnings only when a Compound stage follows', () => {
-  assert.deepEqual(automaticSkips(['Super QA']), ['Notify']);
-  assert.deepEqual(automaticSkips(['Super QA', 'CE: Phase 7 — Compound']), ['Notify', 'Capture Learnings']);
+  assert.deepEqual(automaticSkips(['Super QA']), ['Notify', 'Open PR'], 'NeonCore opens the feature\'s PR itself (lib/feature-stages.ts)');
+  assert.deepEqual(automaticSkips(['Super QA', 'CE: Phase 7 — Compound']), ['Notify', 'Open PR', 'Capture Learnings']);
 });
 
 test('the planner\'s skips are kept only when the workflow has that step and may leave it out', () => {
@@ -95,8 +95,8 @@ test('a pilot stage combines its planned skips with the automatic ones, and its 
     { ...base, id: 's1', position: 0, key: 's1', template: 'Super QA', title: 'Live run', skipSteps: ['Security Review'] },
     { ...base, id: 's2', position: 1, key: 's2', template: 'CE: Phase 7 — Compound', title: 'Compound', skipSteps: [] },
   ] as unknown as PilotStage[];
-  assert.deepEqual(stageSkips(stages[0], stages), ['Security Review', 'Notify', 'Capture Learnings']);
-  assert.deepEqual(stageSkips(stages[1], stages), ['Notify']);
+  assert.deepEqual(stageSkips(stages[0], stages), ['Security Review', 'Notify', 'Open PR', 'Capture Learnings']);
+  assert.deepEqual(stageSkips(stages[1], stages), ['Notify', 'Open PR']);
   const pilot = { id: 'p', goalId: 'none', plan: null, rounds: [], workspace: null } as unknown as GoalPilot;
   assert.match(buildStageContext(pilot, stages[0], stages), /Left out of this run\nSecurity Review/);
 });

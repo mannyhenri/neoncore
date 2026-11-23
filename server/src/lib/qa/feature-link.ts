@@ -1,24 +1,29 @@
 /**
- * QA FOLLOWS THE FEATURE. Nobody enters a test.
+ * QA FOLLOWS THE FEATURE — AND RUNS WHEN ITS EPIC IS FINISHED. Nobody enters a test.
  *
- *   1. A feature is being developed and has acceptance criteria (its Goal Pilot's contract).
- *   2. Those criteria ARE its QA test: one check sentence per criterion, kept in step with the
- *      criteria — written here, never by a person (`source: 'feature'`).
- *   3. Every time a workflow stage of the feature finishes, QA runs that test against the
- *      project's app (the project's QA target). The first run has the target's cartridge work out
- *      the browser actions; later runs replay them, self-repairing as any QA test does.
+ *   1. A feature has acceptance criteria (its Goal Pilot's contract). Those criteria ARE its QA
+ *      test: one check sentence per criterion, kept in step with the criteria — written here,
+ *      never by a person (`source: 'feature'`).
+ *   2. QA runs on the EPIC, at the END: when every feature of the epic is done, one run checks all
+ *      of them together against the project's app (its QA target). Never during development —
+ *      REQUESTED: "the automated QA part … should only be used on an epic … when an EPIC is
+ *      finished, not 80%, not during: at the end." A feature in no epic is an epic of one: it runs
+ *      when that feature is done. It used to run after every finished workflow stage of every
+ *      feature, which is QA paid for again and again on half-built work.
+ *   3. The first run has the target's cartridge work out the browser actions; later runs replay
+ *      them, self-repairing as any QA test does.
  *   4. The QA section reports it per feature and per project: each criterion passed / failed /
  *      not yet run, with the screenshot of what was tested.
  *
  * What it needs and cannot invent: where the app runs — a QA target for the project. Without one
  * the report says so; nothing runs.
  *
- * A feature that was already delivered when its project got a target is not run on its own (a
+ * An epic that was already finished when its project got a target is not run on its own (a
  * project's whole history would fire at once): it shows "not run yet" and can be run by hand.
  */
 import { createHash } from 'crypto';
 import db from '../../db.js';
-import { pilotsForGoal, stagesOf, type GoalPilot } from '../goal-pilot.js';
+import { pilotsForGoal, type GoalPilot } from '../goal-pilot.js';
 import { getContract, type Criterion } from '../acceptance-contract.js';
 import { createTest, updateTest, getTest, getRun, resultsOf, listTargets, type QaTarget, type QaTest, type QaRun } from './store.js';
 import { startRun } from './engine.js';
@@ -37,14 +42,19 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 `);
+// When the feature's epic last finished, as of its last run (EpicProgress.finishedAt): a run is owed
+// when the epic finishes and this differs. (stages_done is no longer read: QA waits for the epic.)
+if (!(db.prepare('PRAGMA table_info(qa_feature_links)').all() as { name: string }[]).some((c) => c.name === 'epic_ran_for')) {
+  db.exec(`ALTER TABLE qa_feature_links ADD COLUMN epic_ran_for TEXT NOT NULL DEFAULT ''`);
+}
 
 const nowIso = () => new Date().toISOString();
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-interface Link { goalId: string; targetId: string; testId: string; criteriaHash: string; stagesDone: number; lastRunId: string; runHash: string }
+interface Link { goalId: string; targetId: string; testId: string; criteriaHash: string; epicRanFor: string; lastRunId: string; runHash: string }
 const linkOf = (goalId: string): Link | null => {
   const r = db.prepare('SELECT * FROM qa_feature_links WHERE goal_id = ?').get(goalId) as Record<string, unknown> | undefined;
-  return r ? { goalId, targetId: String(r.target_id), testId: String(r.test_id), criteriaHash: String(r.criteria_hash), stagesDone: Number(r.stages_done), lastRunId: String(r.last_run_id), runHash: String(r.run_hash ?? '') } : null;
+  return r ? { goalId, targetId: String(r.target_id), testId: String(r.test_id), criteriaHash: String(r.criteria_hash), epicRanFor: String(r.epic_ran_for ?? ''), lastRunId: String(r.last_run_id), runHash: String(r.run_hash ?? '') } : null;
 };
 
 /** The feature's pilot that counts: the newest one. */
@@ -63,9 +73,24 @@ export function criteriaOf(goalId: string): Criterion[] {
 /** One criterion as a QA check sentence. It starts with "Verify", so its actions must assert something. */
 export const sentenceFor = (c: Criterion): string => oneLine(`Verify ${c.id}: ${c.text}${c.expect ? ` Expected: ${c.expect}` : ''}`);
 const hashOf = (sentences: string[]) => createHash('sha256').update(sentences.join('\n')).digest('hex').slice(0, 16);
-/** Workflow stages of the feature's pipeline that have finished: the "something was built" count. */
-function stagesDone(pilot: GoalPilot | null): number {
-  return pilot ? stagesOf(pilot.id).filter((s) => s.kind === 'workflow' && s.status === 'completed').length : 0;
+/**
+ * The feature's epic and how far it is: its features, how many are done, and whether it is
+ * FINISHED (every one done). A feature in no epic is an epic of one. `finishedAt` changes each
+ * time the epic finishes anew (a feature added and done, one reopened and done again), which is
+ * what tells the sweep a new run is owed.
+ */
+export interface EpicProgress { epicId: string; name: string; goalIds: string[]; done: number; total: number; finished: boolean; finishedAt: string }
+export function epicProgressOf(goalId: string): EpicProgress {
+  const g = db.prepare('SELECT id, name, epic_id, project_id FROM goals WHERE id = ?').get(goalId) as { id: string; name: string; epic_id: string | null; project_id: string } | undefined;
+  if (!g) return { epicId: '', name: '', goalIds: [], done: 0, total: 0, finished: false, finishedAt: '' };
+  const rows = (g.epic_id
+    ? db.prepare(`SELECT id, status, done_at FROM goals WHERE epic_id = ? AND project_id = ?`).all(g.epic_id, g.project_id)
+    : db.prepare('SELECT id, status, done_at FROM goals WHERE id = ?').all(goalId)) as { id: string; status: string; done_at: string | null }[];
+  const epicName = g.epic_id ? ((db.prepare('SELECT name FROM epics WHERE id = ?').get(g.epic_id) as { name?: string } | undefined)?.name ?? '') : '';
+  const done = rows.filter((r) => r.status === 'achieved').length;
+  const finished = rows.length > 0 && done === rows.length;
+  const finishedAt = finished ? rows.map((r) => r.done_at || '').sort().pop() || 'done' : '';
+  return { epicId: g.epic_id || '', name: epicName, goalIds: rows.map((r) => r.id), done, total: rows.length, finished, finishedAt };
 }
 export const targetForProject = (projectId: string): QaTarget | null => (projectId ? listTargets().find((t) => t.projectId === projectId) ?? null : null);
 const ACTIVE: ReadonlySet<string> = new Set(['running', 'waiting']);
@@ -92,12 +117,11 @@ export function syncFeatureTest(goalId: string): { link: Link; test: QaTest } | 
   if (test && test.targetId !== target.id) test = null;   // the project's target was replaced
   if (!test) {
     test = createTest({ targetId: target.id, name, sentences }, { source: 'feature' as QaTest['source'] });
-    // A feature already delivered is not run on its own; one still being built starts from zero.
-    const pilot = pilotOf(goalId);
-    const done = link?.stagesDone ?? (pilot?.phase === 'completed' ? stagesDone(pilot) : 0);
-    db.prepare(`INSERT INTO qa_feature_links (goal_id, target_id, test_id, criteria_hash, stages_done, last_run_id, updated_at) VALUES (?,?,?,?,?,?,?)
+    // An epic already finished when QA first sees it is history: not run on its own (by hand it can be).
+    const ranFor = link?.epicRanFor ?? epicProgressOf(goalId).finishedAt;
+    db.prepare(`INSERT INTO qa_feature_links (goal_id, target_id, test_id, criteria_hash, epic_ran_for, last_run_id, updated_at) VALUES (?,?,?,?,?,?,?)
                 ON CONFLICT(goal_id) DO UPDATE SET target_id = excluded.target_id, test_id = excluded.test_id, criteria_hash = excluded.criteria_hash, updated_at = excluded.updated_at`)
-      .run(goalId, target.id, test.id, hash, done, '', nowIso());
+      .run(goalId, target.id, test.id, hash, ranFor, '', nowIso());
   } else if (link!.criteriaHash !== hash || test.name !== name) {
     test = updateTest(test.id, { name, sentences });
     db.prepare('UPDATE qa_feature_links SET criteria_hash = ?, updated_at = ? WHERE goal_id = ?').run(hash, nowIso(), goalId);
@@ -116,30 +140,66 @@ export function runFeatureQa(goalId: string): QaRun {
   const last = synced.link.lastRunId ? getRun(synced.link.lastRunId) : null;
   if (last && ACTIVE.has(last.status)) throw new QaError('QA is already running for this feature', 409);
   const run = startRun({ targetId: synced.link.targetId, kind: 'run', testIds: [synced.test.id] });
-  db.prepare('UPDATE qa_feature_links SET last_run_id = ?, run_hash = ?, stages_done = ?, updated_at = ? WHERE goal_id = ?').run(run.id, synced.link.criteriaHash, stagesDone(pilotOf(goalId)), nowIso(), goalId);
+  db.prepare('UPDATE qa_feature_links SET last_run_id = ?, run_hash = ?, epic_ran_for = ?, updated_at = ? WHERE goal_id = ?').run(run.id, synced.link.criteriaHash, epicProgressOf(goalId).finishedAt, nowIso(), goalId);
+  return run;
+}
+
+type Member = { id: string; s: { link: Link; test: QaTest } };
+/** One run for the epic: every member's test, each link marked with this run and this finish. */
+function startEpicRun(epic: EpicProgress, members: Member[]): QaRun {
+  const run = startRun({ targetId: members[0].s.link.targetId, kind: 'run', testIds: members.map((m) => m.s.test.id) });
+  const mark = db.prepare('UPDATE qa_feature_links SET last_run_id = ?, run_hash = ?, epic_ran_for = ?, updated_at = ? WHERE goal_id = ?');
+  for (const m of members) mark.run(run.id, m.s.link.criteriaHash, epic.finishedAt, nowIso(), m.id);
   return run;
 }
 
 /**
- * One pass over every feature of every project that has a QA target: keep its test in step, and
- * run it when a workflow stage has finished since its last run. Answers the features it started.
+ * Run the QA of this feature's whole epic NOW, whatever state it is in — the person's call
+ * ("I can also decide to trigger one myself whenever I please"). A feature in no epic runs alone.
+ * Refused, with the reason, when it cannot be.
+ */
+export function runEpicQa(goalId: string): QaRun {
+  const goal = goalRow(goalId);
+  if (!goal) throw new QaError('feature not found', 404);
+  if (!targetForProject(goal.project_id)) throw new QaError('this feature\'s project has no QA target — QA needs to know where the app runs');
+  const epic = epicProgressOf(goalId);
+  const members = epic.goalIds.map((id) => ({ id, s: syncFeatureTest(id) })).filter((m): m is Member => !!m.s);
+  if (members.length === 0) throw new QaError('no feature of this epic has acceptance criteria yet — there is nothing to test');
+  if (members.some((m) => { const r = m.s.link.lastRunId ? getRun(m.s.link.lastRunId) : null; return r && ACTIVE.has(r.status); })) {
+    throw new QaError('QA is already running for this epic', 409);
+  }
+  return startEpicRun(epic, members);
+}
+
+/**
+ * One pass over every project that has a QA target: keep each feature's test in step with its
+ * criteria, and when an EPIC has just FINISHED — every feature done — run all of its features'
+ * tests together, once. Answers the goal ids it started a run for.
  */
 export function sweepFeatureQa(): string[] {
   const started: string[] = [];
   const projects = new Set(listTargets().map((t) => t.projectId).filter(Boolean));
   if (projects.size === 0) return started;
   const goals = db.prepare(`SELECT id, project_id FROM goals WHERE project_id != '' AND COALESCE(origin, 'planned') != 'imported'`).all() as { id: string; project_id: string }[];
+  const seen = new Set<string>();
   for (const g of goals) {
     if (!projects.has(g.project_id)) continue;
     try {
+      const epic = epicProgressOf(g.id);
+      const key = epic.epicId || g.id;
+      if (seen.has(key)) continue;
+      // Kept in step even while building: the test is ready the moment the epic is finished.
       const synced = syncFeatureTest(g.id);
-      if (!synced) continue;
-      const done = stagesDone(pilotOf(g.id));
-      if (done <= synced.link.stagesDone) continue;
-      const last = synced.link.lastRunId ? getRun(synced.link.lastRunId) : null;
-      if (last && ACTIVE.has(last.status)) continue;
-      runFeatureQa(g.id);
-      started.push(g.id);
+      if (!epic.finished) continue;
+      seen.add(key);
+      // Every feature of the epic that has a test, and is not already checked for this finish.
+      const members = epic.goalIds.map((id) => ({ id, s: id === g.id ? synced : syncFeatureTest(id) }))
+        .filter((m): m is { id: string; s: NonNullable<typeof synced> } => !!m.s);
+      const owed = members.filter((m) => m.s.link.epicRanFor !== epic.finishedAt);
+      if (owed.length === 0) continue;
+      if (members.some((m) => { const r = m.s.link.lastRunId ? getRun(m.s.link.lastRunId) : null; return r && ACTIVE.has(r.status); })) continue;
+      startEpicRun(epic, members);
+      started.push(...members.map((m) => m.id));
     } catch (err) {
       console.warn(`[qa] feature ${g.id.slice(0, 8)}:`, err instanceof Error ? err.message : err);
     }
@@ -158,6 +218,8 @@ export interface FeatureQa {
   criteria: { id: string; text: string; expect: string; status: CriterionQa; error: string; screenshot: string }[];
   passed: number; total: number;
   runId: string; runAt: string; repaired: boolean; reportUrl: string;
+  /** Its epic and how far it is — QA runs when it is finished. Empty id: a feature in no epic. */
+  epic: { id: string; name: string; done: number; total: number };
 }
 export interface ProjectQa {
   projectId: string; name: string; color: string;
@@ -175,16 +237,20 @@ function featureReport(goal: GoalRow, target: QaTarget | null): FeatureQa | null
     goalId: goal.id, name: goal.name, phase: pilot?.phase ?? '', state: 'not-run', note: '',
     criteria: criteria.map((c) => ({ id: c.id, text: c.text, expect: c.expect ?? '', status: 'not-run' as CriterionQa, error: '', screenshot: '' })),
     passed: 0, total: criteria.length, runId: '', runAt: '', repaired: false, reportUrl: '',
+    epic: (({ epicId, name, done, total }) => ({ id: epicId, name, done, total }))(epicProgressOf(goal.id)),
   };
   if (criteria.length === 0) return { ...base, state: 'no-criteria', note: 'No acceptance criteria yet — they are written when the feature is scoped.' };
   if (!target) return { ...base, state: 'no-target', note: 'QA does not know where this project\'s app runs. Add a QA target for the project.' };
   const link = linkOf(goal.id);
   const run = link?.lastRunId ? getRun(link.lastRunId) : null;
   if (!run) {
-    const built = stagesDone(pilot);
-    return built === 0
-      ? { ...base, state: 'waiting-for-build', note: 'Runs by itself as soon as the first workflow stage of this feature finishes.' }
-      : { ...base, state: 'not-run', note: 'Delivered before QA was set up for this project — not run yet.' };
+    const epic = epicProgressOf(goal.id);
+    if (!epic.finished) {
+      return { ...base, state: 'waiting-for-build', note: epic.epicId
+        ? `Runs when its epic${epic.name ? ` "${epic.name}"` : ''} is finished — ${epic.done} of ${epic.total} features done.`
+        : 'Runs when this feature is done.' };
+    }
+    return { ...base, state: 'not-run', note: 'Finished before QA was set up for this project — not run yet. Run it by hand.' };
   }
   const result = resultsOf(run.id).find((r) => r.testId === link!.testId) ?? null;
   const steps = ((result?.evidence as { steps?: { index: number; status: string; error?: string; screenshot?: string }[] } | undefined)?.steps) ?? [];
@@ -201,7 +267,7 @@ function featureReport(goal: GoalRow, target: QaTarget | null): FeatureQa | null
     : result?.status === 'passed' || result?.status === 'passed_with_repair' ? 'passed' : 'failed';
   const note = working ? (result?.status === 'authoring' ? 'The target\'s cartridge is working out how to test each criterion in the browser.' : result?.status === 'repairing' ? 'A step changed in the app — the cartridge is repairing it.' : 'Testing in the browser.')
     : state === 'error' ? run.error || 'The run could not finish.'
-      : !current ? 'The criteria changed since the last run — it runs again after the next stage.'
+      : !current ? 'The criteria changed since the last run — it runs again when its epic is next finished, or run it by hand.'
         : state === 'failed' ? (result?.error || `${rows.length - passed} of ${rows.length} criteria did not pass.`) : '';
   return {
     ...base, criteria: rows, passed, state, note, runId: run.id, runAt: run.finishedAt ?? run.createdAt,

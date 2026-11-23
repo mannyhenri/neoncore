@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import db from '../src/db.js';
 import { createEpic, planFeature } from '../src/lib/roadmap.js';
 import { createPilotRow, setPhase } from '../src/lib/goal-pilot.js';
-import { REWARD_FAMILIES, RANKS, FAST_FIX_MS, NEW_MAPS, rewardCounts, projectRewards, allRewards, rewardLabel, worldProgress } from '../src/lib/project-rewards.js';
+import { REWARD_FAMILIES, RANKS, COMMENDATION_NAMES, FAST_FIX_MS, NEW_MAPS, rewardCounts, projectRewards, allRewards, rewardLabel, worldProgress } from '../src/lib/project-rewards.js';
 
 let n = 0;
 const NOW = Date.parse('2026-11-22T12:00:00Z');
@@ -98,8 +98,8 @@ test('every tier of every family is earned exactly when its count reaches the th
         const f = family(p, fam.id);
         assert.equal(f.count, count, `${fam.id} count for ${count}`);
         assert.equal(f.tiers[i].earned, count >= threshold, `${fam.id} tier ${threshold} at ${count}`);
-        // A commendation's medal also names the rank it brings (epic-plan.test.ts checks every one).
-        assert.equal(f.tiers[i].label, `T${fam.id}${threshold}x${count} — ${fam.id === 'commend' ? `${RANKS[i + 1].title}: ` : ''}${rewardLabel(fam, threshold)}`);
+        // A commendation's medal also has its own name (epic-plan.test.ts checks every one).
+        assert.equal(f.tiers[i].label, `T${fam.id}${threshold}x${count} — ${fam.id === 'commend' ? `${COMMENDATION_NAMES[i]}: ` : ''}${rewardLabel(fam, threshold)}`);
         assert.equal(f.next, fam.tiers.find((t) => count < t) ?? null);
         // Lower tiers are earned with it; higher ones are not.
         f.tiers.forEach((t, k) => assert.equal(t.earned, count >= fam.tiers[k], `${fam.id}: tier ${t.threshold} at ${count}`));

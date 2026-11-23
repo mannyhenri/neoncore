@@ -10,6 +10,7 @@
  * The header line `[NeonCore goal pilot · <kind> request <id>]` is the stable marker a cartridge
  * (or the sandbox simulation) recognises the request by.
  */
+import { featureStageProblem } from './feature-stages.js';
 import { normalizeRepoPath } from './resolve-agent.js';
 import db from '../db.js';
 import { planScopeLines } from './plan-scope.js';
@@ -236,7 +237,10 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
   const goal = goalRow(pilot.goalId);
   const brief = pilot.brief!;
   const involvement = involvementOf(pilot.involvement);
-  const catalogue = templateCatalogue();
+  const size = brief.size;
+  // Only what may be a stage of this feature is offered (lib/feature-stages.ts); a submission using
+  // anything else is refused with the reason anyway.
+  const catalogue = templateCatalogue().filter((t) => !featureStageProblem(t.name, size));
   const asked = decisions(pilot);
 
   return [
@@ -258,16 +262,23 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
     'AVAILABLE WORKFLOWS — use these EXACT names:',
     ...catalogue.map((t) => `  · ${t.name}${t.description ? ` — ${t.description}` : ''}${t.skippable.length ? `\n      steps you may leave out: ${t.skippable.join(' · ')}` : ''}`),
     '',
-    'HOW THE PIPELINE RUNS',
-    '- Before your first stage, NeonCore has an agent write one FAILING test per "test" criterion; the',
-    '  person approves and LOCKS them. After every stage NeonCore runs them itself. So do NOT propose a',
+    'HOW THE PIPELINE RUNS — a feature is: write the tests → build → deliver.',
+    '- Before your first stage, NeonCore has an agent write one FAILING test per "test" criterion and LOCKS',
+    '  them once they fail before any work. After every stage NeonCore runs them itself. So do NOT propose a',
     '  workflow whose job is to write the acceptance tests — propose the ones that make them pass.',
+    '- Then YOUR stages: the workflows that BUILD the feature. Nothing else. NeonCore does the rest itself:',
+    '  · QA runs on the EPIC once most of its features are built — never a QA stage per feature;',
+    '  · NeonCore opens the PR, merges it and removes the branch when the person marks the feature done —',
+    '    never a stage (or a step) that opens a PR or ships;',
+    '  · it reviews the checklist criteria with an independent reviewer and writes the report — no review',
+    `    stage unless the feature is large (this one is ${size || 'medium'}), no write-up / Compound stage.`,
     '- Stages run one after another. Each runs to completion on a cartridge in a repo the person picks',
     '  next; the next stage starts when it finishes and is handed the earlier stages\' results.',
     '- Every stage receives the scope brief and the decisions above as its launch context, plus the',
     '  `focus` you write for it. Write `focus` as the instruction for THAT stage on THIS goal: what to',
     '  concentrate on, which paths to use (docs/<slug>/…), what it must hand to the next stage.',
-    '- Workflows with human gates stop for the person; with the involvement above that is expected.',
+    '- Workflow decision gates take their recommendation unless the person chose hands-on: give every stage',
+    '  a clear `focus` so no gate needs them.',
     '- Confer is worked by TWO OR MORE cartridges in different repos together; the person assigns the',
     '  repos when staffing. Choose it when the work spans repos and the split is the hard part. To work',
     '  a whole Jira epic, put `JIRA EPIC: <KEY>` on the first line of its `focus`: it looks the epic up',
@@ -279,9 +290,9 @@ export function buildPipelinePrompt(pilot: GoalPilot, requestId: string): string
     `- At most ${MAX_STAGES} stages. Prefer the fewest that deliver the whole scope — a short, honest`,
     '  pipeline beats a padded one. Mark stages that are useful but not essential `optional: true`.',
     '- Skip workflows whose job scoping already did (e.g. an interrogation/brainstorm phase) and say so.',
-    '- ONE JOB PER STAGE, each job once: a build stage builds, a QA stage (Super QA) tests and reviews. Do not',
-    '  plan two stages that do the same job, do not split one body of work into several build stages unless',
-    '  they are genuinely separate deliverables, and when a QA stage follows a build stage leave the review to it.',
+    '- ONE JOB PER STAGE, each job once. Do not plan two stages that do the same job, and do not split one',
+    '  body of work into several build stages unless they are genuinely separate deliverables. A small feature',
+    '  is usually ONE build stage.',
     '- A workflow runs ALL its steps unless you leave some out. Put in `skipSteps` the steps (exact names from',
     '  "steps you may leave out") that are not this stage\'s job on THIS goal — e.g. Security Review and',
     '  Performance & Accessibility in a stage that is a live run of engines. Leave out only what clearly does',

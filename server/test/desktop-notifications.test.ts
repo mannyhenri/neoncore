@@ -152,7 +152,7 @@ test('Goal Pilot announces: questions, plan, a stage with no cartridge, and the 
   await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { status: 'questions', questions: [{ id: 'a', text: 'A?' }, { id: 'b', text: 'B?' }] } });
   await call('POST', `/api/goal-pilots/${pilotId}/answers`, { answers: { a: { value: '1' }, b: { value: '2' } } });
   await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { status: 'complete', brief: { summary: 's' }, criteria: [{ text: 'When x, the system shall y.', expect: 'x → y', verify: 'checklist' }] } });
-  await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { stages: [{ template: 'QA Testing Guide' }] } });
+  await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { stages: [{ template: 'Feature Validation' }] } });
   await call('POST', `/api/goal-pilots/${pilotId}/accept-plan`, {});
   await call('POST', `/api/goal-pilots/${pilotId}/start`, { repos: [{ repoPath: '/tmp/np-nobody-here', agentType: 'codex' }] });
   sweepPilots();                                                       // still waiting: announced ONCE
@@ -186,7 +186,7 @@ test('a pipeline that STOPS is announced; a pause the person pressed is not', as
     const id = c.json.pilot.id as string;
     const rid = () => getPilot(id)!.currentRequestId;
     await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { status: 'complete', brief: { summary: 's' }, criteria: [{ text: 'When x, the system shall y.', expect: 'x → y', verify: 'checklist' }] } });
-    await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { stages: [{ template: 'QA Testing Guide' }, { template: 'Release Documentation' }] } });
+    await call('POST', `/api/goal-pilots/requests/${rid()}/submit`, { result: { stages: [{ template: 'Feature Validation' }, { template: 'Release Documentation' }] } });
     await call('POST', `/api/goal-pilots/${id}/accept-plan`, {});
     await call('POST', `/api/goal-pilots/${id}/start`, { repos: [{ repoPath: repo, agentType: 'claude' }] });
     return id;

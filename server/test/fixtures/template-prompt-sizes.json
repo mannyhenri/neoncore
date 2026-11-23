@@ -19,16 +19,10 @@
   "Verify Coverage and Evidence": 1271,
   "Goal Achievement Gate": 1005
  },
- "CE: Phase 1 — Interrogate": {
-  "Load Prior Work": 709,
-  "Office Hours — Interrogate": 1229,
-  "CE Brainstorm": 1060,
-  "Write Brainstorm Doc": 950
- },
  "CE: Phase 2 — Plan": {
-  "Load Brainstorm": 481,
+  "Load Scope": 608,
   "/plan-ceo-review": 813,
-  "/plan-eng-review": 622,
+  "/plan-eng-review": 926,
   "CE Plan Research": 1043,
   "Write Plan Doc": 919
  },

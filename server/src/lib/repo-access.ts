@@ -22,6 +22,7 @@
  * them now" or "Approve & lock" on the acceptance review, and after that only the LOCKED commands
  * run (after each stage). Nothing an agent submits is executed on its say-so alone.
  */
+import { terminalSink } from './log-stream.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -161,7 +162,11 @@ export function runLocal(repoPath: string, command: string, timeoutMs = checkTim
       finish(null, `could not start: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
+    // The command's output also goes to the Logs section as terminal output (lib/log-stream.ts).
+    const sink = terminalSink(path.basename(repoPath));
+    child.on('close', () => sink.flush());
     const take = (chunk: Buffer) => {
+      sink.write(chunk);
       out += chunk.toString('utf8');
       if (out.length > CAPTURE_MAX_CHARS) out = out.slice(-CAPTURE_MAX_CHARS / 2);
     };

@@ -94,18 +94,19 @@ const TWO_TESTS = [
 ];
 
 /** A pilot through planning, started in `repo` on a live cartridge — stage 0 requested. */
-async function contractPilot(opts: { criteria?: unknown[]; templates?: string[]; workType?: string; repo?: string; agentType?: string } = {}) {
+/** Hands-on unless said: these tests walk the person's own review of the tests. */
+async function contractPilot(opts: { criteria?: unknown[]; templates?: string[]; workType?: string; repo?: string; agentType?: string; involvement?: string } = {}) {
   const repo = opts.repo ?? tmpRepo();
   const agent = cartridge(repo, { type: opts.agentType ?? 'claude' });
   const c = await post('/api/goal-pilots', {
-    intake: { goal: `Expenses ${++n}`, context: 'c', workType: opts.workType ?? 'feature', done: 'd', involvement: 'balanced' }, plannerAgentId: agent,
+    intake: { goal: `Expenses ${++n}`, context: 'c', workType: opts.workType ?? 'feature', done: 'd', involvement: opts.involvement ?? 'hands-on' }, plannerAgentId: agent,
   });
   assert.equal(c.status, 201, JSON.stringify(c.json));
   const pilotId = c.json.pilot.id as string;
   const rid = () => getPilot(pilotId)!.currentRequestId;
   let r = await post(`/api/goal-pilots/requests/${rid()}/submit`, { result: { status: 'complete', brief: { summary: 'Expenses next to income.' }, criteria: opts.criteria ?? TWO_TESTS } });
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  r = await post(`/api/goal-pilots/requests/${rid()}/submit`, { result: { stages: (opts.templates ?? ['QA Testing Guide', 'Release Documentation']).map((template) => ({ template, title: `Do ${template}` })) } });
+  r = await post(`/api/goal-pilots/requests/${rid()}/submit`, { result: { stages: (opts.templates ?? ['Feature Validation', 'Release Documentation']).map((template) => ({ template, title: `Do ${template}` })) } });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   r = await post(`/api/goal-pilots/${pilotId}/accept-plan`, {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -599,7 +600,7 @@ test('unlocking a criterion: a reason, new wording, a test rewritten for it alon
 });
 
 test('skipping stage 0 runs the pipeline without tests — and the report says the criteria were never checked', async () => {
-  const { pilotId } = await contractPilot({ templates: ['QA Testing Guide'] });
+  const { pilotId } = await contractPilot({ templates: ['Feature Validation'] });
   const skipped = await post(`/api/goal-pilots/${pilotId}/stages/${stage(pilotId, 'acceptance').id}/skip`);
   assert.equal(skipped.status, 200, JSON.stringify(skipped.json));
   assert.equal(getContract(pilotId)!.status, 'waived');
@@ -616,7 +617,7 @@ test('skipping stage 0 runs the pipeline without tests — and the report says t
 
 test('stage 0 waits for its cartridge, and a test writer that goes quiet fails the stage — retry asks again', async () => {
   const repo = tmpRepo();
-  const { pilotId } = await contractPilot({ repo, agentType: 'codex', templates: ['QA Testing Guide'] });
+  const { pilotId } = await contractPilot({ repo, agentType: 'codex', templates: ['Feature Validation'] });
   // The planner was claude in this repo; the codex cartridge is the one that is running.
   let s0 = stage(pilotId, 'acceptance');
   assert.equal(s0.status, 'running');
@@ -648,7 +649,7 @@ test('stage 0 waits for its cartridge, and a test writer that goes quiet fails t
 test('checklist: the reviewer is independent when it can be, verdicts need evidence, overruling needs a note', async () => {
   const repo = tmpRepo();
   const criteria = [{ text: 'The guide reads clearly for a new owner.', expect: 'A new owner follows it start to finish unaided.', verify: 'checklist' }];
-  const { pilotId } = await contractPilot({ repo, criteria, templates: ['QA Testing Guide'] });
+  const { pilotId } = await contractPilot({ repo, criteria, templates: ['Feature Validation'] });
   assert.deepEqual(stagesOf(pilotId).map((s) => s.kind), ['workflow', 'review'], 'no tests → no stage 0');
   const codex = cartridge(repo, { type: 'codex' });
   finishRun(stage(pilotId, 'workflow').runId);
@@ -694,3 +695,58 @@ test('no agent-facing tool can unlock, restore or accept a change — those are 
     assert.ok(!src.includes(route), `the MCP server reaches ${route}`);
   }
 });
+
+// ── no wait for a check a machine can make ───────────────────────────────────
+//
+// REQUESTED: "once it starts it should go through writing the test criteria, then workflows listed
+// with no waiting unless multiple parties are involved." What the person checked at the tests step
+// was that the tests fail before any work — the baseline. Unless they chose hands-on, NeonCore runs
+// it and locks; only what it cannot settle stops for them.
+//
+// THE SET: involvement (balanced, hands-off, hands-on) × what the baseline finds (every test red,
+// one already green, the tests cannot run).
+const BASELINES = [
+  { finds: 'every test red', setup: (_repo: string) => {}, locks: true, why: '' },
+  { finds: 'a test already green', setup: (repo: string) => implement(repo, 'AC-1', 'save 12.50 → the list shows 12.50'), locks: false, why: 'AC-1 already passes before any work' },
+  // Reachable while the submission is read, gone by the time the baseline runs.
+  { finds: 'tests that cannot run', setup: (_repo: string) => {
+    let calls = 0;
+    const away = (p: string): ReturnType<typeof repoAccessFor> => {
+      if (calls++ > 0) throw new RepoAccessError('repo is on Studio-Mac, which has no NeonCore runner connected');
+      setRepoAccessForTests(null);
+      try { return repoAccessFor(p); } finally { setRepoAccessForTests(away); }
+    };
+    setRepoAccessForTests(away);
+  }, locks: false, why: 'could not be run' },
+];
+for (const involvement of ['balanced', 'hands-off', 'hands-on']) for (const b of BASELINES) {
+  test(`tests submitted × ${involvement} × baseline finds ${b.finds}`, async () => {
+    const { pilotId, repo } = await contractPilot({ involvement });
+    const tests = [writeTest(repo, 'AC-1', 'save 12.50 → the list shows 12.50'), writeTest(repo, 'AC-2', 'March total 19.75')];
+    b.setup(repo);
+    try {
+      const sub = await post(`/api/goal-pilots/requests/${getContract(pilotId)!.requestId}/submit`, { result: { tests } });
+      assert.equal(sub.status, 200, JSON.stringify(sub.json));
+      await settleAcceptanceForTests();
+    } finally { setRepoAccessForTests(null); }
+    const c = getContract(pilotId)!;
+    if (involvement === 'hands-on') {
+      assert.equal(c.status, 'review', 'hands-on: the person reviews the tests');
+      assert.equal(c.approval, null, 'nothing was approved on their behalf');
+      assert.equal(noticed(pilotId, 'tests-ready').length, 1);
+      return;
+    }
+    assert.equal(noticed(pilotId, 'tests-ready').length, 0, 'not asked to review what a machine settles');
+    if (b.locks) {
+      assert.equal(c.status, 'locked');
+      assert.match(stage(pilotId, 'acceptance').resultSummary, /locked automatically .*2\/2 failing, as they should/);
+      assert.ok(stage(pilotId, 'workflow').runId, 'the first workflow starts with no wait');
+      assert.equal(noticed(pilotId, 'approval-blocked').length, 0);
+    } else {
+      assert.equal(c.status, 'review', 'not locked');
+      assert.match(c.approval!.blocked, new RegExp(b.why));
+      assert.equal(noticed(pilotId, 'approval-blocked').length, 1, 'the person is asked, with the reason');
+      assert.equal(stage(pilotId, 'workflow').runId, '', 'no work against tests that prove nothing');
+    }
+  });
+}

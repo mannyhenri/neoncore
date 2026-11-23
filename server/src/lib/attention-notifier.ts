@@ -27,7 +27,7 @@ import { onRunHeld } from './run-events.js';
 import { hasActiveSocket } from '../ws.js';
 import { notifyAll, type Notice } from './channels.js';
 import {
-  workflowNeedsAttention, observeChannels, ATTENTION_REASONS,
+  workflowNeedsAttention, observeChannels, ATTENTION_REASONS, PERSON_REASONS,
   type Attention, type AttentionReason,
 } from './workflow-attention.js';
 import {
@@ -47,7 +47,7 @@ import { parseExecutorConfig } from './workflow-normalize.js';
 import {
   effectiveAutonomy, canAutoResolve, recordAutoResolution, recommendationOf,
   getAutoResolution, isOverridable, markOverridden, OVERRIDE_WINDOW_MS,
-  nudgeAllowed, NUDGE_POLICY, type AutonomyLevel,
+  nudgeAllowed, NUDGE_POLICY, featureTakesDecisions, type AutonomyLevel,
 } from './autonomy.js';
 
 /**
@@ -187,11 +187,15 @@ export function attentionNotice(wf: WorkflowRow, attention: Attention): Notice {
   if (cartridge) detail.Cartridge = cartridge;
   if (tip) detail.Resolve = tip;
 
+  // Only what a person must clear interrupts, and only that is called "needs you". The rest —
+  // a quiet cartridge NeonCore is nudging, a budget or grant running low — is information.
+  const person = PERSON_REASONS.includes(attention.reason);
   return {
-    title: `${runLabel(wf)} needs you`,
+    title: person ? `${runLabel(wf)} needs you` : `${runLabel(wf)} — ${attention.reason.replace(/-/g, ' ')}`,
     body: attention.detail,
     detail,
     actions: actionsFor(attention),
+    urgency: person ? 'action' : 'info',
     data: {
       type: 'workflow_attention',
       reason: attention.reason,
@@ -283,7 +287,12 @@ export async function sweepAttention(): Promise<number> {
  */
 function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
   const { level, source, expiresAt } = effectiveAutonomy(wf.id);
-  if (!canAutoResolve(level, attention.reason)) return null;
+  // A FEATURE's run decides its own template gates. The person's gates on a feature are its plan
+  // and its "done" — a review template's "Triage complete. How do you want to proceed?" after a
+  // triage that found nothing is not one of them (Beam, 2026-11-23). Unless they chose hands-on,
+  // a gate's recommendation is taken; a gate with none still holds and asks.
+  const featureDecides = attention.reason === 'decision' && level !== 'manual' && featureTakesDecisions(wf.id);
+  if (!featureDecides && !canAutoResolve(level, attention.reason)) return null;
 
   // Only `manual-advance` is auto-resolvable today; the switch is exhaustive so a reason added
   // to AUTO_RESOLVABLE without an implementation here fails to compile rather than silently
@@ -458,6 +467,8 @@ function tryAutoResolve(wf: WorkflowRow, attention: Attention): Notice | null {
     // back. An auto-resolution with no way to reverse it is automation you watch rather than
     // automation you trust — and the `overridden` audit column would have no writer.
     actions: [{ id: `${ACTION_PREFIX.undo}:${resolutionId}`, label: 'Override', style: 'danger' }],
+    // Done without you: information, with the override at hand — not a request.
+    urgency: 'info',
     data: {
       type: 'workflow_auto_resolved',
       reason: attention.reason,

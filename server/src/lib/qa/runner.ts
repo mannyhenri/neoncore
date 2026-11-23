@@ -4,6 +4,7 @@
  *
  * Injectable (setQaRunner) so the engine's tests drive every run kind without a browser.
  */
+import { terminalSink } from '../log-stream.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -38,8 +39,11 @@ export const spawnRunner: QaRunner = async (spec, outDir) => {
     const child = spawn(process.execPath, [RUNNER_CLI, 'run', '--spec', specFile, '--out', outDir], { cwd: REPO_ROOT, env: process.env });
     let out = ''; let err = '';
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    // Its progress goes to the Logs section as terminal output (lib/log-stream.ts); the result is read from stdout as before.
+    const sink = terminalSink(`qa · ${(() => { try { return new URL(spec.baseUrl).host; } catch { return 'run'; } })()}`);
     child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
+    child.stderr.on('data', (d) => { err += d; sink.write(d); });
+    child.on('close', () => sink.flush());
     child.on('error', (e) => { clearTimeout(timer); resolve(blocked(`the runner could not start: ${e.message}`)); });
     child.on('close', (code) => {
       clearTimeout(timer);

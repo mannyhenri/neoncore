@@ -279,6 +279,9 @@ function WorldSceneOn({
   // FEATURES (FeaturePlates.tsx): an agent in a feature's worktree works at its REAL repo's
   // building — the worktree folder belongs to no project, and would otherwise land on open ground.
   const features = extras.features ?? [];
+  // This sector's running features, and the projects that carry them in a stack under their sign (FeaturePlates.tsx).
+  const sectorFeatures = features.filter((f) => sectorProjects.some((sp) => sp.id === f.projectId));
+  const stackedProjects = new Set(sectorFeatures.map((f) => f.projectId));
   const worktreeSig = JSON.stringify(features.map((f) => f.worktrees));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const worktreeOf = useMemo(() => worktreeRepos(features, normRepo), [worktreeSig]);
@@ -673,10 +676,11 @@ function WorldSceneOn({
           })}
           {/* REWARDS: the highest medal the project has earned in each family, under its signpost.
               Each medal says the project's name and what it is for (hover). */}
+          {/* (A project with features running carries them in its feature stack, under the plates.) */}
           {zones.map((z) => {
             const at = plate.props[z.districts[0]]?.sign;
             const tops = (rewards.get(z.projectId)?.families ?? []).map((f) => ({ f, i: topTier(f) })).filter((x) => x.i >= 0);
-            if (!at || tops.length === 0) return null;
+            if (!at || tops.length === 0 || stackedProjects.has(z.projectId)) return null;
             return (
               <div key={`rewards-${z.projectId}`} data-zone-rewards={z.projectId} className="absolute -translate-x-1/2 flex items-center gap-[3px]"
                 style={{ left: `${at.x * 100}%`, top: `${(at.y + 0.046) * 100}%`, zIndex: BANNER_Z }}>
@@ -689,7 +693,17 @@ function WorldSceneOn({
             const at = plate.props[d]?.sign;
             return at ? <Signpost key={`${z.projectId}-annex-${d}`} annex district={d} name={z.name} colour={z.color || ENGINE_COLOURS.claude.suit} at={at} height={avatarHeight * SIGN_HEIGHT} caption /> : null;
           }))}
-          <FeaturePlates features={features.filter((f) => sectorProjects.some((sp) => sp.id === f.projectId))} crew={crew} placement={placement} zones={zones} districts={Object.entries(plate.props).map(([id, p]) => ({ id, ...p.sign }))} goals={extras.goals ?? []} z={BANNER_Z} />
+          <FeaturePlates features={sectorFeatures} zones={zones} goals={extras.goals ?? []} z={BANNER_Z} align={SIGN_ART.mode === 'hang' ? 'start' : 'center'}
+            // Under the post, as the sign's own plaque is: a hanging sign's post is its mast.
+            districts={Object.entries(plate.props).map(([id, p]) => ({ id, x: p.sign.x + (SIGN_ART.mode === 'hang' ? SIGN_ROW.hang.mast : 0), y: p.sign.y }))}
+            extra={(projectId) => {
+              const tops = (rewards.get(projectId)?.families ?? []).map((f) => ({ f, i: topTier(f) })).filter((x) => x.i >= 0);
+              return tops.length === 0 ? null : (
+                <div data-zone-rewards={projectId} className="flex items-center gap-[3px] pointer-events-auto">
+                  {tops.map(({ f, i }) => <RewardMedal key={f.id} family={f.id} tier={i} threshold={f.tiers[i].threshold} earned label={f.tiers[i].label} size={20} />)}
+                </div>
+              );
+            }} />
           {zones.flatMap((z) => [...z.buildings].map(([repo, id]) => {
             const st = plate.structures.find((x) => x.id === id);
             // Two repos can share a building when a project has more repos than buildings.

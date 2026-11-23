@@ -11,7 +11,7 @@
  */
 import { Router, type Response } from 'express';
 import { addFeatureFiles, FeatureFileError } from '../lib/feature-files.js';
-import { featureWorktreePaths, cleanupWorkspace } from '../lib/feature-workspace.js';
+import { featureWorktreePaths, cleanupWorkspace, setMergeMyself } from '../lib/feature-workspace.js';
 import { activeFeatures } from '../lib/active-features.js';
 import db from '../db.js';
 import { cartridgeExists } from '../lib/cartridge-exists.js';
@@ -319,6 +319,14 @@ router.post('/:id/start', (req, res) => {
     const pilot = startPilot(req.params.id, { repos, assignments, isolate });
     res.json(view(pilot.id));
   } catch (err) { fail(res, err); }
+});
+
+/** The done step's choice: { mergeMyself: boolean } — true leaves the PRs open. Only a feature with its own worktrees. */
+router.put('/:id/workspace', (req, res) => {
+  const v = req.body?.mergeMyself;
+  if (typeof v !== 'boolean') return res.status(400).json({ error: 'mergeMyself must be true or false' });
+  if (!setMergeMyself(req.params.id, v)) return res.status(404).json({ error: 'this feature does not run on its own branch' });
+  res.json(view(req.params.id));
 });
 
 /** Push the feature's branches and open its PRs now (they open by themselves when the pipeline ends). */

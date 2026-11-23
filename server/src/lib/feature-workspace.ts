@@ -13,10 +13,12 @@
  *                  no other feature's work does
  *   a PR           when the pipeline finishes: work the agents left uncommitted is committed, the
  *                  branch is pushed and a PR opened into the base (with the feature's verdict),
- *                  naming its sibling PRs in the other repos. Then the PERSON is asked to merge.
- *   the merge      only when the person says so (the Merge button → mergeFeaturePRs): every repo's PR
- *                  is checked mergeable FIRST — none is merged unless all can be — then merged, the
- *                  base checkout fast-forwarded when it is clean, and the workspace cleaned up.
+ *                  naming its sibling PRs in the other repos. Nothing is merged yet: it is for review.
+ *   the merge      when the person marks the feature DONE (any road — the runner's shipOnDone), or
+ *                  presses Merge: every repo's PR is checked mergeable FIRST — none is merged unless
+ *                  all can be — then merged, the base checkout fast-forwarded when it is clean, and
+ *                  the workspace cleaned up. "I'll merge it myself" (mergeMyself) on the done step
+ *                  leaves the PRs open instead.
  *   cleanup        ends the worktree's cartridge (and forgets it), removes the worktree, deletes the
  *                  branch locally and on origin. A PR merged on GitHub instead is noticed by
  *                  syncMergedWorkspaces (the pilot sweep) and cleaned up the same way.
@@ -41,6 +43,15 @@ const GIT_TIMEOUT_MS = 120_000;
 type Launcher = (dir: string, agentType: string) => string | null;
 let launcher: Launcher = (dir, agentType) => openDirectory(dir, `${agentType}-cli`);
 export function setWorkspaceLauncher(fn: Launcher): void { launcher = fn; }
+
+/** "I'll merge it myself", or not, for a feature with its own worktrees. False: it has none. */
+export function setMergeMyself(pilotId: string, on: boolean): boolean {
+  const ws = getPilot(pilotId)?.workspace;
+  if (!ws) return false;
+  ws.mergeMyself = on;
+  save(pilotId, ws);
+  return true;
+}
 
 function save(pilotId: string, ws: FeatureWorkspace): void {
   db.prepare('UPDATE goal_pilots SET workspace = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(ws), new Date().toISOString(), pilotId);

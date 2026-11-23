@@ -24,7 +24,7 @@ const FAMILIES: { id: RewardFamilyId; label: string; tiers: number[] }[] = [
   { id: 'streak', label: 'Clean streak', tiers: [3, 5, 10] },
   { id: 'ontime', label: 'On time', tiers: [5, 10, 25] },
   { id: 'fastfix', label: 'Fast fixes', tiers: [1, 5, 10] },
-  { id: 'commend', label: 'Commendations', tiers: [1, 2, 3, 4] },
+  { id: 'commend', label: 'Commendations', tiers: [1, 2, 3, 4, 10] },
 ];
 const rewardsFor = (counts: Partial<Record<RewardFamilyId, number>>): Rewards => {
   const families: RewardFamily[] = FAMILIES.map((f) => {
@@ -84,7 +84,7 @@ describe('a reward medal', () => {
 describe('a project\'s rewards on its page', () => {
   it('nothing earned: it says so, with the count; nothing is shown while a server has no rewards', async () => {
     render(<ProjectRewards project={project} />); await shown();
-    expect(q('[data-rewards-count]')!.textContent).toBe('0 / 42');
+    expect(q('[data-rewards-count]')!.textContent).toBe('0 / 43');
     expect(q('[data-rewards-top]')!.textContent).toMatch(/None yet — the first comes with the first feature Atlas delivers/);
     expect(all('[data-rewards-top] [data-reward-medal]')).toHaveLength(0);
     cleanup();
@@ -102,7 +102,7 @@ describe('a project\'s rewards on its page', () => {
       ['features', '25', 'Platinum'], ['epics', '1', 'Bronze'], ['bugs', '1', 'Bronze'], ['qa', '50', 'Gold'],
     ]);
     for (const m of top) { expect(m.getAttribute('data-earned')).toBe('true'); expect(m.getAttribute('aria-label')).toMatch(/^Atlas — /); }
-    expect(q('[data-rewards-count]')!.textContent).toBe('9 / 42');
+    expect(q('[data-rewards-count]')!.textContent).toBe('9 / 43');
     expect(q('[data-rewards-board]')).toBeNull();
     expect(topTier(rewardsFor({ features: 27 }).families[0])).toBe(3);
     expect(topTier(rewardsFor({}).families[0])).toBe(-1);

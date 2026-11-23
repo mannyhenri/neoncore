@@ -102,7 +102,7 @@ async function deliveredWithGaps() {
   assert.equal(c.status, 201, JSON.stringify(c.json));
   const pilotId = c.json.pilot.id as string;
   const rid = () => getPilot(pilotId)!.currentRequestId;
-  for (const result of [{ status: 'complete', brief: { summary: 'Expenses next to income.' }, criteria: CRITERIA }, { stages: [{ template: 'QA Testing Guide', title: 'Build and test it' }] }]) {
+  for (const result of [{ status: 'complete', brief: { summary: 'Expenses next to income.' }, criteria: CRITERIA }, { stages: [{ template: 'Feature Validation', title: 'Build and test it' }] }]) {
     const r = await post(`/api/goal-pilots/requests/${rid()}/submit`, { result });
     assert.equal(r.status, 200, JSON.stringify(r.json));
   }

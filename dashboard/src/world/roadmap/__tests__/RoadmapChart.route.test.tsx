@@ -1,7 +1,7 @@
 /**
  * THE ROUTE VIEW of the roadmap: the plan as a flight path — every epic a stop, in order, lit by
  * where it stands; the stop on show lists its features; every control is one call to the server.
- * The timeline is the other view of the same plan, and the choice is remembered.
+ * The route is the only view: there is no timeline.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
@@ -32,7 +32,7 @@ const calls = vi.hoisted(() => ({
   getRoadmap: vi.fn(), createGoal: vi.fn(), setRoadmapVision: vi.fn(), createEpic: vi.fn(), updateEpic: vi.fn(), deleteEpic: vi.fn(), reorderEpics: vi.fn(), planFeature: vi.fn(), getProjectRewards: vi.fn(),
 }));
 vi.mock('../../../lib/api', () => ({ api: calls }));
-import { RoadmapChart, ROADMAP_VIEW_KEY } from '../RoadmapChart';
+import { RoadmapChart } from '../RoadmapChart';
 
 const project = { id: 'p1', name: 'Orbit' } as never;
 const mount = async (chart: Chart = CHART) => {
@@ -57,7 +57,6 @@ describe('the roadmap\'s route view', () => {
     await mount();
     expect(q('[data-route-view]')).not.toBeNull();
     expect(q('[data-timeline]')).toBeNull();
-    expect(q('[data-roadmap-view="route"]')!.getAttribute('aria-pressed')).toBe('true');
     const stops = all('[data-route-stop]');
     expect(stops.map((s) => s.getAttribute('data-route-stop'))).toEqual(EPICS.map((e) => e.id));
     expect(stops.map((s) => s.getAttribute('data-stage'))).toEqual(WANT_STAGE);
@@ -75,44 +74,54 @@ describe('the roadmap\'s route view', () => {
     expect(q('[data-route-destination]')!.hasAttribute('data-reached')).toBe(false);
   });
 
-  it.each(EPICS.map((e, i) => ({ name: e.name, e, i })))('$name: selecting its stop shows the epic — its outcome, what its date says, and exactly its features, each one selectable', async ({ e, i }) => {
+  it.each(EPICS.map((e, i) => ({ name: e.name, e, i })))('$name: every epic has its card under the route; selecting its stop lights its card, and its features open their card', async ({ e }) => {
     await mount();
-    // Before any click the stop on show is where the project is now.
-    expect(q('[data-route-epic]')!.getAttribute('data-route-epic')).toBe('e3');
+    expect(all('[data-epic-card]').map((c) => c.getAttribute('data-epic-card'))).toEqual(EPICS.map((x) => x.id));
+    // Before any click, the card lit is where the project is now.
+    expect(all('[data-epic-card][data-selected]').map((c) => c.getAttribute('data-epic-card'))).toEqual(['e3']);
     fireEvent.click(q(`[data-route-stop="${e.id}"]`)!);
-    const panel = q('[data-route-epic]')!;
-    expect(panel.getAttribute('data-route-epic')).toBe(e.id);
     expect(all('[data-route-stop][data-selected]').map((s) => s.getAttribute('data-route-stop'))).toEqual([e.id]);
-    expect(panel.textContent).toContain(`Epic ${i + 1}`);
-    expect(panel.textContent).toContain(e.outcome);
-    expect(panel.textContent).toContain(`${e.progress.done} of ${e.progress.total} features delivered`);
-    const chips = [...panel.querySelectorAll<HTMLElement>('[data-route-feature]')];
-    expect(chips.map((c) => [c.getAttribute('data-route-feature'), c.getAttribute('data-state')])).toEqual(e.features.map((f) => [f.id, f.state]));
-    expect(panel.querySelector('[data-route-start]') !== null, 'start next only where something can start').toBe(e.nextUp !== null);
+    expect(all('[data-epic-card][data-selected]').map((c) => c.getAttribute('data-epic-card'))).toEqual([e.id]);
+    const card = q(`[data-epic-card="${e.id}"]`)!;
+    expect([...card.querySelectorAll('[data-epic-feature]')].map((c) => [c.getAttribute('data-epic-feature'), c.getAttribute('data-state')])).toEqual(e.features.map((f) => [f.id, f.state]));
     for (const f of e.features) {
-      fireEvent.click(panel.querySelector(`[data-route-feature="${f.id}"]`)!);
-      expect(panel.querySelector('[data-route-feature][data-selected]')!.getAttribute('data-route-feature')).toBe(f.id);
-      // The same card the timeline opens.
+      fireEvent.click(card.querySelector(`[data-epic-feature="${f.id}"]`)!);
+      expect(card.querySelector('[data-epic-feature][data-selected]')!.getAttribute('data-epic-feature')).toBe(f.id);
       expect(screen.getAllByText(f.name).length).toBeGreaterThan(1);
     }
+    // And a click on a card selects its stop.
+    fireEvent.click(q('[data-epic-card="e1"]')!);
+    expect(all('[data-route-stop][data-selected]').map((s) => s.getAttribute('data-route-stop'))).toEqual(['e1']);
   });
 
-  it('the stop\'s controls: start next, add a feature, edit the epic — each one call', async () => {
+  it('the cards\' controls: start next, add a feature, edit, reorder, delete, move a feature — each one call to the server', async () => {
     const { onOpenFeature } = await mount();
-    fireEvent.click(q('[data-route-start="e3"]')!);
+    fireEvent.click(q('[data-epic-start="e3"]')!);
     expect(onOpenFeature).toHaveBeenCalledWith('c3');
-    fireEvent.click(q('[data-route-add-feature]')!);
+    fireEvent.click(q('[data-epic-add-feature="e3"]')!);
     fireEvent.change(screen.getByLabelText('New feature name'), { target: { value: 'Key rotation' } });
     fireEvent.change(screen.getByLabelText('New feature target date'), { target: { value: '2026-12-10' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(calls.planFeature).toHaveBeenCalledWith('new-goal', { epicId: 'e3', targetDate: '2026-12-10' }));
     expect(calls.createGoal).toHaveBeenCalledWith({ name: 'Key rotation', projectId: 'p1' });
-    fireEvent.click(q('[data-route-edit]')!);
+    fireEvent.click(q('[data-epic-card="e3"] [data-epic-edit]')!);
     expect(q('[data-epic-editor]')).not.toBeNull();
     fireEvent.change(screen.getByLabelText('Epic due date'), { target: { value: '2027-01-15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.updateEpic).toHaveBeenCalledWith('e3', { name: 'Identity', outcome: 'Identity outcome', icon: '', targetDate: '2027-01-15', dependsOn: [] }));
     await waitFor(() => expect(q('[data-epic-editor]')).toBeNull());
+    fireEvent.click(q('[data-epic-card="e3"] [data-epic-right]')!);
+    await waitFor(() => expect(calls.reorderEpics).toHaveBeenCalledWith('p1', ['e1', 'e2', 'e4', 'e3', 'e5', 'e6']));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(q('[data-epic-card="e6"] [data-epic-delete]')!);
+    await waitFor(() => expect(calls.deleteEpic).toHaveBeenCalledWith('e6'));
+    confirm.mockRestore();
+    const data = new Map<string, string>();
+    const dt = { setData: (k: string, v: string) => data.set(k, v), getData: (k: string) => data.get(k) ?? '', get types() { return [...data.keys()]; } };
+    fireEvent.dragStart(q('[data-epic-feature="d1"]')!, { dataTransfer: dt });
+    fireEvent.dragOver(q('[data-epic-card="e6"]')!, { dataTransfer: dt });
+    fireEvent.drop(q('[data-epic-card="e6"]')!, { dataTransfer: dt });
+    await waitFor(() => expect(calls.planFeature).toHaveBeenCalledWith('d1', { epicId: 'e6' }));
   });
 
   it('features in no epic are listed under the route, and open the same card', async () => {
@@ -123,26 +132,23 @@ describe('the roadmap\'s route view', () => {
     expect(un.querySelector('[data-route-feature][data-selected]')).not.toBeNull();
   });
 
-  it('the timeline is the other view of the same plan, and the choice is remembered', async () => {
-    await mount();
-    fireEvent.click(q('[data-roadmap-view="timeline"]')!);
-    expect(q('[data-route-view]')).toBeNull();
-    expect(q('[data-timeline]')).not.toBeNull();
-    expect(all('[data-lane]').length).toBeGreaterThanOrEqual(EPICS.length);
-    expect(window.localStorage.getItem(ROADMAP_VIEW_KEY)).toBe('timeline');
-    cleanup();
-    await mount();
-    expect(q('[data-timeline]')).not.toBeNull();
-    fireEvent.click(q('[data-roadmap-view="route"]')!);
-    expect(q('[data-route-view]')).not.toBeNull();
-    expect(window.localStorage.getItem(ROADMAP_VIEW_KEY)).toBe('route');
+  it('there is no timeline: no switch to it, nothing of it drawn — even where it was the last view used', async () => {
+    for (const remembered of [null, 'timeline', 'route']) {
+      if (remembered) window.localStorage.setItem('neoncore.roadmap.view', remembered); else window.localStorage.clear();
+      await mount();
+      expect(q('[data-route-view]'), String(remembered)).not.toBeNull();
+      for (const sel of ['[data-roadmap-view]', '[data-timeline]', '[data-lane]', '[data-month]', '[data-today-pill]', '[data-unplanned]', '[data-roadmap-start]'])
+        expect(q(sel), `${sel} with "${remembered}" remembered`).toBeNull();
+      expect(screen.queryByText(/^Timeline$/i)).toBeNull();
+      cleanup();
+    }
   });
 
   it('a project with no epic yet: the route to the destination, and one button to plot the first epic', async () => {
     await mount({ ...CHART, epics: [], unassigned: [], totals: { planned: 0, 'under-way': 0, delivered: 0, late: 0 } });
     expect(all('[data-route-stop]')).toHaveLength(0);
     expect(all('[data-route-leg]')).toHaveLength(1);
-    expect(q('[data-route-epic]')).toBeNull();
+    expect(q('[data-epic-card]')).toBeNull();
     fireEvent.click(q('[data-route-first]')!);
     expect(screen.getByLabelText('New epic name')).not.toBeNull();
   });
@@ -153,7 +159,7 @@ describe('the roadmap\'s route view', () => {
     expect(all('[data-route-leg]').map((l) => l.getAttribute('data-state'))).toEqual(['travelled', 'travelled', 'flying']);
     expect(q('[data-route-destination]')!.hasAttribute('data-reached')).toBe(true);
     expect(all('[data-route-stop][data-current]')).toHaveLength(0);
-    // The stop on show is the last one.
-    expect(q('[data-route-epic]')!.getAttribute('data-route-epic')).toBe('e2');
+    // The card lit is the last one.
+    expect(all('[data-epic-card][data-selected]').map((c) => c.getAttribute('data-epic-card'))).toEqual(['e2']);
   });
 });

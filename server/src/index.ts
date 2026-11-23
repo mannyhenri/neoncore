@@ -1,3 +1,9 @@
+import themesRouter from './routes/themes.js';
+import { themeMiddleware, setPublicDir } from './lib/custom-themes.js';
+import logsRouter from './routes/logs.js';
+import { installConsoleCapture } from './lib/log-stream.js';
+// THE LOGS: NeonCore's own console goes into the Logs section too (lib/log-stream.ts). Not under test.
+if (process.env.NODE_ENV !== 'test') installConsoleCapture();
 import express from 'express';
 import { redispatchOrphanedSteps } from './lib/step-session-guard.js';
 import cors from 'cors';
@@ -28,6 +34,7 @@ import virtualCartridgesRouter from './routes/virtual-cartridges.js';
 import toolsRouter from './routes/tools.js';
 import goalsRouter from './routes/goals.js';
 import goalPilotsRouter from './routes/goal-pilots.js';
+import needsYouRouter from './routes/needs-you.js';
 import { startGoalPilotRunner } from './lib/goal-pilot-runner.js';
 import projectsRouter from './routes/projects.js';
 import roadmapRouter from './routes/roadmap.js';
@@ -73,6 +80,8 @@ app.use(cors());
 // Bug Triage's Jira webhook (routes/triage.ts): the RAW body, for its HMAC signature — so before the
 // JSON parser — and before fleet auth, since Jira cannot hold the fleet token (the signature is its credential).
 app.post('/api/triage/webhook/:sourceId', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => { void triageWebhook(req, res); });
+// THEMES: a replaced picture or sound is sent whole (up to 20 MB, base64) — its own, larger limit, ahead of the general one.
+app.use('/api/themes', express.json({ limit: '30mb' }), themesRouter);
 app.use(express.json({ limit: '25mb' }));
 
 // Request logging
@@ -110,6 +119,8 @@ app.use('/api/goals', goalsRouter);
 // Project → features: a feature is a goal row filed under a project. Same router, the new name.
 app.use('/api/features', goalsRouter);
 app.use('/api/goal-pilots', goalPilotsRouter);
+// Everything waiting on the person, from state (lib/needs-you.ts) — the bell is events and can be missed.
+app.use('/api/needs-you', needsYouRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/roadmap', roadmapRouter);
 // The QA section (docs/plans/qa-section.md): tests, runs, findings, repairs, the recorder.
@@ -119,6 +130,7 @@ app.use('/qa', qaRecorderRouter);
 app.use('/api/triage', triageRouter);
 app.use('/api/design-system', designSystemRouter);
 app.use('/api/rewards', rewardsRouter);
+app.use('/api/logs', logsRouter);
 app.use('/api/project-imports', projectImportsRouter);
 app.use('/api/heartbeats', heartbeatsRouter);
 app.use('/api/tasks', tasksRouter);
@@ -135,6 +147,9 @@ app.get('/api/health', (_req, res) => {
 // After `npm run build --workspace=dashboard`, static files land in server/public/
 const publicDir = path.join(__dirname, '..', 'public');
 // Hashed assets get long cache; index.html must always be fresh
+// A theme of your own in use: its replaced pictures and sounds at the originals' addresses (lib/custom-themes.ts).
+setPublicDir(publicDir);
+app.use(themeMiddleware());
 app.use(express.static(publicDir, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {

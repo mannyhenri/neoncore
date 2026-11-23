@@ -7,6 +7,7 @@
  */
 import { attentionKind } from './notification-kind.js';
 import { emitRunFinished, emitRunHeld } from './run-events.js';
+import { effectiveAutonomy, recommendationOf, featureTakesDecisions } from './autonomy.js';
 import { parseCoverage, recordCoverage, recordDispatch, noteProgressDoc, type Coverage } from './run-progress.js';
 import { coverageConfigOf, decideCoverage, holdDetail, loopBackFeedback, MAX_COVERAGE_PASSES } from './coverage-loop.js';
 import { resolveBuildRounds, leftoverOwners, LEFTOVER_MAX_TASKS } from './confer-sizing.js';
@@ -26,7 +27,7 @@ import { startConfer, getConfer } from './confer-conductor.js';
 import { busyRepoSiblings, isCartridgeBusyExcept, queueItemsForRun } from './queue-runner.js';
 import type { ConferSession } from '../types.js';
 import {
-  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, MAX_LOOP_CEILING, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim,
+  explainLoopCount, shouldStopLooping, shouldExtendLoop, remainingFrom, configForNextLoop, MAX_LOOP_EXTENSIONS, MAX_LOOP_CEILING, type LoopConfig, loopDispatchHeader, loopResultSummary, isRepeatedClaim, madeNoProgress, personAskFrom, NO_PROGRESS_LIMIT,
 } from './workflow-loop.js';
 import { normalizeStep } from './workflow-normalize.js';
 import { buildRunReportContext, isReportStep, reportSpecForRun } from './workflow-report.js';
@@ -1929,12 +1930,19 @@ async function executeDecisionStep(step: WorkflowStep): Promise<void> {
   // Deep-links into the run so the choice can be made from the phone. Fire-and-forget.
   // Bell AND push. The push alone meant the run looked like ordinary work on the desktop,
   // which is where people actually watch it.
-  notifyNeedsAttention(
-    step,
-    'Decision needed',
-    String(config.question).slice(0, 300),
-    'decision_gate',
-  );
+  // A feature's run settles a gate that names its default — the attention sweep takes it now and
+  // says so quietly. Telling the person "Decision needed" for a choice nobody asks them to make is
+  // the noise that hides the real asks (Beam's triage gate after 0 P1 / 0 P2, 2026-11-23).
+  if (recommendationOf(JSON.stringify(config)) && effectiveAutonomy(step.workflowId).level !== 'manual' && featureTakesDecisions(step.workflowId)) {
+    emitRunHeld(step.workflowId);
+  } else {
+    notifyNeedsAttention(
+      step,
+      'Decision needed',
+      String(config.question).slice(0, 300),
+      'decision_gate',
+    );
+  }
 
   // Step stays in `running` state; the /decide endpoint completes it.
 }
@@ -2640,8 +2648,33 @@ function completeStepFromSignalNow(stepId: string, result: string): boolean {
   // reports what is still outstanding instead of the run pretending to progress.
   const previousResult = typeof step.executorConfig._lastLoopResult === 'string'
     ? (step.executorConfig._lastLoopResult as string) : undefined;
-  const repeated = loopCount > 1 && isRepeatedClaim(previousResult, result);
-  if (repeated) {
+  const repeatedClaim = loopCount > 1 && isRepeatedClaim(previousResult, result);
+  // ── …and so does one that moved nothing (LOOP-004, lib/workflow-loop.ts madeNoProgress) ──
+  // Judged on substance — no task finished, the count did not drop — so a report written in
+  // prose cannot slip past the way run 26cf47f8's did 288 times. One that says nothing can be
+  // worked ends it at once; otherwise NO_PROGRESS_LIMIT in a row. The person is asked, with the
+  // agent's own ask, because a loop that is not moving is waiting on someone.
+  // Before the first report, the baseline is the count read from data: a first dispatch that
+  // still reports every task remaining finished nothing either.
+  const prevRemaining = typeof step.executorConfig._lastRemaining === 'number' ? step.executorConfig._lastRemaining as number
+    : cfg.loopCountFrom?.step && currentLoop === 1 ? loopCount : null;
+  const progress = madeNoProgress(prevRemaining, result);
+  const noProgress = progress.stalled ? ((step.executorConfig._noProgress as number) || 0) + 1 : 0;
+  step.executorConfig = { ...step.executorConfig, _lastRemaining: progress.remaining ?? prevRemaining, _noProgress: noProgress };
+  const stalled = !repeatedClaim && (progress.explicit || noProgress >= NO_PROGRESS_LIMIT);
+  if (stalled) {
+    const ask = personAskFrom(result);
+    emitStepLog(workflowId, step.id, step.name,
+      `Stopped at loop ${currentLoop}/${loopCount} — ${progress.explicit ? 'the cartridge says no task can be worked' : `${noProgress} dispatches in a row finished nothing and left the count at ${progress.remaining}`}`
+      + ` ("${loopResultSummary(result)}"). Not re-dispatching: another pass would repeat it.${ask ? ` The agent asks: ${ask}` : ''}`, 'warn');
+    notifyNeedsAttention(step, 'not moving — waiting on you',
+      `"${step.name}" stopped: ${progress.explicit ? 'no task can be worked right now' : 'it finished nothing in its last passes'}`
+      + `${progress.remaining != null ? ` (${progress.remaining} remaining)` : ''}. `
+      + (ask ? `The agent asks: ${ask}` : `Its last report: ${loopResultSummary(result).slice(0, 160)}`),
+      'workflow_loop_waiting');
+  }
+  const repeated = repeatedClaim || stalled;
+  if (repeatedClaim) {
     emitStepLog(workflowId, step.id, step.name,
       `Stopped at loop ${currentLoop}/${loopCount} — dispatch ${currentLoop} repeated dispatch ${currentLoop - 1}'s report `
       + `("${loopResultSummary(result)}"), so the cartridge is not advancing and further dispatches would only repeat it. `
