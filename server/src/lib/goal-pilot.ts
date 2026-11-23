@@ -32,7 +32,7 @@
 import db from '../db.js';
 import { randomUUID } from 'crypto';
 import { availableTemplates, templateIdForName } from './goal-decomposition.js';
-import { type Criterion, normalizeCriteria, acceptedCriteria, criteriaText, deleteContract } from './acceptance-contract.js';
+import { type Criterion, type FeatureSize, normalizeCriteria, acceptedCriteria, criteriaText, deleteContract, FEATURE_SIZES, DEFAULT_FEATURE_SIZE, featureSize, overBudget } from './acceptance-contract.js';
 import { skippableStepNames } from './stage-steps.js';
 
 // ── registries ────────────────────────────────────────────────────────────────
@@ -106,6 +106,11 @@ export const INTAKE_QUESTIONS: IntakeQuestion[] = [
     help: 'Decides which questions get asked and which workflows fit.', options: WORK_TYPES,
   },
   {
+    key: 'size', label: 'How big is it?', kind: 'choice', required: false,
+    help: `Sets how many acceptance criteria it gets — ${FEATURE_SIZES.map((x) => `${x.label.toLowerCase()} ≤ ${x.maxCriteria}`).join(', ')}. Leave it empty and the planner sizes it.`,
+    options: FEATURE_SIZES.map(({ value, label, hint }) => ({ value, label, hint })),
+  },
+  {
     key: 'audience', label: 'Who is it for?', kind: 'text', required: false,
     help: 'The people who will use or notice the result.', placeholder: 'Small-business owners using the web app',
   },
@@ -133,7 +138,7 @@ export const INTAKE_QUESTIONS: IntakeQuestion[] = [
  * (lib/goal-brief.ts). Fields with no column travel in each stage's launch context instead.
  */
 export interface BriefField {
-  key: keyof PilotBrief;
+  key: Exclude<keyof PilotBrief, 'size'>;
   label: string;
   guidance: string;
   goalColumn: string | null;
@@ -203,6 +208,8 @@ export interface PilotBrief {
   outOfScope: string;
   rabbitHoles: string;
   assumptions: string;
+  /** How big the work is — sets the criteria budget (acceptance-contract FEATURE_SIZES). */
+  size?: FeatureSize;
 }
 
 export interface ProposedStage {
@@ -251,6 +258,10 @@ export interface FeatureWorkspace {
     removed: boolean;
   }[];
   prsAt: string | null;
+  /** Every repo's PR merged (from NeonCore or on GitHub). */
+  mergedAt?: string | null;
+  /** Every worktree removed. */
+  cleanedAt?: string | null;
 }
 
 export type PilotPhase =
@@ -426,7 +437,7 @@ export interface Normalized<T> { value: T | null; notes: string[]; error: string
  * `alreadyAsked` are question ids from earlier rounds: a planner re-asking something the person
  * already answered is the exact failure this feature exists to prevent, so those are dropped.
  */
-export function normalizeScopeResult(raw: unknown, alreadyAsked: ReadonlySet<string> = new Set(), workType = ''): Normalized<ScopeResult> {
+export function normalizeScopeResult(raw: unknown, alreadyAsked: ReadonlySet<string> = new Set(), workType = '', personSize = ''): Normalized<ScopeResult> {
   const notes: string[] = [];
   const fail = (error: string): Normalized<ScopeResult> => ({ value: null, notes, error });
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail('the submission was not an object');
@@ -443,6 +454,16 @@ export function normalizeScopeResult(raw: unknown, alreadyAsked: ReadonlySet<str
     if (!brief) return fail('status "complete" needs a brief with at least a summary, and acceptance criteria');
     const criteria = normalizeCriteria(rawCriteria, { fallback: brief.acceptanceCriteria, workType }, notes);
     if (criteria.length === 0) return fail('status "complete" needs at least one acceptance criterion (`criteria`: [{ "text", "expect", "verify" }])');
+    // The size: the person's, when they gave one (the planner cannot re-size it); else the planner's.
+    const fixed = featureSize(personSize);
+    const sent = featureSize(r.size ?? b?.size);
+    if (str(r.size ?? b?.size) && !sent) notes.push(`size "${str(r.size ?? b?.size)}" is not ${FEATURE_SIZES.map((x) => x.value).join(', ')}`);
+    if (fixed && sent && sent !== fixed) notes.push(`the person sized this feature ${fixed} — kept that, not ${sent}`);
+    const size = fixed || sent || DEFAULT_FEATURE_SIZE;
+    if (!fixed && !sent) notes.push(`no size was sent — sized ${size}`);
+    const over = overBudget(criteria.length, size);
+    if (over) return fail(fixed ? over.replace(/ — or, if the work.*$/, ' (the person set the size, so it cannot be changed)') : over);
+    brief.size = size;
     // One source of truth: the brief's text is written FROM the numbered criteria.
     brief.acceptanceCriteria = criteriaText(criteria);
     return { value: { status: 'complete', message, brief, criteria }, notes, error: '' };
@@ -811,7 +832,7 @@ export function submitPlannerResult(requestId: string, raw: unknown): SubmitOutc
 
   if (req.kind === 'scope') {
     const asked = new Set(pilot.rounds.flatMap((r) => r.questions.map((q) => q.id)));
-    const out = normalizeScopeResult(raw, asked, pilot.intake.workType ?? '');
+    const out = normalizeScopeResult(raw, asked, pilot.intake.workType ?? '', pilot.intake.size ?? '');
     if (!out.value) {
       // Not recorded as a failure: the planner is told why and may submit again.
       throw new PilotError(`submission rejected: ${out.error}${out.notes.length ? ` (${out.notes.join('; ')})` : ''}`, 422);

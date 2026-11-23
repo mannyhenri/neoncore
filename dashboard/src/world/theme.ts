@@ -23,7 +23,7 @@ import { CREW_ATLAS_FANTASY } from './crewAtlas.fantasy.generated';
 import { DECK_ART as DECKS_SCIFI } from './bridge/bridge.generated';
 import type { DeckSheet } from './bridge/bridge.generated';
 import { DECK_ART_FANTASY } from './bridge/bridge.fantasy.generated';
-import { OUTPOST, VILLAGE, type WorldPlate } from './sites';
+import { OUTPOST, VILLAGE, STATION, SKY_ISLES, GREAT_HALL, LAGOON, type WorldPlate } from './sites';
 
 export const THEMES = ['scifi', 'fantasy'] as const;
 export type ThemeId = (typeof THEMES)[number];
@@ -73,25 +73,64 @@ export function packFor(theme: ThemeId): ThemePack {
 /** The map each theme opens on: the same pods, buildings and work spots, in another place. */
 export const PLATE_BY_THEME: Record<ThemeId, WorldPlate> = { scifi: OUTPOST, fantasy: VILLAGE };
 
+/**
+ * THE MAPS OF A THEME. Each theme opens on its home map and has two more to discover: an interior,
+ * and the isles (six pods, an island each). The extra ones are opened by what the whole outfit
+ * delivers — `requires` names the unlock (server lib/project-rewards.ts NEW_MAPS). One unlock opens both.
+ */
+export interface WorldMap {
+  id: string;
+  name: string;
+  /** One line on what the place is. */
+  blurb: string;
+  kind: 'home' | 'interior' | 'isles';
+  plate: WorldPlate;
+  /** The unlock that opens it. None: always open. */
+  requires?: string;
+}
+export const MAPS_BY_THEME: Record<ThemeId, readonly WorldMap[]> = {
+  scifi: [
+    { id: 'base', name: 'The outpost', blurb: 'Four districts round the commons, under the cliffs.', kind: 'home', plate: OUTPOST },
+    { id: 'station', name: 'Orbital station', blurb: 'A biodome in orbit: four bays round the reactor.', kind: 'interior', plate: STATION, requires: 'frontier' },
+    { id: 'sky', name: 'Sky isles', blurb: 'Six floating islands joined by light bridges.', kind: 'isles', plate: SKY_ISLES, requires: 'frontier' },
+  ],
+  fantasy: [
+    { id: 'village', name: 'The village', blurb: 'Four walled clearings round the plaza.', kind: 'home', plate: VILLAGE },
+    { id: 'hall', name: 'The great hall', blurb: 'Inside the mountain: four chambers round the rune dais.', kind: 'interior', plate: GREAT_HALL, requires: 'frontier' },
+    { id: 'lagoon', name: 'Lagoon isles', blurb: 'Six islands in a lagoon, joined by bridges.', kind: 'isles', plate: LAGOON, requires: 'frontier' },
+  ],
+};
+/** The map the world is on is remembered, per theme. */
+export const MAP_KEY = 'neoncore.world.map';
+/**
+ * Which map is on screen: the remembered one while it is unlocked, else the home map. A map still
+ * to earn is never shown (MapSwitch.tsx) — not even when it was remembered before a reset.
+ */
+export function resolveMap(maps: readonly WorldMap[], pick: string | null, unlocked: ReadonlySet<string>): WorldMap {
+  const picked = maps.find((m) => m.id === pick);
+  return picked && (picked.requires === undefined || unlocked.has(picked.requires)) ? picked : maps[0];
+}
+
 export const PACK: ThemePack = packFor(THEME);
 export const PLATE: WorldPlate = PLATE_BY_THEME[THEME];
+export const MAPS: readonly WorldMap[] = MAPS_BY_THEME[THEME];
 
 /**
  * THE WORD LIST. Each game word, per theme. Core words (project, feature, epic, task) are the
  * product's and stay; these are the names the setting gives things.
  */
-export const VOCAB_KEYS = ['bridge', 'engineDeck', 'cargoBay', 'powerCore', 'roadmap', 'destination', 'leg', 'waypoint', 'today', 'crewMember', 'dock'] as const;
+export const VOCAB_KEYS = ['bridge', 'engineDeck', 'cargoBay', 'powerCore', 'roadmap', 'destination', 'leg', 'waypoint', 'today', 'crewMember', 'dock', 'sector'] as const;
 export type VocabKey = (typeof VOCAB_KEYS)[number];
 export const VOCAB: Record<ThemeId, Record<VocabKey, string>> = {
   scifi: {
     bridge: 'Bridge', engineDeck: 'Engine deck', cargoBay: 'Cargo bay', powerCore: 'Power core',
     roadmap: 'Star chart', destination: 'Destination', leg: 'Leg', waypoint: 'Waypoint', today: 'The ship today',
-    crewMember: 'Crew member', dock: 'Landing pad',
+    crewMember: 'Crew member', dock: 'Landing pad', sector: 'Sector',
   },
   fantasy: {
     bridge: 'Guild hall', engineDeck: 'Workshop', cargoBay: 'Storehouse', powerCore: 'Great crystal',
     roadmap: 'Quest map', destination: 'Journey’s end', leg: 'Quest line', waypoint: 'Milestone', today: 'The party today',
-    crewMember: 'Party member', dock: 'Landing circle',
+    crewMember: 'Party member', dock: 'Landing circle', sector: 'Province',
   },
 };
 /** A game word in the theme this page was loaded with. */

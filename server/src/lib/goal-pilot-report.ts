@@ -61,7 +61,7 @@ export interface GoalReportCriterion {
   id: string;
   text: string;
   expect: string;
-  verify: 'test' | 'checklist';
+  verify: 'test' | 'checklist' | 'command';
   outcome: CriterionOutcome;
   /** Test criteria: the locked command and files, and NeonCore's latest run of it. */
   command: string;
@@ -403,7 +403,7 @@ export function renderGoalReportHtml(r: GoalReport): string {
       <section class="stage crit">
         <div class="row"><h3>${esc(c.id)} · ${esc(c.text)}</h3>${pill(OUTCOME_LABEL[c.outcome] ?? c.outcome)}</div>
         ${c.expect ? `<div class="meta">Expected: ${esc(c.expect)}</div>` : ''}
-        <div class="meta">${c.verify === 'test' ? 'Automated test' : 'Checklist'}${c.files.length ? ` · ${c.files.map((f) => `<code>${esc(f)}</code>`).join(', ')}` : ''}</div>
+        <div class="meta">${c.verify === 'test' ? 'Automated test' : c.verify === 'command' ? `Command <code>${esc(c.command)}</code>` : 'Checklist'}${c.files.length ? ` · ${c.files.map((f) => `<code>${esc(f)}</code>`).join(', ')}` : ''}</div>
         <p>${esc(evidenceLine(c))}</p>
         ${c.verify === 'test' && c.output && c.outcome === 'fail' ? `<pre>${esc(c.output)}</pre>` : ''}
       </section>`).join('');

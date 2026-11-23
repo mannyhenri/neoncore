@@ -165,6 +165,10 @@ export interface FeatureWorkspace {
     removed: boolean;
   }[];
   prsAt: string | null;
+  /** Every repo's PR merged (from NeonCore or on GitHub). */
+  mergedAt?: string | null;
+  /** Every worktree removed. */
+  cleanedAt?: string | null;
 }
 
 /** A file attached to a feature (server lib/feature-files.ts). */
@@ -468,12 +472,14 @@ export interface GoalPilotMeta {
   intakeQuestions: PilotIntakeQuestion[];
   involvementLevels: PilotChoiceOption[];
   workTypes: PilotChoiceOption[];
-  briefFields: { key: keyof PilotBrief; label: string; guidance: string; onGoal: boolean }[];
+  briefFields: { key: Exclude<keyof PilotBrief, 'size'>; label: string; guidance: string; onGoal: boolean }[];
   engines: string[];
   limits: { maxScopeRounds: number; maxQuestionsPerRound: number; maxStages: number; maxCriteria: number };
   templates: { name: string; description: string }[];
   /** How a criterion is checked: an automated test written before the work, or a checklist item. */
   verifyMethods: { value: VerifyMethod; label: string; hint: string }[];
+  /** How big a feature is → how many acceptance criteria it may have. */
+  featureSizes?: { value: FeatureSize; label: string; hint: string; maxCriteria: number }[];
   /** The method each work type's criteria default to. */
   defaultVerify: Record<string, VerifyMethod>;
   /** Stage keys of the contract's own stages, assignable to a repo at staffing. */
@@ -484,7 +490,8 @@ export interface GoalPilotMeta {
 
 // ── the acceptance contract (server/src/lib/acceptance-contract.ts) ───────────────
 
-export type VerifyMethod = 'test' | 'checklist';
+export type VerifyMethod = 'test' | 'checklist' | 'command';
+export type FeatureSize = 'small' | 'medium' | 'large';
 
 /** A numbered acceptance criterion — frozen when the plan is accepted. */
 export interface PilotCriterion {
@@ -493,6 +500,8 @@ export interface PilotCriterion {
   /** EXACTLY what is expected: inputs → result. */
   expect: string;
   verify: VerifyMethod;
+  /** verify "command" only: one command from the repo root; it passes when it exits 0. */
+  command?: string;
 }
 
 export interface ContractTestFile { path: string; sha256: string; bytes: number; content: string }
@@ -573,6 +582,8 @@ export interface AcceptanceContract {
   passing: number;
   total: number;
   activity: { kind: 'baseline' | 'verify' | 'restore'; done: number; total: number; stageId: string } | null;
+  /** A retest of the delivered feature is running its locked tests right now. */
+  retesting?: boolean;
   baselineFresh: boolean;
   request: { status: string; error: string; agentId: string } | null;
 }
@@ -610,6 +621,8 @@ export interface PilotBrief {
   outOfScope: string;
   rabbitHoles: string;
   assumptions: string;
+  /** How big the work is — sets its criteria budget. */
+  size?: FeatureSize;
 }
 
 export interface PilotProposedStage {
@@ -858,6 +871,11 @@ export interface Goal {
   owner?: string;
   investmentCategory?: string;
   autonomy?: string;
+  /**
+   * What a planning document settled for it that has no column of its own (lib/plan-scope.ts):
+   * in scope, assumptions, the work type, the document's own words. {} when it was not planned from one.
+   */
+  documentedScope?: { inScope?: string; assumptions?: string; workType?: string; size?: string; source?: string };
   schedule?: GoalSchedule | null;
 }
 
@@ -1364,7 +1382,39 @@ export interface ChangelogEntry {
 }
 
 /** What "Generate with AI" can be asked to produce (server lib/project-import.ts). */
-export type ImportPart = 'architecture' | 'features' | 'changelog' | 'backlog';
+/** `plan` is read from an uploaded document ("Plan from a document"); the rest from the code. */
+export type ImportPart = 'architecture' | 'features' | 'changelog' | 'backlog' | 'plan';
+
+export interface PlanFeatureProposal {
+  name: string;
+  description: string;
+  /** The epic it belongs to, by name ('' = none). */
+  epic: string;
+  area: string;
+  criteria: { text: string; expect: string }[];
+  startDate: string;
+  targetDate: string;
+  /** Names of the features it waits on — proposed ones or ones already on the project. */
+  dependsOn: string[];
+  /** What the document settles for it — successMetric, inScope, invariants, outOfScope, rabbitHoles, assumptions (server lib/plan-scope.ts). */
+  scope?: Record<string, string>;
+  workType?: string;
+  /** The document's own words for it. */
+  source?: string;
+}
+export interface PlanQuestion { id: string; text: string; why: string; options: string[]; suggested: string; features: string[] }
+export interface PlanProposal {
+  vision: string;
+  /** The project's own fields from the document — description, architecture, constraints, invariants, outOfScope, definitionOfDone. */
+  project?: Record<string, string>;
+  /** `existing`: the project already has this epic — its features join it. `doneWhen`: the gate that closes it. */
+  epics: { name: string; outcome: string; icon: string; existing: boolean; doneWhen?: string }[];
+  features: PlanFeatureProposal[];
+  /** Features already on the project the document describes — only their blanks are filled. */
+  updates?: PlanFeatureProposal[];
+  /** What the document leaves open across the roadmap — answered once, for every feature. */
+  questions?: PlanQuestion[];
+}
 
 export interface ProjectImport {
   id: string;
@@ -1382,10 +1432,17 @@ export interface ProjectImport {
     areas?: { name: string; summary: string }[];
     backlog: { name: string; description: string; source: string; area?: string }[];
     changelog: { id: string; kind: ChangeKind; title: string; body: string; release: string; date: string }[];
+    /** The roadmap read from a document (the `plan` part). */
+    plan?: PlanProposal;
   } | null;
+  /** The uploaded document a plan is read from. */
+  document?: { name: string; chars: number } | null;
   notes: string[];
   error: string;
-  applied: { architecture: boolean; features: string[]; backlog: string[]; changelog?: number } | null;
+  applied: {
+    architecture: boolean; features: string[]; backlog: string[]; changelog?: number;
+    vision?: boolean; epics?: string[]; plan?: string[]; updates?: string[]; project?: string[]; decisions?: number;
+  } | null;
   createdAt: string;
   dispatchedAt: string | null;
   completedAt: string | null;
@@ -1426,13 +1483,27 @@ export interface RoadmapEpic {
   id: string;
   name: string;
   outcome: string;
+  /** The gate that closes it (a phase's exit criterion) — '' or absent when none was given. */
+  doneWhen?: string;
   icon: string;
   position: number;
   /** Along the timeline: dated features by date, then the undated ones. */
   features: RoadmapFeature[];
   progress: { done: number; total: number };
-  /** The earliest feature of this epic that can start now, or null. */
+  /** The earliest feature of this epic that can start now, or null — always null while the epic is blocked. */
   nextUp: string | null;
+  /** YYYY-MM-DD the epic is due; '' or absent when it has none. */
+  targetDate?: string;
+  /** Epics of this project it waits on. */
+  dependsOn?: string[];
+  /** Those of `dependsOn` not delivered yet. */
+  blockedBy?: string[];
+  /** When its last feature was delivered — null until every feature of it is. */
+  deliveredAt?: string | null;
+  /** Delivered on or before its date: a commendation. */
+  onTime?: boolean;
+  /** Its date has passed and it is not delivered. */
+  late?: boolean;
 }
 
 export interface RoadmapChart {
@@ -1445,3 +1516,86 @@ export interface RoadmapChart {
   today: string;
   totals: Record<RoadmapFeatureState, number>;
 }
+
+// ── The design system of a project (server lib/design-system.ts) ──────────────────────────
+/** What a design direction IS, as values: enough to draw any screen in it. */
+export interface DesignTokens {
+  dark: boolean;
+  colors: { bg: string; surface: string; text: string; muted: string; primary: string; onPrimary: string; accent: string; border: string };
+  /** Display names; the CSS stacks are the dashboard's (lib/design/designer.ts FONTS). */
+  fontHeading: string;
+  fontBody: string;
+  /** Corner radius of controls and cards, in px. */
+  radius: number;
+  density: 'compact' | 'cozy' | 'roomy';
+  /** How surfaces are told apart: flat fills, soft shadows, translucent glass, or hard outlines. */
+  surface: 'flat' | 'soft' | 'glass' | 'outline';
+}
+export interface DesignComment { id: string; text: string; at: string }
+export interface DesignVariation {
+  id: string;
+  name: string;
+  /** Why it looks the way it does, in a sentence or two. */
+  rationale: string;
+  tokens: DesignTokens;
+  comments: DesignComment[];
+}
+/** One pass of the designer: four directions, and what it was asked. */
+export interface DesignRound {
+  id: string;
+  at: string;
+  /** What the designer was told for this round: the note and the comments that led to it. '' for the first. */
+  brief: string;
+  /** The direction of an earlier round this one explores further, if any. */
+  basedOn: { roundId: string; variationId: string } | null;
+  variations: DesignVariation[];
+  /** The canvas /design published for this round: the artboards themselves. */
+  canvasUrl?: string;
+  /** Who designed it: the cartridge that ran /design. */
+  by?: string;
+}
+/** Who designs for the project: the Claude cartridge on its main repo — or why there is none. */
+export interface DesignDesigner { ok: boolean; agentId: string; agentName: string; repoPath: string; error: string }
+/** The round being designed (or the last one asked for): how it is going. */
+export interface DesignRequestState { id: string; status: 'pending' | 'ready' | 'failed'; queued: boolean; error: string; agentName: string; createdAt: string; dispatchedAt: string | null }
+/** A picture of a UI the person likes, with the colours read off it. */
+export interface DesignInspiration { id: string; name: string; dataUrl: string; colors: string[] }
+/** Step 1 of a project's design system: its direction. */
+export interface DesignExploration {
+  inspirations: DesignInspiration[];
+  rounds: DesignRound[];
+  selected: { roundId: string; variationId: string } | null;
+  updatedAt: string;
+  /** Step 2, made by the server: the selected direction finalized into a whole system. */
+  system?: DesignFinalSystem | null;
+  /** Step 2: the last time that system was put into the project's repos, repo by repo. */
+  published?: DesignPublished | null;
+  /** The project's repos: where the system goes. */
+  repos?: string[];
+  designer?: DesignDesigner;
+  designing?: DesignRequestState | null;
+}
+export interface DesignFinalSystem {
+  version: number; finalizedAt: string; from: { roundId: string; variationId: string }; name: string;
+  spec: unknown; files: { path: string; bytes: number }[];
+  /** The reference page, whole: what `design-system/index.html` is in each repo. */
+  html: string;
+}
+export interface DesignRepoResult { repoPath: string; status: 'pushed' | 'committed' | 'unchanged' | 'failed'; detail: string; branch: string; commit: string }
+export interface DesignPublished { version: number; at: string; repos: DesignRepoResult[] }
+
+
+/** Project rewards (server lib/project-rewards.ts): thresholds a project's own counts have passed. */
+export type RewardFamilyId = 'features' | 'epics' | 'releases' | 'bugs' | 'qa' | 'clean' | 'streak' | 'ontime' | 'fastfix' | 'commend';
+export interface RewardFamily {
+  id: RewardFamilyId; label: string; count: number;
+  tiers: { threshold: number; earned: boolean; label: string }[];
+  /** The next threshold to reach, or null when every tier is earned. */
+  next: number | null;
+}
+/** The captain's rank: one promotion per commendation — an epic delivered on or before its date (server RANKS). */
+export interface ProjectRank { index: number; id: string; title: string; commendations: number; next: { title: string; at: number } | null }
+export interface ProjectRewards { projectId: string; name: string; color: string; families: RewardFamily[]; earned: number; total: number; rank?: ProjectRank }
+/** A new map the whole outfit can unlock (server lib/project-rewards.ts worldProgress). */
+export interface MapRequirement { family: RewardFamilyId; label: string; count: number; target: number; met: boolean }
+export interface MapProgress { id: string; name: string; requirements: MapRequirement[]; met: number; total: number; unlocked: boolean; unlockedAt: string | null }

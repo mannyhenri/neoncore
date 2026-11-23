@@ -18,6 +18,7 @@ import { guardBusy } from '../lib/queue-if-busy.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
 import { cartridgeExists } from '../lib/cartridge-exists.js';
 import { deleteProjectCascade } from '../lib/project-delete.js';
+import { documentText, DocumentError } from '../lib/document-text.js';
 
 const router = Router();
 
@@ -393,13 +394,28 @@ router.get('/:id/imports', (req, res) => {
 /**
  * Generate with AI: ask a cartridge to read the project's repos and propose any of `parts` —
  * architecture, features (with their spec), changelog (from git history), backlog. All four when absent.
+ * Or, with parts ['plan'] and `document: { name, data }` (data base64): "Plan from a document" — the
+ * cartridge turns the uploaded spec / epics / roadmap into the vision, epics and planned features.
  */
 router.post('/:id/imports', (req, res) => {
   if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Project not found' });
   const agentId = String((req.body ?? {}).agentId ?? '').trim();
-  if (!agentId) return res.status(400).json({ error: 'pick the cartridge that reads the codebase' });
+  const parts = normalizeParts((req.body ?? {}).parts);
+  const planning = parts.includes('plan');
+  if (!agentId) return res.status(400).json({ error: planning ? 'pick the cartridge that reads the document' : 'pick the cartridge that reads the codebase' });
   if (!cartridgeExists(agentId)) return res.status(400).json({ error: 'that cartridge no longer exists' });
-  const imp = createImportRow(req.params.id, agentId, normalizeParts((req.body ?? {}).parts));
+  let document: { name: string; text: string } | undefined;
+  if (planning) {
+    const d = (req.body ?? {}).document as { name?: unknown; data?: unknown } | undefined;
+    const name = String(d?.name ?? '').trim().slice(0, 200);
+    if (!name || typeof d?.data !== 'string') return res.status(400).json({ error: 'upload the document the plan is read from' });
+    try { document = { name, text: documentText(name, Buffer.from(d.data, 'base64')).text }; }
+    catch (err) {
+      if (err instanceof DocumentError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
+  }
+  const imp = createImportRow(req.params.id, agentId, parts, document);
   const prompt = buildImportPrompt(imp);
   // Through the busy guard like every other dispatch: a busy cartridge gets it after its current work.
   const guard = guardBusy({ kind: 'prompt', targets: [agentId], payload: { agentId, text: prompt, includeMemory: false } });

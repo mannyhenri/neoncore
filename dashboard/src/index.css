@@ -356,3 +356,28 @@ select.glass-input optgroup {
 @keyframes core-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 @keyframes core-shake { 0% { transform: translate(0, 0); } 50% { transform: translate(1px, -1px); } 100% { transform: translate(-1px, 1px); } }
 @media (prefers-reduced-motion: reduce) { .core-heat, .core-heat-glow, .core-ember { animation: none !important; } .core-ember { display: none; } }
+
+/* THE PROJECTS STAGE (App.tsx): the captain stands at the left, full size, across the project
+   picker's bar and the head of the project's page. The bar and the head move over for him; from
+   the tabs down, the page has the whole width. On a narrow screen he stands above the bar instead. */
+.bridge .projects-stage { position: relative; display: flex; flex-direction: column; gap: 1.25rem; --captain-w: 208px; }
+.bridge .projects-stage .stage-captain { display: flex; justify-content: center; }
+@media (min-width: 1024px) {
+  .bridge .projects-stage .stage-captain { position: absolute; left: 6px; top: -6px; width: var(--captain-w); z-index: 5; pointer-events: none; }
+  .bridge .projects-stage .projects-bar { padding-left: calc(var(--captain-w) + 20px); min-height: 92px; }
+  .bridge .projects-stage [data-stage-head="2"] > :nth-child(-n+2), .bridge .projects-stage [data-stage-head="1"] > :first-child, .bridge .projects-stage [data-stage-head="0"] { margin-left: var(--captain-w); }
+  /* The head is never shorter than the captain is tall: nothing under it starts beside his boots. */
+  .bridge .projects-stage [data-stage-head="2"] > :nth-child(2) { min-height: 72px; }
+  .bridge .projects-stage [data-stage-head="1"] > :first-child, .bridge .projects-stage [data-stage-head="0"] { min-height: 170px; }
+}
+
+
+/* THE ROADMAP'S ROUTE (world/roadmap/RouteView.tsx): the leg being flown runs towards its stop, the
+   stop under way breathes, the ship bobs. All of it stops for reduced motion. */
+@keyframes route-flying { to { stroke-dashoffset: -36; } }
+.route-flying { animation: route-flying 1.4s linear infinite; }
+@keyframes route-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+.route-pulse { animation: route-pulse 2.2s ease-in-out infinite; }
+@keyframes route-ship { 0%, 100% { margin-top: 0; } 50% { margin-top: -5px; } }
+.route-ship { animation: route-ship 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .route-flying, .route-pulse, .route-ship { animation: none; } }

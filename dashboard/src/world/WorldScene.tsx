@@ -22,8 +22,11 @@ import { useLiveWork } from '../hooks/useLiveWork';
 import { buildCrew, crewCounts, ENGINE_COLOURS } from './crew';
 import type { CrewMember, CrewAttention } from './crew';
 import { assignSlots, spotsFor } from './sites';
-import { PLATE, THEME } from './theme';
-import { planZones, planCamps, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
+import { PLATE, THEME, MAPS, MAP_KEY, resolveMap, word } from './theme';
+import type { WorldMap } from './theme';
+import { MapSwitch, isOpen } from './MapSwitch';
+import type { MapProgress } from '../types';
+import { planZones, planCamps, planAnnexes, planSectors, sectorByRepo, buildingFor, POD_PREFIX, zoneFor, placeByZone, normRepo, OPEN_POOL } from './zones';
 import { pipelineSignal, benchSeats, featuresToDo, freightFor, freightTitle, nextWorkSwitch, settledDeliveries, workCycleAt } from './props';
 import type { PoolSlots } from './zones';
 import { padsFor, padOf } from './fleet';
@@ -36,10 +39,14 @@ import type { KitName } from './kit';
 import { SIGNPOST } from './signpost.generated';
 import { projectHash } from '../lib/projectSelection';
 import { playUi } from '../lib/sound/engine';
+import { useRewards, useNewMaps } from './useRewards';
+import { NewMapPanel } from './NewMapPanel';
+import { RewardMedal } from '../components/rewards/RewardMedal';
+import { topTier } from '../components/rewards/ProjectRewards';
 import { Avatar } from './Avatar';
 import { animationFor } from './anim';
 import { CHARACTERS, assignCharacters } from './sheets';
-import { clampSpot, loadCustomSpots, saveCustomSpots } from './customSpots';
+import { clampSpot, loadCustomSpots, saveCustomSpots, spotHolds, spotStranded } from './customSpots';
 import type { Spot, HeldSpot } from './customSpots';
 import { queueFor, burnShares, formatRate } from './extras';
 import type { CrewQueue, CrewBurn } from './extras';
@@ -124,11 +131,47 @@ const BANNER_Z = 8000;
 /** How far the pointer must travel before a press on a figure counts as a drag, in pixels. */
 const DRAG_THRESHOLD = 5;
 
-export function WorldScene({
+/** What the map switch needs: the maps of this theme, which is on screen, and how to go to another. */
+interface SceneTravel {
+  newMaps: MapProgress[];
+  /** Present only when there is somewhere to go: more than one map is open. */
+  travel?: { maps: readonly WorldMap[]; current: string; unlocked: ReadonlySet<string>; go: (id: string) => void };
+}
+
+/** The map the world is on is remembered: it opens where you left it (theme.ts resolveMap). */
+function readMap(): string | null { try { return window.localStorage.getItem(MAP_KEY); } catch { return null; } }
+function writeMap(id: string): void { try { window.localStorage.setItem(MAP_KEY, id); } catch { /* not remembered */ } }
+
+/**
+ * THE WORLD, ON ONE OF ITS MAPS. Which map is decided here (the remembered one while it is unlocked,
+ * else home — a map still to earn is never shown); the scene itself is built for that map's plate and rebuilt when it changes,
+ * so every placement, dragged spot and camera belongs to the map it was made on.
+ */
+export function WorldScene(props: WorldSceneProps) {
+  // NEW MAPS: what every project together has done towards the next maps (lib/project-rewards.ts).
+  const newMaps = useNewMaps();
+  const [pick, setPick] = useState(readMap);
+  const unlockedSig = newMaps.filter((m) => m.unlocked).map((m) => m.id).join('|');
+  const unlocked = useMemo(() => new Set(unlockedSig ? unlockedSig.split('|') : []), [unlockedSig]);
+  // A plate handed in (a test, an embed) is shown as it is: there is nowhere to travel.
+  if (props.plate) return <WorldSceneOn {...props} newMaps={newMaps} />;
+  const map = resolveMap(MAPS, pick, unlocked);
+  const openCount = MAPS.filter((m) => isOpen(m, unlocked)).length;
+  const go = (id: string) => {
+    const to = MAPS.find((m) => m.id === id);
+    // Only an open map can be gone to: the switch shows no other.
+    if (!to || !isOpen(to, unlocked)) return;
+    playUi('ui-tap');
+    setPick(id); writeMap(id);
+  };
+  return <WorldSceneOn key={map.plate.id} {...props} plate={map.plate} newMaps={newMaps} travel={openCount > 1 ? { maps: MAPS, current: map.id, unlocked, go } : undefined} />;
+}
+
+function WorldSceneOn({
   agents, activitiesByAgent, pendingPermissions, stuckAlerts,
   onDecidePermission, onSetMode, onSendCommand, onDelete, onDismiss, onRestore, onDismissStuck, onActivityClick,
-  statusFilter = 'all', onStatusCounts, hud, offSceneCount = 0, onOpenList, plate = PLATE,
-}: WorldSceneProps) {
+  statusFilter = 'all', onStatusCounts, hud, offSceneCount = 0, onOpenList, plate = PLATE, newMaps, travel,
+}: WorldSceneProps & SceneTravel) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [tick, setTick] = useState(() => Date.now());
@@ -176,6 +219,8 @@ export function WorldScene({
   // Queue lanes and token burn, per crew member — from the records, polled.
   const extras = useCrewExtras(crew, agents);
   const burn = useMemo(() => burnShares(extras.burn), [extras.burn]);
+  // REWARDS: what each project has earned (lib/project-rewards.ts), shown as medals under its signpost.
+  const rewards = useRewards();
   // Draw nobody until the records have answered once (useCrewExtras `ready`).
   const ready = extras.ready !== false;
 
@@ -219,8 +264,18 @@ export function WorldScene({
 
   // PROJECT → ZONE, REPO → BUILDING (zones.ts).
   const projectsSig = JSON.stringify((extras.projects ?? []).map((p) => [p.id, p.name, p.color, p.primaryRepo, p.cartridges, p.createdAt, p.featureCount, p.featuresDone, p.featuresActive]));
+  // SECTORS (zones.ts): the world holds one district per project; past that the projects are
+  // spread over sectors — the same world again — and ONE sector is on the map at a time.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const zones = useMemo(() => planZones(extras.projects ?? [], plate), [projectsSig, plate]);
+  const sectors = useMemo(() => planSectors(extras.projects ?? [], plate), [projectsSig, plate]);
+  const [sectorPick, setSectorPick] = useState(readSector);
+  const sector = Math.min(sectorPick, sectors.length - 1);
+  const pickSector = (i: number) => { setSectorPick(i); writeSector(i); playUi('ui-tap'); };
+  const sectorProjects = sectors[sector]?.projects ?? [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const repoSector = useMemo(() => sectorByRepo(sectors), [sectors]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const zones = useMemo(() => planZones(sectorProjects, plate), [projectsSig, plate, sector]);
   // FEATURES (FeaturePlates.tsx): an agent in a feature's worktree works at its REAL repo's
   // building — the worktree folder belongs to no project, and would otherwise land on open ground.
   const features = extras.features ?? [];
@@ -252,19 +307,44 @@ export function WorldScene({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doneSig, ready]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const camps = useMemo(() => planCamps(extras.projects ?? [], zones), [projectsSig, zones]);
+  const camps = useMemo(() => planCamps(sectorProjects, zones), [projectsSig, zones]);
+  /** The sector a crew member works in: its project's. undefined for one whose repo no project owns — it is on the open land of every sector. */
+  const sectorOf = (m: CrewMember): number | undefined => m.agentIds
+    .map((id) => repoSector.get(normRepo(realRepo(agents.find((a) => a.id === id)?.repoPath ?? ''))))
+    .find((i) => i !== undefined);
+  /** Crew of ANOTHER sector: not on this map (they are on theirs). Still counted, still in the list. */
+  const elsewhere = new Set(crew.filter((m) => { const i = sectorOf(m); return i !== undefined && i !== sector; }).map((m) => m.key));
   // An agent works at its repo's building; one whose repo no project owns uses unclaimed land.
-  const wants = crew.map((m) => {
+  const homes = crew.map((m) => {
     const paths = m.agentIds.map((id) => agents.find((a) => a.id === id)?.repoPath ?? '');
-    const home = paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null);
+    const home = paths.map((path) => zoneFor(zones, realRepo(path))).find((z) => z !== null) ?? null;
     // A project past the map's districts has no pod: its agents gather at its camp (zones.ts).
     const camp = paths.map((path) => camps.get(normRepo(realRepo(path)))).find((c) => c !== undefined);
-    return { key: m.key, pool: home?.building ?? camp ?? OPEN_POOL };
+    // The feature it is on, so a feature's team takes its places together.
+    const feature = features.find((f) => f.agentIds.some((id) => m.agentIds.includes(id)))?.goalId ?? '~';
+    return { key: m.key, home, camp, feature };
+  });
+  // A POD HOLDS FOUR (zones.ts): each agent has a sticky place in its project; places 0–3 are the
+  // home pod, 4–7 the project's second pod, and so on.
+  const placesRef = useRef<Map<string, Map<string, number>>>(new Map());
+  const places = new Map<string, Map<string, number>>();
+  for (const z of zones) {
+    const mine = homes.filter((h) => h.home?.zone.projectId === z.projectId).sort((a, b) => a.feature.localeCompare(b.feature) || a.key.localeCompare(b.key));
+    places.set(z.projectId, assignSlots(placesRef.current.get(z.projectId) ?? new Map(), mine.map((h) => h.key)));
+  }
+  placesRef.current = places;
+  const annexes = planAnnexes(zones, plate, new Map([...places].map(([id, m]) => [id, m.size])));
+  const wants = homes.filter((h) => !elsewhere.has(h.key)).map((h) => {
+    if (!h.home) return { key: h.key, pool: h.camp ?? OPEN_POOL };
+    const id = h.home.zone.projectId;
+    const at = buildingFor(plate, h.home.zone, h.home.building, places.get(id)!.get(h.key) ?? 0, annexes.get(id) ?? []);
+    // At home: its own repo's building. In the second pod: anywhere in it, so four agents take four spots.
+    return { key: h.key, pool: at.district === h.home.zone.districts[0] ? at.building : `${POD_PREFIX}${at.district}` };
   });
   /** Repos (normalised paths) that have a character on the map right now. */
   const manned = new Set(crew.flatMap((m) => m.agentIds.map((id) => normRepo(realRepo(agents.find((a) => a.id === id)?.repoPath ?? '')))));
   const wantsSig = wants.map((w) => `${w.key}>${w.pool}`).join('|');
-  const claimedSig = zones.flatMap((z) => z.districts).join('|');
+  const claimedSig = [...zones.flatMap((z) => z.districts), ...[...annexes.values()].flat()].join('|');
   const poolSlotsRef = useRef<PoolSlots>(new Map());
   const placement = useMemo(() => {
     const r = placeByZone(poolSlotsRef.current, wants, plate, new Set(claimedSig ? claimedSig.split('|') : []));
@@ -293,11 +373,17 @@ export function WorldScene({
 
   // WHERE YOU PUT THEM: agents dragged off their site stay where they were dropped.
   const [customSpots, setCustomSpots] = useState<Map<string, HeldSpot>>(() => loadCustomSpots(plate.id));
+  /** The district an agent is planned for right now (its site's), or undefined on open land. */
+  const plannedPod = (key: string) => {
+    const siteId = placement.get(key)?.siteId;
+    return siteId ? plate.sites.find((s) => s.id === siteId)?.district : undefined;
+  };
   const moveMember = (key: string, spot: Spot | null) => {
     const idle = crew.find((m) => m.key === key)?.status === 'idle';
+    const pod = plannedPod(key);
     setCustomSpots((prev) => {
       const next = new Map(prev);
-      if (spot) next.set(key, idle ? { ...clampSpot(spot), idle: true } : clampSpot(spot)); else next.delete(key);
+      if (spot) next.set(key, { ...clampSpot(spot), ...(idle ? { idle: true } : {}), ...(pod ? { pod } : {}) }); else next.delete(key);
       saveCustomSpots(plate.id, next);
       return next;
     });
@@ -310,13 +396,19 @@ export function WorldScene({
       const over = [...prev].filter(([key, held]) => { const m = crew.find((x) => x.key === key); return held.idle === true && m !== undefined && m.status !== 'idle'; });
       if (over.length === 0) return prev;
       const next = new Map(prev);
-      for (const [key, held] of over) next.set(key, { x: held.x, y: held.y });
+      for (const [key, held] of over) next.set(key, { x: held.x, y: held.y, ...(held.pod ? { pod: held.pod } : {}) });
       saveCustomSpots(plate.id, next);
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusSig]);
   const resetSpots = () => { setCustomSpots(new Map()); saveCustomSpots(plate.id, new Map()); };
+  // Only the spots whose plan still holds (customSpots.ts spotHolds): a spot dragged before the
+  // project took a second district does not pin its agent in the first. Stale ones are kept, unused.
+  // Nor does a spot dropped on open ground while the agent's project had no district keep it away
+  // from the district the project has now (spotStranded).
+  const hasHome = new Set(homes.filter((h) => h.home !== null).map((h) => h.key));
+  const heldSpots = new Map([...customSpots].filter(([key, held]) => spotHolds(held, plannedPod(key), plate) && !spotStranded(held, hasHome.has(key), plate)));
 
   // THE BENCH BY THE POND (props.ts): an agent idle for 30 minutes goes and sits; new work sends
   // it back. "Idle since" is its last activity when the scene first sees it idle, and the moment
@@ -333,7 +425,7 @@ export function WorldScene({
       // Idle when the scene first saw it: since its last activity. Turned idle while open: now.
       idleSinceRef.current.set(m.key, !busySeenRef.current.has(m.key) && last > 0 ? Math.min(last, tick) : tick);
     }
-    if (customSpots.get(m.key)?.idle !== true) idleNow.push({ key: m.key, since: idleSinceRef.current.get(m.key)! });
+    if (heldSpots.get(m.key)?.idle !== true) idleNow.push({ key: m.key, since: idleSinceRef.current.get(m.key)! });
   }
   for (const key of [...idleSinceRef.current.keys()]) if (!crew.some((m) => m.key === key)) idleSinceRef.current.delete(key);
   benchRef.current = benchSeats(benchRef.current, idleNow, tick, plate.rest.length);
@@ -406,7 +498,7 @@ export function WorldScene({
   }, [crewKeys]);
   // Still in the air: a newly launched agent is not on the map until its shuttle is down.
   const inFlight = (key: string) => known !== null && !known.has(key) && !landed.has(key);
-  const shown = !ready ? [] : (statusFilter === 'all' ? crew : crew.filter((m) => m.status === statusFilter)).filter((m) => !inFlight(m.key));
+  const shown = !ready ? [] : (statusFilter === 'all' ? crew : crew.filter((m) => m.status === statusFilter)).filter((m) => !inFlight(m.key) && !elsewhere.has(m.key));
   const selected = crew.find((m) => m.key === selectedKey) ?? null;
 
   useEffect(() => {
@@ -502,7 +594,7 @@ export function WorldScene({
           />
           {/* AMBIENT MOTION: the water, drawn over the terrain and under everything else. It
               plays all the time, whatever the agents are doing (ambient.generated.ts). */}
-          {Object.entries(AMBIENT).map(([id, art]) => (
+          {Object.entries(plate.id === 'base' ? AMBIENT : {}).map(([id, art]) => (
             <AmbientStrip key={id} id={id} art={art} style={{ left: `${art.x * 100}%`, top: `${art.y * 100}%`, width: `${art.w * 100}%`, height: `${art.h * 100}%`, zIndex: 0 }} />
           ))}
           {plate.structures.map((st) => {
@@ -579,7 +671,25 @@ export function WorldScene({
               </Signpost>
             );
           })}
-          <FeaturePlates features={features} crew={crew} placement={placement} zones={zones} districts={Object.entries(plate.props).map(([id, p]) => ({ id, ...p.sign }))} goals={extras.goals ?? []} z={BANNER_Z} />
+          {/* REWARDS: the highest medal the project has earned in each family, under its signpost.
+              Each medal says the project's name and what it is for (hover). */}
+          {zones.map((z) => {
+            const at = plate.props[z.districts[0]]?.sign;
+            const tops = (rewards.get(z.projectId)?.families ?? []).map((f) => ({ f, i: topTier(f) })).filter((x) => x.i >= 0);
+            if (!at || tops.length === 0) return null;
+            return (
+              <div key={`rewards-${z.projectId}`} data-zone-rewards={z.projectId} className="absolute -translate-x-1/2 flex items-center gap-[3px]"
+                style={{ left: `${at.x * 100}%`, top: `${(at.y + 0.046) * 100}%`, zIndex: BANNER_Z }}>
+                {tops.map(({ f, i }) => <RewardMedal key={f.id} family={f.id} tier={i} threshold={f.tiers[i].threshold} earned label={f.tiers[i].label} size={20} />)}
+              </div>
+            );
+          })}
+          {/* A project's SECOND pod (zones.ts POD_CAPACITY) carries its name too. */}
+          {zones.flatMap((z) => (annexes.get(z.projectId) ?? []).map((d) => {
+            const at = plate.props[d]?.sign;
+            return at ? <Signpost key={`${z.projectId}-annex-${d}`} annex district={d} name={z.name} colour={z.color || ENGINE_COLOURS.claude.suit} at={at} height={avatarHeight * SIGN_HEIGHT} caption /> : null;
+          }))}
+          <FeaturePlates features={features.filter((f) => sectorProjects.some((sp) => sp.id === f.projectId))} crew={crew} placement={placement} zones={zones} districts={Object.entries(plate.props).map(([id, p]) => ({ id, ...p.sign }))} goals={extras.goals ?? []} z={BANNER_Z} />
           {zones.flatMap((z) => [...z.buildings].map(([repo, id]) => {
             const st = plate.structures.find((x) => x.id === id);
             // Two repos can share a building when a project has more repos than buildings.
@@ -661,7 +771,7 @@ export function WorldScene({
           ))}
           {shown.map((m) => {
             const home = placement.get(m.key)!;
-            const custom = customSpots.get(m.key) ?? null;
+            const custom = heldSpots.get(m.key) ?? null;
             // Dropped during this idle spell: it stays there instead of going to its bench.
             const keptOffBench = custom?.idle === true && m.status === 'idle';
             const said = messageId(m.sessionId, m.lastMessage);
@@ -760,6 +870,41 @@ export function WorldScene({
         </button>
       )}
 
+      {/* SECTORS: with more projects than the world has districts, the rest are on the next
+          sector. Each says which projects it holds, how many agents are there, and whether one
+          of them needs you — so nothing waits unseen on a map you are not looking at. */}
+      {(sectors.length > 1 || newMaps.length > 0 || travel) && (
+        <nav data-world-nav data-sectors={(sectors.length > 1 || newMaps.length > 0) || undefined} aria-label={`Maps and ${word('sector').toLowerCase()}s`} className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-stretch gap-1.5 p-1.5 rounded-[14px] border border-white/[0.14] bg-[rgba(10,16,32,0.92)] max-w-[calc(100%-420px)] flex-wrap justify-center">
+          {/* MAPS: the home map and the ones the outfit has unlocked — the rest are not shown until earned. */}
+          {travel && <MapSwitch maps={travel.maps} current={travel.current} unlocked={travel.unlocked} onGo={travel.go} />}
+          {sectors.length > 1 && sectors.map((sec) => {
+            const there = crew.filter((m) => sectorOf(m) === sec.index);
+            const need = there.filter((m) => m.attention !== null || m.status === 'waiting').length;
+            const on = sec.index === sector;
+            return (
+              <button key={sec.index} data-sector={sec.index} data-current={on || undefined} data-needs={need || undefined} aria-pressed={on} onClick={() => pickSector(sec.index)}
+                title={`${word('sector')} ${sec.index + 1}: ${sec.projects.map((sp) => sp.name).join(', ')} — ${there.length} agent${there.length === 1 ? '' : 's'}${need ? `, ${need} need${need === 1 ? 's' : ''} you` : ''}`}
+                className={`relative px-3 py-1.5 rounded-[10px] text-left whitespace-nowrap transition-colors ${on ? 'bg-neon-500/20 shadow-[inset_0_0_0_1px_rgba(90,174,255,0.7)]' : 'hover:bg-white/[0.06]'}`}>
+                <span className="flex items-center gap-2">
+                  <span className={`font-display text-[13px] font-bold tracking-[0.1em] uppercase ${on ? 'text-neon-100' : 'text-gray-300'}`}>{word('sector')} {sec.index + 1}</span>
+                  <span className="text-[12px] text-gray-400 tabular-nums">{there.length} agent{there.length === 1 ? '' : 's'}</span>
+                  {need > 0 && <span data-sector-needs className="rounded-full bg-ember-500 text-ink text-[11px] font-bold px-1.5 leading-[18px]">{need} need{need === 1 ? 's' : ''} you</span>}
+                </span>
+                <span className="flex items-center gap-2.5 mt-0.5">
+                  {sec.projects.map((sp) => (
+                    <span key={sp.id} className="inline-flex items-center gap-1 text-[12px] text-gray-200">
+                      <span aria-hidden="true" className="w-2 h-2 rounded-full" style={{ backgroundColor: sp.color || '#60a0ff' }} />{sp.name}
+                    </span>
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+          {/* The next map to discover: what all the projects together have done towards it. */}
+          {newMaps.map((m) => <NewMapPanel key={m.id} map={m} ready />)}
+        </nav>
+      )}
+
       {crew.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
           <div className="pointer-events-auto max-w-md text-center px-6 py-5 rounded-[18px] border border-neon-500/40 bg-[rgba(10,16,32,0.92)]">
@@ -774,8 +919,8 @@ export function WorldScene({
       )}
       {crew.length > 0 && shown.length === 0 && (
         <div className="absolute inset-x-0 bottom-14 flex justify-center pointer-events-none">
-          <div className="px-4 py-2 rounded-[10px] border border-white/[0.14] bg-[rgba(10,16,32,0.9)] text-[13px] text-gray-300">
-            No {statusFilter} agents
+          <div data-scene-empty className="px-4 py-2 rounded-[10px] border border-white/[0.14] bg-[rgba(10,16,32,0.9)] text-[13px] text-gray-300">
+            {statusFilter === 'all' ? `No agents in this ${word('sector').toLowerCase()} right now` : `No ${statusFilter} agents${sectors.length > 1 ? ` in this ${word('sector').toLowerCase()}` : ''}`}
           </div>
         </div>
       )}
@@ -855,15 +1000,24 @@ function DeadlineGauge({ district, deadline, style }: { district: string; deadli
  * A POD'S SIGNPOST: the drawn post, and the drawn board cut in three so its middle is as wide as
  * the project's name (scripts/world/build_signpost.py). Nothing here is drawn in code.
  */
-function Signpost({ district, name, colour, at, height, caption, children }: {
-  district: string; name: string; colour: string; at: { x: number; y: number }; height: number; caption: boolean; children?: ReactNode;
+/** The sector on the map is remembered: the map opens where you left it. */
+const SECTOR_KEY = 'neoncore.world.sector';
+function readSector(): number {
+  try { const n = Number(window.localStorage.getItem(SECTOR_KEY)); return Number.isInteger(n) && n > 0 ? n : 0; } catch { return 0; }
+}
+function writeSector(i: number): void { try { window.localStorage.setItem(SECTOR_KEY, String(i)); } catch { /* not remembered */ } }
+
+function Signpost({ district, name, colour, at, height, caption, annex, children }: {
+  district: string; name: string; colour: string; at: { x: number; y: number }; height: number; caption: boolean;
+  /** The project's second pod: the same name, none of the home pod's counts. */
+  annex?: boolean; children?: ReactNode;
 }) {
   const art = SIGN_ART;
   const k = height / art.post.h;
   const boardH = art.boardH * k;
   const hang = art.mode === 'hang';
   return (
-    <div data-zone-label={district} data-caption={caption || undefined} data-sign-mode={art.mode} title={name}
+    <div data-zone-label={annex ? undefined : district} data-zone-annex={annex ? district : undefined} data-caption={caption || undefined} data-sign-mode={art.mode} title={name}
       className={`absolute pointer-events-none select-none ${hang ? 'flex items-start' : 'grid justify-items-center'}`}
       style={{
         left: `${(at.x + (hang ? SIGN_ROW.hang.mast : 0)) * 100}%`, top: `${at.y * 100}%`, zIndex: BANNER_Z,

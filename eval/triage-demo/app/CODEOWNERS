@@ -1,0 +1,5 @@
+# Who reviews what. GitHub reads this file from the repository root.
+*                 @ledgerly/maintainers
+/src/auth/        @ledgerly/security
+/src/invoice.js   @ledgerly/billing
+/src/timesheet.js @ledgerly/payroll

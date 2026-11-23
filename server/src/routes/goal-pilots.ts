@@ -23,7 +23,7 @@ import {
 } from '../lib/goal-pilot.js';
 import {
   PILOT_ENGINES, dispatchPlannerRequest, retryPlannerRequest, startPilot, pausePilot, resumePilot, cancelPilot,
-  retryStage, skipStage, pilotView, emitPilotUpdate, announcePilot, ACCEPTANCE_STAGE_KEY, REVIEW_STAGE_KEY, openPrsAndTell,
+  retryStage, skipStage, pilotView, emitPilotUpdate, announcePilot, ACCEPTANCE_STAGE_KEY, REVIEW_STAGE_KEY, openPrsAndTell, mergeAndTell,
 } from '../lib/goal-pilot-runner.js';
 import { templateCatalogue } from '../lib/goal-pilot-prompts.js';
 import { availableTemplates } from '../lib/goal-decomposition.js';
@@ -31,10 +31,10 @@ import { templateNeedsParticipants } from '../lib/workflow-launch.js';
 import {
   applyPlannerSummary, generateGoalReport, storedGoalReport, renderGoalReportHtml, renderGoalReportMarkdown,
 } from '../lib/goal-pilot-report.js';
-import { VERIFY_METHODS, MAX_CRITERIA, defaultVerify } from '../lib/acceptance-contract.js';
+import { VERIFY_METHODS, MAX_CRITERIA, defaultVerify, FEATURE_SIZES } from '../lib/acceptance-contract.js';
 import {
   submitAcceptanceResult, runBaseline, approveTests, requestTestChanges, askAgainForTests, unlockCriterion,
-  restoreTests, acceptTestChange, verifyAgain, confirmChecklist,
+  restoreTests, acceptTestChange, verifyAgain, confirmChecklist, retestAcceptance, addFixStage,
 } from '../lib/acceptance-runner.js';
 import { asyncRoute } from '../lib/async-route.js';
 import { createFeature, deleteFeatureCascade } from './goals.js';
@@ -63,6 +63,7 @@ router.get('/meta', (_req, res) => {
     engines: [...PILOT_ENGINES],
     limits: { maxScopeRounds: MAX_SCOPE_ROUNDS, maxQuestionsPerRound: MAX_QUESTIONS_PER_ROUND, maxStages: MAX_STAGES, maxCriteria: MAX_CRITERIA },
     verifyMethods: VERIFY_METHODS,
+    featureSizes: FEATURE_SIZES,
     defaultVerify: Object.fromEntries(WORK_TYPES.map((w) => [w.value, defaultVerify(w.value)])),
     contractStageKeys: { acceptance: ACCEPTANCE_STAGE_KEY, review: REVIEW_STAGE_KEY },
     templates: templateCatalogue(),
@@ -327,6 +328,13 @@ router.post('/:id/workspace/prs', asyncRoute(async (req, res) => {
   res.json(view(req.params.id));
 }));
 
+/** The person says merge: every PR of the feature (all or none), then the worktrees, branches and cartridges go. */
+router.post('/:id/workspace/merge', asyncRoute(async (req, res) => {
+  if (!getPilot(req.params.id)?.workspace) return res.status(404).json({ error: 'this feature does not run on its own branch' });
+  await mergeAndTell(req.params.id);
+  res.json(view(req.params.id));
+}));
+
 /** After a merge: end the worktrees' cartridges and remove the worktrees (`force` = even unmerged). */
 router.post('/:id/workspace/cleanup', asyncRoute(async (req, res) => {
   if (!getPilot(req.params.id)?.workspace) return res.status(404).json({ error: 'this feature does not run on its own branch' });
@@ -391,6 +399,11 @@ router.post('/:id/acceptance/restore', acceptanceRoute((id) => restoreTests(id))
 router.post('/:id/acceptance/accept-change', acceptanceRoute((id, b) => acceptTestChange(id, b.reason)));
 
 router.post('/:id/acceptance/checklist', acceptanceRoute((id, b) => confirmChecklist(id, b.confirmations)));
+
+/** A delivered feature, checked again: the locked tests now, then a fresh checklist review. Answers at once; results follow by socket. */
+router.post('/:id/acceptance/retest', acceptanceRoute((id) => { void retestAcceptance(id).catch((e) => console.warn('[acceptance] retest:', e)); }, 202));
+/** After a retest that still shows gaps: one workflow stage for exactly those criteria, then the checks again. */
+router.post('/:id/acceptance/fix', acceptanceRoute((id) => { addFixStage(id); }));
 
 router.post('/:id/stages/:stageId/verify', asyncRoute(async (req, res) => {
   try { verifyAgain(req.params.id, req.params.stageId); res.json(view(req.params.id)); } catch (err) { fail(res, err); }

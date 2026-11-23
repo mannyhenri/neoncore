@@ -25,6 +25,7 @@ vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 import { WorldScene } from '../WorldScene';
 import { OUTPOST } from '../sites';
 import { FEATURE_BADGES } from '../milestones';
+import { clearPlates, PLATE_CLEAR } from '../FeaturePlates';
 
 const iso = () => new Date().toISOString();
 const agent = (over: Partial<Agent> & { id: string }): Agent => ({
@@ -106,5 +107,27 @@ describe('features on the map', () => {
     extras.features = [{ ...invoice, agentIds: [] }];
     render(scene([]));
     expect(document.querySelector('[data-feature-plate="pi1"]')).toBeTruthy();
+  });
+});
+
+describe('feature plates never sit on top of each other', () => {
+  it('a plate keeps its place unless an earlier one is in the way; then it is lifted clear — for any number of plates at one spot', () => {
+    for (const count of [1, 2, 3, 6]) {
+      const out = clearPlates(Array.from({ length: count }, () => ({ x: 0.5, y: 0.4, tag: 'same spot' })));
+      expect(out[0]).toEqual({ x: 0.5, y: 0.4, tag: 'same spot' });
+      // Every pair is clear of each other.
+      for (let a = 0; a < count; a++) for (let b = a + 1; b < count; b++) {
+        expect(Math.abs(out[a]!.y - out[b]!.y) >= PLATE_CLEAR.y - 1e-9, `${count} plates: ${a} and ${b}`).toBe(true);
+      }
+      expect(out.map((p) => p!.x)).toEqual(Array(count).fill(0.5));
+    }
+    // Side by side but far enough apart, or one well above the other: nothing moves.
+    const apart = [{ x: 0.2, y: 0.4 }, { x: 0.2 + PLATE_CLEAR.x, y: 0.4 }, { x: 0.2, y: 0.4 - PLATE_CLEAR.y }];
+    expect(clearPlates(apart)).toEqual(apart);
+    // A feature with no place stays without one, and is in nobody's way.
+    const mixed = clearPlates([null, { x: 0.5, y: 0.4 }, null, { x: 0.55, y: 0.41 }]);
+    expect([mixed[0], mixed[1], mixed[2]]).toEqual([null, { x: 0.5, y: 0.4 }, null]);
+    expect(mixed[3]!.x).toBe(0.55);
+    expect(0.4 - mixed[3]!.y).toBeGreaterThanOrEqual(PLATE_CLEAR.y - 1e-9);
   });
 });

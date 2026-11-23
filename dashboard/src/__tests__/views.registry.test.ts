@@ -25,11 +25,13 @@ const SURFACE: Record<(typeof VIEWS)[number], RegExp> = {
   workflows: /<WorkflowPanel/,
   tasks: /<TasksPage/,
   tokens: /<TokensPage/,
+  qa: /<QaPage/,
+  triage: /<TriagePage/,
 };
 
 describe('the view registry', () => {
-  it('has exactly the five V3 views, Workflows among them', () => {
-    expect([...VIEWS]).toEqual(['projects', 'agents', 'workflows', 'tasks', 'tokens']);
+  it('has exactly the V3 views and QA, Triage, Workflows among them', () => {
+    expect([...VIEWS]).toEqual(['projects', 'agents', 'workflows', 'tasks', 'tokens', 'qa', 'triage']);
     expect(Object.keys(SURFACE).sort()).toEqual([...VIEWS].sort());
   });
 

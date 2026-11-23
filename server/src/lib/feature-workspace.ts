@@ -11,17 +11,24 @@
  *   a cartridge    launched in the worktree (the same launcher as New Repo); it registers under the
  *                  worktree's path, so every stage, test and review of this feature reaches it and
  *                  no other feature's work does
- *   a PR           when the pipeline finishes: the branch is pushed and a PR opened into the base,
- *                  naming its sibling PRs in the other repos. Never merged here — a person merges.
- *
- * Cleanup (after a merge) ends the cartridge's session and removes the worktree.
+ *   a PR           when the pipeline finishes: work the agents left uncommitted is committed, the
+ *                  branch is pushed and a PR opened into the base (with the feature's verdict),
+ *                  naming its sibling PRs in the other repos. Then the PERSON is asked to merge.
+ *   the merge      only when the person says so (the Merge button → mergeFeaturePRs): every repo's PR
+ *                  is checked mergeable FIRST — none is merged unless all can be — then merged, the
+ *                  base checkout fast-forwarded when it is clean, and the workspace cleaned up.
+ *   cleanup        ends the worktree's cartridge (and forgets it), removes the worktree, deletes the
+ *                  branch locally and on origin. A PR merged on GitHub instead is noticed by
+ *                  syncMergedWorkspaces (the pilot sweep) and cleaned up the same way.
  */
 import fs from 'fs';
 import path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import db from '../db.js';
-import { createWorktree } from './worktree.js';
+import { createWorktree, forgetWorktree } from './worktree.js';
+import { deleteAgentCascade } from './agent-cleanup.js';
+import { storedGoalReport } from './goal-pilot-report.js';
 import { openDirectory } from './open-directory.js';
 import { normalizeRepoPath, agentIdForRepoAndType } from './resolve-agent.js';
 import { sendCommandToAgent } from './send-command.js';
@@ -76,7 +83,7 @@ export function defaultBranchOf(repo: string): string {
  */
 export function createFeatureWorkspace(pilot: GoalPilot, repos: { repoPath: string; agentType: string }[]): FeatureWorkspace {
   const branch = featureBranchFor(pilot);
-  const out: FeatureWorkspace = { branch, repos: [], prsAt: null };
+  const out: FeatureWorkspace = { branch, repos: [], prsAt: null, mergedAt: null, cleanedAt: null };
   for (const r of repos) {
     if (!fs.existsSync(path.join(r.repoPath, '.git'))) {
       throw new Error(`${path.basename(r.repoPath)} is not a git repository, so it cannot get its own branch — untick "own branch" to run the feature in place`);
@@ -136,13 +143,25 @@ export async function openFeaturePRs(pilotId: string): Promise<FeatureWorkspace 
   if (!pilot || !ws) return null;
   const goal = db.prepare('SELECT name FROM goals WHERE id = ?').get(pilot.goalId) as { name?: string } | undefined;
   const title = goal?.name || ws.branch;
-  const summary = pilot.plan?.brief?.summary || '';
+  const report = storedGoalReport(pilotId);
+  const verdict = report?.acceptance?.total
+    ? `Verdict: **${report.status}** — ${report.acceptance.passing} of ${report.acceptance.total} acceptance criteria pass on NeonCore's own check.`
+    : report ? `Verdict: **${report.status}**.` : '';
+  const summary = [pilot.plan?.brief?.summary || '', verdict].filter(Boolean).join('\n\n');
 
   for (const r of ws.repos) {
     if (r.removed) continue;
     r.error = '';
     try {
-      const dirty = await git(r.worktreePath, 'status', '--porcelain');
+      // Finish the job: what the agents left uncommitted is the feature's work too. NeonCore's own
+      // scratch (.neoncore/) never goes in; .gitignore is respected as always.
+      if (await git(r.worktreePath, 'status', '--porcelain', '--', '.', ':!.neoncore')) {
+        await git(r.worktreePath, 'add', '-A', '--', '.', ':!.neoncore');
+        if (await git(r.worktreePath, 'diff', '--cached', '--name-only')) {
+          await git(r.worktreePath, 'commit', '-m', `${title}: finish the feature`, '-m', `Work the pipeline left uncommitted on ${ws.branch}, committed by NeonCore before opening the PR.`);
+        }
+      }
+      const dirty = await git(r.worktreePath, 'status', '--porcelain', '--', '.', ':!.neoncore');
       const ahead = Number(await git(r.worktreePath, 'rev-list', '--count', `${r.base}..HEAD`)) || 0;
       if (ahead === 0) {
         r.error = `no commits on ${ws.branch} — nothing to merge${dirty ? ' (there are uncommitted changes in the worktree)' : ''}`;
@@ -156,7 +175,7 @@ export async function openFeaturePRs(pilotId: string): Promise<FeatureWorkspace 
         const m = url.match(/https?:\/\/\S+/);
         r.pr = { url: m ? m[0] : url, number: Number(url.match(/\/(\d+)\s*$/)?.[1] ?? 0), state: 'open' };
       }
-      if (dirty) r.error = 'uncommitted changes were left in the worktree — they are not in the PR';
+      if (dirty) r.error = 'some changes could not be committed — they are not in the PR';
     } catch (err) {
       r.error = firstLine(err);
     }
@@ -196,17 +215,153 @@ export async function cleanupWorkspace(pilotId: string, opts: { force?: boolean;
       r.error = r.pr ? `its PR is ${r.pr.state || 'open'} — merge it first (or clean up anyway)` : 'it has no PR — open one first (or clean up anyway)';
       continue;
     }
-    // End the cartridge's session first: a Claude session left running in a deleted folder is a ghost.
+    // End the cartridge's session first: a Claude session left running in a deleted folder is a
+    // ghost — and its record goes with the folder, so the fleet does not list a cartridge for a
+    // path that no longer exists.
     const agentId = agentIdForRepoAndType(r.worktreePath, r.agentType);
-    if (agentId) { try { sendCommandToAgent(agentId, '/exit', false, undefined, { standard: false, trackObjective: false }); } catch { /* already gone */ } }
+    if (agentId) {
+      try { sendCommandToAgent(agentId, '/exit', false, undefined, { standard: false, trackObjective: false }); } catch { /* already gone */ }
+      try { deleteAgentCascade(agentId); } catch (err) { console.warn('[feature-workspace] could not forget the worktree cartridge:', err); }
+    }
     try {
-      await git(r.repoPath, 'worktree', 'remove', ...(opts.force ? ['--force'] : []), r.worktreePath);
-      if (r.pr?.state === 'merged') { try { await git(r.repoPath, 'branch', '-d', ws.branch); } catch { /* kept if git disagrees */ } }
+      // Once merged, what is still in the folder is scratch (the PR has the work): removed regardless.
+      const force = opts.force || r.pr?.state === 'merged';
+      if (fs.existsSync(r.worktreePath)) await git(r.repoPath, 'worktree', 'remove', ...(force ? ['--force'] : []), r.worktreePath);
+      else await git(r.repoPath, 'worktree', 'prune');   // already deleted by hand: drop git's record of it
+      forgetWorktree(r.worktreePath);
+      if (r.pr?.state === 'merged') {
+        // Merged: the branch has nothing left to give — locally (-D: a squash merge leaves it
+        // "unmerged" to git) and on origin (GitHub may have deleted it already).
+        try { await git(r.repoPath, 'branch', '-D', ws.branch); } catch { /* not there */ }
+        try { await git(r.repoPath, 'push', 'origin', '--delete', ws.branch); } catch { /* already gone */ }
+      }
       r.removed = true;
     } catch (err) {
       r.error = firstLine(err);
     }
   }
+  if (ws.repos.every((r) => r.removed)) ws.cleanedAt = new Date().toISOString();
   save(pilotId, ws);
   return ws;
+}
+
+/** One repo's PR as GitHub sees it now: open/merged/closed and, when open, whether it can merge. */
+async function prStatus(cwd: string, branch: string): Promise<{ state: string; mergeable: string; mergeState: string; url: string; number: number } | null> {
+  try {
+    const j = JSON.parse(await gh(cwd, 'pr', 'view', branch, '--json', 'url,number,state,mergeable,mergeStateStatus')) as Record<string, unknown>;
+    return j?.url ? {
+      url: String(j.url), number: Number(j.number) || 0, state: String(j.state || '').toLowerCase(),
+      mergeable: String(j.mergeable || '').toUpperCase(), mergeState: String(j.mergeStateStatus || '').toUpperCase(),
+    } : null;
+  } catch { return null; }
+}
+
+/** Why GitHub will not merge it, in words a person can act on ('' = it can merge). */
+function blockedReason(p: { mergeable: string; mergeState: string }): string {
+  if (p.mergeable === 'CONFLICTING' || p.mergeState === 'DIRTY') return 'it conflicts with the base branch — resolve the conflicts first';
+  if (p.mergeState === 'BLOCKED') return 'GitHub blocks it (a required review or check is missing)';
+  if (p.mergeState === 'BEHIND') return 'it is behind the base branch and the repo requires it to be up to date';
+  if (p.mergeState === 'UNSTABLE') return '';   // non-required checks failing: mergeable
+  if (p.mergeable === 'UNKNOWN') return 'GitHub is still working out whether it can merge — try again in a moment';
+  return '';
+}
+
+/** Bring the person's own checkout of the base up to date — only when it is on the base and clean. */
+async function fastForwardBase(repo: string, base: string): Promise<void> {
+  try {
+    if (await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD') !== base) return;
+    if (await git(repo, 'status', '--porcelain', '--untracked-files=no')) return;
+    await git(repo, 'pull', '--ff-only', 'origin', base);
+  } catch { /* their checkout, their call: never forced */ }
+}
+
+const merging = new Set<string>();
+
+/**
+ * THE PERSON SAID MERGE. Every open PR of the feature is checked first: if any cannot merge, none is
+ * merged (the repos of one feature go in together) and each says why. Then each is merged (squash,
+ * else a merge commit, else a rebase — whichever the repo allows), the base checkouts are
+ * fast-forwarded, and the workspace is cleaned up.
+ */
+export async function mergeFeaturePRs(pilotId: string): Promise<FeatureWorkspace | null> {
+  const pilot = getPilot(pilotId);
+  const ws = pilot?.workspace;
+  if (!pilot || !ws) return null;
+  if (merging.has(pilotId)) return ws;
+  merging.add(pilotId);
+  try {
+    const live = ws.repos.filter((r) => !r.removed);
+    const statuses = new Map<string, Awaited<ReturnType<typeof prStatus>>>();
+    for (const r of live) {
+      r.error = '';
+      const st = await prStatus(r.worktreePath, ws.branch);
+      statuses.set(r.repoPath, st);
+      if (st) r.pr = { url: st.url, number: st.number, state: st.state };
+    }
+    const toMerge = live.filter((r) => statuses.get(r.repoPath)?.state === 'open');
+    let blocked = false;
+    for (const r of toMerge) {
+      const why = blockedReason(statuses.get(r.repoPath)!);
+      if (why) { r.error = `not merged: ${why}`; blocked = true; }
+    }
+    if (!toMerge.length && !live.some((r) => r.pr?.state === 'merged')) {
+      for (const r of live) if (!r.error) r.error = r.pr ? `its PR is ${r.pr.state} — nothing to merge` : 'it has no PR — nothing to merge';
+      save(pilotId, ws);
+      return ws;
+    }
+    if (blocked) {
+      for (const r of toMerge) if (!r.error) r.error = 'not merged: waiting for the other repos of this feature to be mergeable';
+      save(pilotId, ws);
+      return ws;
+    }
+    for (const r of toMerge) {
+      let lastErr = '';
+      for (const how of ['--squash', '--merge', '--rebase']) {
+        try { await gh(r.worktreePath, 'pr', 'merge', ws.branch, how); lastErr = ''; break; } catch (err) {
+          lastErr = firstLine(err);
+          if (!/not allowed|merge method|is not enabled/i.test(lastErr)) break;   // a real failure: do not try another method
+        }
+      }
+      if (lastErr) { r.error = `the merge failed: ${lastErr}`; continue; }
+      r.pr = { ...(r.pr ?? { url: '', number: 0 }), state: 'merged' };
+      await fastForwardBase(r.repoPath, r.base);
+    }
+    ws.mergedAt = ws.repos.every((r) => r.removed || r.pr?.state === 'merged') ? new Date().toISOString() : ws.mergedAt ?? null;
+    save(pilotId, ws);
+    const merged = ws.repos.filter((r) => !r.removed && r.pr?.state === 'merged').map((r) => r.repoPath);
+    return merged.length ? await cleanupWorkspace(pilotId, { only: merged }) : ws;
+  } finally {
+    merging.delete(pilotId);
+  }
+}
+
+/**
+ * A PR merged (or closed) on GitHub instead of from NeonCore: noticed here, and a merged one is
+ * cleaned up the same way. Run by the pilot sweep; returns the pilots it cleaned up. At most one gh
+ * call per open PR per run, and only for features whose PRs are out and not yet cleaned up.
+ */
+export async function syncMergedWorkspaces(): Promise<string[]> {
+  const cleaned: string[] = [];
+  const rows = db.prepare("SELECT id FROM goal_pilots WHERE workspace != '' AND workspace LIKE '%\"prsAt\":\"%'").all() as { id: string }[];
+  for (const { id } of rows) {
+    const ws = getPilot(id)?.workspace;
+    if (!ws || merging.has(id)) continue;
+    const pending = ws.repos.filter((r) => !r.removed && r.pr && r.pr.state !== 'closed');
+    if (!pending.length) continue;
+    let changed = false;
+    for (const r of pending) {
+      const st = await prStatus(fs.existsSync(r.worktreePath) ? r.worktreePath : r.repoPath, ws.branch);
+      if (st && st.state !== r.pr!.state) { r.pr = { url: st.url, number: st.number, state: st.state }; changed = true; }
+    }
+    if (!changed) continue;
+    save(id, ws);
+    const merged = ws.repos.filter((r) => !r.removed && r.pr?.state === 'merged').map((r) => r.repoPath);
+    if (merged.length) {
+      if (ws.repos.every((r) => r.removed || r.pr?.state === 'merged')) { ws.mergedAt = new Date().toISOString(); save(id, ws); }
+      for (const r of ws.repos.filter((x) => merged.includes(x.repoPath))) await fastForwardBase(r.repoPath, r.base);
+      await cleanupWorkspace(id, { only: merged });
+      cleaned.push(id);
+    }
+  }
+  return cleaned;
 }

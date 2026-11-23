@@ -31,6 +31,12 @@ import goalPilotsRouter from './routes/goal-pilots.js';
 import { startGoalPilotRunner } from './lib/goal-pilot-runner.js';
 import projectsRouter from './routes/projects.js';
 import roadmapRouter from './routes/roadmap.js';
+import qaRouter, { recorderRouter as qaRecorderRouter } from './routes/qa.js';
+import { startQaEngine } from './lib/qa/engine.js';
+import triageRouter, { triageWebhook } from './routes/triage.js';
+import { startTriageEngine } from './lib/triage/engine.js';
+import designSystemRouter from './routes/design-system.js';
+import rewardsRouter from './routes/rewards.js';
 import projectImportsRouter from './routes/project-imports.js';
 import heartbeatsRouter from './routes/heartbeats.js';
 import tasksRouter from './routes/tasks.js';
@@ -64,6 +70,9 @@ const server = createServer(app);
 // origin — an allowlist adds no security over a shared secret and silently breaks the
 // merged grid. Do not "harden" this without replacing the auth model first.
 app.use(cors());
+// Bug Triage's Jira webhook (routes/triage.ts): the RAW body, for its HMAC signature — so before the
+// JSON parser — and before fleet auth, since Jira cannot hold the fleet token (the signature is its credential).
+app.post('/api/triage/webhook/:sourceId', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => { void triageWebhook(req, res); });
 app.use(express.json({ limit: '25mb' }));
 
 // Request logging
@@ -103,6 +112,13 @@ app.use('/api/features', goalsRouter);
 app.use('/api/goal-pilots', goalPilotsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/roadmap', roadmapRouter);
+// The QA section (docs/plans/qa-section.md): tests, runs, findings, repairs, the recorder.
+app.use('/api/qa', qaRouter);
+app.use('/qa', qaRecorderRouter);
+// Bug Triage (docs/plans/bug-triage.md): Jira bugs worked through triage → fix → PR.
+app.use('/api/triage', triageRouter);
+app.use('/api/design-system', designSystemRouter);
+app.use('/api/rewards', rewardsRouter);
 app.use('/api/project-imports', projectImportsRouter);
 app.use('/api/heartbeats', heartbeatsRouter);
 app.use('/api/tasks', tasksRouter);
@@ -316,6 +332,8 @@ console.log(`[channels] registered: ${listChannels().map((c) => `${c.name}${c.is
 startStuckDetector();
 startMemoryAnalyzer();
 startCleanupScheduler();
+startQaEngine();
+startTriageEngine();
 startWorkflowExecutorV2();
 // Reports written before delivery existed are on the cartridge's disk, complete, and were
 // never asked for. One scan on boot brings them into the journal. Idempotent: a report already

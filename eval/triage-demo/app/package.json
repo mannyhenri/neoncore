@@ -1,0 +1,14 @@
+{
+  "name": "ledgerly",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Ledgerly: invoices and timesheets for small teams. The demo repository of NeonCore's Bug Triage section.",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

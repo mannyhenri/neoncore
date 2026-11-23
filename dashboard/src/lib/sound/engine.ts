@@ -1,31 +1,28 @@
 /**
- * THE SOUND ENGINE — plays the files (sounds.generated.ts) through Web Audio.
+ * THE SOUND ENGINE — plays the files (sounds.generated.ts) through Web Audio. Each world theme
+ * has its own set of the same fifteen sounds; the page plays the set of the theme it was loaded with.
  *
  *   · Browsers allow sound only after a click or key press on the page: the engine starts on the
  *     first one, and is silent until then.
- *   · The ambient loop overlaps consecutive copies (each fades in and out), so no loop point is
- *     heard; it stops while the tab is in the background, and dips under every cue.
+ *   · There is no background loop: between sounds the app is silent.
  *   · Whether a cue may play is cues.ts; what is switched on is settings.ts. This file only plays.
  *
  * A browser with no Web Audio (and every test) gets a silent engine: nothing here throws.
  */
-import { SOUND_FILES, AMBIENT_OVERLAP, type SoundId } from './sounds.generated';
+import { SOUND_FILES, SOUND_PACKS, type SoundId } from './sounds.generated';
+import { THEME } from '../../world/theme';
 import { CUE_SPECS, createCueGate, type Cue, type UiSound } from './cues';
 import { getSound, onSound, type SoundSettings } from './settings';
 
+/** This page's sounds: the set of the world theme it was loaded with (the sci-fi set when a theme has none). */
+export const SOUNDS = SOUND_PACKS[THEME] ?? SOUND_FILES;
 const UI_GAIN = 0.5;
 const CUE_GAIN = 0.9;
-const AMBIENT_GAIN = 0.5;
-/** How far the ambient loop dips under a cue, and for how long. */
-const DUCK = { to: 0.35, downS: 0.08, holdS: 1.2, upS: 0.9 };
 
 type Ctx = AudioContext;
 let ctx: Ctx | null = null;
 let master: GainNode | null = null;
-let ambientBus: GainNode | null = null;
 const buffers = new Map<SoundId, Promise<AudioBuffer | null>>();
-let ambientTimer: ReturnType<typeof setTimeout> | null = null;
-let ambientLive: AudioBufferSourceNode[] = [];
 const gate = createCueGate(Date.now());
 /** When open / close / send last played: the plain tap of the same click is dropped. */
 let lastSpecial = 0;
@@ -41,9 +38,6 @@ function ensure(): Ctx | null {
     master = ctx.createGain();
     master.gain.value = settingsGain(getSound());
     master.connect(ctx.destination);
-    ambientBus = ctx.createGain();
-    ambientBus.gain.value = getSound().ambient * AMBIENT_GAIN;
-    ambientBus.connect(master);
   } catch { ctx = null; }
   return ctx;
 }
@@ -53,7 +47,7 @@ function buffer(id: SoundId): Promise<AudioBuffer | null> {
   if (!c) return Promise.resolve(null);
   let b = buffers.get(id);
   if (!b) {
-    b = fetch(SOUND_FILES[id].src).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status))))).then((data) => c.decodeAudioData(data)).catch(() => null);
+    b = fetch(SOUNDS[id].src).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status))))).then((data) => c.decodeAudioData(data)).catch(() => null);
     buffers.set(id, b);
   }
   return b;
@@ -71,15 +65,6 @@ async function playFile(id: SoundId, gain: number): Promise<boolean> {
   src.connect(g).connect(master);
   src.start();
   return true;
-}
-
-function duck(): void {
-  if (!ctx || !ambientBus) return;
-  const level = getSound().ambient * AMBIENT_GAIN;
-  const now = ctx.currentTime;
-  ambientBus.gain.cancelScheduledValues(now);
-  ambientBus.gain.setTargetAtTime(level * DUCK.to, now, DUCK.downS);
-  ambientBus.gain.setTargetAtTime(level, now + DUCK.holdS, DUCK.upS);
 }
 
 /** An interface sound: a tap, an open, a send. Never gated — it answers the person's own action. */
@@ -103,7 +88,6 @@ export function playCue(cue: Cue): boolean {
   if (s.muted || !s.cues) return false;
   const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
   if (!gate.allow(cue, Date.now(), { hidden })) return false;
-  duck();
   void playFile(CUE_SPECS[cue].sound, CUE_GAIN);
   return true;
 }
@@ -114,66 +98,26 @@ export function previewCue(cue: Cue): void {
   void ctx!.resume().then(() => playFile(CUE_SPECS[cue].sound, CUE_GAIN));
 }
 
-function stopAmbient(): void {
-  if (ambientTimer) clearTimeout(ambientTimer);
-  ambientTimer = null;
-  for (const src of ambientLive) { try { src.stop(); } catch { /* already stopped */ } }
-  ambientLive = [];
-}
-
-async function startAmbient(): Promise<void> {
-  const c = ensure();
-  if (!c || !ambientBus || ambientTimer || c.state !== 'running') return;
-  const b = await buffer('ambient');
-  if (!b || ambientTimer) return;
-  const next = () => {
-    if (!ctx || !ambientBus) return;
-    const src = ctx.createBufferSource();
-    src.buffer = b;
-    src.connect(ambientBus);
-    src.start();
-    ambientLive.push(src);
-    src.onended = () => { ambientLive = ambientLive.filter((x) => x !== src); };
-    // The next copy starts while this one is fading out.
-    ambientTimer = setTimeout(next, Math.max(1, b.duration - AMBIENT_OVERLAP) * 1000);
-  };
-  next();
-}
-
-function syncAmbient(): void {
-  const s = getSound();
-  const wanted = !s.muted && s.ambient > 0 && typeof document !== 'undefined' && document.visibilityState === 'visible';
-  if (wanted) void startAmbient(); else stopAmbient();
-}
-
 let started = false;
-/** Wire the engine to the page: start on the first click or key, follow the settings and the tab. */
+/** Wire the engine to the page: start on the first click or key, and follow the settings. */
 export function startSound(): () => void {
   if (started || typeof window === 'undefined') return () => {};
   started = true;
   const unlock = () => {
     const c = ensure();
     if (!c) return;
-    void c.resume().then(syncAmbient).catch(() => {});
+    void c.resume().catch(() => {});
   };
-  const onVisible = () => syncAmbient();
   window.addEventListener('pointerdown', unlock, { capture: true });
   window.addEventListener('keydown', unlock, { capture: true });
-  document.addEventListener('visibilitychange', onVisible);
   const off = onSound((s) => {
-    if (ctx && master && ambientBus) {
-      master.gain.setTargetAtTime(settingsGain(s), ctx.currentTime, 0.05);
-      ambientBus.gain.setTargetAtTime(s.ambient * AMBIENT_GAIN, ctx.currentTime, 0.1);
-    }
-    syncAmbient();
+    if (ctx && master) master.gain.setTargetAtTime(settingsGain(s), ctx.currentTime, 0.05);
   });
   return () => {
     started = false;
     window.removeEventListener('pointerdown', unlock, { capture: true });
     window.removeEventListener('keydown', unlock, { capture: true });
-    document.removeEventListener('visibilitychange', onVisible);
     off();
-    stopAmbient();
   };
 }
 

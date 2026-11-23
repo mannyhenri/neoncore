@@ -642,7 +642,7 @@ function PlanStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPilo
         </div>
       </div>
 
-      <CriteriaEditor criteria={criteria} onChange={setCriteria} meta={meta} defaultVerify={defaultVerify} />
+      <CriteriaEditor criteria={criteria} onChange={setCriteria} meta={meta} defaultVerify={defaultVerify} size={pilot.brief?.size || pilot.intake?.size} />
 
       <div>
         <div className="flex items-center justify-between gap-2 mb-2">
@@ -1121,27 +1121,51 @@ function GoalReportCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged: () 
 }
 
 /**
- * The feature's own branch: a worktree + cartridge per repo, each repo's PR (or why there is none),
- * and the two actions — open the PRs now (they open by themselves when the pipeline ends), and
- * clean up once merged (ends the worktree cartridges, removes the worktrees).
+ * The feature's own branch: a worktree + cartridge per repo, and each repo's PR (or why there is none).
+ * The end of the job: the PRs open by themselves when the pipeline ends; then the person is asked to
+ * merge — one button merges every PR (all or none), and the worktrees, the branch and their cartridges
+ * go. A PR merged on GitHub instead is noticed and cleaned up the same way.
  */
-function WorkspaceCard({ pilot, busy, act }: { pilot: GoalPilot; busy: boolean; act: (fn: () => Promise<unknown>) => void }) {
+export function WorkspaceCard({ pilot, busy, act }: { pilot: GoalPilot; busy: boolean; act: (fn: () => Promise<unknown>) => void }) {
   const ws = pilot.workspace!;
+  const [confirming, setConfirming] = useState(false);
   const base = (p: string) => p.split(/[\\/]/).pop() || p;
-  const anyLive = ws.repos.some((r) => !r.removed);
+  const live = ws.repos.filter((r) => !r.removed);
+  const open = live.filter((r) => r.pr?.state === 'open');
+  const mergedNotCleaned = live.some((r) => r.pr?.state === 'merged');
+  const into = [...new Set(open.map((r) => r.base))].join(', ');
+  const status = ws.cleanedAt ? 'merged — worktrees, branch and cartridges removed'
+    : open.length ? `${open.length} PR${open.length === 1 ? '' : 's'} ready — review, then merge`
+    : ws.prsAt ? '' : 'a worktree and a cartridge per repo; the PRs open when the pipeline finishes';
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-gl-code/60 px-3.5 py-3 space-y-2">
+    <div className="rounded-xl border border-white/[0.08] bg-gl-code/60 px-3.5 py-3 space-y-2" data-testid="workspace-card">
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <div className="text-[13px] text-gray-300">
           Own branch <span className="font-mono text-violet-200">{ws.branch}</span>
-          <span className="text-gray-500"> — a worktree and a cartridge per repo{ws.prsAt ? '' : '; the PRs open when the pipeline finishes'}</span>
+          {status && <span className={ws.cleanedAt ? 'text-emerald-400' : open.length ? 'text-amber-300' : 'text-gray-500'}> — {status}</span>}
         </div>
         <div className="flex items-center gap-2">
-          {anyLive && <button disabled={busy} onClick={() => act(() => api.openFeaturePrs(pilot.id))} className={quietBtn}>Open PRs now</button>}
-          {anyLive && ws.prsAt && <button disabled={busy} onClick={() => act(() => api.cleanupFeatureWorkspace(pilot.id))} className={quietBtn}
+          {open.length > 0 && !confirming && (
+            <button disabled={busy} onClick={() => setConfirming(true)} className={primaryBtn}>Merge{open.length > 1 ? ` ${open.length} PRs` : ''}…</button>
+          )}
+          {open.length > 0 && confirming && (
+            <>
+              <button disabled={busy} onClick={() => { setConfirming(false); act(() => api.mergeFeaturePrs(pilot.id)); }} className={primaryBtn}>
+                Merge into {into || 'the base'} &amp; clean up
+              </button>
+              <button disabled={busy} onClick={() => setConfirming(false)} className={quietBtn}>Not yet</button>
+            </>
+          )}
+          {live.length > 0 && (!ws.prsAt || live.some((r) => !r.pr)) && <button disabled={busy} onClick={() => act(() => api.openFeaturePrs(pilot.id))} className={quietBtn}>Open PRs now</button>}
+          {mergedNotCleaned && <button disabled={busy} onClick={() => act(() => api.cleanupFeatureWorkspace(pilot.id))} className={quietBtn}
             title="For each repo whose PR is merged: end its worktree cartridge and remove the worktree">Clean up merged</button>}
         </div>
       </div>
+      {confirming && (
+        <p className="text-[12px] text-gray-400">
+          Every PR below is merged — none if any one cannot be — then each worktree, the {ws.branch} branch (here and on origin) and the worktree cartridges are removed.
+        </p>
+      )}
       <ul className="space-y-1">
         {ws.repos.map((r) => (
           <li key={r.repoPath} className="text-[13px] flex items-baseline gap-2 flex-wrap">

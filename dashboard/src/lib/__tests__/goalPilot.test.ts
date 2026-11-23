@@ -92,7 +92,18 @@ describe('goal pilot panel logic', () => {
 
   it('starting an existing feature pre-fills the intake from it — typed as a feature', () => {
     const goal = { name: 'G', description: 'why', successMetric: 'done', noGos: 'no', invariants: 'inv', targetDate: '2027-01-01', budgetUsd: 12, autonomy: 'assisted' } as unknown as Goal;
-    expect(intakeFromGoal(goal)).toEqual({ goal: 'G', context: 'why', done: 'done', constraints: 'no\ninv', deadline: '2027-01-01', budgetUsd: '12', involvement: 'hands-off', workType: 'feature' });
+    expect(intakeFromGoal(goal)).toEqual({ goal: 'G', context: 'why', done: 'done', constraints: 'no\ninv', deadline: '2027-01-01', budgetUsd: '12', involvement: 'hands-off', workType: 'feature', size: '' });
+  });
+
+  it('a feature planned from a document starts with the document\'s answers: done-when, constraints, and its kind of work', () => {
+    // server lib/plan-scope.ts INTAKE_SLOT: successMetric → done; outOfScope (no_gos) and invariants → constraints.
+    const goal = { name: 'Group commit', description: 'Writers queue batches.', successMetric: '200,000 changes/s with 64 writers.',
+      noGos: 'Multi-writer conflicts.', invariants: 'A commit is acknowledged only after it is on disk.', targetDate: '', budgetUsd: null,
+      documentedScope: { workType: 'performance', size: 'small', inScope: 'Group commit', source: 'Implement group commit…' } } as unknown as Goal;
+    expect(intakeFromGoal(goal)).toMatchObject({
+      goal: 'Group commit', context: 'Writers queue batches.', done: '200,000 changes/s with 64 writers.',
+      constraints: 'Multi-writer conflicts.\nA commit is acknowledged only after it is on disk.', workType: 'performance', size: 'small',
+    });
   });
 
   it('the pipeline summary names the stage that matters now', () => {

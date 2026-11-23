@@ -20,6 +20,24 @@ export function worktreeRepos(features: readonly ActiveFeature[], norm: (p: stri
   return out;
 }
 
+/** How close two plates' anchors may be before the later one is lifted clear: about a plate's width and height, as fractions of the map. */
+export const PLATE_CLEAR = { x: 0.24, y: 0.034 };
+/**
+ * Two features of one project work side by side (two pods, or one crowded one), and their plates
+ * would be written over each other. Each plate keeps its place unless an earlier one is in the
+ * way; then it is lifted above it. Pure, and in order: the first feature never moves.
+ */
+export function clearPlates<T extends { x: number; y: number }>(wanted: readonly (T | null)[]): (T | null)[] {
+  const placed: { x: number; y: number }[] = [];
+  return wanted.map((w) => {
+    if (!w) return null;
+    let y = w.y;
+    for (let guard = 0; guard < 12 && placed.some((p) => Math.abs(p.x - w.x) < PLATE_CLEAR.x && Math.abs(p.y - y) < PLATE_CLEAR.y); guard++) y -= PLATE_CLEAR.y;
+    placed.push({ x: w.x, y });
+    return { ...w, y };
+  });
+}
+
 const PLATE = 'absolute -translate-x-1/2 -translate-y-full px-2 py-0.5 rounded-md border bg-[rgba(10,16,32,0.88)] font-mono text-[12px] leading-5 whitespace-nowrap pointer-events-none select-none';
 
 export function FeaturePlates({ features, crew, placement, zones, districts, goals, z }: {
@@ -34,9 +52,7 @@ export function FeaturePlates({ features, crew, placement, zones, districts, goa
   z: number;
 }) {
   const unplacedInDistrict = new Map<string, number>();
-  return (
-    <>
-      {features.map((f) => {
+  const wanted = features.map((f) => {
         // Above its team: the figures carrying its agents. With nobody on the map yet, under the
         // project's caption (stacked when several features are waiting for their crew).
         const spots = crew.filter((m) => m.agentIds.some((id) => f.agentIds.includes(id)))
@@ -53,6 +69,13 @@ export function FeaturePlates({ features, crew, placement, zones, districts, goa
             at = { x: pos.x, y: pos.y + 0.07 + n * 0.04 };
           }
         }
+    return at;
+  });
+  const places = clearPlates(wanted);
+  return (
+    <>
+      {features.map((f, i) => {
+        const at = places[i];
         if (!at) return null;
         const earned = badgesFor(goals.filter((g) => g.id === f.goalId), f.projectId);
         const needs = !!f.needsYou;

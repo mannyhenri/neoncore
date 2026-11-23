@@ -39,14 +39,16 @@ function regions(src: string) {
   const mainEnd = src.lastIndexOf('</main>');
 
   for (const [name, i] of Object.entries({
-    navStart, navEnd, headerStart, headerEnd, asideStart, asideEnd, mainStart, mainEnd,
+    navStart, navEnd, headerStart, headerEnd, mainStart, mainEnd,
   })) {
     if (i < 0) throw new Error(`App.tsx has no ${name} — the layout changed shape`);
   }
   return {
     nav: src.slice(navStart, navEnd),
     header: src.slice(headerStart, headerEnd),
-    aside: src.slice(asideStart, asideEnd),
+    // The side rail is gone (Projects picks its project from a dropdown): an <aside> INSIDE <main>
+    // is a deck's figure column, not a rail. There is a rail only if one opens before <main>.
+    aside: asideStart >= 0 && asideStart < mainStart ? src.slice(asideStart, asideEnd) : '',
     main: src.slice(mainStart, mainEnd),
   };
 }
@@ -105,25 +107,10 @@ const CONTROLS: { name: string; marker: RegExp; region: Region }[] = [
   { name: 'Agents scene', marker: /<WorldScene/, region: 'main' },
   { name: 'Agents list (plain view)', marker: /<CartridgeGrid/, region: 'main' },
 
-  // Master–detail Goals: "the list of goals on the 1/3 section with the 2/3 the place
-  // where we work". The 1/3 IS the aside and the 2/3 IS the main — a nested split inside
-  // <main> would produce the same proportions in the wrong place and pass any test that
-  // only checked for a grid, so the assertion has to be regional.
-  { name: 'Projects list', marker: /<ProjectsRail/, region: 'aside' },
+  // Projects is one column: the project is chosen from a dropdown at the top of <main>, and the
+  // working surface fills the width under it.
+  { name: 'Project picker', marker: /<ProjectPicker/, region: 'main' },
   { name: 'Projects working surface', marker: /<ProjectsWorkspace/, region: 'main' },
-];
-
-/**
- * THE RAIL IS PER-VIEW, AND ITS OCCUPANTS MUST NOT STACK.
- *
- * Both panels render into the same `<aside>`. If either loses its view guard they appear
- * together, and the goals list gets pushed below a full workflow panel — the 1/3 column is
- * not tall enough for both, so the symptom is "the goals list is missing" rather than
- * anything that looks like a layout bug.
- */
-const RAIL_OCCUPANTS: { name: string; marker: RegExp; view: string }[] = [
-  // V3: the rail has one occupant. Workflows moved to its own view (see CONTROLS).
-  { name: 'Projects list', marker: /<ProjectsRail/, view: 'projects' },
 ];
 
 describe('dashboard chrome placement', () => {
@@ -143,74 +130,47 @@ describe('dashboard chrome placement', () => {
     }
   });
 
-  it.each(RAIL_OCCUPANTS)('$name renders in the rail only on the $view view', ({ marker, view }) => {
-    const i = R.aside.search(marker);
-    expect(i, 'not in the rail at all').toBeGreaterThan(-1);
-    // The guard has to precede it in source — it is what wraps the render.
-    const before = R.aside.slice(0, i);
-    expect(
-      before,
-      `unguarded — it would render alongside the other rail panel on every view`,
-    ).toMatch(new RegExp(`activeView === '${view}'`));
-  });
-
   /**
-   * THE RAIL'S CONTENTS MUST CLEAR ITS SCROLL EDGE.
-   *
-   * The aside carries `overflow-y-auto`, so its scrollbar is drawn INSIDE its own box. With
-   * only `lg:pr-1` (4px) the template cards ran right up against it — reported as the workflows
-   * panel sitting too close to what is on its right.
-   *
-   * Set-based over the rail's occupants, and the property is that the clearance is declared
-   * EXACTLY ONCE, on the aside. Padding the workflow panel alone would fix the view it was
-   * noticed on and leave the goals rail a different width, so the rail edge would jump as you
-   * switch views — the partial fix that looks correct on the screen you are looking at. Two
-   * occupants each declaring their own padding is the same bug with extra steps.
+   * NO SIDE RAIL. The Projects screen used to keep its list of projects down the left side; the
+   * project's own page needs that width (more tabs and detail are coming), so the project is
+   * chosen from a dropdown at the top and every view is one column, the full width.
    */
-  it('the rail declares real clearance from its own scroll edge', () => {
-    const asideTag = SRC.slice(SRC.indexOf('<aside'), SRC.indexOf('>', SRC.indexOf('<aside')));
-    const pr = asideTag.match(/lg:pr-(\d+)/);
-    expect(pr, 'the rail declares no right padding at all').not.toBeNull();
-    expect(
-      Number(pr![1]),
-      'the rail pads its content by less than 0.75rem — the scrollbar sits inside the box, so ' +
-      'anything smaller leaves the contents touching it',
-    ).toBeGreaterThanOrEqual(3);
+  it('no view has a side rail: the work area is one column, and nothing opens an <aside> outside <main>', () => {
+    expect(R.aside, 'an <aside> opens before <main> — the side rail is back').toBe('');
+    const area = SRC.slice(SRC.indexOf('id="work-area"'), SRC.indexOf('<main'));
+    expect(area).toMatch(/grid-cols-1/);
+    expect(area, 'the work area splits into columns again').not.toMatch(/lg:grid-cols-|md:grid-cols-|xl:grid-cols-/);
   });
 
-  it.each(RAIL_OCCUPANTS)('$name does not declare its own rail clearance', ({ name }) => {
-    // One source of truth for the gutter. A second one here would double the padding on one
-    // view and diverge from the other the moment either is tuned.
-    const file = name === 'Workflows' ? '../components/WorkflowPanel.tsx' : '../components/ProjectsPage.tsx';
-    const src = readFileSync(resolve(HERE, file), 'utf8');
-    const start = name === 'Workflows'
-      ? src.indexOf('export function WorkflowPanel')
-      : src.indexOf('export function ProjectsRail');
-    expect(start, `${name} is gone`).toBeGreaterThan(-1);
-    // The component's ROOT element only — inner cards legitimately have their own padding.
-    const root = src.slice(src.indexOf('return (', start), src.indexOf('return (', start) + 220);
-    expect(
-      root,
-      `${name} pads its own right edge — the rail gutter must be declared once, on the aside`,
-    ).not.toMatch(/\bp[rx]-\d|\bm[rx]-\d/);
+  it('the captain is on the Projects page at full size, beside the head of every kind of page it shows', () => {
+    // The fun is not put in the back: reorganizing the page must not shrink the captain to an icon.
+    const stage = R.main.slice(R.main.indexOf('projects-stage'), R.main.indexOf('<BridgeGauges'));
+    const captain = stage.match(/<BridgeCaptain height=\{(\d+)\}/);
+    expect(captain, 'the captain is not on the Projects stage').not.toBeNull();
+    expect(Number(captain![1]), 'the captain is smaller than he was beside the old list').toBeGreaterThanOrEqual(190);
+    expect(stage.indexOf('<BridgeCaptain')).toBeLessThan(stage.indexOf('<ProjectPicker'));
+    // Every page the workspace can show names its head, so each one makes room for him.
+    const page = readFileSync(resolve(HERE, '../components/ProjectsPage.tsx'), 'utf8');
+    for (const view of ['function ProjectDetail', 'function FeatureDetail', 'function UnfiledDetail', 'export function ProjectsWorkspace']) {
+      const body = page.slice(page.indexOf(view), page.indexOf(view) + 4000);
+      expect(body, `${view} does not mark its head`).toMatch(/data-stage-head="\d"/);
+    }
+    const css = readFileSync(resolve(HERE, '../index.css'), 'utf8');
+    for (const n of ['0', '1', '2']) expect(css, `no room is made for head ${n}`).toContain(`[data-stage-head="${n}"]`);
   });
 
-  it('the rail scrolls on its own, so a long goals list cannot push the page', () => {
-    // Master–detail puts an unbounded list in a column beside an unbounded detail pane.
-    // Without independent scroll the taller one sets the page height and the other is
-    // stranded — the sticky+overflow pair is what makes the 1/3 usable as a list.
-    const asideTag = SRC.slice(SRC.indexOf('<aside'), SRC.indexOf('>', SRC.indexOf('<aside')));
-    expect(asideTag).toMatch(/sticky/);
-    expect(asideTag).toMatch(/overflow-y-auto/);
-    expect(asideTag).toMatch(/max-h-/);
+  it('the project picker is above the working surface, in the same column', () => {
+    expect(R.main.indexOf('<ProjectPicker')).toBeGreaterThan(-1);
+    expect(R.main.indexOf('<ProjectPicker')).toBeLessThan(R.main.indexOf('<ProjectsWorkspace'));
   });
 
-  it('the Projects rail starts a project — the top of the Project → Features hierarchy', () => {
-    // V6: projects are the top level and features live inside a project's page, so the rail's
-    // one create action is "+ Project" (features are added from the project's own list).
+  it('the project picker starts a project — the top of the Project → Features hierarchy', () => {
+    // Projects are the top level and features live inside a project's page, so the picker's one
+    // create action is "+ New project" (features are added from the project's own list).
     const src = readFileSync(resolve(HERE, '../components/ProjectsPage.tsx'), 'utf8');
-    const rail = src.slice(src.indexOf('export function ProjectsRail'));
-    expect(rail.indexOf("setModal({ type: 'new-project' })"), '+ Project is missing from the rail').toBeGreaterThan(-1);
+    const picker = src.slice(src.indexOf('export function ProjectPicker'), src.indexOf('// ── the project: its features'));
+    expect(picker.indexOf("setModal({ type: 'new-project' })"), '+ New project is missing from the picker').toBeGreaterThan(-1);
+    expect(src.indexOf('export function ProjectsRail'), 'the old rail is still exported').toBe(-1);
   });
 
   it('a modal scrolls inside itself instead of growing past the viewport', () => {

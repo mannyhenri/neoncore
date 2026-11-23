@@ -1,5 +1,6 @@
 import { finalAnswerOf } from '../lib/final-answer.js';
 import { Router } from 'express';
+import { startsTrusted } from '../lib/worktree.js';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { closeQuestionsAnsweredElsewhere } from './permissions.js';
@@ -15,7 +16,7 @@ import { handleAgentInterrupted } from '../lib/recovery.js';
 import { markAgentSessionInterrupted } from '../lib/agent-session-state.js';
 import { noteSessionCleared } from '../lib/session-ledger.js';
 import { onSessionCleared, onTurnEnded } from '../lib/workflow-executor-v2.js';
-import { sweepPilots } from '../lib/goal-pilot-runner.js';
+import { noteTurnEndedForSilence, sweepPilots } from '../lib/goal-pilot-runner.js';
 import { tickQueue } from '../lib/queue-runner.js';
 import { currentFleetDelta } from '../lib/fleet-reconcile.js';
 import { renderReplayContext, type MessageRow } from '../lib/recovery-core.js';
@@ -105,6 +106,7 @@ router.post('/:id/restore', (req, res) => {
  */
 function turnEnded(agentId: string): void {
   onTurnEnded(agentId);   // records the turn end; types any /clear a fresh-session step is owed
+  noteTurnEndedForSilence(agentId);   // stored: a Goal Pilot request is judged by it (requestWentSilent)
   const changed = db.prepare("UPDATE agents SET status = 'idle' WHERE id = ? AND status = 'working'").run(agentId).changes;
   if (changed) {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
@@ -329,7 +331,9 @@ router.post('/register', (req, res) => {
   // so newly-discovered agents from that machine start in trust mode (auto-approve)
   // instead of the default 'manual'. Only applies on creation — once the agent exists,
   // the dashboard mode toggle is authoritative (the UPDATE path never touches it).
-  const initialTrust = trustMode ? 1 : 0;
+  // And a cartridge launched in a worktree NeonCore made (a feature's, a Triage issue's, …) starts in
+  // trust: it exists to do NeonCore's work there (lib/worktree.ts). Creation only, as above.
+  const initialTrust = trustMode || startsTrusted(String(repoPath || '')) ? 1 : 0;
   const initialMode = initialTrust ? 'trust' : 'manual';
 
   db.prepare(`

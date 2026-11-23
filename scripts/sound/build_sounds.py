@@ -2,18 +2,22 @@
 """
 THE APP'S SOUNDS — synthesized here, nothing sampled or downloaded.
 
-One palette, so every sound belongs to the same place: soft sine-and-bell tones in D minor
-pentatonic (D F G A C), a short tail of echo, nothing harsh. Fifteen files:
+One set per world theme (dashboard/src/world/theme.ts), the same fourteen sounds in each, in the
+same key (D minor pentatonic: D F G A C), so a cue means the same thing in both:
 
-  ambient                 a 50-second outpost bed: a soft steady drone, moving wind and a few
-                          distant pings — nothing that hums, pulses or beats. It fades in and out over OVERLAP seconds;
-                          the app overlaps consecutive copies by that much, so no loop point is heard.
+  scifi     soft sine-and-bell tones with a short tail of echo — a quiet console
+  fantasy   a medieval village, in D dorian: a lute (paired strings), a hunting horn, a church bell,
+            a hand drum, a tambourine and knocks on wood, in a stone hall instead of an echo
+
+Fourteen files each (there is no background loop: the app is silent between sounds):
+
   ui-tap, ui-primary,     interface: a soft tap, a brighter one for primary buttons, open / close
   ui-open, ui-close,      for an agent's card, and a rising "sent"
   ui-send
   cue-*                   one per kind of event (dashboard/src/lib/sound/cues.ts)
 
-Out:  dashboard/public/sound/*.mp3  and  dashboard/src/lib/sound/sounds.generated.ts
+Out:  dashboard/public/sound/*.mp3 (scifi), dashboard/public/sound/fantasy/*.mp3,
+      and dashboard/src/lib/sound/sounds.generated.ts
 Run:  python3 scripts/sound/build_sounds.py        (needs numpy and ffmpeg)
 
 Every file is checked before it is written: no clipping, a level inside its band, and no click
@@ -25,10 +29,9 @@ import numpy as np
 SR = 44100
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(ROOT, 'dashboard', 'public', 'sound')
-OVERLAP = 3.0
 rng = np.random.default_rng(7)
 
-NOTE = {'A1': 55.0, 'D2': 73.42, 'A2': 110.0, 'D3': 146.83, 'F3': 174.61, 'G3': 196.0, 'A3': 220.0, 'C4': 261.63, 'D4': 293.66,
+NOTE = {'E4': 329.63, 'B4': 493.88, 'A1': 55.0, 'D2': 73.42, 'A2': 110.0, 'D3': 146.83, 'F3': 174.61, 'G3': 196.0, 'A3': 220.0, 'C4': 261.63, 'D4': 293.66,
         'F4': 349.23, 'G4': 392.0, 'A4': 440.0, 'C5': 523.25, 'D5': 587.33, 'F5': 698.46, 'G5': 783.99, 'A5': 880.0, 'D6': 1174.66}
 
 
@@ -102,27 +105,7 @@ def level(y, peak):
 
 # ── the sounds ───────────────────────────────────────────────────────────────────────────────
 
-def ambient():
-    seconds = 50.0
-    x = t(seconds)
-    slow = lambda rate, phase=0.0: 0.5 + 0.5 * np.sin(2 * np.pi * rate * x + phase)
-    # A steady drone: two pure tones a fifth apart that swell and ebb over tens of seconds. No hum,
-    # no pulsing and no detuned pair — anything that beats faster than that reads as a vibration.
-    drone = (0.5 + 0.2 * slow(1 / 23)) * np.sin(2 * np.pi * NOTE['D3'] * x) + (0.28 + 0.16 * slow(1 / 31, 1.3)) * np.sin(2 * np.pi * NOTE['A3'] * x)
-    wind = noise(seconds, 180, 1400) * (0.12 + 0.5 * slow(1 / 13, 0.7) * slow(1 / 7.3, 2.0)) * 0.16
-    air = noise(seconds, 2500, 6000) * 0.012 * slow(1 / 19, 1.1)
-    pings = place([(s, echo(bell(NOTE[n], 2.2, decay=2.4, bright=0.2), delay=0.37, feedback=0.5, mix=0.7, tail=2.5), g) for s, n, g in
-                   [(6.0, 'A5', 0.05), (15.5, 'D6', 0.035), (24.0, 'F5', 0.045), (33.5, 'A5', 0.04), (41.0, 'G5', 0.04)]], seconds)
-    y = drone * 0.2 + wind + air + pings
-    n = int(SR * OVERLAP)
-    # Equal-power fades: two overlapped copies add up to a steady level.
-    y[:n] *= np.sin(np.linspace(0, np.pi / 2, n))
-    y[-n:] *= np.cos(np.linspace(0, np.pi / 2, n))
-    return level(y, 0.5)
-
-
 SOUNDS = {
-    'ambient': ambient,
     # interface — very short, very quiet
     'ui-tap': lambda: level(ends(bell(NOTE['D5'], 0.07, decay=60, bright=0.15) + 0.25 * noise(0.07, 1500, 5000) * np.exp(-90 * t(0.07))), 0.35),
     'ui-primary': lambda: level(ends(place([(0, bell(NOTE['A4'], 0.16, decay=26), 1), (0.012, bell(NOTE['D5'], 0.15, decay=24), 0.8)], 0.18)), 0.42),
@@ -151,8 +134,129 @@ SOUNDS = {
     'cue-turn-finished': lambda: level(ends(echo(bell(NOTE['D4'], 0.3, decay=11), tail=0.25)), 0.42),
 }
 
-# Loudness band (RMS over the sounding part) each family must sit in: interface under cues, ambient under all.
-BANDS = {'ambient': (0.05, 0.2), 'ui': (0.02, 0.22), 'cue': (0.06, 0.3)}
+# ── the fantasy set: the same fifteen, played on a village's instruments ─────────────────────
+
+def pluck(freq, seconds, damp=0.996, bright=0.5):
+    """A plucked string (Karplus–Strong): a burst of noise going round a delay line, losing its edge each lap."""
+    n = int(SR * seconds)
+    period = max(2, int(round(SR / freq)))
+    line = rng.uniform(-1, 1, period)
+    # A softer pluck starts from smoother noise.
+    line = bright * line + (1 - bright) * (line + np.roll(line, 1) + np.roll(line, 2)) / 3
+    out = np.empty(n)
+    for i in range(0, n, period):
+        m = min(period, n - i)
+        out[i:i + m] = line[:m]
+        line = damp * 0.5 * (line + np.roll(line, 1))
+    return out * np.minimum(1.0, t(seconds) / 0.002)
+
+
+def knock(seconds=0.12, pitch=180.0):
+    """Knuckles on wood: a short thud with a dry click on top."""
+    x = t(seconds)
+    return np.sin(2 * np.pi * pitch * x) * np.exp(-45 * x) + 0.5 * noise(seconds, 700, 2600) * np.exp(-110 * x)
+
+
+def drum(seconds=0.4, pitch=95.0):
+    """A hand drum: a low note that drops as it dies."""
+    x = t(seconds)
+    f = pitch * (1 + 0.6 * np.exp(-30 * x))
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-11 * x) + 0.15 * noise(seconds, 200, 900) * np.exp(-60 * x)
+
+
+def pipe(freq, seconds, attack=0.12, release=0.3):
+    """A breathy pipe: a pure note with a little air in it, held steady (no vibrato)."""
+    x = t(seconds)
+    env = np.minimum(1.0, x / attack) * np.minimum(1.0, (seconds - x) / release)
+    return env * (np.sin(2 * np.pi * freq * x) + 0.18 * np.sin(2 * np.pi * freq * 2 * x) + 0.05 * noise(seconds, freq * 1.5, freq * 6))
+
+
+def chirp(seconds=0.09, f0=2600.0, f1=3900.0):
+    x = t(seconds)
+    f = f0 + (f1 - f0) * (x / seconds) ** 0.6
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * x / seconds) ** 2
+
+
+def horn(freq, seconds, attack=0.06, release=0.18):
+    """A hunting horn: a bright, buzzy note that speaks slowly and holds steady."""
+    x = t(seconds)
+    env = np.minimum(1.0, x / attack) * np.minimum(1.0, (seconds - x) / release)
+    # Odd and even harmonics falling away, a touch brighter as it swells.
+    y = sum(np.sin(2 * np.pi * freq * k * x) / k ** 1.4 for k in range(1, 9))
+    return env * y / 2.2
+
+
+def church_bell(freq, seconds):
+    """A cast bell: partials that are not in tune with each other, a hard strike, a long ring."""
+    x = t(seconds)
+    partials = [(0.5, 1.0, 1.2), (1.0, 0.9, 1.6), (1.19, 0.6, 2.2), (1.5, 0.45, 2.6), (2.0, 0.5, 3.0), (2.51, 0.3, 4.0), (3.01, 0.2, 5.0)]
+    y = sum(g * np.sin(2 * np.pi * freq * r * x) * np.exp(-d * x) for r, g, d in partials)
+    return y * np.minimum(1.0, x / 0.003)
+
+
+def jingle(seconds=0.25):
+    """A tambourine's shake: bright metal noise in a few quick bursts."""
+    x = t(seconds)
+    bursts = sum(np.exp(-70 * np.maximum(0, x - s)) * (x >= s) for s in (0.0, 0.07, 0.14))
+    return noise(seconds, 5500, 12000) * bursts / 2
+
+
+def lute(notes, seconds, step=0.13, **kw):
+    """Notes on a lute: each string is a pair, a hair apart in pitch and in time, as on the real thing."""
+    parts = []
+    for i, (n, g) in enumerate(notes):
+        left = seconds - i * step
+        parts += [(i * step, pluck(NOTE[n], left, **kw), g), (i * step + 0.006, pluck(NOTE[n] * 1.004, left - 0.006, **kw), g * 0.7)]
+    return place(parts, seconds)
+
+
+def hall(y, tail=0.6, mix=0.3):
+    """A stone hall instead of an echo: a handful of early reflections, each duller and fainter."""
+    y = np.concatenate([y, np.zeros(int(SR * tail))])
+    wet = np.zeros_like(y)
+    for delay, gain in ((0.023, 0.6), (0.041, 0.5), (0.067, 0.4), (0.097, 0.3), (0.139, 0.22), (0.191, 0.15), (0.263, 0.1)):
+        d = int(SR * delay)
+        wet[d:] += gain * y[:-d]
+    # Duller: average neighbouring samples a few times.
+    for _ in range(3):
+        wet = (wet + np.roll(wet, 1)) / 2
+    return y + mix * wet
+
+
+# D dorian (D E F G A B C) — the raised sixth, B, is what makes it sound like a medieval tune.
+FANTASY = {
+    # interface: wood and gut
+    'ui-tap': lambda: level(ends(knock(0.07, 420)), 0.35),
+    'ui-primary': lambda: level(ends(lute([('A4', 1), ('D5', 0.8)], 0.18, step=0.014, damp=0.985)), 0.42),
+    'ui-open': lambda: level(ends(place([(0, knock(0.05, 300), 0.5), (0.02, lute([('D4', 0.9), ('A4', 1)], 0.24, step=0.06, damp=0.988), 1)], 0.26)), 0.4),
+    'ui-close': lambda: level(ends(place([(0, lute([('A4', 0.9), ('D4', 1)], 0.2, step=0.06, damp=0.988), 1), (0.16, knock(0.08, 220), 0.7)], 0.26)), 0.4),
+    'ui-send': lambda: level(ends(lute([('D4', 0.8), ('A4', 0.9), ('D5', 1)], 0.4, step=0.06, damp=0.99)), 0.45),
+    # needs you: a horn call, two notes rising a fourth — someone at the gate
+    'cue-needs-you': lambda: level(ends(hall(place([(0, horn(NOTE['A3'], 0.3), 0.9), (0.26, horn(NOTE['D4'], 0.6), 1)], 0.9))), 0.5),   # a horn is dense: a lower peak for the same loudness
+    # stuck: three knocks on a wooden door — nobody answers
+    'cue-stuck': lambda: level(ends(hall(place([(i * 0.2, knock(0.16, 190), 1 - i * 0.1) for i in range(3)], 0.75), mix=0.35)), 0.68),
+    # failed: a drum, and the lute falling a fourth onto it
+    'cue-failed': lambda: level(ends(hall(place([(0, lute([('D4', 1)], 0.5), 1), (0.2, lute([('A3', 1)], 0.8), 1), (0.2, drum(0.5), 0.8)], 1.0))), 0.72),
+    # quota nearly gone: the bell tolls twice
+    'cue-quota': lambda: level(ends(hall(place([(0, church_bell(NOTE['D4'], 0.9), 1), (0.45, church_bell(NOTE['D4'], 1.15), 0.9)], 1.6), tail=0.0, mix=0.25)[: int(SR * 1.6)], fade_out=0.25), 0.74),
+    # run finished: a lute flourish up the mode, with a shake of the tambourine
+    'cue-run-finished': lambda: level(ends(hall(place([(0, lute([('D4', 0.9), ('A4', 0.9), ('B4', 0.9), ('D5', 1)], 1.0, step=0.1), 1), (0.3, jingle(0.25), 0.25)], 1.0), tail=0.5)), 0.62),
+    # feature delivered: a fanfare — horns climbing to the octave, lute and tambourine under them
+    'cue-delivered': lambda: level(ends(hall(place([(0, horn(NOTE['D4'], 0.22), 0.8), (0.2, horn(NOTE['F4'], 0.22), 0.8), (0.4, horn(NOTE['A4'], 0.22), 0.85), (0.6, horn(NOTE['D5'], 0.9), 1), (0.6, horn(NOTE['A4'], 0.9), 0.5),
+                                                   (0.6, lute([('D4', 1), ('A4', 0.9), ('D5', 0.9)], 0.9, step=0.05), 0.6), (0.6, jingle(0.25), 0.25), (0.6, drum(0.4), 0.5)], 1.5), tail=0.7)), 0.55),
+    # cartridge launched: a gust under the wings, then the small bell at the landing circle
+    'cue-launched': lambda: level(ends(hall(place([(0, noise(0.55, 400, 2600) * np.sin(np.pi * t(0.55) / 0.55) ** 2, 0.4), (0.5, church_bell(NOTE['A5'], 0.65), 0.6)], 1.15), tail=0.5)), 0.6),
+    # notice: one lute note with a grace note before it
+    'cue-notice': lambda: level(ends(hall(lute([('F4', 0.6), ('G4', 1)], 0.4, step=0.05, bright=0.3), tail=0.3)), 0.5),
+    # turn finished: a tap on the drum skin and one low string — the quietest cue
+    'cue-turn-finished': lambda: level(ends(hall(place([(0, knock(0.06, 150), 0.5), (0.02, lute([('D4', 1)], 0.28, bright=0.3, damp=0.99), 1)], 0.3), tail=0.25)), 0.5),
+}
+
+# theme → (the folder under public/sound, its fourteen sounds)
+SETS = {'scifi': ('', SOUNDS), 'fantasy': ('fantasy', FANTASY)}
+
+# Loudness band (RMS over the sounding part) each family must sit in: interface under cues.
+BANDS = {'ui': (0.02, 0.22), 'cue': (0.06, 0.3)}
 
 
 def check(name, y):
@@ -169,36 +273,44 @@ def check(name, y):
     return peak, rms
 
 
-def write(name, y, bitrate):
+def write(folder, name, y, bitrate):
     with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
         tmp = f.name
     with wave.open(tmp, 'wb') as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
         w.writeframes((np.clip(y, -1, 1) * 32767).astype('<i2').tobytes())
-    dest = os.path.join(OUT, f'{name}.mp3')
+    os.makedirs(os.path.join(OUT, folder), exist_ok=True)
+    dest = os.path.join(OUT, folder, f'{name}.mp3')
     subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', tmp, '-codec:a', 'libmp3lame', '-b:a', bitrate, '-ac', '1', dest], check=True)
     os.unlink(tmp)
     return os.path.getsize(dest)
 
 
 def main():
-    os.makedirs(OUT, exist_ok=True)
-    rows, total = [], 0
-    for name, make in SOUNDS.items():
-        y = make()
-        peak, rms = check(name, y)
-        size = write(name, y, '96k' if name == 'ambient' else '128k')
-        total += size
-        rows.append((name, len(y) / SR))
-        print(f'{name:18s} {len(y) / SR:6.2f}s  peak {peak:.2f}  rms {rms:.3f}  {size / 1024:6.1f} KB')
-    print(f'{len(rows)} files, {total / 1024:.0f} KB')
+    assert all(set(sounds) == set(SOUNDS) for _, sounds in SETS.values()), 'every theme has the same fourteen sounds'
     lines = ['// GENERATED by scripts/sound/build_sounds.py — do not edit.',
-             '/** Every sound file the app ships, and how long it is, in seconds. */',
-             'export const SOUND_FILES = {']
-    lines += [f"  '{n}': {{ src: '/sound/{n}.mp3', seconds: {s:.2f} }}," for n, s in rows]
-    lines += ['} as const;', 'export type SoundId = keyof typeof SOUND_FILES;',
-              '/** Consecutive copies of the ambient loop overlap by this many seconds (it fades in and out over them). */',
-              f'export const AMBIENT_OVERLAP = {OVERLAP};', '']
+             'export interface SoundFile { src: string; seconds: number }']
+    for theme, (folder, sounds) in SETS.items():
+        rows, total = [], 0
+        for name, make in sounds.items():
+            y = make()
+            peak, rms = check(f'{name}', y)
+            size = write(folder, name, y, '128k')
+            total += size
+            rows.append((name, len(y) / SR))
+            print(f'{theme:8s} {name:18s} {len(y) / SR:6.2f}s  peak {peak:.2f}  rms {rms:.3f}  {size / 1024:6.1f} KB')
+        print(f'{theme}: {len(rows)} files, {total / 1024:.0f} KB')
+        prefix = f'/sound/{folder}/' if folder else '/sound/'
+        if theme == 'scifi':
+            lines += ['/** Every sound the app has, and how long it is, in seconds — the base (sci-fi) set. */', 'export const SOUND_FILES = {']
+            lines += [f"  '{n}': {{ src: '{prefix}{n}.mp3', seconds: {s:.2f} }}," for n, s in rows]
+            lines += ['} as const;', 'export type SoundId = keyof typeof SOUND_FILES;']
+            packs = ['  scifi: SOUND_FILES,']
+        else:
+            packs.append(f'  {theme}: {{ ' + ', '.join(f"'{n}': {{ src: '{prefix}{n}.mp3', seconds: {s:.2f} }}" for n, s in rows) + ' },')
+    lines += ['/** The same sounds per world theme (world/theme.ts): each theme plays its own set. */',
+              'export const SOUND_PACKS: Record<string, Record<SoundId, SoundFile>> = {', *packs, '};',
+              '']
     os.makedirs(os.path.join(ROOT, 'dashboard', 'src', 'lib', 'sound'), exist_ok=True)
     with open(os.path.join(ROOT, 'dashboard', 'src', 'lib', 'sound', 'sounds.generated.ts'), 'w') as f:
         f.write('\n'.join(lines))

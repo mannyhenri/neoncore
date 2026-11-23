@@ -97,3 +97,20 @@ export function startBlock(f: RoadmapFeature, names: ReadonlyMap<string, string>
   if (f.blockedBy.length > 0) return `Waits on ${f.blockedBy.map((id) => names.get(id) ?? 'another feature').join(', ')}`;
   return '';
 }
+
+/**
+ * How many rows a lane's undated features take as chips across `width` px: each chip is about as wide
+ * as its name (capped like the chip itself), and a row wraps when the next one does not fit.
+ */
+export function chipRowsFor(names: readonly string[], width: number): number {
+  if (names.length === 0) return 0;
+  const usable = Math.max(200, width - 16);
+  let rows = 1;
+  let used = 0;
+  for (const n of names) {
+    const w = Math.min(220, 44 + n.length * 6.6) + 6;
+    if (used > 0 && used + w > usable) { rows++; used = 0; }
+    used += w;
+  }
+  return rows;
+}

@@ -16,7 +16,7 @@ export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 /** Feature (goal pilot) events that mean it stopped on a failure rather than on a question. */
 export const PILOT_FAILED_EVENTS = ['paused', 'planner-failed', 'tests-tampered'] as const;
 /** Feature events that mean something is finished and ready to look at. */
-export const PILOT_FINISHED_EVENTS = ['completed', 'prs-opened'] as const;
+export const PILOT_FINISHED_EVENTS = ['completed', 'prs-opened', 'merged'] as const;
 
 /** The kind of a feature announcement (goal-pilot-runner.ts announcePilot). */
 export function pilotEventKind(event: string, urgency: 'action' | 'info'): NotificationKind {

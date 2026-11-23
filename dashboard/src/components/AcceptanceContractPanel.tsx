@@ -32,17 +32,20 @@ import { input, primaryBtn, quietBtn, dangerBtn, errorText } from './pilotStyles
 /** Rows for a textarea that shows its whole text (about 95 characters a row at this width). */
 const fit = (text: string) => Math.min(5, Math.max(1, Math.ceil(text.length / 95)));
 
-export function CriteriaEditor({ criteria, onChange, meta, defaultVerify }: {
+export function CriteriaEditor({ criteria, onChange, meta, defaultVerify, size }: {
   criteria: DraftCriterion[];
   onChange: (next: DraftCriterion[]) => void;
   meta: GoalPilotMeta;
   defaultVerify: VerifyMethod;
+  /** The feature's size — its criteria budget is shown, so a small job stays small. */
+  size?: string;
 }) {
   const problems = criteriaProblems(criteria);
   const methods = meta.verifyMethods ?? [
     { value: 'test' as const, label: 'Automated test', hint: '' }, { value: 'checklist' as const, label: 'Checklist', hint: '' },
   ];
   const max = meta.limits.maxCriteria ?? 12;
+  const sized = meta.featureSizes?.find((x) => x.value === size);
   const set = (i: number, patch: Partial<DraftCriterion>) => onChange(criteria.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const tests = criteria.filter((c) => c.verify === 'test').length;
 
@@ -50,7 +53,11 @@ export function CriteriaEditor({ criteria, onChange, meta, defaultVerify }: {
     <div>
       <div className="flex items-center justify-between gap-2 mb-1">
         <h3 className="text-[12px] text-gray-400 uppercase tracking-wider">Acceptance criteria — the contract</h3>
-        <span className="text-[11px] text-gray-500">Frozen when you accept · numbered AC-1…</span>
+        <span className="text-[11px] text-gray-500">
+          {sized && <span className={criteria.length > sized.maxCriteria ? 'text-amber-300' : ''} data-testid="criteria-budget">
+            {sized.label} feature · {criteria.length}/{sized.maxCriteria} · </span>}
+          Frozen when you accept · numbered AC-1…
+        </span>
       </div>
       <p className="text-[12px] text-gray-500 mb-2 leading-relaxed">
         What "done" means, one behaviour each, with <span className="text-gray-400">exactly</span> what is expected.
@@ -68,17 +75,25 @@ export function CriteriaEditor({ criteria, onChange, meta, defaultVerify }: {
                 <div className="flex-1 min-w-0 space-y-1.5">
                   <textarea rows={fit(c.text)} className={`${input} text-[13px]`} value={c.text} aria-label={`${criterionId(i)} criterion`}
                     placeholder="When <situation>, the system shall <result>." onChange={(e) => set(i, { text: e.target.value })} />
+                  {c.verify === 'command' ? (
+                    <div className="flex items-start gap-2">
+                      <span className="text-[11px] text-gray-500 uppercase tracking-wider mt-2 w-14 flex-shrink-0">Command</span>
+                      <input className={`${input} text-[13px] font-mono ${(c.command ?? '').trim() ? '' : 'border-amber-600/60'}`} value={c.command ?? ''} aria-label={`${criterionId(i)} command`}
+                        placeholder="cargo build && cargo test — passes when it exits 0" onChange={(e) => set(i, { command: e.target.value })} />
+                    </div>
+                  ) : (
                   <div className="flex items-start gap-2">
                     <span className="text-[11px] text-gray-500 uppercase tracking-wider mt-2 w-14 flex-shrink-0">Expected</span>
                     <textarea rows={fit(c.expect)} className={`${input} text-[13px] ${vague ? 'border-amber-600/60' : ''}`} value={c.expect} aria-label={`${criterionId(i)} expected`}
                       placeholder="Inputs → exact result, with real values (12.50 on 2024-03-05 → listed under March 2024)"
                       onChange={(e) => set(i, { expect: e.target.value })} />
                   </div>
+                  )}
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {methods.map((m) => (
-                      <button key={m.value} type="button" title={m.hint} onClick={() => set(i, { verify: m.value })}
+                      <button key={m.value} type="button" title={m.hint} onClick={() => set(i, { verify: m.value, ...(m.value === 'command' ? { command: c.command ?? '' } : {}) })}
                         className={`text-[12px] px-2 py-0.5 rounded border ${c.verify === m.value ? 'bg-[rgba(124,108,255,0.2)] border-[#7C6CFF] text-[#E4DFFF]' : 'border-white/10 text-gray-500 hover:text-gray-300'}`}>
-                        {m.value === 'test' ? '⚙ ' : '☑ '}{m.label}
+                        {m.value === 'test' ? '⚙ ' : m.value === 'command' ? '▶ ' : '☑ '}{m.label}
                       </button>
                     ))}
                     {vague && <span className="text-[12px] text-amber-300/90">A test needs an exact expected result.</span>}
@@ -318,6 +333,7 @@ function CriterionRow({ pilot, c, s, act, busy }: { pilot: GoalPilot; c: Accepta
             <p className="text-[12px] text-gray-500"><code className="text-sky-200/80">{s.test.command}</code>{s.lastStage && <span> · last checked after {s.lastStage}</span>}</p>
           )}
           {s.verify === 'checklist' && <p className="text-[12px] text-gray-500">Checklist — judged at the end by an independent cartridge{s.reviewer ? ` (${s.reviewer})` : ''}.</p>}
+          {s.verify === 'command' && <p className="text-[12px] text-gray-500">Command <code className="text-gray-300">{s.command || s.test?.command}</code> — passes when it exits 0; NeonCore runs it after every stage.</p>}
           {s.last && <RunResult r={s.last} />}
           {s.verdict && <p className="text-[12px] text-gray-400">Reviewer: {s.verdict.verdict} — {s.verdict.evidence}{s.confirmation ? ` · you: ${s.confirmation.accepted ? 'met' : 'not met'}${s.confirmation.note ? ` (${s.confirmation.note})` : ''}` : ''}</p>}
           {test && <details><summary className="text-[12px] text-gray-500 hover:text-gray-400 cursor-pointer">Locked test files</summary><div className="mt-1"><TestFiles test={test} /></div></details>}
@@ -343,6 +359,43 @@ function CriterionRow({ pilot, c, s, act, busy }: { pilot: GoalPilot; c: Accepta
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A DELIVERED feature can be checked again. For one delivered with gaps — stopped early, or the
+ * missing part done since — "Retest" runs the locked tests now and has the checklist reviewed
+ * afresh (you confirm, as before); nothing is built. If gaps remain, "Create a fix workflow" adds
+ * one stage to the pipeline for exactly those criteria.
+ */
+function Retest({ pilot, c, act, busy }: { pilot: GoalPilot; c: AcceptanceContract; act: (fn: () => Promise<unknown>) => void; busy: boolean }) {
+  const gaps = c.states.filter((s) => s.outcome !== 'pass' && s.outcome !== 'met');
+  const tests = c.states.filter((s) => s.verify === 'test').length;
+  const checklist = c.states.length - tests;
+  const does = [tests ? `runs the ${tests} locked test${tests === 1 ? '' : 's'} again` : '', checklist ? `has the ${checklist} checklist item${checklist === 1 ? '' : 's'} reviewed again for you to confirm` : ''].filter(Boolean).join(' and ');
+  const stopped = /^The retest (did not|could not) run/.test(pilot.attention ?? '') ? pilot.attention : '';
+  return (
+    <div data-retest data-gaps={gaps.length} className={`rounded-[12px] border px-3.5 py-3 ${gaps.length ? 'border-amber-400/40 bg-amber-400/[0.05]' : 'border-white/[0.1] bg-white/[0.02]'}`}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-[13px] text-gray-200 max-w-[620px] leading-relaxed">
+          {gaps.length
+            ? <><span className="font-semibold text-amber-300">Delivered with {gaps.length} gap{gaps.length === 1 ? '' : 's'}</span> ({gaps.map((g) => g.id).join(', ')}). If the work is done now, retest: NeonCore {does}. Nothing is built.</>
+            : <>Every criterion passes. A retest {does}, to see where it stands today.</>}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button data-retest-button disabled={busy || !!c.retesting} onClick={() => act(() => api.retestAcceptance(pilot.id))} className={gaps.length ? primaryBtn : quietBtn}>
+            {c.retesting ? 'Retesting…' : '↻ Retest'}
+          </button>
+          {gaps.length > 0 && (
+            <button data-fix-button disabled={busy || !!c.retesting} onClick={() => act(() => api.addAcceptanceFixStage(pilot.id))} className={quietBtn}
+              title="Adds one workflow stage to this feature's pipeline for exactly these criteria, then the tests and the review run again">
+              Create a fix workflow for {gaps.length === 1 ? gaps[0].id : `${gaps.length} criteria`}
+            </button>
+          )}
+        </div>
+      </div>
+      {stopped && <p data-retest-stopped className="text-[13px] text-ember-300 mt-2">{stopped}</p>}
     </div>
   );
 }
@@ -388,6 +441,7 @@ export function ContractCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged
           {action === 'ask-again' && <button disabled={busy} onClick={() => act(() => api.askAgainForAcceptanceTests(pilot.id))} className="ml-2 text-violet-300 hover:text-violet-200">Ask again</button>}
         </p>
       )}
+      {pilot.phase === 'completed' && <Retest pilot={pilot} c={c} act={act} busy={busy} />}
       {c.tamper && <TamperAlert pilot={pilot} c={c} act={act} busy={busy} />}
       {c.status === 'review' && <ReviewTests pilot={pilot} c={c} act={act} busy={busy} />}
       {action === 'confirm-checklist' && c.checklist && <ChecklistConfirm pilot={pilot} c={c} act={act} busy={busy} />}
@@ -404,10 +458,10 @@ export function ContractCard({ pilot, onChanged }: { pilot: GoalPilot; onChanged
             History — {checks} check{checks === 1 ? '' : 's'} by NeonCore{c.amendments.length ? `, ${c.amendments.length} change${c.amendments.length === 1 ? '' : 's'} by you` : ''}
           </summary>
           <ul className="mt-1.5 space-y-0.5 text-[12px] text-gray-400 pl-3 border-l border-white/10">
-            {[...c.verifications.map((v) => ({ at: v.at, line: v.status === 'tampered'
-              ? `after stage ${v.stagePosition} (${v.stageTitle}): locked tests changed — ${v.tampered.map((f) => f.path).join(', ')}`
-              : v.status === 'error' ? `after stage ${v.stagePosition}: could not check — ${v.error}`
-              : `after stage ${v.stagePosition} (${v.stageTitle}): ${v.passing}/${v.total} passing · ${v.filesChecked} locked file${v.filesChecked === 1 ? '' : 's'} unchanged (v${v.version})` })),
+            {[...c.verifications.map((v) => ({ at: v.at, when: v.stageId ? `after stage ${v.stagePosition} (${v.stageTitle})` : v.stageTitle.toLowerCase(), v })).map(({ at, when, v }) => ({ at, line: v.status === 'tampered'
+              ? `${when}: locked tests changed — ${v.tampered.map((f) => f.path).join(', ')}`
+              : v.status === 'error' ? `${when}: could not check — ${v.error}`
+              : `${when}: ${v.passing}/${v.total} passing · ${v.filesChecked} locked file${v.filesChecked === 1 ? '' : 's'} unchanged (v${v.version})` })),
             ...c.amendments.map((a) => ({ at: a.at, line: `you — ${a.kind.replace('-', ' ')} ${a.criterionIds.join(', ')}${a.version ? ` → v${a.version}` : ''}: ${a.reason}` }))]
               .sort((x, y) => x.at.localeCompare(y.at))
               .map((x, i) => <li key={i}><span className="text-gray-500">{x.at.slice(11, 16)}</span> {x.line}</li>)}

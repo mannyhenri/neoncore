@@ -54,7 +54,7 @@ export interface SpecCriterion {
   id: string;
   text: string;
   expect: string;
-  verify: 'test' | 'checklist';
+  verify: 'test' | 'checklist' | 'command';
   /** met | not-met | not-checked — the three things a reader acts on. */
   result: 'met' | 'not-met' | 'not-checked';
   outcome: CriterionOutcome | 'planned';
@@ -433,7 +433,7 @@ export function renderFeatureMarkdown(f: SpecFeature, project: ProjectSpec['proj
   else {
     out.push('| | Criterion | Expected | Checked by | Evidence |', '|---|---|---|---|---|');
     for (const c of f.criteria) {
-      out.push(`| ${RESULT_MARK[c.result]} | **${c.id}** ${cell(c.text)} | ${cell(c.expect)} | ${c.verify === 'test' ? 'locked test' : 'checklist'} | ${cell(c.evidence) || '—'} |`);
+      out.push(`| ${RESULT_MARK[c.result]} | **${c.id}** ${cell(c.text)} | ${cell(c.expect)} | ${c.verify === 'test' ? 'locked test' : c.verify === 'command' ? 'command' : 'checklist'} | ${cell(c.evidence) || '—'} |`);
     }
     out.push('');
   }

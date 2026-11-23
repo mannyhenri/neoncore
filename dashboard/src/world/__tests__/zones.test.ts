@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PLATES, OUTPOST } from '../sites';
-import { planZones, zoneFor, placeByZone, normRepo, OPEN_POOL } from '../zones';
+import { planZones, zoneFor, placeByZone, normRepo, OPEN_POOL, planSectors, sectorByRepo, sectorSize, districtsNeeded, planAnnexes } from '../zones';
 import { padsFor, hostKey } from '../fleet';
 import { meetingKeys } from '../meeting';
 
@@ -167,5 +167,85 @@ describe('meeting', () => {
     expect(meetingKeys([{ status: 'running', participantIds: ['a1', 'b1'] }, { status: 'running', participantIds: ['c1', 'd1'] }], pods)).toEqual(['m:c', 'm:d']);
     // A confer of one is not a gathering.
     expect(meetingKeys([{ status: 'running', participantIds: ['c1'] }], crew)).toEqual([]);
+  });
+});
+
+describe('sectors — the world again for every further handful of projects', () => {
+  it.each(Object.values(PLATES).map((plate) => ({ name: plate.id, plate })))('$name: every project has a district of its own, for 0 to 13 projects', ({ plate }) => {
+    const size = sectorSize(plate);
+    // One sector holds a project per pod: four, or six on the isles.
+    expect(size).toBe(plate.districts.filter((d) => d.x !== undefined).length);
+    for (let count = 0; count <= 13; count++) {
+      const projects = Array.from({ length: count }, (_, i) => project(i, [`/code/repo-${i}`], { createdAt: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z` }));
+      const sectors = planSectors(projects, plate);
+      expect(sectors.length, `${count} projects`).toBe(Math.max(1, Math.ceil(count / size)));
+      expect(sectors.map((s) => s.index)).toEqual(sectors.map((_, i) => i));
+      // Every project is in exactly one sector, oldest first, and no sector is over-full.
+      expect(sectors.flatMap((s) => s.projects.map((p) => p.id))).toEqual(projects.map((p) => p.id));
+      for (const s of sectors) {
+        expect(s.projects.length).toBeLessThanOrEqual(size);
+        // In its sector EVERY project gets a zone — none is left without a district.
+        const zones = planZones(s.projects, plate);
+        expect(zones.map((z) => z.projectId), `sector ${s.index} of ${count}`).toEqual(s.projects.map((p) => p.id));
+        expect(new Set(zones.map((z) => z.districts[0])).size).toBe(zones.length);
+      }
+    }
+  });
+
+  it('adding a project never moves one that is already there: it fills the last sector or starts the next', () => {
+    const five = Array.from({ length: 5 }, (_, i) => project(i, [`/code/repo-${i}`]));
+    const before = planSectors(five, OUTPOST);
+    const after = planSectors([project(5, ['/code/repo-5']), ...five], OUTPOST);   // given in another order
+    expect(after.slice(0, 1)).toEqual(before.slice(0, 1));
+    expect(after[1].projects.map((p) => p.id)).toEqual([...before[1].projects.map((p) => p.id), project(5, []).id]);
+    for (const s of before) for (const p of s.projects) {
+      const now = after.find((x) => x.projects.some((q) => q.id === p.id))!;
+      expect(now.index).toBe(s.index);
+      expect(planZones(now.projects, OUTPOST).find((z) => z.projectId === p.id)!.districts).toEqual(planZones(s.projects, OUTPOST).find((z) => z.projectId === p.id)!.districts);
+    }
+  });
+
+  it('a repo is in its project\'s sector — every repo of the project, however the path is written; an unowned repo is in none', () => {
+    const projects = Array.from({ length: 6 }, (_, i) => project(i, [`/code/repo-${i}`, `/code/extra-${i}`]));
+    const by = sectorByRepo(planSectors(projects, OUTPOST));
+    projects.forEach((_, i) => {
+      expect(by.get(normRepo(`/code/repo-${i}`))).toBe(Math.floor(i / 4));
+      expect(by.get(normRepo(`/Code/Extra-${i}/`))).toBe(Math.floor(i / 4));
+    });
+    expect(by.get(normRepo('/code/nobody'))).toBeUndefined();
+    // A repo two projects name belongs to the older one.
+    const shared = sectorByRepo(planSectors([...projects.slice(0, 4), project(4, ['/code/repo-0', '/code/repo-4'])], OUTPOST));
+    expect([shared.get('/code/repo-0'), shared.get('/code/repo-4')]).toEqual([0, 1]);
+  });
+});
+
+describe('sectors keep room for a project with many repos', () => {
+  const withRepos = (i: number, n: number) => project(i, Array.from({ length: n }, (_, k) => `/code/p${i}-r${k}`), { createdAt: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z` });
+
+  it('a project needs a district per two repos (two agents a repo while a feature is built), never more than the sector has', () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 20].map((n) => districtsNeeded(withRepos(0, n), 4))).toEqual([1, 1, 1, 2, 2, 3, 3, 4, 4, 4]);
+  });
+
+  it.each([
+    { repos: [4, 2, 1, 0, 1], sectors: [['p0', 'p1', 'p2'], ['p3', 'p4']] },       // the reported case: four repos, eight agents
+    { repos: [1, 1, 1, 1, 1], sectors: [['p0', 'p1', 'p2', 'p3'], ['p4']] },
+    { repos: [3, 3, 1], sectors: [['p0', 'p1'], ['p2']] },
+    { repos: [1, 1, 1, 4], sectors: [['p0', 'p1', 'p2'], ['p3']] },                // it does not fit what is left: next sector, order kept
+    { repos: [8, 1], sectors: [['p0'], ['p1']] },
+    { repos: [], sectors: [[]] },
+  ])('repos $repos → $sectors', ({ repos, sectors }) => {
+    const projects = repos.map((n, i) => withRepos(i, n));
+    const planned = planSectors(projects, OUTPOST);
+    expect(planned.map((s) => s.projects.map((p) => p.id))).toEqual(sectors);
+    for (const s of planned) {
+      // The sector never promises more districts than the world has…
+      const need = s.projects.reduce((n, p) => n + districtsNeeded(p, 4), 0);
+      expect(need).toBeLessThanOrEqual(4);
+      // …so a project that fills both its pods gets its second district in the SAME sector.
+      const zones = planZones(s.projects, OUTPOST);
+      const crowd = new Map(s.projects.map((p) => [p.id, [...new Set([...(p.cartridges as string[])])].length * 2]));
+      const annexes = planAnnexes(zones, OUTPOST, crowd);
+      for (const p of s.projects) expect(1 + (annexes.get(p.id)?.length ?? 0), `${p.id} in sector ${s.index}`).toBeGreaterThanOrEqual(Math.ceil((crowd.get(p.id) ?? 0) / 4) || 1);
+    }
   });
 });

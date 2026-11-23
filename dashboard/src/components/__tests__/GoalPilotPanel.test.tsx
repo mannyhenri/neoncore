@@ -27,6 +27,7 @@ vi.mock('../../lib/api', async () => {
     getFeatureFiles: () => Promise.resolve([]),
     openFeaturePrs: record('openFeaturePrs'),
     cleanupFeatureWorkspace: record('cleanupFeatureWorkspace'),
+    mergeFeaturePrs: record('mergeFeaturePrs'),
     getGoalPilotCandidates: () => Promise.resolve(demo.DEMO_CANDIDATES),
     getGoalPilotRequest: () => Promise.resolve({ prompt: 'the prompt' }),
     createGoalPilot: record('createGoalPilot', { goalId: 'demo-g1', pilot: null, queued: false, error: null }),
@@ -464,7 +465,10 @@ describe('GoalPilotPanel — features side by side', () => {
     expect(view.getByText(/nothing to merge/)).toBeTruthy();
     fireEvent.click(view.getByRole('button', { name: /open prs now/i }));
     await waitFor(() => expect(calls.openFeaturePrs).toHaveLength(1));
-    fireEvent.click(view.getByRole('button', { name: /clean up merged/i }));
-    await waitFor(() => expect(calls.cleanupFeatureWorkspace).toHaveLength(1));
+    // The end of the job: asked to merge (confirm first), not to clean up — cleanup follows the merge.
+    expect(view.queryByRole('button', { name: /clean up merged/i })).toBeNull();
+    fireEvent.click(view.getByRole('button', { name: /^Merge…$/ }));
+    fireEvent.click(view.getByRole('button', { name: /Merge into main & clean up/ }));
+    await waitFor(() => expect(calls.mergeFeaturePrs).toHaveLength(1));
   });
 });

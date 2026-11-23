@@ -155,7 +155,7 @@ async function writeAndLock(pilotId: string, repo: string) {
 // ── the rules, as pure functions ────────────────────────────────────────────────
 
 test('criteria: every work type defaults to the verify method its kind of result calls for', () => {
-  assert.deepEqual(VERIFY_METHODS.map((m) => m.value).sort(), ['checklist', 'test']);
+  assert.deepEqual(VERIFY_METHODS.map((m) => m.value).sort(), ['checklist', 'command', 'test']);
   for (const w of WORK_TYPES) {
     assert.equal(defaultVerify(w.value), TESTABLE_WORK_TYPES.has(w.value) ? 'test' : 'checklist', w.value);
     const [c] = normalizeCriteria(['When x, the system shall y.'], { workType: w.value });
@@ -170,7 +170,7 @@ test('criteria: numbered by position, deduplicated, capped — and every repair 
     { id: 'AC-9', text: 'A', expect: 'a → 1', verify: 'test' }, 'B', { text: 'a' }, { text: '' }, 7, { text: 'C', verify: 'maybe' },
   ], { workType: 'feature' }, notes);
   assert.deepEqual(out.map((c) => [c.id, c.text, c.verify]), [['AC-1', 'A', 'test'], ['AC-2', 'B', 'test'], ['AC-3', 'C', 'test']]);
-  for (const frag of ['twice', 'no text', 'not an object', 'not test or checklist']) assert.ok(notes.some((x) => x.includes(frag)), `no note: ${frag}`);
+  for (const frag of ['twice', 'no text', 'not an object', 'not test, command or checklist']) assert.ok(notes.some((x) => x.includes(frag)), `no note: ${frag}`);
   const many = normalizeCriteria(Array.from({ length: MAX_CRITERIA + 3 }, (_, i) => `C${i}`), {}, notes);
   assert.equal(many.length, MAX_CRITERIA);
   const fromLines = normalizeCriteria(undefined, { fallback: '- AC-1: When a, b.\n- When c, d.', workType: 'docs' }, notes);
@@ -622,7 +622,8 @@ test('stage 0 waits for its cartridge, and a test writer that goes quiet fails t
   assert.equal(s0.status, 'running');
   const agentId = s0.agentId;
   db.prepare(`UPDATE goal_pilot_requests SET dispatched_at = ? WHERE id = ?`).run(new Date(Date.now() - 10 * 60_000).toISOString(), getContract(pilotId)!.requestId);
-  db.prepare(`UPDATE agents SET status = 'idle' WHERE id = ?`).run(agentId);
+  // Its turn ended (routes/agents.ts turnEnded) after the request arrived, and nothing followed.
+  db.prepare(`UPDATE agents SET status = 'idle', turn_ended_at = ? WHERE id = ?`).run(new Date(Date.now() - 9 * 60_000).toISOString(), agentId);
   db.prepare(`UPDATE activity SET timestamp = ? WHERE agent_id = ?`).run(new Date(Date.now() - 10 * 60_000).toISOString(), agentId);
   advancePilot(pilotId);
   s0 = stage(pilotId, 'acceptance');

@@ -38,11 +38,54 @@ import { safeRelPath } from './repo-access.js';
 
 // ── criteria ──────────────────────────────────────────────────────────────────
 
-export type VerifyMethod = 'test' | 'checklist';
+export type VerifyMethod = 'test' | 'checklist' | 'command';
 
 export const VERIFY_METHODS: { value: VerifyMethod; label: string; hint: string }[] = [
   { value: 'test', label: 'Automated test', hint: 'A test written before the work, locked once you approve it, run by NeonCore after every stage.' },
+  { value: 'command', label: 'Command', hint: 'One command from the repo root (e.g. "cargo build && cargo test") — it passes when it exits 0. No test is written; NeonCore runs it after every stage.' },
   { value: 'checklist', label: 'Checklist', hint: 'Judged at the end by an independent cartridge; you confirm each verdict.' },
+];
+
+/**
+ * HOW BIG A FEATURE IS decides how many criteria it may have. "Set up the project with its
+ * dependencies" does not need twelve behaviours, each with its own locked test: it needs "it builds"
+ * and "its tests run". A planner given no budget writes to the ceiling, so each size has one, and a
+ * submission over it is REJECTED with the reason (never trimmed silently) — the planner merges, drops
+ * or re-sizes and submits again.
+ */
+export type FeatureSize = 'small' | 'medium' | 'large';
+export const FEATURE_SIZES: { value: FeatureSize; label: string; hint: string; maxCriteria: number }[] = [
+  { value: 'small', label: 'Small', maxCriteria: 3, hint: 'Setup, scaffolding, a config change, one narrow fix — usually 1-3 checks, often a single command.' },
+  { value: 'medium', label: 'Medium', maxCriteria: 6, hint: 'One user-facing behaviour with its edge cases.' },
+  { value: 'large', label: 'Large', maxCriteria: 12, hint: 'Several behaviours across modules or repos.' },
+];
+export const DEFAULT_FEATURE_SIZE: FeatureSize = 'medium';
+
+export function featureSize(v: unknown): FeatureSize | '' {
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  return FEATURE_SIZES.some((x) => x.value === s) ? s as FeatureSize : '';
+}
+
+export function criteriaBudget(size: unknown): number {
+  return FEATURE_SIZES.find((x) => x.value === (featureSize(size) || DEFAULT_FEATURE_SIZE))!.maxCriteria;
+}
+
+/** '' when the criteria fit the size; else the reason a planner is given (and must act on). */
+export function overBudget(count: number, size: FeatureSize): string {
+  const max = criteriaBudget(size);
+  if (count <= max) return '';
+  const bigger = FEATURE_SIZES.find((x) => x.maxCriteria > max);
+  return `a ${size} feature takes at most ${max} acceptance criteria; ${count} were sent. Merge criteria that check the same thing, drop any that describe an implementation step rather than an observable result, and use one "command" criterion for build/setup checks` +
+    (bigger ? ` — or, if the work really is bigger, submit "size": "${bigger.value}"` : '');
+}
+
+/** What every planner is told a criterion is — the same words for scoping and for document plans. */
+export const CRITERION_RULES = [
+  '- A criterion is an OBSERVABLE RESULT someone could check from outside — not an implementation step',
+  '  ("add a Cargo.toml", "create a module") and not something another criterion already proves.',
+  '- Fewer is better: write the smallest set that, if all pass, means the work is done.',
+  '- Setup / scaffolding / dependency work is usually ONE "command" criterion ("cargo build && cargo test",',
+  '  "npm ci && npm test") — the command exiting 0 is the check; no test file is written for it.',
 ];
 
 export interface Criterion {
@@ -53,6 +96,8 @@ export interface Criterion {
   /** EXACTLY what is expected — inputs → result. What the test asserts, or the checklist judges. */
   expect: string;
   verify: VerifyMethod;
+  /** verify "command" only: the one command, from the repo root, that passes when it exits 0. */
+  command?: string;
 }
 
 export const MAX_CRITERIA = 12;
@@ -79,7 +124,7 @@ export function normalizeCriteria(
   raw: unknown, opts: { fallback?: string; workType?: string } = {}, notes: string[] = [],
 ): Criterion[] {
   const def = defaultVerify(opts.workType);
-  let items: { text: string; expect: string; verify: VerifyMethod }[] = [];
+  let items: { text: string; expect: string; verify: VerifyMethod; command?: string }[] = [];
   if (Array.isArray(raw) && raw.length) {
     raw.forEach((r, i) => {
       if (typeof r === 'string') { if (r.trim()) items.push({ text: oneLine(r.replace(/^[-*•]\s*/, '')), expect: '', verify: def }); return; }
@@ -88,9 +133,14 @@ export function normalizeCriteria(
       const text = oneLine(str(o.text) || str(o.criterion));
       if (!text) { notes.push(`criterion ${i + 1} had no text — dropped`); return; }
       const v = str(o.verify).toLowerCase();
-      const verify: VerifyMethod = v === 'test' || v === 'checklist' ? v : def;
-      if (v && v !== verify) notes.push(`criterion ${i + 1}: verify "${v}" is not test or checklist — used ${verify}`);
-      items.push({ text, expect: oneLine(str(o.expect) || str(o.expected)), verify });
+      let verify: VerifyMethod = v === 'test' || v === 'checklist' || v === 'command' ? v : def;
+      if (v && v !== verify) notes.push(`criterion ${i + 1}: verify "${v}" is not test, command or checklist — used ${verify}`);
+      const command = oneLine(str(o.command));
+      if (verify === 'command' && !command) {
+        verify = def;
+        notes.push(`criterion ${i + 1}: verify "command" came with no command — used ${verify}`);
+      }
+      items.push({ text, expect: oneLine(str(o.expect) || str(o.expected)), verify, ...(verify === 'command' ? { command } : {}) });
     });
   } else if (opts.fallback) {
     items = opts.fallback.split('\n').map((l) => oneLine(l.replace(/^[-*•]\s*/, '').replace(/^AC-\d+:\s*/i, ''))).filter(Boolean)
@@ -122,6 +172,10 @@ export function acceptedCriteria(raw: unknown, workType?: string): { criteria: C
   if (Array.isArray(raw) && criteria.length !== raw.length) {
     return { criteria, error: `every criterion needs its text (${raw.length - criteria.length} empty or duplicate)` };
   }
+  const badCommand = criteria.filter((c) => c.verify === 'command' && (!c.command || c.command.length > MAX_COMMAND_CHARS));
+  if (badCommand.length) {
+    return { criteria, error: `${badCommand.map((c) => c.id).join(', ')} ${badCommand.length === 1 ? 'is' : 'are'} checked by a command but ${badCommand.length === 1 ? 'has' : 'have'} none (or one longer than ${MAX_COMMAND_CHARS} characters) — give the one command that passes when it exits 0` };
+  }
   const vague = criteria.filter((c) => c.verify === 'test' && !c.expect);
   if (vague.length) {
     return { criteria, error: `${vague.map((c) => c.id).join(', ')} ${vague.length === 1 ? 'is' : 'are'} checked by a test but say${vague.length === 1 ? 's' : ''} nothing about the expected result — write exactly what it should produce, or make it a checklist item` };
@@ -131,11 +185,11 @@ export function acceptedCriteria(raw: unknown, workType?: string): { criteria: C
 
 /** The criteria as the brief's free-text acceptance criteria (what reaches every agent in the goal brief). */
 export function criteriaText(criteria: Criterion[]): string {
-  return criteria.map((c) => `- ${c.id}: ${c.text}${c.expect ? ` Expected: ${c.expect}` : ''}`).join('\n');
+  return criteria.map((c) => `- ${c.id}: ${c.text}${c.expect ? ` Expected: ${c.expect}` : ''}${c.command ? ` Check: \`${c.command}\` exits 0.` : ''}`).join('\n');
 }
 
 export function criteriaHash(criteria: Criterion[]): string {
-  return sha(JSON.stringify(criteria.map((c) => [c.id, c.text, c.expect, c.verify])));
+  return sha(JSON.stringify(criteria.map((c) => [c.id, c.text, c.expect, c.verify, ...(c.command ? [c.command] : [])])));
 }
 
 function sha(s: string): string {
@@ -342,13 +396,20 @@ export function createContract(input: { pilotId: string; goalId: string; criteri
   const t = new Date().toISOString();
   const hasTests = input.criteria.some((c) => c.verify === 'test');
   db.prepare('DELETE FROM acceptance_contracts WHERE pilot_id = ?').run(input.pilotId);
+  // Command criteria are their own check: they join the tests now, with no file to write or lock.
+  const commands = commandTests(input.criteria);
   db.prepare(
-    `INSERT INTO acceptance_contracts (id, pilot_id, goal_id, repo_path, agent_type, status, version, criteria, criteria_hash, locked_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO acceptance_contracts (id, pilot_id, goal_id, repo_path, agent_type, status, version, criteria, criteria_hash, tests, locked_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(randomUUID(), input.pilotId, input.goalId, input.repoPath, input.agentType,
     hasTests ? 'drafting' : 'locked', hasTests ? 0 : 1, JSON.stringify(input.criteria), criteriaHash(input.criteria),
-    hasTests ? null : t, t, t);
+    JSON.stringify(commands), hasTests ? null : t, t, t);
   return getContract(input.pilotId)!;
+}
+
+/** The command criteria as checks NeonCore runs: the command, no files. */
+export function commandTests(criteria: Criterion[]): CriterionTest[] {
+  return criteria.filter((c) => c.verify === 'command' && c.command).map((c) => ({ criterionId: c.id, command: c.command!, files: [] }));
 }
 
 export function deleteContract(pilotId: string): void {
@@ -357,6 +418,8 @@ export function deleteContract(pilotId: string): void {
 
 export const testCriteria = (c: Pick<AcceptanceContract, 'criteria'>) => c.criteria.filter((x) => x.verify === 'test');
 export const checklistCriteria = (c: Pick<AcceptanceContract, 'criteria'>) => c.criteria.filter((x) => x.verify === 'checklist');
+/** Criteria NeonCore checks by running something (a written test, or a command). */
+export const runCriteria = (c: Pick<AcceptanceContract, 'criteria'>) => c.criteria.filter((x) => x.verify !== 'checklist');
 
 /** The criteria a tests request is for: the unlocked ones during an amendment, else every test criterion. */
 export function criteriaToWrite(c: AcceptanceContract): Criterion[] {
@@ -448,7 +511,7 @@ export function verificationStatus(results: CheckResult[]): Verification['status
 // ── where each criterion stands ───────────────────────────────────────────────
 
 export type CriterionOutcome =
-  | 'pass' | 'fail' | 'not-run'                       // test criteria
+  | 'pass' | 'fail' | 'not-run'                       // test and command criteria
   | 'met' | 'not-met' | 'unconfirmed' | 'not-checked'  // checklist criteria
   | 'waived';
 
@@ -478,8 +541,11 @@ export function criterionStates(c: AcceptanceContract): CriterionState[] {
     const verdict = c.checklist?.verdicts.find((v) => v.criterionId === cr.id) ?? null;
     const confirmation = c.checklist?.confirmations[cr.id] ?? null;
     let outcome: CriterionOutcome;
-    if (cr.verify === 'test') {
-      outcome = c.status === 'waived' && !last ? 'waived' : last ? (last.passed ? 'pass' : 'fail') : 'not-run';
+    if (cr.verify === 'command') {
+      outcome = last ? (last.passed ? 'pass' : 'fail') : 'not-run';
+    } else if (cr.verify === 'test') {
+      const waived = c.status === 'waived' || (!test && c.amendments.some((a) => a.kind === 'waive' && a.criterionIds.includes(cr.id)));
+      outcome = waived && !last ? 'waived' : last ? (last.passed ? 'pass' : 'fail') : 'not-run';
     } else if (confirmation) {
       outcome = confirmation.accepted ? 'met' : 'not-met';
     } else {
@@ -488,7 +554,7 @@ export function criterionStates(c: AcceptanceContract): CriterionState[] {
     return {
       ...cr, outcome,
       test: test ? { command: test.command, files: test.files.map((f) => f.path) } : null,
-      last, lastStage: last && latest ? `stage ${latest.stagePosition} (${latest.stageTitle})` : '',
+      last, lastStage: last && latest ? (latest.stageId ? `stage ${latest.stagePosition} (${latest.stageTitle})` : latest.stageTitle) : '',
       baseline, verdict, confirmation, reviewer: verdict ? c.checklist?.reviewerName ?? '' : '',
     };
   });
@@ -524,6 +590,7 @@ export function contractBlock(c: AcceptanceContract | null): string {
   const lines = c.criteria.map((cr) => {
     const t = tests.find((x) => x.criterionId === cr.id);
     if (cr.verify === 'checklist') return `- ${cr.id} (checklist): ${cr.text} — judged at the end by an independent reviewer.`;
+    if (cr.verify === 'command') return `- ${cr.id} (command): ${cr.text} → \`${t?.command ?? cr.command}\` must exit 0`;
     if (!t) return `- ${cr.id} (test, being written): ${cr.text}`;
     return `- ${cr.id} (test): ${cr.text} → \`${t.command}\` [${t.files.map((f) => f.path).join(', ')}]`;
   });

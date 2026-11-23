@@ -12,6 +12,7 @@
  */
 import { normalizeRepoPath } from './resolve-agent.js';
 import db from '../db.js';
+import { planScopeLines } from './plan-scope.js';
 import { AUTH_CURL_HEADER, getServerBaseUrl } from './server-url.js';
 import { availableTemplates } from './goal-decomposition.js';
 import { skippableStepNames } from './stage-steps.js';
@@ -21,6 +22,7 @@ import {
 } from './goal-pilot.js';
 import {
   MAX_CRITERIA, MAX_FILES_PER_TEST, defaultVerify, criteriaToWrite, checklistCriteria,
+  FEATURE_SIZES, CRITERION_RULES, featureSize,
   type AcceptanceContract, type Criterion,
 } from './acceptance-contract.js';
 
@@ -115,6 +117,8 @@ function dataBlock(data: unknown): string[] {
 export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
   const goal = goalRow(pilot.goalId);
   const project = projectContext(pilot.goalId, pilot.featureRepos);
+  // A project planned from a document (lib/plan-scope.ts): what it settled is decided, not asked.
+  const documented = planScopeLines(pilot.goalId);
   const round = pilot.rounds.length + 1;
   const last = round >= MAX_SCOPE_ROUNDS;
   const asked = decisions(pilot);
@@ -131,6 +135,7 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
     '',
     `FEATURE: ${goal.name ?? pilot.intake.goal ?? ''}`,
     ...(project.lines.length ? ['', ...project.lines] : []),
+    ...(documented.lines.length ? ['', ...documented.lines] : []),
     '',
     'WHAT THE PERSON TOLD US:',
     ...intakeLines(pilot),
@@ -153,6 +158,11 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
     '  and the suggestion is what then gets used.',
     '- An answer "left to the agents" is DECIDED: use the stated value and record it under assumptions.',
     '- A vague answer ("not sure", "tbd") to something that matters deserves one sharper follow-up.',
+    ...(documented.settled
+      ? ['- The planning document already settles this feature (above). Ask ONLY what it and the answers above leave open',
+        '  AND would change what gets built. If nothing is left open, submit status "complete" NOW, in this round, with no',
+        '  questions — the brief carries the document\'s decisions as written.']
+      : []),
     '',
     'THE BRIEF (when you submit status "complete") has these fields. Multi-line fields: one item per line.',
     '- slug: short kebab-case name for the work (used for docs/<slug>/ paths)',
@@ -160,23 +170,31 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
     'Everything in the brief reaches every agent that works on this goal, so it must be grounded in what',
     'the person said — an invented requirement becomes an instruction somebody acts on.',
     '',
-    `THE ACCEPTANCE CRITERIA (\`criteria\`, at most ${MAX_CRITERIA}) are what "done" is judged against — they become`,
-    'a CONTRACT: tests are written for them BEFORE any work and locked, and NeonCore runs those tests itself.',
+    'THE SIZE (`size`) sets how many acceptance criteria the work may have — a submission over it is rejected:',
+    ...FEATURE_SIZES.map((x) => `- ${x.value}: at most ${x.maxCriteria} — ${x.hint}`),
+    ...(featureSize(pilot.intake.size)
+      ? [`The person sized this feature ${featureSize(pilot.intake.size)}: at most ${FEATURE_SIZES.find((x) => x.value === featureSize(pilot.intake.size))!.maxCriteria} criteria. Send "size": "${featureSize(pilot.intake.size)}".`]
+      : ['Pick the smallest size that honestly fits and send it as "size".']),
+    '',
+    `THE ACCEPTANCE CRITERIA (\`criteria\`, never more than ${MAX_CRITERIA}) are what "done" is judged against — they become`,
+    'a CONTRACT: tests are written for them BEFORE any work and locked, and NeonCore runs those checks itself.',
+    ...CRITERION_RULES,
     'Each criterion:',
     '- text: one observable behaviour — "When <situation>, the system shall <result>."',
     '- expect: EXACTLY what is expected, concrete enough to assert: inputs → result, with real values',
     '  ("amount 12.50, category Travel, 2024-03-05 → listed under March 2024; March total shows 12.50").',
-    '- verify: "test" when an automated test can check it; "checklist" when only judgement can (research',
-    `  conclusions, wording, docs quality). Default for this work type: ${defaultVerify(pilot.intake.workType)}.`,
-    'One behaviour per criterion. Cover what the person said "done" means.',
+    '- verify: "test" when an automated test written for it can check it; "command" when one existing command',
+    '  can (send it as `command`, run from the repo root — it passes when it exits 0); "checklist" when only judgement',
+    `  can (research conclusions, wording, docs quality). Default for this work type: ${defaultVerify(pilot.intake.workType)}.`,
+    'Cover what the person said "done" means — nothing more.',
     '',
     ...completion(requestId, 'EITHER'),
     '  { "status": "questions", "message": "<one line to the person>", "questions": [ { "id": "<slug>", "text": "...",',
     '    "why": "<what it changes>", "kind": "choice|multi|text|boolean", "options": ["..."], "suggested": "...", "required": true } ] }',
     '  OR',
-    '  { "status": "complete", "message": "<one line>", "brief": { "slug": "...", ' +
+    '  { "status": "complete", "message": "<one line>", "size": "small|medium|large", "brief": { "slug": "...", ' +
       BRIEF_FIELDS.filter((f) => f.key !== 'acceptanceCriteria').map((f) => `"${f.key}": "..."`).join(', ') + ' },',
-    '    "criteria": [ { "text": "When …, the system shall …", "expect": "<inputs → exact result>", "verify": "test|checklist" } ] }',
+    '    "criteria": [ { "text": "When …, the system shall …", "expect": "<inputs → exact result>", "verify": "test|command|checklist", "command": "<only for command>" } ] }',
     ...dataBlock({
       requestId, kind: 'scope', round, maxRounds: MAX_SCOPE_ROUNDS, maxQuestions: MAX_QUESTIONS_PER_ROUND,
       goal: { id: pilot.goalId, name: goal.name ?? '' },
@@ -190,6 +208,8 @@ export function buildScopePrompt(pilot: GoalPilot, requestId: string): string {
       briefFields: BRIEF_FIELDS.map((f) => f.key),
       defaultVerify: defaultVerify(pilot.intake.workType),
       maxCriteria: MAX_CRITERIA,
+      sizes: Object.fromEntries(FEATURE_SIZES.map((x) => [x.value, x.maxCriteria])),
+      size: featureSize(pilot.intake.size) || null,
     }),
   ].join('\n');
 }
@@ -337,7 +357,8 @@ export function buildTestsPrompt(pilot: GoalPilot, contract: AcceptanceContract,
   const brief = pilot.plan?.brief ?? pilot.brief;
   const slug = brief?.slug || 'goal';
   const toWrite = criteriaToWrite(contract);
-  const others = contract.tests.filter((t) => !toWrite.some((c) => c.id === t.criterionId));
+  // Command criteria have no file: they are not the writer's to touch, and not "locked files" either.
+  const others = contract.tests.filter((t) => t.files.length && !toWrite.some((c) => c.id === t.criterionId));
   const previous = contract.draftTests.length ? contract.draftTests : contract.tests;
   return [
     requestHeader('tests', requestId),

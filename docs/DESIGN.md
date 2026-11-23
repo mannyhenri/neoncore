@@ -113,6 +113,10 @@ Enforced by the last two tests in `designGuard.test.ts`.
 | Freight | What is left to deliver: open crate = none (or nothing planned) · glowing crate = 1 · small cart = 2–3 · loaded cart = 4 or more |
 | Fountain | Scenery: fills the bottom end of the landing field |
 
+**A pod holds four.** A project with more than four agents on the map takes a second pod — the next district no project holds — and its signpost goes up there too (`zones.ts planAnnexes`, `buildingFor`). Each agent has a sticky place in its project (0–3 home, 4–7 the second pod…), and a feature's team takes its places together, so two features of one project work in two pods. With no district free, the extra agents share the pods the project has.
+
+**Five or more projects: sectors.** The world has a district for four projects. Past that, the projects are spread over *sectors* ("provinces" in the fantasy theme) — the same world again, four projects each, oldest project first, so adding a project never moves one that is already there (`zones.ts planSectors`). One sector is on the map at a time; a switcher at the top of the map appears only when there is more than one, and each sector's tab names its projects, counts its agents and carries a badge when an agent there needs you — nothing waits unseen on a map you are not looking at. An agent is on the map of its own project's sector; one whose repo no project owns is on the open land of every sector. The status counts and the list always cover every agent. The sector you were on is remembered. **A sector keeps room to work**: a project with more than two repos counts for two districts (one agent per repo, two while a feature is built in a branch of each — eight agents, two pods of four), so its second pod is always on the same map, and the next project starts the next sector instead of squeezing it. A spot an agent was dragged to on open ground while its project had no district does not keep it away from the district the project has now; an agent of no project keeps any spot it was given.
+
 **A project past the map's four districts** has no pod, but its agents still stand together: each such project camps around one open spot — the east road first, then the pond's banks (`zones.ts planCamps`).
 
 **What drives the scene.** Every moving thing is tied to a record, and only a CHANGE animates (what is already true when the screen opens is simply drawn that way; nothing is drawn until machines and projects have loaded once):
@@ -147,6 +151,8 @@ workflows.
 4. `npm run build` (writes `server/public`, which is what `:4040` serves).
 
 ## The Projects bridge
+
+**One column, the full width.** The project on screen is chosen from a dropdown in the bar at the top of the page (`ProjectPicker`, with "+ New project") — not from a list down the left side, which took the width the project's own page needs. The closed picker says when another project has features waiting on you ("+2 elsewhere"). A project's tabs are Roadmap · Design system · Features · Spec · Changelog · Architecture; the page opens on Features. **Roadmap is first** because it is where the project is planned before anything is built — and its features are the project's features, one and the same record: one added on the roadmap is in the Features list at once, and one added in Features waits in the roadmap's tray until it is given an epic. The roadmap deck names its project first thing, at the left of the vision bar (`data-roadmap-project`). (Design system: see below.) **The captain stays full size**: he stands at the left across the picker's bar and the head of the page (the title and repos move over for him — `.projects-stage`, `data-stage-head`); from the tabs down the page has the whole width. Reorganizing a screen never shrinks its character to an icon.
 
 The Projects screen is dressed as a ship's operations deck (`dashboard/src/world/bridge/`): a drawn captain stands over the project list, the workspace sits in a console frame, and a strip of gauges (repos, spent, features) reads the selected project. What the screen does is unchanged — the list and workspace are the ordinary Projects components; the console look is CSS scoped to `.bridge` (index.css), so no other screen is affected.
 
@@ -193,14 +199,18 @@ animations meaning the same states. Settings → Theme chooses it; the choice is
 
 - **Vision** across the top: the sentence (click to edit), three half-ring gauges — Delivery (delivered), Scope (has a place on the chart), Readiness (not late) — and the destination.
 - **The officer of the deck** at the left: `worry` when a feature is late, `log` when one is under way, else `idle`.
-- **The chart**: a whole calendar year of months with the TODAY pill and line; a bordered lane per epic (glyph, EPIC n, name, outcome); a node per feature — green filled = delivered, blue ring = under way, white ring = planned, orange ring with ⚠ = late — with its name tag under it. A lane's route is green up to its last delivery, blue from there to what is under way, faint beyond. Dotted lines are dependencies (orange while still blocking). Features with no date sit in "Not on the chart yet" under the lanes.
+- **The chart**: a whole calendar year of months with the TODAY pill and line; a bordered lane per epic (glyph, EPIC n, name, outcome); a node per feature — green filled = delivered, blue ring = under way, white ring = planned, orange ring with ⚠ = late — with its name tag under it. A lane's route is green up to its last delivery, blue from there to what is under way, faint beyond. Dotted lines are dependencies (orange while still blocking).
+- **Two views of one plan: the Route and the Timeline** (a switch in the chart's header; the last one used is remembered, and it opens on the Route). **The Route** (`RouteView.tsx`, `routeLayout.ts`) is the plan as a flight path: the project launches at the left and flies to its destination — the vision's planet — at the right, and every epic is a **stop** on the way, in plan order, alternately above and below the line so their names never meet. A stop is the epic's glyph in a ring that fills as its features are delivered, lit by where the epic stands: delivered (green; gold with a star when it was on time — a commendation), under way (blue, breathing), late (orange), waiting on another epic (amber, locked), planned (grey). The line behind the ship is solid green, the leg being flown is blue and moving, the rest is faint and dashed; the ship is where the project is now — at its stop once that epic has started, on the way to it before. Selecting a stop shows the epic under the route: its outcome and gate, what its date says, a progress bar, **Start next**, **+ Feature**, **Edit epic**, and its features as chips that open the same card as on the timeline. Features in no epic are listed under it. A plan with more stops than fit makes the route wider (it scrolls, opening on the ship) rather than tighter; with no epic yet the route runs straight to the destination with one button, "Plot the first epic on the route". **The Timeline** is the dated chart described below: lanes, months, dragging.
+- **Top down: vision → epics → features.** "+ Add epic" is in the chart's header and as a row under the lanes; every epic's cell has "+ Feature" (a name and, if known, a target date — it is created in the project, in that epic). A project with no epic yet shows the three steps with the next one offered. The project's features with no date wait in "Features not on the chart yet": drag one onto an epic's lane to give it that epic and that date, or select it to plan it.
+- **An epic has a date and can wait on other epics.** "edit" on an epic's cell sets its name, outcome and glyph, the day the whole epic is **due**, and the epics it **waits on** (any other epic of the project; never itself, never in a circle — the server refuses). The cell's top line says where it stands: "Due Dec 24", "Late · was due Nov 1", "Waits on Epic 2", "Delivered Nov 13 · 3 days after its date", or "★ Commendation · delivered Nov 18, due Nov 20". The date is a dashed line down the epic's lane (gold once it is a commendation, red while late). A waiting epic offers nothing to start — no "Start next" — until what it waits on is delivered.
+- **The officer wears the project's rank** (see *Commendations and the captain's rank*): the plate under him shows it.
 - **The selected waypoint's card**, bottom right: its epic, date and state, its summary, START (OPEN once it has started; disabled with the reason while it waits on another feature), and "Edit plan" for its epic, dates and what it waits on.
 
 What it means and how it is planned with: `docs/PROJECT-SPEC.md`.
 
 ## Sound
 
-Sparse on purpose: a quiet ambient loop (a steady drone, wind and distant pings — no hum), five interface sounds and ONE cue per kind of event. All fifteen files are synthesized by `scripts/sound/build_sounds.py` (one palette: soft bell tones in D minor pentatonic; nothing sampled) and checked there for clipping, level and clicks.
+Sparse on purpose: five interface sounds and ONE cue per kind of event — and no background loop or music: between sounds the app is silent. All fourteen files per theme are synthesized by `scripts/sound/build_sounds.py` (one palette: soft bell tones in D minor pentatonic; nothing sampled) and checked there for clipping, level and clicks.
 
 | Cue | Plays when |
 |---|---|
@@ -214,10 +224,121 @@ Sparse on purpose: a quiet ambient loop (a steady drone, wind and distant pings 
 | Notice | any other workflow notice |
 | Turn finished | an agent finishes its turn, or a task is done |
 
-Rules (`lib/sound/cues.ts`, tested for every cue and every pair): nothing in the first 6 seconds after the page opens; the same cue is one sound however many arrive, and again only after its cooldown; a less important cue within 3 seconds of a more important one is dropped; at most 8 cues a minute, the four warnings (⚠) always get through; in a background tab only the warnings play. The ambient loop overlaps its copies so no loop point is heard, stops in a background tab and dips under every cue.
+**A set per theme.** The same fourteen sounds exist once per world theme, in the same key, and the page plays the set of the theme it was loaded with (`SOUND_PACKS`): sci-fi is soft bell tones with a little echo; fantasy is a medieval village in D dorian — a lute with paired strings, a hunting horn, a church bell, a hand drum, a tambourine and knocks on wood, in a stone hall rather than an echo. A cue means the same thing in both — "needs you" rises a fourth, "failed" falls a fourth, "stuck" is the same sound three times.
+
+Rules (`lib/sound/cues.ts`, tested for every cue and every pair): nothing in the first 6 seconds after the page opens; the same cue is one sound however many arrive, and again only after its cooldown; a less important cue within 3 seconds of a more important one is dropped; at most 8 cues a minute, the four warnings (⚠) always get through; in a background tab only the warnings play.
 
 Interface: a tap on buttons, tabs and switches, a brighter one on primary buttons, open / close for an agent's card on the map, and "sent" when a command goes out (which replaces that click's tap).
 
-Controls: the speaker button beside the bell mutes everything; Settings → Sound has the volume, the ambient level, switches for interface sounds and event cues, and a Preview for each cue. Kept in this browser (`neoncore.sound`). A browser only allows sound after the first click on the page.
+Controls: the speaker button beside the bell mutes everything; Settings → Sound has the volume, switches for interface sounds and event cues, and a Preview for each cue. Kept in this browser (`neoncore.sound`). A browser only allows sound after the first click on the page.
 
 The server labels every bell notification with its kind — `needs-you`, `failed`, `finished`, `notice` (`server/src/lib/notification-kind.ts`); for an older server the kind is read off the title.
+
+## A project's design system — step 1: the direction
+
+Projects → a project → **Design system** (`components/DesignSystemTab.tsx`). The first step finds the project's direction; later steps build the system from it.
+
+1. **Inspiration** — up to 8 pictures of interfaces the person likes (dropped or picked). Each is scaled down in the browser and its colours are read off it.
+2. **Directions** — the designer answers with a round of FOUR directions. Each is a set of tokens (colours, heading and body type, corner radius, density, how surfaces are told apart) with a name and a reason, and is DRAWN: the same small piece of interface for every direction (`DesignPreview.tsx`), so what differs between two previews is the design.
+3. **Keep designing** — comment on any direction, write what should change, optionally mark one "More like this", and ask for four more. A plain new round is four directions not shown just before; "More like this" is four takes on that one (refined, new type, accent forward, the other light/dark mode). Earlier rounds stay, folded away.
+4. **Select** — one direction, from any round. It is shown at the top as the project's direction; it can be changed or undone.
+
+Everything is kept with the project — pictures, every round, every comment, the selection (`server/src/lib/design-system.ts`, `GET/PUT /api/design-system/:projectId`). A server from before this existed answers "not found": then it is kept in the browser and the page says so.
+
+**The designer is Claude's `/design`, run in the project's main repo** (server `lib/design-request.ts`). "Design 4 directions" sends one request to the Claude cartridge open on the project's primary repo; the request begins with `/design`, so Claude Code's own design command does the work there — it reads the inspiration pictures (written as files under `~/.neoncore/design/<project>/`, never into the repo) and the repo itself, and publishes a canvas of four artboards. It then answers through `neoncore_submit_design` with the canvas link and, for each direction, a name, a rationale and its tokens; those four are the round the page shows, and the round links to the canvas. The note, the comments on the round in front of you and "More like this" go with the next request. The page designs nothing itself: the Designer panel says which cartridge and repo will do it, or exactly why none can (no main repo, no Claude cartridge there, it is offline). A busy cartridge is not interrupted — the request waits and the page says so; a round that never arrives is said with its reason (not delivered, Claude ended its turn without submitting, 30 minutes passed, cancelled). `/design` needs Claude Code 2.1.233 or later, signed in with a claude.ai account.
+
+
+**Step 2 — the system, and the repos** (`components/DesignSystemFinal.tsx`; server `lib/design-system-build.ts`, `lib/design-system-publish.ts`). Selecting a direction *finalizes* it: the server works the direction out in full — primary, accent and neutral scales (50–900), four meaning colours checked for contrast, a type scale, spacing, radius, shadow — and the page shows the result under the selected direction: the reference page itself in a sandboxed frame, the version, and the files. Selecting another direction makes the next version; the same direction again is the same version. Finalizing commits nothing.
+
+**Publishing is one button, and only that button**: "Commit & push vN to N repos". For every repo of the project (its primary repo and its cartridges) the server writes `design-system/` — `tokens.json`, `tokens.css`, `components.css`, `index.html` (the reference page, self-contained), `DESIGN-SYSTEM.md` (the rules) — and a marked block in `CLAUDE.md` (and in `AGENTS.md` where the repo has one) telling agents to build with it; a later version replaces that block in place and touches nothing else in the file. Then **one commit of those paths only** — whatever else is modified, staged or untracked in the repo stays exactly as it was — and a plain push to the branch's upstream, never forced. Each repo answers for itself and one never stops the others: *Committed and pushed* · *Committed here, not pushed* (no upstream, or the push was refused — the reason is shown) · *Already up to date* · *Not published* (not a git repository, folder missing). When the system moves to a new version the panel says the repos are behind until it is published again. Finalizing is a calculation from the direction's tokens, not a model; the files, commits and pushes are real.
+
+
+## Project rewards
+
+A project earns **medals** as its own records pass thresholds (server `lib/project-rewards.ts`,
+`GET /api/rewards`; dashboard `components/rewards/`). Nothing is awarded by hand and nothing is
+stored: a medal is exactly as true as the records.
+
+| Family | Counts | Tiers |
+|---|---|---|
+| Features delivered | features delivered (imported ones are history, not deliveries) | 1 · 5 · 10 · 25 · 50 · 75 · 100 |
+| Epics delivered | epics whose every feature is delivered | 1 · 5 · 10 · 25 |
+| Releases shipped | versions cut in the project's changelog | 1 · 5 · 10 · 25 |
+| Bugs fixed | Triage issues merged or released, in the project's repos | 1 · 5 · 10 · 25 · 50 · 100 |
+| QA runs | QA test runs finished against the project's app | 5 · 25 · 50 · 100 |
+| Clean deliveries | features delivered with every acceptance criterion passing | 1 · 5 · 10 · 25 |
+| Clean streak | the longest run of clean deliveries in a row | 3 · 5 · 10 |
+| On time | features delivered on or before their target date | 5 · 10 · 25 |
+| Fast fixes | bugs taken from report to pull request within an hour | 1 · 5 · 10 |
+
+**The medal** (`RewardMedal.tsx`): a ring in the tier's metal — Bronze, Silver, Gold, Platinum,
+Diamond, Legend, Mythic, in tier order — the family's emblem, and the threshold on a plate. Every
+medal carries the project's name ("Gridlight AI — 10 features delivered"). An unearned medal is the
+same medal dimmed, so the next one is always in sight. The emblem is an **art slot**
+(`public/rewards/<family>.png`, built with `scripts/world/build_qa_art.py … --section rewards`);
+until the art exists the slot shows a line icon.
+
+**Where they show**: on the project's page, a Rewards row beside the captain — the highest medal of
+each family, and "All rewards" opens the whole board with the count and the distance to the next
+medal; on the map, the same highest medals hang under the project's signpost.
+
+### Commendations and the captain's rank
+
+An epic delivered **on or before its date** — every feature in it delivered by that day — is a
+**commendation** for the project (`commend` family: one medal each for the first four, a star over
+a ribbon). Late, undated, unfinished and empty epics are not. Each commendation promotes the
+project's captain one rank (`RANKS` in `lib/project-rewards.ts`, `rankFor`):
+
+| Commendations | 0 | 1 | 2 | 3 | 4+ |
+|---|---|---|---|---|---|
+| Rank | Captain | General | Commander | Admiral | President |
+
+The rank is the project's own and is counted, never set. It shows as a **rank plate** — five stars,
+one lit per rank reached, and the title — under the captain on the Projects bridge (for the project
+on screen) and under the officer of the roadmap deck; pointing at it says how many commendations the
+project has and what the next rank takes (`world/bridge/rank.tsx`). **The costume is an art slot**:
+`RANK_SHEETS` holds a captain sheet per rank (same rows and frames as `captain.png`); a rank whose
+sheet is not drawn yet wears the captain's own, and the plate still says who he is.
+
+The sci-fi captain has all four: **General** (olive field coat, gold epaulettes, red sash),
+**Commander** (navy armour with cyan trim, half-cape), **Admiral** (white naval coat, gold braid,
+peaked cap), **President** (black and gold coat, crimson cape, star medallion) — the same man, robot
+and six cycles, drawn as `designs/captain-<rank>-sheet.png` + `-sheet-2.png` and built by
+`scripts/world/build_bridge.py` into `public/world/bridge/captain-<rank>.png`. Costumes are read
+from the theme's OWN registry (`costumesFor`): the fantasy guildmaster never borrows the sci-fi
+captain's coat, and keeps his own until his are drawn.
+
+### A new map to discover
+
+Rewards also open the world. A **new map** unlocks when every project together has done all of:
+10 features delivered · 5 epics delivered · 5 QA runs · 5 releases shipped · 5 features delivered on
+time · 5 bugs fixed (`NEW_MAPS` in `lib/project-rewards.ts`; `GET /api/rewards/world`). Counts add
+up across projects. It is unlocked the first time all six are true and stays unlocked — a feature
+reopened later does not close a place that was discovered; the date is kept.
+
+On the map, a chip beside the sector switch says how far it is ("🔒 New map · 4 of 6 done"); open,
+it lists each requirement with its count and a bar. Unlocked, it reads "★ New map open".
+
+**The maps.** Each theme has three (`theme.ts MAPS_BY_THEME`): its home map, an **interior**, and
+**the isles**. The one unlock opens both extra maps.
+
+| Theme | Home | Interior (four pods) | The isles (six pods) |
+|---|---|---|---|
+| Sci-fi | The outpost | Orbital station — four bays round the reactor | Sky isles — floating islands joined by light bridges |
+| Fantasy | The village | The great hall — four chambers round the rune dais | Lagoon isles — islands joined by bridges |
+
+A new map is the same world charted onto another painted terrain (`sites.ts charted`): the same
+buildings, gates, work spots, bench, pond and landing pad by id, each given a position read off the
+art, so every rule that holds on the home map (spacing, props clear of figures, nobody on the landing
+field) is checked on all six by the same tests. The isles add two pods (`withSixPods`: districts
+`p5`, `p6`), so a sector there holds six projects, or leaves a crowded project a neighbouring island.
+Source art: `designs/terrain-station.png`, `designs/terrain-sky.png`, `designs/fantasy/terrain-hall.png`,
+`designs/fantasy/terrain-lagoon.png`; served as `/world[/fantasy]/terrain-<map>.jpg`.
+
+**Travelling.** A map still to earn is **not shown at all**: until the unlock, the progress chip is
+the only sign of it. Once unlocked, the map switch (`MapSwitch.tsx`) appears at the top of the map,
+before the sectors, listing the open maps; with only the home map open there is no switch. An open
+map is travelled to: the whole crew works there from then on, and the choice is remembered
+(`neoncore.world.map`). The world never opens on a locked map, even one remembered from before
+(`resolveMap`). Dragged spots are kept per map. The moving water
+is cut from the outpost's own art and plays there only.

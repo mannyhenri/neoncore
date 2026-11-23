@@ -97,6 +97,7 @@ const INTAKE = {
   goal: 'Add an expenses tracking section to the app',
   context: 'Income is tracked per invoice; expenses live in a spreadsheet.',
   workType: 'feature',
+  size: 'medium',
   audience: 'Small-business owners',
   done: 'I can add an expense and see monthly totals.',
   constraints: 'Do not change the invoice export format.',
@@ -645,6 +646,10 @@ test('a planner that goes quiet without submitting is called out, so the pilot i
   db.prepare(`UPDATE agents SET status = 'working' WHERE id = ?`).run(planner);
   assert.equal(checkSilentPlanner(id, Date.now() + PLANNER_SILENT_MS + 1000), false, 'a planner still working is not silent');
   db.prepare(`UPDATE agents SET status = 'idle' WHERE id = ?`).run(planner);
+  // Idle alone is the staleness sweep, which also fires mid-tool: not yet "finished".
+  assert.equal(checkSilentPlanner(id, Date.now() + PLANNER_SILENT_MS + 1000), false, 'idle mid-turn is not silence');
+  // The turn really ended (routes/agents.ts turnEnded) and nothing followed.
+  db.prepare(`UPDATE agents SET turn_ended_at = ? WHERE id = ?`).run(new Date().toISOString(), planner);
   assert.equal(checkSilentPlanner(id, Date.now() + PLANNER_SILENT_MS + 1000), true);
   const v = await get(`/api/goal-pilots/${id}`);
   assert.equal(v.json.currentRequest.status, 'failed');

@@ -48,6 +48,12 @@ interface SocketHandlers {
   onMachineUpdated?: (machine: Machine, origin: string) => void;
   /** A Goal Pilot changed on the server (phase, planner answer, stage). Refetch it. */
   onGoalPilotUpdated?: (data: { id: string }, origin: string) => void;
+  /** The QA section (components/qa): a run changed, a finding arrived, a repair awaits review. */
+  onQaRunUpdated?: (data: { id?: string; targetId?: string }, origin: string) => void;
+  onQaFindingAdded?: (data: { id?: string; targetId?: string; runId?: string }, origin: string) => void;
+  onQaRepairAdded?: (data: { id?: string; targetId?: string; runId?: string }, origin: string) => void;
+  onTriageIssueUpdated?: (data: { id?: string; sourceId?: string }, origin: string) => void;
+  onTriageEventAdded?: (data: { id?: string; issueId?: string; sourceId?: string }, origin: string) => void;
   /** Fired per server, with the origin that just came back. */
   onReconnect?: (origin: string) => void;
 }
@@ -148,6 +154,11 @@ export function useSockets(servers: ServerEntry[], handlers: SocketHandlers) {
       on<Task>('task_created', (h) => h.onTaskCreated);
       on<Task>('task_updated', (h) => h.onTaskUpdated);
       on<Machine>('machine_updated', (h) => h.onMachineUpdated);
+      on<{ id?: string; targetId?: string }>('qa_run_updated', (h) => h.onQaRunUpdated);
+      on<{ id?: string; targetId?: string; runId?: string }>('qa_finding_added', (h) => h.onQaFindingAdded);
+      on<{ id?: string; targetId?: string; runId?: string }>('qa_repair_added', (h) => h.onQaRepairAdded);
+      on<{ id?: string; sourceId?: string }>('triage_issue_updated', (h) => h.onTriageIssueUpdated);
+      on<{ id?: string; issueId?: string; sourceId?: string }>('triage_event_added', (h) => h.onTriageEventAdded);
       on<{ id: string }>('goal_pilot_updated', (h) => h.onGoalPilotUpdated);
     }
 

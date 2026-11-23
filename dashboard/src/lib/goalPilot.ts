@@ -166,7 +166,10 @@ export function intakeFromGoal(goal: Goal): Record<string, string> {
     budgetUsd: goal.budgetUsd != null ? String(goal.budgetUsd) : '',
     involvement: autonomyToInvolvement[goal.autonomy || ''] || 'balanced',
     // A feature on a project's list is, by default, a feature — change it if it is a fix or a study.
-    workType: 'feature',
+    // A planning document may have said which kind of work it is (server lib/plan-scope.ts).
+    workType: goal.documentedScope?.workType || 'feature',
+    // …and how big it is, which sets how many acceptance criteria it gets.
+    size: goal.documentedScope?.size || '',
   };
 }
 
@@ -211,7 +214,7 @@ export function pipelineSummary(stages: PilotStage[]): string {
 // ── the acceptance contract ─────────────────────────────────────────────────────
 
 /** A criterion as the person edits it before accepting the plan. Ids follow position (AC-1…). */
-export interface DraftCriterion { text: string; expect: string; verify: VerifyMethod }
+export interface DraftCriterion { text: string; expect: string; verify: VerifyMethod; command?: string }
 
 /**
  * The criteria the plan step starts from: what was accepted, else what the planner proposed, else
@@ -219,7 +222,7 @@ export interface DraftCriterion { text: string; expect: string; verify: VerifyMe
  */
 export function draftCriteriaFrom(p: Pick<GoalPilot, 'plan' | 'criteria' | 'brief' | 'intake'>, defaultVerify: VerifyMethod = 'test'): DraftCriterion[] {
   const src = p.plan?.criteria?.length ? p.plan.criteria : p.criteria?.length ? p.criteria : null;
-  if (src) return src.map(({ text, expect, verify }) => ({ text, expect, verify }));
+  if (src) return src.map(({ text, expect, verify, command }) => ({ text, expect, verify, ...(verify === 'command' ? { command: command ?? '' } : {}) }));
   return String(p.brief?.acceptanceCriteria ?? '').split('\n').map((l) => l.replace(/^[-*•]\s*/, '').replace(/^AC-\d+:\s*/i, '').trim())
     .filter(Boolean).map((text) => ({ text, expect: '', verify: defaultVerify }));
 }
@@ -233,6 +236,7 @@ export function criteriaProblems(list: DraftCriterion[]): string[] {
   list.forEach((c, i) => {
     if (!c.text.trim()) out.push(`${criterionId(i)} has no text.`);
     else if (c.verify === 'test' && !c.expect.trim()) out.push(`${criterionId(i)} is checked by a test but does not say exactly what it expects.`);
+    else if (c.verify === 'command' && !(c.command ?? '').trim()) out.push(`${criterionId(i)} is checked by a command but has none.`);
   });
   return out;
 }

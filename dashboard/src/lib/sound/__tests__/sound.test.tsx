@@ -8,7 +8,8 @@ import { existsSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CUES, CUE_SPECS, UI_SOUNDS, QUIET_START_MS, SHADOW_MS, CUES_PER_MINUTE, NOTIFICATION_KINDS, cueForNotification, createCueGate, type Cue } from '../cues';
-import { SOUND_FILES, AMBIENT_OVERLAP } from '../sounds.generated';
+import { SOUND_FILES, SOUND_PACKS } from '../sounds.generated';
+import { THEMES } from '../../../world/theme';
 import { DEFAULT_SOUND, SOUND_KEY, parseSound, getSound, setSound } from '../settings';
 import { cuesFor, type SoundWatch } from '../useSoundEvents';
 import { uiSoundFor, playCue, playUi } from '../engine';
@@ -18,10 +19,13 @@ const PUBLIC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../pub
 afterEach(() => { cleanup(); setSound({ ...DEFAULT_SOUND }); });
 
 describe('the sound files', () => {
-  it('there are fifteen: the ambient loop, five interface sounds, one cue per kind of event — each a real file', () => {
+  it('there are fourteen: five interface sounds and one cue per kind of event — each a real file, and NO background loop', () => {
     const ids = Object.keys(SOUND_FILES);
-    expect(ids.sort()).toEqual(['ambient', ...UI_SOUNDS, ...CUES.map((c) => CUE_SPECS[c].sound)].sort());
-    expect(ids).toHaveLength(15);
+    expect(ids.sort()).toEqual([...UI_SOUNDS, ...CUES.map((c) => CUE_SPECS[c].sound)].sort());
+    expect(ids).toHaveLength(14);
+    // Nothing plays between sounds: no ambient file in any theme, shipped or left behind.
+    for (const dir of ['sound', 'sound/fantasy']) expect(existsSync(resolve(PUBLIC, dir, 'ambient.mp3')), dir).toBe(false);
+    for (const id of ids) expect(SOUND_FILES[id as keyof typeof SOUND_FILES].seconds, id).toBeLessThan(2.5);
     let total = 0;
     for (const [id, f] of Object.entries(SOUND_FILES)) {
       const path = resolve(PUBLIC, `.${f.src}`);
@@ -30,12 +34,11 @@ describe('the sound files', () => {
       total += statSync(path).size;
       expect(f.seconds).toBeGreaterThan(0);
     }
-    // Small enough to ship: under a megabyte in all.
-    expect(total).toBeLessThan(1024 * 1024);
-    // Interface sounds are short, cues are brief, and the ambient loop is long enough to overlap itself.
+    // Small enough to ship.
+    expect(total).toBeLessThan(400 * 1024);
+    // Interface sounds are short, and cues are brief.
     for (const id of UI_SOUNDS) expect(SOUND_FILES[id].seconds, id).toBeLessThan(0.6);
     for (const c of CUES) expect(SOUND_FILES[CUE_SPECS[c].sound].seconds, c).toBeLessThan(2.5);
-    expect(SOUND_FILES.ambient.seconds).toBeGreaterThan(AMBIENT_OVERLAP * 4);
   });
   it('each cue has its own sound and its own rank, and exactly four are warnings', () => {
     expect(new Set(CUES.map((c) => CUE_SPECS[c].sound)).size).toBe(CUES.length);
@@ -44,6 +47,30 @@ describe('the sound files', () => {
     // A warning always outranks something that is not one.
     const lowestWarning = Math.min(...CUES.filter((c) => CUE_SPECS[c].warning).map((c) => CUE_SPECS[c].rank));
     for (const c of CUES) if (!CUE_SPECS[c].warning) expect(CUE_SPECS[c].rank, c).toBeLessThan(lowestWarning);
+  });
+});
+
+describe('the sound sets', () => {
+  it('every world theme has its own set of the same fourteen sounds — each a real file, none shared with another theme', () => {
+    expect(Object.keys(SOUND_PACKS).sort()).toEqual([...THEMES].sort());
+    const seen = new Set<string>();
+    for (const theme of THEMES) {
+      const pack = SOUND_PACKS[theme];
+      expect(Object.keys(pack).sort(), theme).toEqual(Object.keys(SOUND_FILES).sort());
+      let total = 0;
+      for (const [id, f] of Object.entries(pack)) {
+        const path = resolve(PUBLIC, `.${f.src}`);
+        expect(existsSync(path), `${theme}/${id}`).toBe(true);
+        expect(statSync(path).size, `${theme}/${id}`).toBeGreaterThan(1000);
+        expect(seen.has(f.src), `${f.src} is used twice`).toBe(false);
+        seen.add(f.src);
+        total += statSync(path).size;
+        // The same shape in every theme: a cue is as long in the village as on the outpost.
+        expect(Math.abs(f.seconds - SOUND_FILES[id as keyof typeof SOUND_FILES].seconds), `${theme}/${id}`).toBeLessThan(0.3);
+      }
+      expect(total, theme).toBeLessThan(400 * 1024);
+    }
+    expect(seen.size).toBe(THEMES.length * 14);
   });
 });
 
@@ -159,7 +186,8 @@ describe('the settings', () => {
   it('whatever is stored comes back as valid settings', () => {
     expect(parseSound(null)).toEqual(DEFAULT_SOUND);
     for (const raw of ['', 'not json', '[]', '42', 'null', '{"volume":"loud"}']) expect(parseSound(raw), raw).toEqual(DEFAULT_SOUND);
-    expect(parseSound('{"muted":true,"volume":2,"ambient":-1,"ui":false,"cues":false}')).toEqual({ muted: true, volume: 1, ambient: 0, ui: false, cues: false });
+    // (an `ambient` level saved by an earlier version is simply dropped)
+    expect(parseSound('{"muted":true,"volume":2,"ambient":0.35,"ui":false,"cues":false}')).toEqual({ muted: true, volume: 1, ui: false, cues: false });
     expect(parseSound('{"volume":0.25}')).toEqual({ ...DEFAULT_SOUND, volume: 0.25 });
   });
   it('are kept in the browser, and a muted or switched-off app plays nothing', () => {
@@ -187,16 +215,15 @@ describe('the controls', () => {
   });
   it('Settings → Sound has every level, every switch, and a preview for every cue', () => {
     const { container } = render(<SoundSettingsPanel />);
-    expect([...container.querySelectorAll('[data-sound-level]')].map((e) => e.getAttribute('data-sound-level'))).toEqual(['volume', 'ambient']);
+    expect([...container.querySelectorAll('[data-sound-level]')].map((e) => e.getAttribute('data-sound-level'))).toEqual(['volume']);
     expect([...container.querySelectorAll('[data-sound-switch]')].map((e) => e.getAttribute('data-sound-switch'))).toEqual(['muted', 'ui', 'cues']);
     expect([...container.querySelectorAll('[data-cue]')].map((e) => e.getAttribute('data-cue'))).toEqual([...CUES]);
     for (const row of container.querySelectorAll('[data-cue]')) expect(row.querySelector('button')!.textContent).toBe('Preview');
     fireEvent.change(container.querySelector('[data-sound-level="volume"]')!, { target: { value: '30' } });
-    fireEvent.change(container.querySelector('[data-sound-level="ambient"]')!, { target: { value: '0' } });
     fireEvent.click(container.querySelector('[data-sound-switch="ui"]')!);
     fireEvent.click(container.querySelector('[data-sound-switch="cues"]')!);
     fireEvent.click(container.querySelector('[data-sound-switch="muted"]')!);
-    expect(getSound()).toEqual({ muted: true, volume: 0.3, ambient: 0, ui: false, cues: false });
+    expect(getSound()).toEqual({ muted: true, volume: 0.3, ui: false, cues: false });
     expect(() => fireEvent.click(container.querySelector('[data-cue="failed"] button')!)).not.toThrow();
   });
   it('a click makes a tap, a primary button a brighter one — and nothing on a disabled control, plain text or a preview button', () => {

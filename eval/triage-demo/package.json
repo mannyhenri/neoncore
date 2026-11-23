@@ -1,0 +1,12 @@
+{
+  "name": "@neoncore/triage-demo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Bug Triage demo: a local Jira simulator, the Ledgerly repo with 6 planted bugs, and the seeded issues (docs/plans/bug-triage.md).",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "sim": "node jira-sim.mjs --port 4071",
+    "setup": "node setup.mjs"
+  }
+}

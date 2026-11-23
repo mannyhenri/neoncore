@@ -11,13 +11,15 @@
  * cost, progress, the report — carries over unchanged. This page is the new way in.
  *
  * ── LAYOUT ─────────────────────────────────────────────────────────────────────────────
- * Master–detail across two regions App owns separately: `ProjectsRail` (the list of projects, in
- * App's <aside>) and `ProjectsWorkspace` (the project's feature list, or one feature's pipeline,
- * in App's <main>). They share one store through `ProjectsProvider`, which stays mounted across
+ * One column, the full width of the work area: `ProjectPicker` (a dropdown, at the top — the bar
+ * App puts above the page) chooses the project, and `ProjectsWorkspace` (the project's tabs and
+ * feature list, or one feature's pipeline) fills everything under it. They share one store through `ProjectsProvider`, which stays mounted across
  * view switches and fetches only while the view is active. The selection lives in the URL
  * (lib/projectSelection.ts), so a project and a feature can be linked to and survive a refresh.
  */
-import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, createContext, useContext, useId } from 'react';
+import { createPortal } from 'react-dom';
+import { ProjectRewards } from './rewards/ProjectRewards';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import type { Goal, Project, Task, Agent } from '../types';
@@ -31,7 +33,8 @@ import { UNFILED, parseProjectHash, projectHash, resolveProjectSelection, type P
 import { featureStatus, nextUp, anyInFlight, TONE_PILL, TONE_DOT, type FeatureStatus } from '../lib/featureStatus';
 import { progressView, healthView } from '../lib/goalRollup';
 import { DocsBar, SpecTab, RoadmapTab, ChangelogTab, ArchitectureTab } from './ProjectHub';
-import { SegMeter, SectionTitle, PageTitle, AiWorkingBar } from './SectionTitle';
+import { DesignSystemTab } from './DesignSystemTab';
+import { SegMeter, PageTitle, AiWorkingBar } from './SectionTitle';
 
 const primaryBtn = 'h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const quietBtn = 'h-10 px-4 btn-ghost rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40';
@@ -90,7 +93,7 @@ const ProjectsContext = createContext<ProjectsContextValue | null>(null);
 
 function useProjects(): ProjectsContextValue {
   const ctx = useContext(ProjectsContext);
-  if (!ctx) throw new Error('ProjectsRail/ProjectsWorkspace must render inside <ProjectsProvider>');
+  if (!ctx) throw new Error('ProjectPicker/ProjectsWorkspace must render inside <ProjectsProvider>');
   return ctx;
 }
 
@@ -296,87 +299,129 @@ function RepoChips({ repos, agents }: { repos: string[]; agents: Agent[] }) {
 
 const NEW_PROJECT_BTN = 'h-10 px-4 text-[13px] btn-primary font-semibold rounded-[10px] transition-colors';
 
-export function ProjectsRail() {
+/** What a project's row says under its name: how far its features are, its repos, what it has cost. */
+function ProjectFacts({ p }: { p: Project }) {
+  const total = p.featureCount ?? 0;
+  const done = p.featuresDone ?? 0;
+  const repos = projectRepos(p);
+  return (
+    <span className="flex items-center gap-2 text-[12px] text-gray-400 flex-wrap">
+      <span>{total === 0 ? ((p.featuresExisting ?? 0) > 0 ? 'none planned yet' : 'no features yet') : `${done}/${total} features done`}</span>
+      {(p.featuresExisting ?? 0) > 0 && <span className="text-sky-300/80">{p.featuresExisting} existing</span>}
+      {(p.featuresActive ?? 0) > 0 && <span className="text-violet-300">{p.featuresActive} in progress</span>}
+      <span>· {repos.length === 0 ? <span className="text-ember-300">no repos</span> : `${repos.length} repo${repos.length === 1 ? '' : 's'}`}</span>
+      {(p.costUsd ?? 0) > 0 && <span className="text-emerald-400">{formatUsd(p.costUsd!)}</span>}
+    </span>
+  );
+}
+const NeedsYou = ({ n }: { n: number }) => (n > 0 ? (
+  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-ember-500/[0.14] border border-ember-500/50 text-ember-300 whitespace-nowrap">{n} need{n === 1 ? 's' : ''} you</span>
+) : null);
+
+/**
+ * THE PROJECT PICKER — which project is on the screen, chosen from a dropdown at the top of the
+ * work area. (It was a list down the left side; the page needs that width for the project itself.)
+ * The button says the project in front of you; the list is every project, each with how far it
+ * is and whether it needs you, then the features that belong to no project, then "+ New project".
+ */
+export function ProjectPicker() {
   const { projects, features, loading, selection, selectProject, setModal } = useProjects();
   const unfiled = features.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId));
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  // The list is drawn OVER the page (a portal, placed under the button): the bar it opens from is
+  // a clipped panel, and a list inside it would be cut off at the bar's bottom edge.
+  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => { const r = button.current?.getBoundingClientRect(); if (r) setAt({ left: r.left, top: r.bottom + 8, width: r.width }); };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node) && !list.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const current = projects.find((p) => p.id === selection.projectId) ?? null;
+  const onUnfiled = selection.projectId === UNFILED;
+  const others = projects.filter((p) => p.id !== current?.id).reduce((n, p) => n + (p.featuresNeedYou ?? 0), 0);
+  const pick = (id: string) => { selectProject(id); setOpen(false); };
 
   return (
-    <section>
-      <SectionTitle actions={
-        <button onClick={() => setModal({ type: 'new-project' })} className={NEW_PROJECT_BTN}>
-          + New project
-        </button>
-      }>Projects</SectionTitle>
+    <div ref={box} data-project-picker className="relative flex items-center gap-3 min-w-0 flex-1">
+      <button ref={button} type="button" data-project-picker-button aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((v) => !v)}
+        className="min-w-0 flex-1 max-w-[620px] text-left rounded-[12px] border border-neon-500/60 bg-neon-600/[0.1] hover:bg-neon-600/[0.16] px-4 py-2.5 flex items-center gap-3 transition-colors">
+        {current ? (
+          <>
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: current.color, boxShadow: `0 0 8px ${current.color}` }} />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2"><span className="text-[17px] font-semibold text-gray-100 truncate">{current.name}</span><NeedsYou n={current.featuresNeedYou ?? 0} /></span>
+              <ProjectFacts p={current} />
+            </span>
+          </>
+        ) : (
+          <span className="min-w-0 flex-1">
+            <span className="block text-[17px] font-semibold text-gray-100 truncate">{loading ? 'Loading…' : onUnfiled ? 'Features without a project' : projects.length === 0 ? 'No projects yet' : 'Choose a project'}</span>
+            <span className="block text-[12px] text-gray-400">{onUnfiled ? `${unfiled.length} to file` : projects.length === 0 ? 'A project names the work and the repos involved' : `${projects.length} project${projects.length === 1 ? '' : 's'}`}</span>
+          </span>
+        )}
+        {/* Another project waiting on you is said on the closed picker, so it is not hidden behind it. */}
+        {others > 0 && <span data-others-need-you className="text-[11px] font-semibold text-ember-300 whitespace-nowrap" title="Features of other projects are waiting on you">+{others} elsewhere</span>}
+        <span aria-hidden="true" className={`text-gray-300 text-[12px] transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+      <button onClick={() => setModal({ type: 'new-project' })} className={NEW_PROJECT_BTN}>+ New project</button>
 
-      {loading ? (
-        <p className="text-[13px] text-gray-500 py-4">Loading…</p>
-      ) : projects.length === 0 && unfiled.length === 0 ? (
-        <div className="border border-dashed border-white/[0.14] rounded-[16px] p-4 text-center">
-          <p className="text-[13px] text-gray-500 leading-snug">
-            No projects yet. A project names the work and the repos involved; its features are built one at a time.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
+      {open && at && createPortal(
+        <div ref={list} role="listbox" aria-label="Projects" style={{ left: at.left, top: at.top, width: Math.max(360, at.width) }}
+          className="fixed z-50 max-h-[70vh] overflow-y-auto rounded-[14px] border border-white/[0.14] bg-[#0A1020] shadow-[0_18px_50px_rgba(0,0,0,0.65)] p-2 flex flex-col gap-1.5">
+          {projects.length === 0 && unfiled.length === 0 && (
+            <p className="text-[13px] text-gray-500 leading-snug px-3 py-3">No projects yet. A project names the work and the repos involved; its features are built one at a time.</p>
+          )}
           {projects.map((p) => {
+            const active = selection.projectId === p.id;
             const total = p.featureCount ?? 0;
             const done = p.featuresDone ?? 0;
-            const active = selection.projectId === p.id;
-            const repos = projectRepos(p);
             return (
-              <button
-                key={p.id}
-                onClick={() => selectProject(p.id)}
-                aria-current={active ? 'true' : undefined}
-                className={`w-full text-left rounded-[16px] border p-4 flex flex-col gap-2 transition-colors ${
-                  active
-                    ? 'bg-neon-600/[0.12] border-neon-500 shadow-[0_0_22px_rgba(90,174,255,0.25)]'
-                    : (p.featuresNeedYou ?? 0) > 0
-                      ? 'bg-gl-surface/60 border-ember-500/40 hover:border-ember-500/60'
-                      : 'bg-gl-surface/60 border-white/[0.1] hover:border-white/[0.2]'
-                }`}
-              >
-                <div className="flex items-center gap-2">
+              <button key={p.id} role="option" aria-selected={active} data-project-option={p.id} onClick={() => pick(p.id)}
+                className={`w-full text-left rounded-[10px] border px-3 py-2.5 flex flex-col gap-1.5 transition-colors ${
+                  active ? 'bg-neon-600/[0.14] border-neon-500' : (p.featuresNeedYou ?? 0) > 0 ? 'border-ember-500/40 hover:border-ember-500/70 hover:bg-white/[0.03]' : 'border-transparent hover:border-white/[0.16] hover:bg-white/[0.03]'
+                }`}>
+                <span className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color, boxShadow: `0 0 8px ${p.color}` }} />
                   <span className="text-[15px] font-semibold text-gray-100 truncate flex-1">{p.name}</span>
-                  {(p.featuresNeedYou ?? 0) > 0 && (
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-ember-500/[0.14] border border-ember-500/50 text-ember-300 whitespace-nowrap">
-                      {p.featuresNeedYou} need{p.featuresNeedYou === 1 ? 's' : ''} you
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-[13px] text-gray-400 flex-wrap">
-                  <span>{total === 0 ? ((p.featuresExisting ?? 0) > 0 ? 'none planned yet' : 'no features yet') : `${done}/${total} features done`}</span>
-                  {(p.featuresExisting ?? 0) > 0 && <span className="text-sky-300/80">{p.featuresExisting} existing</span>}
-                  {(p.featuresActive ?? 0) > 0 && <span className="text-violet-300">{p.featuresActive} in progress</span>}
-                  <span>· {repos.length === 0 ? <span className="text-ember-300">no repos</span> : `${repos.length} repo${repos.length === 1 ? '' : 's'}`}</span>
-                  {(p.costUsd ?? 0) > 0 && <span className="text-emerald-400">{formatUsd(p.costUsd!)}</span>}
-                </div>
+                  <NeedsYou n={p.featuresNeedYou ?? 0} />
+                </span>
+                <ProjectFacts p={p} />
                 {total > 0 && (
-                  <div aria-hidden="true" className="flex gap-[2px]">
+                  <span aria-hidden="true" className="flex gap-[2px]">
                     {Array.from({ length: 20 }, (_, k) => (
-                      <span key={k} className={`flex-1 h-[5px] rounded-[1px] ${k < Math.round((20 * done) / total) ? 'bg-neon-500 shadow-[0_0_4px_#5AAEFF]' : 'bg-neon-500/[0.14]'}`} />
+                      <span key={k} className={`flex-1 h-[4px] rounded-[1px] ${k < Math.round((20 * done) / total) ? 'bg-neon-500 shadow-[0_0_4px_#5AAEFF]' : 'bg-neon-500/[0.14]'}`} />
                     ))}
-                  </div>
+                  </span>
                 )}
               </button>
             );
           })}
           {unfiled.length > 0 && (
-            <button
-              onClick={() => selectProject(UNFILED)}
-              aria-current={selection.projectId === UNFILED ? 'true' : undefined}
-              className={`w-full text-left rounded-[16px] border border-dashed p-4 transition-colors ${
-                selection.projectId === UNFILED ? 'bg-ember-500/[0.08] border-ember-500/50' : 'border-white/[0.16] hover:bg-white/[0.03]'
-              }`}
-            >
-              <div className="text-[13px] text-gray-300">Features without a project</div>
-              <div className="text-[13px] text-ember-300 mt-1">{unfiled.length} to file — goals from before projects held features</div>
+            <button role="option" aria-selected={onUnfiled} data-project-option={UNFILED} onClick={() => pick(UNFILED)}
+              className={`w-full text-left rounded-[10px] border border-dashed px-3 py-2.5 transition-colors ${onUnfiled ? 'bg-ember-500/[0.08] border-ember-500/50' : 'border-white/[0.16] hover:bg-white/[0.03]'}`}>
+              <span className="block text-[13px] text-gray-300">Features without a project</span>
+              <span className="block text-[13px] text-ember-300 mt-0.5">{unfiled.length} to file — goals from before projects held features</span>
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
-    </section>
+    </div>
   );
 }
 
@@ -492,11 +537,13 @@ function AddFeatures({ projectId, empty }: { projectId: string; empty: boolean }
   );
 }
 
-type ProjectTab = 'features' | 'spec' | 'roadmap' | 'changelog' | 'architecture';
+type ProjectTab = 'design' | 'features' | 'spec' | 'roadmap' | 'changelog' | 'architecture';
 const PROJECT_TABS: { key: ProjectTab; label: string; hint: string }[] = [
-  { key: 'features', label: 'Features', hint: 'The list, in build order — start the next one here' },
+  // The roadmap comes first: it is where the project is planned (vision → epics → features) before anything is built.
+  { key: 'roadmap', label: 'Roadmap', hint: 'Vision → epics → features on a timeline — plan here first; what you add is in Features too' },
+  { key: 'design', label: 'Design system', hint: 'The project\'s colours, type and components — what every feature is built to' },
+  { key: 'features', label: 'Features', hint: 'The same features as the roadmap, in build order — start the next one here' },
   { key: 'spec', label: 'Spec', hint: 'Every feature\'s intent beside what was verified' },
-  { key: 'roadmap', label: 'Roadmap', hint: 'Now / Next / Later / Done — shareable' },
   { key: 'changelog', label: 'Changelog', hint: 'What shipped, by release' },
   { key: 'architecture', label: 'Architecture', hint: 'How it is built — a page with diagrams, generated from the codebase' },
 ];
@@ -542,7 +589,8 @@ function ProjectDetail({ project }: { project: Project }) {
   const activeTasks = myTasks.filter((t) => ['queued', 'claimed', 'in_progress'].includes(t.status));
 
   return (
-    <div className="space-y-5">
+    // data-stage-head: how many of the first blocks are the page's HEAD — they sit beside the captain (index.css).
+    <div className="space-y-5" data-stage-head="2">
       {/* Identity */}
       <div className="panel-live rounded-[22px] p-6 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -585,6 +633,9 @@ function ProjectDetail({ project }: { project: Project }) {
         )}
       </div>
 
+      {/* What the project has earned so far — counted from its own records. */}
+      <ProjectRewards project={project} version={version} />
+
       {/* The project's views: the list you build from, and the documents it becomes. */}
       <div role="tablist" aria-label="Project views" className="flex items-center gap-1 p-1 rounded-xl bg-gl-surface/70 border border-white/[0.08] overflow-x-auto w-fit max-w-full">
         {PROJECT_TABS.map((t) => (
@@ -597,9 +648,10 @@ function ProjectDetail({ project }: { project: Project }) {
         ))}
       </div>
 
-      {tab !== 'features' && <DocsBar project={project} onChanged={refresh} />}
+      {tab === 'design' && <DesignSystemTab project={project} />}
+      {tab !== 'features' && tab !== 'design' && <DocsBar project={project} onChanged={refresh} />}
       {tab === 'spec' && <SpecTab project={project} agents={agents} version={version} onOpenFeature={openById} onChanged={refresh} />}
-      {tab === 'roadmap' && <RoadmapTab project={project} version={version} onOpenFeature={openById} onChanged={refresh} />}
+      {tab === 'roadmap' && <RoadmapTab project={project} agents={agents} version={version} onOpenFeature={openById} onChanged={refresh} />}
       {tab === 'changelog' && <ChangelogTab project={project} agents={agents} version={version} onChanged={refresh} />}
       {tab === 'architecture' && <ArchitectureTab project={project} agents={agents} version={version} onChanged={refresh} />}
 
@@ -691,7 +743,7 @@ function FeatureDetail({ feature, project }: { feature: Goal; project: Project |
   const pv = progressView(feature);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-stage-head="2">
       {/* Where am I */}
       <div className="flex items-center gap-2 text-[13px] text-gray-500 flex-wrap">
         <button onClick={() => selectProject(project ? project.id : UNFILED)} className="hover:text-gray-200 flex items-center gap-1.5">
@@ -868,7 +920,7 @@ function UnfiledDetail() {
   const { projects, features, openFeature, updateFeature } = useProjects();
   const mine = features.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId));
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-stage-head="1">
       <div>
         <PageTitle>Features without a project</PageTitle>
         <p className="text-[13px] text-gray-500 mt-1 max-w-2xl leading-relaxed">
@@ -939,7 +991,7 @@ export function ProjectsWorkspace() {
       {loading ? (
         <div className="flex items-center justify-center h-32"><span className="text-sm text-gray-500">Loading…</span></div>
       ) : selection.projectId === null ? (
-        <div className="border border-dashed border-neon-500/40 rounded-[22px] p-6 md:p-10 text-center space-y-5">
+        <div data-stage-head="0" className="border border-dashed border-neon-500/40 rounded-[22px] p-6 md:p-10 text-center space-y-5">
           <div>
             <div aria-hidden="true" className="flex justify-center gap-1 mb-3"><span className="w-3.5 h-8 rounded-[2px] seg-on" /><span className="w-3.5 h-8 rounded-[2px] seg-on" /><span className="w-3.5 h-8 rounded-[2px] seg-off" /></div>
             <h3 className="font-display text-xl font-semibold text-gray-100">Start with a project</h3>

@@ -6,7 +6,7 @@
  * nothing; the person APPLIES what they ticked. Starting an import is POST /api/projects/:id/imports.
  */
 import { Router } from 'express';
-import { getImport, importPrompt, submitImport, applyImport, ImportError } from '../lib/project-import.js';
+import { getImport, importPrompt, importDocument, submitImport, applyImport, ImportError } from '../lib/project-import.js';
 import { docsChanged } from '../lib/project-docs.js';
 
 const router = Router();
@@ -26,6 +26,13 @@ router.get('/:id', (req, res) => {
 router.get('/:id/prompt', (req, res) => {
   if (!getImport(req.params.id)) return res.status(404).json({ error: 'import request not found' });
   res.json({ prompt: importPrompt(req.params.id) });
+});
+
+/** The uploaded document a plan is read from, as text — what the cartridge fetches when it was too long for the prompt. */
+router.get('/:id/document', (req, res) => {
+  const doc = importDocument(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'this request has no document' });
+  res.type('text/markdown; charset=utf-8').send(doc.text);
 });
 
 /** Where the cartridge submits. Stores a proposal; creates nothing. */

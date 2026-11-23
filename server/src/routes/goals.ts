@@ -141,6 +141,7 @@ function normalizeGoal(row: Record<string, unknown>, extra?: Partial<Goal>): Goa
     owner: (row.owner as string) || '',
     investmentCategory: (row.investment_category as string) || '',
     autonomy: (row.autonomy as string) || '',
+    documentedScope: (() => { try { return JSON.parse((row.documented_scope as string) || '{}'); } catch { return {}; } })(),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     ...extra,

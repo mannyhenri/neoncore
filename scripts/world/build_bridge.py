@@ -6,6 +6,8 @@
 Reads (from the designs folder):
     captain-sheet.png    3 rows x 4 columns on flat magenta: idle / brief / call      (Projects)
     captain-sheet-2.png  3 more rows for the captain: log / celebrate / worry
+    captain-<rank>-sheet.png, captain-<rank>-sheet-2.png   the same two, in a rank's costume
+                         (general, commander, admiral, president)
     engineer-sheet.png   3 rows x 4 columns: idle / work / call                        (Flows)
     core-sheet.png       4 rows x 4 columns: low / normal / high / warn                (Tokens)
     quartermaster-sheet.png  3 rows x 4 columns: idle / work / call                    (Tasks)
@@ -27,6 +29,12 @@ from build_crew_sheets import keyed  # the same chroma key as the crew
 SHEETS = {
     # A character can be drawn over several sheets: they are stacked into one atlas.
     'captain': [('captain-sheet.png', ['idle', 'brief', 'call']), ('captain-sheet-2.png', ['log', 'celebrate', 'worry'])],
+    # THE CAPTAIN'S RANKS (dashboard world/bridge/rank.tsx): the same man and the same six cycles, in
+    # each rank's costume. A rank whose sheets are missing is null and he wears his own.
+    'captain-general': [('captain-general-sheet.png', ['idle', 'brief', 'call']), ('captain-general-sheet-2.png', ['log', 'celebrate', 'worry'])],
+    'captain-commander': [('captain-commander-sheet.png', ['idle', 'brief', 'call']), ('captain-commander-sheet-2.png', ['log', 'celebrate', 'worry'])],
+    'captain-admiral': [('captain-admiral-sheet.png', ['idle', 'brief', 'call']), ('captain-admiral-sheet-2.png', ['log', 'celebrate', 'worry'])],
+    'captain-president': [('captain-president-sheet.png', ['idle', 'brief', 'call']), ('captain-president-sheet-2.png', ['log', 'celebrate', 'worry'])],
     'engineer': ('engineer-sheet.png', ['idle', 'work', 'call']),
     'core': ('core-sheet.png', ['low', 'normal', 'high', 'warn']),
     'quartermaster': ('quartermaster-sheet.png', ['idle', 'work', 'call']),
@@ -102,7 +110,8 @@ def main(designs=None, dash=None):
     designs, dash = designs or sys.argv[1], dash or sys.argv[2]
     out = os.path.join(dash, 'public', 'world', THEME, 'bridge') if THEME else os.path.join(dash, 'public', 'world', 'bridge')
     os.makedirs(out, exist_ok=True)
-    sheets = ', '.join(f"{n}: {sheet(n, designs, out)}" for n in SHEETS)
+    # A name that is not a plain identifier (captain-general) is quoted.
+    sheets = ', '.join(f"{n if n.isidentifier() else repr(n)}: {sheet(n, designs, out)}" for n in SHEETS)
     drops = ', '.join(f"{v}: {backdrop(v, designs, out)}" for v in BACKDROPS)
     body = f"{{\n  sheets: {{ {sheets} }},\n  backdrops: {{ {drops} }},\n}};\n"
     kind = '{ sheets: Record<string, DeckSheet | null>; backdrops: Record<string, string | null> }'

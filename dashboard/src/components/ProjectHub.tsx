@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
-import type { Agent, Project, ProjectSpec, SpecFeature, SpecGroup, SpecAlignment, SpecStatus, ChangelogEntry, ChangeKind, ProjectImport, ImportPart } from '../types';
+import type { Agent, Project, ProjectSpec, SpecFeature, SpecGroup, SpecAlignment, SpecStatus, ChangelogEntry, ChangeKind, ProjectImport, ImportPart, PlanProposal } from '../types';
 import { plannerCandidates } from '../lib/goalPilot';
 import { AiWorkingBar } from './SectionTitle';
 
@@ -345,10 +345,12 @@ function lanesOf(features: SpecFeature[]): Record<Lane, SpecFeature[]> {
   return r;
 }
 
-export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
-  project: Project; version: number; onOpenFeature: (id: string) => void; onChanged: () => void;
+export function RoadmapTab({ project, agents = [], version, onOpenFeature, onChanged }: {
+  project: Project; agents?: Agent[]; version: number; onOpenFeature: (id: string) => void; onChanged: () => void;
 }) {
   const { spec, error } = useSpec(project.id, version);
+  const { imports, load: loadImports } = useImports(project.id, version);
+  const planReady = imports?.find((i) => i.status !== 'superseded' && i.parts.includes('plan'))?.status === 'ready';
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<Lane | null>(null);
   const [err, setErr] = useState('');
@@ -412,14 +414,22 @@ export function RoadmapTab({ project, version, onOpenFeature, onChanged }: {
         <RoadmapDeck>
           <RoadmapChart project={project} version={version} onOpenFeature={onOpenFeature} onChanged={onChanged}
             toolbar={(
-              <button type="button" onClick={() => setView('board')} title={`Back to ${project.name}`}
-                className="h-9 px-3 rounded-[9px] border border-[rgba(96,160,255,0.35)] bg-[rgba(6,12,26,0.85)] text-[12px] font-semibold text-gray-200 hover:text-white hover:border-[rgba(96,160,255,0.7)] whitespace-nowrap">
-                ← Board
-              </button>
+              <>
+                <button type="button" onClick={() => setView('board')} title={`Back to ${project.name}`}
+                  className="h-9 px-3 rounded-[9px] border border-[rgba(96,160,255,0.35)] bg-[rgba(6,12,26,0.85)] text-[12px] font-semibold text-gray-200 hover:text-white hover:border-[rgba(96,160,255,0.7)] whitespace-nowrap">
+                  ← Board
+                </button>
+                <button type="button" onClick={() => setView('board')}
+                  title="Upload a spec, epics or roadmap document — a cartridge turns it into epics and features on this roadmap"
+                  className="h-9 px-3 rounded-[9px] border border-[#7C6CFF]/60 bg-[#7C6CFF]/20 text-[12px] font-semibold text-violet-100 hover:bg-[#7C6CFF]/30 whitespace-nowrap">
+                  {planReady ? '✦ Review the plan' : '✦ Plan from a document'}
+                </button>
+              </>
             )} />
         </RoadmapDeck>
       )}
       {view === 'board' && <>
+      <PlanFromDocument project={project} agents={agents} imports={imports} load={loadImports} onChanged={onChanged} />
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {LANES.map((lane) => {
           const items = lanes[lane.key];
@@ -601,6 +611,7 @@ const PARTS: { key: ImportPart; label: string; hint: string }[] = [
   { key: 'features', label: 'Existing features + specs', hint: 'what the product already does, each with acceptance criteria for how it behaves today' },
   { key: 'changelog', label: 'Changelog', hint: 'the history of what shipped — from git commits and tags, and any CHANGELOG already there' },
   { key: 'backlog', label: 'Backlog', hint: 'work the code points at — TODOs, half-built paths — offered as planned features' },
+  { key: 'plan', label: 'Plan', hint: 'the vision, epics and planned features read from an uploaded document' },
 ];
 const partsText = (parts: ImportPart[]) => {
   const names = parts.map((k) => PARTS.find((x) => x.key === k)!.label.toLowerCase());
@@ -633,6 +644,17 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
   const [features, setFeatures] = useState<Set<string>>(() => new Set(p.features.map((f) => f.name)));
   const [backlog, setBacklog] = useState<Set<string>>(() => new Set());
   const [changes, setChanges] = useState<Set<string>>(() => new Set(p.changelog.map((c) => c.id)));
+  // The plan read from a document: everything ticked to start — the person came here to build the roadmap.
+  const plan = p.plan ?? { vision: '', epics: [], features: [] };
+  const [vision, setVision] = useState(plan.vision);
+  const [useVision, setUseVision] = useState(!!plan.vision);
+  const [epics, setEpics] = useState<Set<string>>(() => new Set(plan.epics.filter((e) => !e.existing).map((e) => e.name)));
+  const [planned, setPlanned] = useState<Set<string>>(() => new Set(plan.features.map((f) => f.name)));
+  const [projectKeep, setProjectKeep] = useState<Set<string>>(() => new Set(Object.keys(plan.project ?? {})));
+  const [fills, setFills] = useState<Set<string>>(() => new Set((plan.updates ?? []).map((f) => f.name)));
+  // Each open question starts on the planner's suggestion, marked as left to the agents — change any.
+  const [answers, setAnswers] = useState<Record<string, { value: string; delegated: boolean }>>(() =>
+    Object.fromEntries((plan.questions ?? []).map((q) => [q.id, { value: q.suggested, delegated: true }])));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const toggle = (set: Set<string>, setter: (s: Set<string>) => void, key: string) => {
@@ -651,11 +673,21 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
     features.size ? plural(features.size, 'existing feature') : '',
     changes.size ? plural(changes.size, 'changelog entry', 'changelog entries') : '',
     backlog.size ? plural(backlog.size, 'backlog item') : '',
+    useVision && vision.trim() ? 'the vision' : '',
+    projectKeep.size ? plural(projectKeep.size, 'project field') : '',
+    epics.size ? plural(epics.size, 'new epic') : '',
+    planned.size ? plural(planned.size, 'roadmap feature') : '',
+    fills.size ? plural(fills.size, 'fill-in') : '',
+    Object.values(answers).some((a) => a.delegated || a.value.trim()) ? plural(Object.values(answers).filter((a) => a.delegated || a.value.trim()).length, 'answer') : '',
   ].filter(Boolean);
   const apply = async () => {
     setBusy(true); setErr('');
     try {
-      await api.applyProjectImport(imp.id, { architecture: useArch ? arch : '', architectureHtml: usePage, features: [...features], backlog: [...backlog], changelog: [...changes] });
+      await api.applyProjectImport(imp.id, {
+        architecture: useArch ? arch : '', architectureHtml: usePage, features: [...features], backlog: [...backlog], changelog: [...changes],
+        vision: useVision ? vision : '', epics: [...epics], plan: [...planned],
+        updates: [...fills], project: [...projectKeep], answers,
+      });
       onApplied();
     } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
   };
@@ -663,7 +695,7 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
   return (
     <div className="space-y-4 rounded-[18px] panel-live p-4">
       <div>
-        <h4 className="text-[13px] text-violet-100 font-semibold">✦ Review what the cartridge wrote — {partsText(imp.parts)}</h4>
+        <h4 className="text-[13px] text-violet-100 font-semibold">✦ Review what the cartridge wrote — {asked.has('plan') ? `the plan from ${imp.document?.name ?? 'your document'}` : partsText(imp.parts)}</h4>
         <p className="text-[13px] text-gray-400 mt-0.5">{p.message} Nothing is added until you apply — untick anything that is wrong, and edit the text.</p>
         {imp.notes.length > 0 && <p className="text-[12px] text-ember-300 mt-1">Adjusted on arrival: {imp.notes.join('; ')}</p>}
       </div>
@@ -776,6 +808,12 @@ function ImportReview({ imp, onApplied, onCancel }: { imp: ProjectImport; onAppl
             </label>
           ))}
         </div>
+      )}
+
+      {asked.has('plan') && (
+        <PlanReview plan={plan} vision={vision} setVision={setVision} useVision={useVision} setUseVision={setUseVision}
+          epics={epics} setEpics={setEpics} planned={planned} setPlanned={setPlanned}
+          projectKeep={projectKeep} setProjectKeep={setProjectKeep} fills={fills} setFills={setFills} answers={answers} setAnswers={setAnswers} />
       )}
 
       {err && <p className="text-[13px] text-ember-300">{err}</p>}
@@ -892,6 +930,318 @@ function AiGenerate({ project, agents, version, onChanged, parts, choose = false
       </div>
       {relevant?.status === 'ready' && relevant.proposal && dismissed !== relevant.id && (
         <ImportReview key={relevant.id} imp={relevant} onCancel={() => setDismissed(relevant.id)} onApplied={() => { load(); onChanged(); }} />
+      )}
+    </div>
+  );
+}
+
+// ── Plan from a document ─────────────────────────────────────────────────────────
+
+/** What can be uploaded (server lib/document-text.ts). */
+const PLAN_DOCUMENT_TYPES = '.md,.markdown,.txt,.docx,.pdf,.html,.htm,.rtf,.odt,.doc,.csv,.json';
+const MAX_PLAN_DOCUMENT_MB = 15;
+const shortDate = (d: string) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '');
+
+/** A File as base64, for the JSON upload. */
+function fileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
+    r.onerror = () => reject(r.error ?? new Error('the file could not be read'));
+    r.readAsDataURL(file);
+  });
+}
+
+/**
+ * The plan, epic by epic, each feature with its dates, what it waits on and its criteria. Everything
+ * starts ticked; a feature whose new epic is unticked lands in no epic, and a link to a feature that is
+ * not kept is not made — both said beside the feature, so nothing changes silently.
+ */
+function PlanReview({ plan, vision, setVision, useVision, setUseVision, epics, setEpics, planned, setPlanned, projectKeep, setProjectKeep, fills, setFills, answers, setAnswers }: {
+  plan: PlanProposal; vision: string; setVision: (v: string) => void; useVision: boolean; setUseVision: (v: boolean) => void;
+  epics: Set<string>; setEpics: (s: Set<string>) => void; planned: Set<string>; setPlanned: (s: Set<string>) => void;
+  projectKeep: Set<string>; setProjectKeep: (s: Set<string>) => void; fills: Set<string>; setFills: (s: Set<string>) => void;
+  answers: Record<string, { value: string; delegated: boolean }>; setAnswers: (a: Record<string, { value: string; delegated: boolean }>) => void;
+}) {
+  const projectFields = PROJECT_FIELD_LABELS.filter(([k]) => plan.project?.[k]);
+  const updates = plan.updates ?? [];
+  const questions = plan.questions ?? [];
+  const flip = (set: Set<string>, setter: (s: Set<string>) => void, key: string) => {
+    const next = new Set(set); if (next.has(key)) next.delete(key); else next.add(key); setter(next);
+  };
+  const proposed = new Set(plan.features.map((f) => f.name));
+  const groups = [
+    ...plan.epics.map((e) => ({ epic: e, features: plan.features.filter((f) => f.epic === e.name) })),
+    { epic: null, features: plan.features.filter((f) => !f.epic || !plan.epics.some((e) => e.name === f.epic)) },
+  ].filter((g) => g.epic || g.features.length);
+  const allNames = plan.features.map((f) => f.name);
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 text-[13px] text-gray-300">
+          <input type="checkbox" className="accent-neon-500" checked={useVision} onChange={() => setUseVision(!useVision)} disabled={!plan.vision} />
+          Vision {plan.vision ? <span className="text-gray-500">— shown at the top of the roadmap; replaces the current one, editable{useVision ? ' below' : ''}</span>
+            : <span className="text-gray-500">— the document gives none</span>}
+        </label>
+        {plan.vision && useVision && <textarea rows={2} aria-label="Vision" className={input} value={vision} onChange={(e) => setVision(e.target.value)} />}
+      </div>
+      {projectFields.length > 0 && (
+        <div data-plan-project className="space-y-1">
+          <h5 className="text-[13px] text-gray-300">The whole project <span className="text-gray-500">— every feature's planner reads these; a kept one replaces what the project has</span></h5>
+          {projectFields.map(([k, label]) => (
+            <div key={k} className="flex items-start gap-2 text-[13px]">
+              <input type="checkbox" aria-label={`Keep ${label}`} className="accent-neon-500 mt-0.5 cursor-pointer" checked={projectKeep.has(k)} onChange={() => flip(projectKeep, setProjectKeep, k)} />
+              <details className="min-w-0 flex-1">
+                <summary className="cursor-pointer select-none text-gray-100">{label} <span className="text-gray-500">— {firstLine(plan.project![k])}</span></summary>
+                <pre className="mt-1 whitespace-pre-wrap font-sans text-[12px] text-gray-400 pl-3 border-l border-white/10">{plan.project![k]}</pre>
+              </details>
+            </div>
+          ))}
+        </div>
+      )}
+      {questions.length > 0 && (
+        <div data-plan-questions className="space-y-2">
+          <h5 className="text-[13px] text-gray-300">Open across the roadmap — answered once, for every feature <span className="text-gray-500">({questions.length}; each starts on the suggestion — change any)</span></h5>
+          {questions.map((q) => {
+            const a = answers[q.id] ?? { value: '', delegated: false };
+            const set = (next: { value: string; delegated: boolean }) => setAnswers({ ...answers, [q.id]: next });
+            return (
+              <div key={q.id} className="rounded-[12px] border border-white/[0.08] px-3 py-2 text-[13px]">
+                <p className="text-gray-100">{q.text}</p>
+                {q.why && <p className="text-[12px] text-gray-500">{q.why}</p>}
+                {q.features.length > 0 && <p className="text-[11px] text-gray-500">Affects: {q.features.join(', ')}</p>}
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                  {q.options.map((o) => (
+                    <label key={o} className="flex items-center gap-1.5 cursor-pointer text-gray-300">
+                      <input type="radio" name={`q-${q.id}`} className="accent-neon-500" checked={!a.delegated && a.value === o} onChange={() => set({ value: o, delegated: false })} />{o}
+                    </label>
+                  ))}
+                  {q.suggested && (
+                    <label className="flex items-center gap-1.5 cursor-pointer text-violet-200">
+                      <input type="radio" name={`q-${q.id}`} aria-label={`Leave "${q.text}" to the agents`} className="accent-neon-500" checked={a.delegated} onChange={() => set({ value: q.suggested, delegated: true })} />
+                      Let the agents decide <span className="text-gray-500">({q.suggested})</span>
+                    </label>
+                  )}
+                </div>
+                <input aria-label={`Answer "${q.text}"`} className={`${input} mt-1.5`} placeholder="Or write your own answer…"
+                  value={!a.delegated && !q.options.includes(a.value) ? a.value : ''} onChange={(e) => set({ value: e.target.value, delegated: false })} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <h5 className="text-[13px] text-gray-300">
+          Roadmap — {planned.size} of {plan.features.length} features kept
+          {plan.epics.length > 0 && <>, in {plural(plan.epics.length, 'epic')}</>}
+          <span className="text-gray-500"> (they join the roadmap as planned features, with their criteria, dates and dependencies)</span>
+        </h5>
+        {plan.features.length > 0 && (
+          <button className="text-[12px] text-gray-500 hover:text-gray-300 whitespace-nowrap" onClick={() => {
+            const on = planned.size === 0;
+            setPlanned(on ? new Set(allNames) : new Set());
+            setEpics(on ? new Set(plan.epics.filter((e) => !e.existing).map((e) => e.name)) : new Set());
+          }}>{planned.size ? 'Untick all' : 'Tick all'}</button>
+        )}
+      </div>
+      {plan.features.length === 0 && plan.epics.length === 0 && <p className="text-[13px] text-gray-500">No epics or features were found in the document.</p>}
+      {groups.map(({ epic, features: list }) => {
+        const epicKept = !epic || epic.existing || epics.has(epic.name);
+        const keptHere = list.filter((f) => planned.has(f.name)).length;
+        return (
+          <div key={epic?.name ?? '-'} className="rounded-[12px] border border-white/[0.08] px-3 py-2">
+            <div className="flex items-start justify-between gap-2">
+              {epic ? (
+                <label className="flex items-start gap-2 min-w-0 cursor-pointer">
+                  <input type="checkbox" aria-label={`Keep epic ${epic.name}`} className="accent-neon-500 mt-0.5" checked={epicKept} disabled={epic.existing}
+                    onChange={() => flip(epics, setEpics, epic.name)} />
+                  <span className="min-w-0">
+                    <span className="text-[13px] font-semibold text-gray-100">{epic.icon ? `${epic.icon} ` : ''}{epic.name}</span>
+                    {epic.existing && <span className="ml-1.5 text-[11px] text-sky-300/90">already on the roadmap — its features join it</span>}
+                    <span className="text-[12px] text-gray-500"> — {keptHere} of {list.length} kept</span>
+                    {epic.outcome && <span className="block text-[12px] text-gray-400">{epic.outcome}</span>}
+                    {epic.doneWhen && <span className="block text-[12px] text-emerald-300/80">✓ Done when: {epic.doneWhen}</span>}
+                  </span>
+                </label>
+              ) : <span className="text-[13px] font-semibold text-gray-300">In no epic <span className="text-[12px] font-normal text-gray-500">— {keptHere} of {list.length} kept</span></span>}
+              {list.length > 0 && (
+                <button className="text-[12px] text-gray-500 hover:text-gray-300 whitespace-nowrap" onClick={() => {
+                  const next = new Set(planned); for (const f of list) { if (keptHere) next.delete(f.name); else next.add(f.name); } setPlanned(next);
+                }}>{keptHere ? 'Untick epic' : 'Tick epic'}</button>
+              )}
+            </div>
+            {list.map((f) => {
+              const dropped = f.dependsOn.filter((d) => proposed.has(d) && !planned.has(d));
+              return (
+                <div key={f.name} className="flex items-start gap-2 py-1 pl-5 text-[13px]">
+                  <input type="checkbox" aria-label={`Keep ${f.name}`} className="accent-neon-500 mt-0.5 cursor-pointer" checked={planned.has(f.name)} onChange={() => flip(planned, setPlanned, f.name)} />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-gray-100">{f.name}</span>{f.description && !sameText(f.description, f.name) && <span className="text-gray-500"> — {f.description}</span>}
+                    {(f.startDate || f.targetDate || f.dependsOn.length > 0) && (
+                      <span className="block text-[12px] text-gray-400">
+                        {(f.startDate || f.targetDate) && <span className="mr-3">📅 {f.startDate ? shortDate(f.startDate) : '…'} → {f.targetDate ? shortDate(f.targetDate) : '…'}</span>}
+                        {f.dependsOn.length > 0 && <span>waits on {f.dependsOn.join(', ')}</span>}
+                      </span>
+                    )}
+                    {planned.has(f.name) && epic && !epicKept && <span className="block text-[12px] text-ember-300">its epic is unticked — it lands in no epic</span>}
+                    {planned.has(f.name) && dropped.length > 0 && <span className="block text-[12px] text-ember-300">{dropped.join(', ')} {dropped.length === 1 ? 'is' : 'are'} not kept — that wait is not recorded</span>}
+                    <ScopeDetails f={f} />
+                  </div>
+                </div>
+              );
+            })}
+            {epic && list.length === 0 && <p className="pl-5 py-1 text-[12px] text-gray-500">{updates.some((u) => u.epic === epic.name) ? 'Its features are already on the project — see the fill-ins below.' : 'No features filed under it yet.'}</p>}
+          </div>
+        );
+      })}
+      {updates.length > 0 && (
+        <div data-plan-fills>
+          <div className="flex items-center justify-between">
+            <h5 className="text-[13px] text-gray-300">Already on the project — fill in what is missing ({fills.size} of {updates.length}) <span className="text-gray-500">(only blank fields are filled; nothing written is overwritten)</span></h5>
+            <button className="text-[12px] text-gray-500 hover:text-gray-300 whitespace-nowrap" onClick={() => setFills(fills.size ? new Set() : new Set(updates.map((u) => u.name)))}>{fills.size ? 'Untick all' : 'Tick all'}</button>
+          </div>
+          {updates.map((f) => (
+            <div key={f.name} className="flex items-start gap-2 py-1 text-[13px]">
+              <input type="checkbox" aria-label={`Fill in ${f.name}`} className="accent-neon-500 mt-0.5 cursor-pointer" checked={fills.has(f.name)} onChange={() => flip(fills, setFills, f.name)} />
+              <div className="min-w-0 flex-1">
+                <span className="text-gray-100">{f.name}</span>{f.epic && <span className="text-gray-500"> · {f.epic}</span>}
+                <ScopeDetails f={f} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The labels of the project fields a plan carries (server lib/plan-scope.ts PROJECT_CONTEXT_FIELDS). */
+const PROJECT_FIELD_LABELS: [string, string][] = [
+  ['description', 'What the project is'], ['architecture', 'Architecture'], ['constraints', 'Rules and constraints'],
+  ['invariants', 'Project invariants'], ['outOfScope', 'Out of scope'], ['definitionOfDone', 'Definition of done'],
+];
+/** The labels of a feature's documented scope (server lib/plan-scope.ts FEATURE_SCOPE_FIELDS — the scope brief's own). */
+const SCOPE_FIELD_LABELS: [string, string][] = [
+  ['successMetric', 'Done when'], ['inScope', 'In scope'], ['invariants', 'Invariants'],
+  ['outOfScope', 'Out of scope'], ['rabbitHoles', 'Rabbit holes'], ['assumptions', 'Assumptions'],
+];
+const firstLine = (s: string) => { const l = s.trim().split('\n')[0]; return l.length > 90 ? `${l.slice(0, 90)}…` : l; };
+
+/** What the document settles for a feature — shown folded, so a long plan stays scannable. */
+function ScopeDetails({ f }: { f: PlanProposal['features'][number] }) {
+  const fields = SCOPE_FIELD_LABELS.filter(([k]) => f.scope?.[k]);
+  if (!fields.length && !f.criteria.length && !f.source && !f.workType) return null;
+  return (
+    <details className="mt-0.5">
+      <summary className="text-[12px] text-violet-300/80 cursor-pointer select-none">
+        {[fields.length ? plural(fields.length, 'scope field') : '', f.criteria.length ? plural(f.criteria.length, 'acceptance criterion', 'acceptance criteria') : '',
+          f.workType ? f.workType : ''].filter(Boolean).join(' · ') || 'from the document'}
+      </summary>
+      <div className="mt-1 space-y-1 pl-3 border-l border-white/10 text-[12px] text-gray-400">
+        {fields.map(([k, label]) => (
+          <div key={k}><span className="text-gray-300">{label}:</span> <span className="whitespace-pre-wrap">{f.scope![k]}</span></div>
+        ))}
+        {f.criteria.map((c, i) => (
+          <div key={i}><span className="text-gray-500 font-mono mr-1">AC-{i + 1}</span>{c.text}{c.expect && <span className="block text-gray-500">Expected: {c.expect}</span>}</div>
+        ))}
+        {f.source && <div><span className="text-gray-300">The document says:</span> <span className="whitespace-pre-wrap text-gray-500">{f.source}</span></div>}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * "✦ Plan from a document" on the Roadmap tab: upload a spec / epics / roadmap document, a cartridge
+ * reads it and proposes the vision, the epics and the planned features (with their criteria, dates
+ * and dependencies); the person ticks what to keep and it lands on the roadmap.
+ */
+export function PlanFromDocument({ project, agents, imports, load, onChanged }: {
+  project: Project; agents: Agent[]; imports: ProjectImport[] | null; load: () => void; onChanged: () => void;
+}) {
+  const [agentId, setAgentId] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const repos = useMemo(() => [...new Set([...(project.cartridges ?? []), project.primaryRepo].filter(Boolean))], [project]);
+  const candidates = useMemo(() => plannerCandidates(agents, repos), [agents, repos]);
+  useEffect(() => { if (!candidates.some((a) => a.id === agentId)) setAgentId(candidates[0]?.id ?? ''); }, [candidates, agentId]);
+
+  const latest = imports?.[0] ?? null;
+  const mine = imports?.find((i) => i.status !== 'superseded' && i.parts.includes('plan')) ?? null;
+  const waiting = mine?.status === 'pending' && mine.id === latest?.id;
+  const pick = (f: File | null | undefined) => {
+    setErr('');
+    if (!f) return;
+    if (f.size > MAX_PLAN_DOCUMENT_MB * 1024 * 1024) { setErr(`"${f.name}" is over ${MAX_PLAN_DOCUMENT_MB} MB`); return; }
+    setFile(f);
+  };
+  const start = async () => {
+    if (!file) return;
+    setErr(''); setStarting(true);
+    try {
+      await api.startProjectImport(project.id, agentId, ['plan'], { name: file.name, data: await fileBase64(file) });
+      setDismissed(null); setFile(null); load();
+    } catch (e) { setErr(errText(e)); } finally { setStarting(false); }
+  };
+  const applied = mine?.status === 'applied' ? mine.applied : null;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-[18px] border border-[#7C6CFF]/45 bg-[#7C6CFF]/[0.07] shadow-[0_0_26px_rgba(124,108,255,0.14)] p-5 space-y-3">
+        <div className="max-w-2xl">
+          <h4 className="text-[13px] text-gray-100 font-medium">✦ Plan from a document</h4>
+          <p className="text-[13px] text-gray-500 mt-0.5">
+            Upload a spec, a list of epics or a roadmap — Word, PDF, Markdown or text. A cartridge reads it and proposes the vision, the
+            epics and every feature under them, with acceptance criteria, the dates the document gives and what each waits on. You tick
+            what to keep before anything is added.
+          </p>
+        </div>
+        <label
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); pick(e.dataTransfer.files?.[0]); }}
+          className={`flex items-center justify-center gap-2 rounded-[14px] border border-dashed px-4 py-5 text-[13px] cursor-pointer transition-colors ${dragOver ? 'border-neon-400 bg-neon-500/10 text-neon-100' : 'border-white/20 text-gray-400 hover:border-white/35 hover:text-gray-200'}`}>
+          <input type="file" accept={PLAN_DOCUMENT_TYPES} className="sr-only" aria-label="Planning document" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+          {file ? <span><span className="text-gray-100">📄 {file.name}</span> <span className="text-gray-500">· {Math.max(1, Math.round(file.size / 1024))} KB — click to pick another</span></span>
+            : <span>Drop the document here, or click to choose it <span className="text-gray-500">(.docx .pdf .md .txt and more, up to {MAX_PLAN_DOCUMENT_MB} MB)</span></span>}
+        </label>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} aria-label="Cartridge that reads the document"
+            className="glass-input rounded-[10px] px-2 py-1.5 text-[13px] text-gray-300 max-w-[260px]">
+            {candidates.length === 0 && <option value="">No cartridge online</option>}
+            {candidates.map((a) => <option key={a.id} value={a.id}>{a.repoName || a.name} · {a.agentType}{a.mode === 'manual' ? ' (Manual — you approve each command)' : ''}{a.status === 'working' ? ' (busy — will queue)' : ''}</option>)}
+          </select>
+          <button onClick={start} disabled={!file || !agentId || starting} className={primaryBtn}
+            title={waiting ? 'A request is still out — asking now replaces it' : 'A cartridge reads the document and proposes the roadmap; you review before anything is kept'}>
+            {starting ? 'Uploading…' : '✦ Build the roadmap'}
+          </button>
+        </div>
+        {repos.length === 0 && candidates.length === 0 && <p className="text-[13px] text-ember-300">Add the project's repos first — a cartridge in one of them reads the document.</p>}
+        {(starting || waiting) && <AiWorkingBar label={`A cartridge is reading ${waiting ? mine!.document?.name ?? 'the document' : file?.name ?? 'the document'}`} />}
+        {waiting && (
+          <p className="text-[13px] text-violet-200">
+            A cartridge is turning {mine!.document?.name ?? 'the document'} into epics and features (asked {ago(mine!.createdAt)}). You can leave this
+            page — the proposal waits here for your review. If the cartridge went offline, upload it again.
+          </p>
+        )}
+        {mine?.status === 'failed' && <p className="text-[13px] text-ember-300">The last request did not finish: {mine.error} — try again, or pick another cartridge.</p>}
+        {applied && (
+          <p className="text-[13px] text-emerald-300/90">
+            ✓ Kept from {mine!.document?.name ?? 'the document'}: {[
+              applied.vision ? 'the vision' : '',
+              applied.epics?.length ? plural(applied.epics.length, 'new epic') : '',
+              applied.plan?.length ? plural(applied.plan.length, 'feature') : '',
+              applied.updates?.length ? `${plural(applied.updates.length, 'feature')} filled in` : '',
+              applied.project?.length ? plural(applied.project.length, 'project field') : '',
+              applied.decisions ? plural(applied.decisions, 'answer') : '',
+            ].filter(Boolean).join(', ') || 'nothing'} ({day(mine!.completedAt)}). They are on the chart, and each feature's planner starts from them.
+          </p>
+        )}
+        {err && <p className="text-[13px] text-ember-300">{err}</p>}
+      </div>
+      {mine?.status === 'ready' && mine.proposal && dismissed !== mine.id && (
+        <ImportReview key={mine.id} imp={mine} onCancel={() => setDismissed(mine.id)} onApplied={() => { load(); onChanged(); }} />
       )}
     </div>
   );

@@ -23,8 +23,10 @@ import { api } from '../../lib/api';
 import { THEME, word } from '../theme';
 import { DECK_ART } from '../bridge/art';
 import { DeckSprite } from '../bridge/Decks';
+import { RankPlate, captainSheet, useProjectRank } from '../bridge/rank';
+import { RouteView } from './RouteView';
 import { ROADMAP_ART, type RoadmapStrip } from './roadmapArt.generated';
-import { xOf, dateAt, monthColumns, placeLane, visionGauges, startBlock, dayOf, calendarYears } from './chartLayout';
+import { xOf, dateAt, monthColumns, placeLane, visionGauges, startBlock, dayOf, calendarYears, chipRowsFor } from './chartLayout';
 
 const ART = ROADMAP_ART[THEME] ?? ROADMAP_ART.scifi;
 export const STATE_LABEL: Record<RoadmapFeatureState, string> = { delivered: 'Delivered', 'under-way': 'Under way', planned: 'Planned', late: 'Late' };
@@ -36,6 +38,7 @@ const LANE_H = 84;            // a lane with one row of name tags, px
 const TAG_ROW = 28;           // each further row of name tags, px
 const NODE_Y = 30;            // where the route line runs in a lane, px from its top
 const NODE = 18;              // a waypoint's node, px
+const CHIP_ROW = 32;          // each row of undated features in a lane, px
 const errText = (e: unknown) => {
   const m = e instanceof Error ? e.message : 'That did not work';
   // A server from before the roadmap existed answers "Not Found" — say what to do about it.
@@ -45,6 +48,30 @@ const MONTH_NAME = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP
 const monthOf = (day: string | null) => (day ? `${MONTH_NAME[Number(day.slice(5, 7)) - 1]} ${day.slice(8, 10)}` : 'No date');
 
 /** The officer's look is what the plan says (same rows as on the Projects bridge). */
+const shortDay = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+export type EpicNote = { kind: 'commend' | 'delivered' | 'late' | 'due' | 'waits'; text: string };
+/**
+ * What an epic's lane says about its date and what it waits on — nothing for an epic with neither.
+ * Delivered on or before its date is a COMMENDATION (it promotes the project's captain).
+ */
+export function epicStatus(epic: RoadmapEpic, numberOf: (id: string) => number): EpicNote[] {
+  const out: EpicNote[] = [];
+  const due = epic.targetDate ?? '';
+  const waits = epic.blockedBy ?? [];
+  if (waits.length > 0) out.push({ kind: 'waits', text: `Waits on ${waits.map((id) => `Epic ${numberOf(id)}`).join(', ')}` });
+  if (epic.deliveredAt) {
+    const on = shortDay(epic.deliveredAt);
+    if (epic.onTime) out.push({ kind: 'commend', text: `★ Commendation · delivered ${on}, due ${shortDay(due)}` });
+    else if (due) {
+      const days = Math.max(1, Math.round((Date.parse(`${epic.deliveredAt.slice(0, 10)}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86_400_000));
+      out.push({ kind: 'delivered', text: `Delivered ${on} · ${days} ${days === 1 ? 'day' : 'days'} after its date` });
+    } else out.push({ kind: 'delivered', text: `Delivered ${on}` });
+  } else if (epic.late) out.push({ kind: 'late', text: `Late · was due ${shortDay(due)}` });
+  else if (due) out.push({ kind: 'due', text: `Due ${shortDay(due)}` });
+  return out;
+}
+const NOTE_TONE: Record<EpicNote['kind'], string> = { commend: 'text-[#F5C542]', delivered: 'text-emerald-300', late: 'text-red-300', due: 'text-neon-200', waits: 'text-amber-200' };
+
 export function officerAnim(totals: Chart['totals']): 'worry' | 'log' | 'idle' {
   if (totals.late > 0) return 'worry';
   if (totals['under-way'] > 0) return 'log';
@@ -93,13 +120,22 @@ function Node({ state, selected, size = NODE }: { state: RoadmapFeatureState; se
   return <span data-node={state} aria-hidden="true" className="block shrink-0" style={style} />;
 }
 
-interface Drag { id: string; fromEpic: string; startX: number; startY: number; x: number; lane: number; moved: boolean }
+/** The roadmap has two views of the same plan: the ROUTE (the flight path, epic by epic) and the TIMELINE (dates). The last one used is remembered. */
+export const ROADMAP_VIEW_KEY = 'neoncore.roadmap.view';
+type RoadmapView = 'route' | 'timeline';
+function readView(): RoadmapView { try { return window.localStorage.getItem(ROADMAP_VIEW_KEY) === 'timeline' ? 'timeline' : 'route'; } catch { return 'route'; } }
+
+interface Drag { id: string; fromEpic: string; startX: number; startY: number; x: number; lane: number; moved: boolean; inside: boolean }
 
 export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolbar }: {
   project: Project; version: number; onOpenFeature: (id: string) => void; onChanged: () => void;
   /** Controls for the deck's top-left corner (where you are, and the way back). */
   toolbar?: ReactNode;
 }) {
+  // The project's rank: what its officer of the deck wears (bridge/rank.tsx).
+  const rank = useProjectRank(project.id);
+  const [view, setView] = useState<RoadmapView>(readView);
+  const showView = (v: RoadmapView) => { setView(v); try { window.localStorage.setItem(ROADMAP_VIEW_KEY, v); } catch { /* not remembered */ } };
   const [chart, setChart] = useState<Chart | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -108,6 +144,8 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
   const [visionDraft, setVisionDraft] = useState<string | null>(null);
   const [newEpic, setNewEpic] = useState<string | null>(null);
   const [editEpic, setEditEpic] = useState<string | null>(null);
+  /** The epic a new feature is being added to (its id), or null. */
+  const [addTo, setAddTo] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -140,23 +178,37 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
     try { setChart(await call()); setError(''); onChanged(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
   }, [onChanged]);
 
+  /** A new feature, straight into an epic (and onto a date, when one is given). */
+  const addFeature = useCallback((epicId: string, name: string, targetDate: string) => change(async () => {
+    const goal = await api.createGoal({ name, projectId: project.id });
+    return api.planFeature(goal.id, { epicId, ...(targetDate ? { targetDate } : {}) });
+  }), [change, project.id]);
+
   // The chart shows whole calendar years: JAN to DEC, however few months the plan covers.
   const range = useMemo(() => (chart ? calendarYears(chart.range) : { from: '', to: '' }), [chart]);
 
   const lanes = useMemo(() => {
     if (!chart) return [];
     const all: { epic: RoadmapEpic | null; id: string; features: RoadmapFeature[] }[] = chart.epics.map((e) => ({ epic: e, id: e.id, features: e.features }));
-    // Features in no epic get a lane only when one of them is on the timeline (or there is no epic at all).
-    if (chart.unassigned.some((f) => dayOf(f) !== null) || chart.epics.length === 0) all.push({ epic: null, id: '', features: chart.unassigned });
+    // Features in no epic get a lane only when one of them is on the timeline.
+    if (chart.unassigned.some((f) => dayOf(f) !== null)) all.push({ epic: null, id: '', features: chart.unassigned });
     let top = 0;
     return all.map((l) => {
       const laid = placeLane(l.features, range, 0.088);
-      const height = LANE_H + (laid.rows - 1) * TAG_ROW;
-      const lane = { ...l, ...laid, top, height };
+      // A feature with no date yet still belongs to its epic: it sits in the lane, under the dated
+      // ones, as a row of "no date yet" chips in plan order — never off the chart in the tray.
+      const chipRows = chipRowsFor(laid.unscheduled.map((f) => f.name), size.lineW);
+      const chipsTop = laid.placed.length ? LANE_H + (laid.rows - 1) * TAG_ROW - 8 : 10;
+      // The label shows the epic's gate on one more line when it has one.
+      const minH = LANE_H + (l.epic?.doneWhen ? 14 : 0);
+      const height = laid.placed.length
+        ? Math.max(minH, LANE_H + (laid.rows - 1) * TAG_ROW + (chipRows ? chipRows * CHIP_ROW + 4 : 0))
+        : Math.max(minH, 10 + chipRows * CHIP_ROW + 10);
+      const lane = { ...l, ...laid, top, height, chipsTop };
       top += height + 6;
       return lane;
     });
-  }, [chart, range]);
+  }, [chart, range, size.lineW]);
 
   const shell = (inner: ReactNode) => (
     <div ref={root} data-roadmap-chart data-theme={THEME} className="relative h-full min-h-[600px] overflow-hidden text-gray-100"
@@ -167,7 +219,7 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
   if (!chart) {
     return shell(
       <div className="absolute inset-0 flex flex-col gap-3 p-5">
-        {toolbar}
+        {toolbar && <div className="flex items-center gap-2 flex-wrap">{toolbar}</div>}
         <p className={`text-[14px] ${error ? 'text-ember-300' : 'text-gray-400'}`}>{error || 'Loading…'}</p>
       </div>,
     );
@@ -176,7 +228,8 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
   const everyFeature = [...chart.epics.flatMap((e) => e.features), ...chart.unassigned];
   const names = new Map(everyFeature.map((f) => [f.id, f.name]));
   const picked = everyFeature.find((f) => f.id === selected) ?? null;
-  const unplanned = everyFeature.filter((f) => dayOf(f) === null);
+  // The tray: only features in no epic and with no date — an epic's undated features are in its lane.
+  const unplanned = chart.unassigned.filter((f) => dayOf(f) === null);
   const months = monthColumns(range);
   const todayX = xOf(chart.today, range);
   const gauges = visionGauges(chart);
@@ -200,20 +253,21 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
     if (e.button !== 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     const p = point(e);
-    setDrag({ id: f.id, fromEpic: f.epicId, startX: e.clientX, startY: e.clientY, x: p.x, lane: laneAtY(p.y), moved: false });
+    setDrag({ id: f.id, fromEpic: f.epicId, startX: e.clientX, startY: e.clientY, x: p.x, lane: laneAtY(p.y), moved: false, inside: false });
   };
   const onMove = (e: ReactPointerEvent) => {
     if (!drag) return;
     const p = point(e);
     const moved = drag.moved || Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 5;
-    setDrag({ ...drag, x: Math.min(1, Math.max(0, p.x)), lane: laneAtY(p.y), moved });
+    setDrag({ ...drag, x: Math.min(1, Math.max(0, p.x)), lane: laneAtY(p.y), moved, inside: p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= totalH });
   };
   const onUp = () => {
     if (!drag) return;
     const d = drag;
     setDrag(null);
     setSelected(d.id);
-    if (!d.moved) return;
+    // Dropped off the chart (a feature dragged out of the tray and let go elsewhere): nothing changes.
+    if (!d.moved || !d.inside || lanes.length === 0) return;
     const epicId = lanes[d.lane]?.id ?? d.fromEpic;
     void change(() => api.planFeature(d.id, { targetDate: dateAt(d.x, range), ...(epicId !== d.fromEpic ? { epicId } : {}) }));
   };
@@ -226,6 +280,14 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
       <div className="absolute inset-0 flex flex-col gap-3 px-5 pt-3 pb-4">
         {/* ── VISION ───────────────────────────────────────────────────────── */}
         <div data-vision className={`${glass} px-6 py-3 flex items-center gap-6`}>
+          {/* which project this roadmap is — first thing on the deck */}
+          <div data-roadmap-project className="shrink-0 max-w-[240px] pr-6 border-r border-white/[0.16]" title={`${chart.project.name} — roadmap`}>
+            <span className="block text-[11px] font-bold tracking-[0.16em] text-neon-300 uppercase">Project roadmap</span>
+            <span className="flex items-center gap-2 mt-0.5">
+              <span aria-hidden="true" className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || '#60a0ff', boxShadow: `0 0 10px ${project.color || '#60a0ff'}` }} />
+              <span className="font-display text-[20px] font-semibold text-white truncate">{chart.project.name}</span>
+            </span>
+          </div>
           <span className="font-display text-[22px] font-semibold tracking-[0.1em] text-white shrink-0">VISION</span>
           <div className="flex-1 min-w-0 border-l border-white/[0.16] pl-6">
             {visionDraft !== null ? (
@@ -262,21 +324,36 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
         <div className="flex-1 min-h-0 flex gap-3">
           {/* ── THE OFFICER OF THE DECK ─────────────────────────────────── */}
           <div className="hidden lg:flex w-[176px] shrink-0 flex-col justify-end items-center pb-[9%] relative z-10 pointer-events-none [&_button]:pointer-events-auto" data-officer={officerAnim(chart.totals)}>
-            {toolbar && <div className="self-stretch mb-auto pt-1">{toolbar}</div>}
-            <DeckSprite sheet={DECK_ART.sheets.captain} cycle={officerAnim(chart.totals)} fps={4} height={officerH} />
+            {/* The deck's own controls. This column is only as wide as the officer, so they are
+                STACKED, one under the other — side by side they ran over the chart's title. */}
+            {toolbar && <div data-roadmap-toolbar className="self-stretch mb-auto pt-1 flex flex-col items-start gap-2 [&>*]:max-w-full">{toolbar}</div>}
+            <DeckSprite sheet={captainSheet(DECK_ART.sheets.captain, rank?.id)} cycle={officerAnim(chart.totals)} fps={4} height={officerH} />
+            {/* His rank: one promotion per epic delivered on or before its date (bridge/rank.tsx). */}
+            {rank && <div className="mt-1"><RankPlate rank={rank} name={project.name} /></div>}
           </div>
 
           {/* ── THE CHART ────────────────────────────────────────────────── */}
           <div className={`${glass} flex-1 min-w-0 flex flex-col`}>
             <div className="flex items-center justify-between gap-4 flex-wrap px-6 pt-4 pb-3 border-b border-white/[0.08]">
-              <h3 className="font-display text-[19px] font-semibold tracking-[0.08em] text-white uppercase">Roadmap — {word('roadmap')}</h3>
+              <div className="flex items-center gap-4 flex-wrap">
+                <h3 className="font-display text-[19px] font-semibold tracking-[0.08em] text-white uppercase">Roadmap — {view === 'route' ? 'the route' : word('roadmap')}</h3>
+                {/* Two views of one plan: the route (epic by epic, to the destination) and the timeline (dates). */}
+                <div role="group" aria-label="Roadmap view" className="inline-flex p-1 rounded-[10px] border border-white/[0.14] bg-[rgba(8,14,30,0.8)]">
+                  {(['route', 'timeline'] as const).map((v) => (
+                    <button key={v} data-roadmap-view={v} aria-pressed={view === v} onClick={() => showView(v)}
+                      className={`h-8 px-4 rounded-[7px] font-display text-[12px] font-bold tracking-[0.14em] uppercase transition-colors ${view === v ? 'bg-neon-500/25 text-white shadow-[inset_0_0_0_1px_rgba(90,174,255,0.7)]' : 'text-gray-400 hover:text-gray-100'}`}>
+                      {v === 'route' ? 'Route' : 'Timeline'}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex items-center gap-5 flex-wrap text-[13px] text-gray-200">
                 {LEGEND.map((s) => (
                   <span key={s} data-legend={s} className="inline-flex items-center gap-2"><Node state={s} size={14} />{STATE_LABEL[s]}<span className="text-gray-500 tabular-nums">{chart.totals[s]}</span></span>
                 ))}
                 <span className="inline-flex items-center gap-2 border-l border-white/[0.16] pl-5"><span className="w-7 border-t-2 border-dotted border-[#9CCBFF]" />Dependency</span>
                 {newEpic === null
-                  ? <button onClick={() => setNewEpic('')} className="btn-ghost h-8 px-3 rounded-[9px] text-[12px] font-semibold">+ Epic</button>
+                  ? <button data-add-epic onClick={() => setNewEpic('')} className="btn-primary h-9 px-4 rounded-[9px] text-[13px] font-semibold">+ Add epic</button>
                   : (
                     <form className="inline-flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); if (newEpic.trim()) { void change(() => api.createEpic(project.id, { name: newEpic })); setNewEpic(null); } }}>
                       <input autoFocus value={newEpic} onChange={(e) => setNewEpic(e.target.value)} placeholder="Epic name" aria-label="New epic name" className="glass-input h-8 px-2 rounded-[8px] text-[12px] w-[170px]" />
@@ -288,10 +365,25 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
             </div>
             {error && <p className="text-[13px] text-ember-300 px-6 pt-2">{error}</p>}
 
+            {view === 'route' ? (
+              <RouteView chart={chart} busy={busy} selectedFeature={selected} padBottom={picked ? 200 : undefined}
+                iconOf={iconOf} notesOf={(e) => epicStatus(e, epicNumber)} node={(st) => <Node state={st} size={12} />}
+                destination={ART.destination ? <Strip art={ART.destination} height={104} fps={2} /> : null}
+                ship={ART.today ? <Strip art={ART.today} height={26} fps={8} /> : null}
+                editor={(e, close) => (
+                  <EpicEditor epic={e} busy={busy} onClose={close}
+                    others={chart.epics.filter((o) => o.id !== e.id).map((o) => ({ id: o.id, label: `Epic ${epicNumber(o.id)} — ${o.name}` }))}
+                    onSave={(data) => { void change(() => api.updateEpic(e.id, data)); close(); }}
+                    onDelete={() => { if (confirm(`Remove the epic "${e.name}"? Its ${e.features.length} feature(s) stay in the project, in no epic.`)) { void change(() => api.deleteEpic(e.id)); close(); } }} />
+                )}
+                onPickFeature={(id) => { setSelected(id); setPlanning(false); }} onStart={onOpenFeature} onAddEpic={() => setNewEpic('')}
+                onAddFeature={(epicId, name, date) => { void addFeature(epicId, name, date); }} />
+            ) : (
             <div className="flex-1 min-h-0 overflow-auto px-5 pb-4" style={{ paddingBottom: picked ? 190 : undefined }}>
               <div style={{ minWidth: 940 }}>
                 {/* months, and TODAY */}
-                <div className="flex sticky top-0 z-30 bg-[rgba(6,12,26,0.92)]" style={{ paddingLeft: LABEL_W }}>
+                <div className="flex sticky top-0 z-30 bg-[rgba(6,12,26,0.92)]">
+                  <div className="shrink-0 h-11 flex items-center px-3 text-[11px] font-bold tracking-[0.16em] text-gray-400 uppercase" style={{ width: LABEL_W }}>Epics <span className="mx-2 text-gray-600">▸</span> Features</div>
                   <div className="relative flex-1 h-11">
                     {months.map((m) => (
                       <span key={m.key} data-month={m.key} className="absolute top-3 text-[13px] tracking-[0.12em] text-gray-200 text-center" style={{ left: `${m.from * 100}%`, width: `${(m.to - m.from) * 100}%` }}>
@@ -307,21 +399,32 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                   <div style={{ width: LABEL_W, height: totalH }} className="shrink-0 relative">
                     {lanes.map((l, i) => (
                       <div key={l.id || 'none'} data-epic-label={l.id || 'none'} style={{ top: l.top, height: l.height }}
-                        className="group absolute left-0 right-0 border border-r-0 border-[rgba(96,160,255,0.2)] rounded-l-[8px] bg-[rgba(10,18,36,0.7)] px-3 py-2.5 flex gap-3 items-start overflow-hidden">
+                        className={`group absolute left-0 right-0 border border-r-0 border-[rgba(96,160,255,0.2)] rounded-l-[8px] bg-[rgba(10,18,36,0.7)] px-3 py-2.5 flex gap-3 items-start ${l.epic && editEpic === l.epic.id ? 'overflow-visible z-40' : 'overflow-hidden'}`}>
                         {l.epic && iconOf(l.epic, i) ? <img src={iconOf(l.epic, i).src} alt="" className="w-9 h-9 mt-1 shrink-0" /> : <span className="w-9 h-9 shrink-0" />}
                         <div className="min-w-0 flex-1">
                           {l.epic && editEpic === l.epic.id ? (
                             <EpicEditor epic={l.epic} busy={busy} onClose={() => setEditEpic(null)}
+                              others={chart.epics.filter((o) => o.id !== l.epic!.id).map((o) => ({ id: o.id, label: `Epic ${epicNumber(o.id)} — ${o.name}` }))}
                               onSave={(data) => { void change(() => api.updateEpic(l.epic!.id, data)); setEditEpic(null); }}
                               onDelete={() => { if (confirm(`Remove the epic "${l.epic!.name}"? Its ${l.epic!.features.length} feature(s) stay in the project, in no epic.`)) { void change(() => api.deleteEpic(l.epic!.id)); setEditEpic(null); } }} />
                           ) : (
                             <>
                               <div className="flex items-baseline gap-2">
-                                <span className="text-[12px] font-bold tracking-[0.08em] text-white uppercase">{l.epic ? `Epic ${epicNumber(l.epic.id)}` : 'No epic'}</span>
-                                {l.epic && <button onClick={() => setEditEpic(l.epic!.id)} className="text-[11px] text-gray-500 hover:text-neon-300 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Edit the epic ${l.epic.name}`}>edit</button>}
+                                <span className="shrink-0 text-[12px] font-bold tracking-[0.08em] text-white uppercase">{l.epic ? `Epic ${epicNumber(l.epic.id)}` : 'No epic'}</span>
+                                {/* Its date and what it waits on (epicStatus). */}
+                                {l.epic && epicStatus(l.epic, epicNumber).length > 0 && (
+                                  <span data-epic-status={l.epic.id} className="min-w-0 truncate text-[11px] font-semibold" title={epicStatus(l.epic, epicNumber).map((n) => n.text).join(' · ')}>
+                                    {epicStatus(l.epic, epicNumber).map((n, k) => <span key={n.kind} data-kind={n.kind} className={`${NOTE_TONE[n.kind]} ${k > 0 ? 'ml-2' : ''}`}>{n.text}</span>)}
+                                  </span>
+                                )}
+                                {l.epic && <button onClick={() => setEditEpic(l.epic!.id)} className="shrink-0 text-[11px] text-gray-500 hover:text-neon-300 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Edit the epic ${l.epic.name}`}>edit</button>}
                               </div>
                               <p className="text-[13px] font-semibold text-gray-100 truncate" title={l.epic?.name}>{l.epic ? l.epic.name : 'Unassigned'}</p>
-                              <p className="text-[11px] text-gray-400 leading-snug line-clamp-2">{l.epic ? (l.epic.outcome || `${l.epic.progress.done} of ${l.epic.progress.total} delivered`) : 'Drag a feature into an epic’s lane.'}</p>
+                              <p className="text-[11px] text-gray-400 leading-snug line-clamp-2" title={l.epic?.doneWhen ? `Done when: ${l.epic.doneWhen}` : undefined}>{l.epic ? (l.epic.outcome || `${l.epic.progress.done} of ${l.epic.progress.total} delivered`) : 'Drag a feature into an epic’s lane.'}</p>
+                              {l.epic?.doneWhen && <p data-epic-gate={l.epic.id} className="text-[10px] text-emerald-300/80 leading-snug line-clamp-1" title={l.epic.doneWhen}>✓ {l.epic.doneWhen}</p>}
+                              {l.epic && (
+                                <button data-add-feature={l.epic.id} onClick={() => setAddTo(l.epic!.id)} className="mt-1 text-[11px] font-semibold text-neon-300 hover:text-white">+ Feature</button>
+                              )}
                               {l.epic?.nextUp && (
                                 <button data-start-next={l.epic.id} onClick={() => onOpenFeature(l.epic!.nextUp!)} className="absolute right-2 top-2 text-[10px] font-bold tracking-[0.06em] uppercase text-neon-300 hover:text-white opacity-0 group-hover:opacity-100 focus:opacity-100" title={`Start next: ${names.get(l.epic.nextUp)}`}>
                                   Start next ▸
@@ -334,6 +437,10 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                     ))}
                   </div>
 
+                  {addTo && chart.epics.some((e) => e.id === addTo) && (
+                    <FeatureAdder key={addTo} epic={chart.epics.find((e) => e.id === addTo)!} top={lanes.find((l) => l.id === addTo)?.top ?? 0} busy={busy}
+                      onAdd={(name, date) => { void addFeature(addTo, name, date); setAddTo(null); }} onClose={() => setAddTo(null)} />
+                  )}
                   {/* the timeline */}
                   <div ref={timeline} data-timeline className="relative flex-1 select-none touch-none" style={{ height: totalH }} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => setDrag(null)}>
                     {lanes.map((l, i) => {
@@ -344,10 +451,32 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                       return (
                         <div key={l.id || 'none'} data-lane={l.id || 'none'} className={`absolute left-0 right-0 border border-[rgba(96,160,255,0.2)] rounded-r-[8px] ${drag?.moved && drag.lane === i ? 'bg-[rgba(63,180,255,0.1)]' : 'bg-[rgba(8,14,30,0.55)]'}`} style={{ top: l.top, height: l.height }}>
                           {months.slice(1).map((m) => <div key={m.key} className="absolute top-0 bottom-0 border-l border-white/[0.06]" style={{ left: `${m.from * 100}%` }} />)}
+                          {/* THE EPIC'S DATE: a dashed line down its lane, where the whole epic is due. */}
+                          {l.epic?.targetDate && (
+                            <div data-epic-due={l.epic.id} data-late={l.epic.late || undefined} className={`absolute top-0 bottom-0 border-l-2 border-dashed pointer-events-none ${l.epic.onTime ? 'border-[#F5C542]' : l.epic.late ? 'border-red-400/80' : 'border-neon-300/70'}`} style={{ left: `${xOf(l.epic.targetDate, range) * 100}%` }} title={`Epic ${epicNumber(l.epic.id)} is due ${l.epic.targetDate}`}>
+                              <span className={`absolute bottom-0.5 left-1 text-[9px] font-bold tracking-[0.1em] uppercase ${l.epic.onTime ? 'text-[#F5C542]' : l.epic.late ? 'text-red-300' : 'text-neon-200'}`}>Epic due</span>
+                            </div>
+                          )}
                           {/* THE ROUTE: travelled (green) up to the last delivery, under way (blue) from there, ahead (faint) to the last waypoint. */}
                           {l.placed.length > 0 && <div data-route="ahead" className="absolute h-[2px] bg-[rgba(140,170,220,0.28)]" style={{ top: NODE_Y - 1, left: `${Math.max(0, first - 0.025) * 100}%`, width: `${(Math.min(1, last + 0.03) - Math.max(0, first - 0.025)) * 100}%` }} />}
                           {lastLive > lastDone && <div data-route="under-way" className="absolute h-[2px]" style={{ top: NODE_Y - 1, left: `${Math.max(0, lastDone < 0 ? first - 0.025 : lastDone) * 100}%`, width: `${(lastLive - Math.max(0, lastDone < 0 ? first - 0.025 : lastDone)) * 100}%`, background: COLOUR['under-way'], boxShadow: `0 0 8px ${COLOUR['under-way']}` }} />}
                           {lastDone >= 0 && <div data-route="delivered" className="absolute h-[2px]" style={{ top: NODE_Y - 1, left: `${Math.max(0, first - 0.025) * 100}%`, width: `${(lastDone - Math.max(0, first - 0.025)) * 100}%`, background: COLOUR.delivered, boxShadow: `0 0 8px ${COLOUR.delivered}` }} />}
+                          {/* the epic's features with no date yet, in plan order — drag one along the lane to date it */}
+                          {l.unscheduled.length > 0 && (
+                            <div data-lane-undated={l.id || 'none'} className="absolute left-2 right-2 z-10 flex flex-wrap items-center gap-1.5" style={{ top: l.chipsTop }}>
+                              {l.unscheduled.map((f, n) => (
+                                <button key={f.id} type="button" data-waypoint={f.id} data-in-lane={l.id || 'none'} data-state={f.state} data-unscheduled
+                                  data-selected={selected === f.id || undefined}
+                                  onPointerDown={(e) => onDown(e, f)} onClick={() => { setSelected(f.id); setPlanning(true); }}
+                                  title={`${f.name} · no date yet — drag along the lane to give it one`}
+                                  className={`inline-flex items-center gap-1.5 px-2 h-[26px] rounded-[7px] border border-dashed text-[12px] truncate max-w-[220px] cursor-grab active:cursor-grabbing ${selected === f.id ? 'border-[#3FB4FF] text-white bg-[rgba(20,70,130,0.92)]' : 'border-white/30 text-gray-200 bg-[rgba(10,18,36,0.9)] hover:border-white/60'}`}>
+                                  <span className="text-[10px] text-gray-500 tabular-nums">{n + 1}</span>
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLOUR[f.state] }} aria-hidden="true" />
+                                  <span className="truncate">{f.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -369,6 +498,13 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                       {ART.today && <div className="absolute -translate-x-1/2 -bottom-1"><Strip art={ART.today} height={24} fps={8} /></div>}
                     </div>
 
+                    {/* a feature being dragged in from the tray */}
+                    {drag?.moved && drag.inside && lanes.length > 0 && !at.has(drag.id) && (
+                      <div data-drag-ghost className="absolute -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none" style={{ left: `${drag.x * 100}%`, top: lanes[drag.lane].top + NODE_Y - NODE / 2 }}>
+                        <Node state="planned" selected />
+                        <span className="mt-[9px] px-2.5 h-[24px] rounded-[7px] border border-[#3FB4FF] bg-[rgba(20,70,130,0.92)] text-[12px] text-white whitespace-nowrap flex items-center">{names.get(drag.id)} · {monthOf(dateAt(drag.x, range))}</span>
+                      </div>
+                    )}
                     {/* the features */}
                     {lanes.flatMap((l) => l.placed.map((p) => {
                       const f = p.feature;
@@ -379,7 +515,7 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                       const c = COLOUR[f.state];
                       const lit = on || f.state === 'under-way' || f.state === 'late';
                       return (
-                        <div key={f.id} data-waypoint={f.id} data-state={f.state} data-blocked={f.blockedBy.length > 0 || undefined} data-selected={on || undefined}
+                        <div key={f.id} data-waypoint={f.id} data-in-lane={l.id || 'none'} data-state={f.state} data-blocked={f.blockedBy.length > 0 || undefined} data-selected={on || undefined}
                           role="button" tabIndex={0} aria-label={`${f.name}, ${STATE_LABEL[f.state].toLowerCase()}, ${monthOf(dayOf(f))}`}
                           onPointerDown={(e) => onDown(e, f)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(f.id); } }}
                           className={`absolute -translate-x-1/2 flex flex-col items-center cursor-grab active:cursor-grabbing outline-none focus-visible:[&>span:last-child]:ring-2 ${dragging ? 'z-20 opacity-90' : on ? 'z-[12]' : 'z-10'}`}
@@ -399,21 +535,46 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                   </div>
                 </div>
 
-                {/* features with no date: off the chart until they are given one */}
-                {unplanned.length > 0 && (
-                  <div data-unplanned className="mt-3 flex items-center gap-2 flex-wrap" style={{ paddingLeft: LABEL_W }}>
-                    <span className="text-[11px] tracking-[0.12em] uppercase text-gray-400">Not on the chart yet</span>
-                    {unplanned.map((f) => (
-                      <button key={f.id} data-waypoint={f.id} data-state={f.state} data-unscheduled onClick={() => { setSelected(f.id); setPlanning(true); }}
-                        className={`px-2.5 h-6 rounded-[7px] border border-dashed text-[12px] truncate max-w-[190px] ${selected === f.id ? 'border-[#3FB4FF] text-white' : 'border-white/30 text-gray-300 hover:border-white/60'}`} title="Give it a target date to put it on the chart">
-                        {f.name}
-                      </button>
-                    ))}
+                {/* VISION → EPICS → FEATURES: with no epic yet, say what goes where and offer the next step. */}
+                {chart.epics.length === 0 && (
+                  <div data-roadmap-start className="mt-1 mb-3 rounded-[10px] border border-dashed border-[rgba(96,160,255,0.45)] bg-[rgba(10,18,36,0.6)] px-6 py-5">
+                    <p className="text-[15px] font-semibold text-white">Build the roadmap top down</p>
+                    <ol className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-[13px] text-gray-300">
+                      <li><span className="block text-[11px] font-bold tracking-[0.14em] text-neon-300 uppercase mb-1">1 · Vision</span>Where the project is going, in a sentence or two — the strip at the top.
+                        <button onClick={() => setVisionDraft(chart.vision)} className="block mt-2 btn-ghost h-8 px-3 rounded-[9px] text-[12px] font-semibold">{chart.vision ? 'Edit the vision' : 'Write the vision'}</button></li>
+                      <li><span className="block text-[11px] font-bold tracking-[0.14em] text-neon-300 uppercase mb-1">2 · Epics</span>The few big outcomes that get you there. Each epic is a lane on the chart.
+                        <button data-add-first-epic onClick={() => setNewEpic('')} className="block mt-2 btn-primary h-8 px-3 rounded-[9px] text-[12px] font-semibold">+ Add the first epic</button></li>
+                      <li><span className="block text-[11px] font-bold tracking-[0.14em] text-neon-300 uppercase mb-1">3 · Features</span>What gets built in each epic, each on its target date. Add them in an epic’s lane, or drag the project’s existing features in from below.</li>
+                    </ol>
                   </div>
                 )}
-                {everyFeature.length === 0 && <p className="text-[13px] text-gray-400 mt-4" style={{ paddingLeft: LABEL_W }}>No features to plan yet. Add features to the project, then give them an epic and a date here.</p>}
+                {/* one more epic */}
+                {chart.epics.length > 0 && newEpic === null && (
+                  <button data-add-epic-row onClick={() => setNewEpic('')} className="mt-2 w-full h-11 rounded-[8px] border border-dashed border-[rgba(96,160,255,0.35)] text-[13px] font-semibold text-neon-300 hover:text-white hover:border-[rgba(96,160,255,0.7)] hover:bg-[rgba(63,180,255,0.06)]">
+                    + Add epic
+                  </button>
+                )}
+
+                {/* features with no date: off the chart until they are given one */}
+                {unplanned.length > 0 && (
+                  <div data-unplanned className="mt-4 rounded-[10px] border border-white/[0.1] bg-[rgba(10,18,36,0.5)] px-4 py-3">
+                    <p className="text-[11px] font-bold tracking-[0.14em] uppercase text-gray-300">Features in no epic <span className="text-gray-500 tabular-nums">{unplanned.length}</span></p>
+                    <p className="text-[12px] text-gray-400 mt-0.5 mb-2">{chart.epics.length > 0 ? 'Drag one onto an epic’s lane to give it that epic and a date — or select it to plan it.' : 'They are the project’s features. Add an epic, then drag them onto its lane.'}</p>
+                    <div className="flex items-center gap-2 flex-wrap select-none touch-none" onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => setDrag(null)}>
+                      {unplanned.map((f) => (
+                        <button key={f.id} data-waypoint={f.id} data-in-lane="none" data-state={f.state} data-unscheduled onPointerDown={(e) => onDown(e, f)} onClick={() => { setSelected(f.id); setPlanning(true); }}
+                          className={`px-2.5 h-7 rounded-[7px] border border-dashed text-[12px] truncate max-w-[220px] cursor-grab active:cursor-grabbing ${selected === f.id ? 'border-[#3FB4FF] text-white' : 'border-white/30 text-gray-200 hover:border-white/60'}`}
+                          title={`${f.name}${f.epicId ? ` — ${chart.epics.find((e) => e.id === f.epicId)?.name ?? ''}` : ''} · no date yet`}>
+                          {f.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {everyFeature.length === 0 && chart.epics.length > 0 && <p className="text-[13px] text-gray-400 mt-4">No features yet. Use “+ Feature” in an epic’s lane.</p>}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>
@@ -427,14 +588,40 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
   );
 }
 
-function EpicEditor({ epic, busy, onSave, onDelete, onClose }: {
-  epic: RoadmapEpic; busy: boolean; onSave: (d: { name: string; outcome: string; icon: string }) => void; onDelete: () => void; onClose: () => void;
+/** A new feature for an epic: its name, and (if you know it) its target date. */
+function FeatureAdder({ epic, top, busy, onAdd, onClose }: { epic: RoadmapEpic; top: number; busy: boolean; onAdd: (name: string, date: string) => void; onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [date, setDate] = useState('');
+  return (
+    <form data-feature-adder={epic.id} className="absolute z-40 w-[340px] p-3 space-y-2 rounded-[10px] border border-[rgba(96,160,255,0.5)] bg-[#0A1224] shadow-[0_10px_30px_rgba(0,0,0,0.6)]" style={{ left: LABEL_W + 28, top: top + 96 }}
+      onSubmit={(e) => { e.preventDefault(); if (name.trim()) onAdd(name.trim(), date); }}>
+      <p className="text-[11px] font-bold tracking-[0.12em] text-gray-300 uppercase">New feature in {epic.name}</p>
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} aria-label="Feature name" placeholder="What gets built" className="glass-input w-full h-9 px-2 rounded-[8px] text-[13px]" />
+      <label className="flex items-center gap-2 text-[12px] text-gray-400">Target date
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Target date of the new feature" className="glass-input h-8 px-2 rounded-[8px] text-[12px] text-gray-100" />
+        <span className="text-gray-500">optional</span>
+      </label>
+      <div className="flex gap-1.5">
+        <button type="submit" disabled={busy || !name.trim()} className="btn-primary h-8 px-3 rounded-[8px] text-[12px] font-semibold disabled:opacity-40">Add feature</button>
+        <button type="button" onClick={onClose} className="btn-ghost h-8 px-3 rounded-[8px] text-[12px]">Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function EpicEditor({ epic, others, busy, onSave, onDelete, onClose }: {
+  epic: RoadmapEpic;
+  /** Every other epic of the project: what this one can wait on. */
+  others: { id: string; label: string }[];
+  busy: boolean; onSave: (d: { name: string; outcome: string; icon: string; targetDate: string; dependsOn: string[] }) => void; onDelete: () => void; onClose: () => void;
 }) {
   const [name, setName] = useState(epic.name);
   const [outcome, setOutcome] = useState(epic.outcome);
   const [icon, setIcon] = useState(epic.icon);
+  const [targetDate, setTargetDate] = useState(epic.targetDate ?? '');
+  const [dependsOn, setDependsOn] = useState<string[]>(epic.dependsOn ?? []);
   return (
-    <form data-epic-editor className="absolute left-0 top-0 z-40 w-[300px] p-3 space-y-2 rounded-[10px] border border-[rgba(96,160,255,0.4)] bg-[#0A1224] shadow-[0_10px_30px_rgba(0,0,0,0.6)]" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave({ name, outcome, icon }); }}>
+    <form data-epic-editor className="absolute left-0 top-0 z-40 w-[300px] p-3 space-y-2 rounded-[10px] border border-[rgba(96,160,255,0.4)] bg-[#0A1224] shadow-[0_10px_30px_rgba(0,0,0,0.6)]" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave({ name, outcome, icon, targetDate, dependsOn }); }}>
       <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Epic name" className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px]" />
       <input value={outcome} onChange={(e) => setOutcome(e.target.value)} aria-label="What this epic delivers" placeholder="What it delivers" className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px]" />
       <div className="flex gap-1 flex-wrap">
@@ -445,6 +632,26 @@ function EpicEditor({ epic, busy, onSave, onDelete, onClose }: {
           </button>
         ))}
       </div>
+      {/* WHEN THE EPIC IS DUE. Delivered on or before this day, it is a commendation for the project. */}
+      <label className="block">
+        <span className="block text-[11px] font-semibold text-gray-300 mb-1">Due — deliver it by this day for a commendation</span>
+        <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} aria-label="Epic due date" className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px] text-gray-100" />
+      </label>
+      {/* WHAT IT WAITS ON: its features are not offered to start until these epics are delivered. */}
+      {others.length > 0 && (
+        <fieldset data-epic-waits>
+          <legend className="text-[11px] font-semibold text-gray-300 mb-1">Waits on</legend>
+          <div className="max-h-[112px] overflow-y-auto space-y-1 pr-1">
+            {others.map((o) => (
+              <label key={o.id} className="flex items-center gap-2 text-[12px] text-gray-200">
+                <input type="checkbox" value={o.id} checked={dependsOn.includes(o.id)} className="accent-neon-500"
+                  onChange={(e) => setDependsOn(e.target.checked ? [...dependsOn, o.id] : dependsOn.filter((id) => id !== o.id))} />
+                <span className="truncate" title={o.label}>{o.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <div className="flex gap-1.5">
         <button type="submit" disabled={busy || !name.trim()} className="btn-primary h-8 px-3 rounded-[8px] text-[12px] font-semibold disabled:opacity-40">Save</button>
         <button type="button" onClick={onClose} className="btn-ghost h-8 px-3 rounded-[8px] text-[12px]">Cancel</button>

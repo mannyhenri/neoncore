@@ -3,9 +3,9 @@
  *
  *   GET    /api/roadmap/:projectId                the chart
  *   PUT    /api/roadmap/:projectId/vision         { vision }
- *   POST   /api/roadmap/:projectId/epics          { name, outcome?, icon? }
+ *   POST   /api/roadmap/:projectId/epics          { name, outcome?, icon?, targetDate?, dependsOn? }
  *   PUT    /api/roadmap/:projectId/epics/order    { ids }
- *   PUT    /api/roadmap/epics/:epicId             { name?, outcome?, icon? }
+ *   PUT    /api/roadmap/epics/:epicId             { name?, outcome?, icon?, targetDate?, dependsOn? }
  *   DELETE /api/roadmap/epics/:epicId             its features stay, in no epic
  *   PUT    /api/roadmap/features/:featureId       { epicId?, startDate?, targetDate?, dependsOn? }
  *

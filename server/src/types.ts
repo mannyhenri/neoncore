@@ -434,6 +434,11 @@ export interface Goal {
   owner?: string;
   investmentCategory?: string;
   autonomy?: string;
+  /**
+   * What a planning document settled for it that has no column of its own (lib/plan-scope.ts):
+   * in scope, assumptions, the work type, the document's own words. {} when it was not planned from one.
+   */
+  documentedScope?: { inScope?: string; assumptions?: string; workType?: string; size?: string; source?: string };
   /** Where the goal stands against its target date. null when no date was set. */
   schedule?: {
     targetDate: string;
@@ -591,6 +596,13 @@ export type ServerToClientEvents = {
   goal_pilot_updated: (data: { id: string }) => void;
   /** The in-app bell (and the dashboard's browser notification). workflowId is '' for a notice about no one run. */
   workflow_notification: (data: { id: string; workflowId: string; workflowName: string; title: string; body: string; projects: string[]; timestamp: string; kind: 'needs-you' | 'failed' | 'finished' | 'notice' }) => void;
+  // The QA section (lib/qa/): a run moved, a finding was recorded, a repair waits for review.
+  qa_run_updated: (data: unknown) => void;
+  qa_finding_added: (data: unknown) => void;
+  qa_repair_added: (data: unknown) => void;
+  // Bug Triage (lib/triage/): an issue moved; a step went into its audit log.
+  triage_issue_updated: (data: unknown) => void;
+  triage_event_added: (data: unknown) => void;
 };
 
 export type ClientToServerEvents = {

@@ -744,6 +744,16 @@ try {
   db.exec(`ALTER TABLE agents ADD COLUMN inbox_token TEXT NOT NULL DEFAULT ''`);
 }
 
+// turn_ended_at — when the cartridge's turn last ENDED (routes/agents.ts turnEnded): the Stop
+// hook's allowed stop for Claude, /turn-ended for Codex. Stored, not held in memory, because
+// "did the turn end after this request arrived?" must survive a restart
+// (lib/goal-pilot-runner.ts requestWentSilent). '' means no turn end recorded.
+try {
+  db.prepare('SELECT turn_ended_at FROM agents LIMIT 1').get();
+} catch {
+  db.exec(`ALTER TABLE agents ADD COLUMN turn_ended_at TEXT NOT NULL DEFAULT ''`);
+}
+
 // ADX-006 — WHICH transport carried a dispatch, not merely whether one did.
 //
 // On the row rather than only on the returned Command: that object is handed to
@@ -1647,9 +1657,244 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_project_imports_project ON project_imports(project_id);
 `);
+// ── QA SECTION (docs/plans/qa-section.md, lib/qa/) ─────────────────────────────────────────
+// Tests a web app with no hand-written scripts. Targets are the apps under test; tests are
+// plain-language sentences with a cached action list NeonCore replays itself (zero AI calls); a
+// cartridge is asked only to write a test's actions, repair a failed step, or explore.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS qa_targets (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    allow_hosts TEXT NOT NULL DEFAULT '[]',      -- JSON string[]
+    deny_actions TEXT NOT NULL DEFAULT '[]',     -- JSON string[] (regex sources)
+    credentials_env TEXT NOT NULL DEFAULT '{}',  -- JSON {role:{user,pass}} — ENV NAMES, never values
+    production_allowed INTEGER NOT NULL DEFAULT 0,
+    recorder_key TEXT NOT NULL DEFAULT '',       -- the recorder's per-target key (lib/qa/recorder.ts)
+    budgets TEXT NOT NULL DEFAULT '{}',          -- JSON {steps, minutes}
+    agent_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS qa_tests (
+    id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sentences TEXT NOT NULL DEFAULT '[]',        -- JSON string[]
+    cache TEXT NOT NULL DEFAULT '',              -- JSON QaAction[][]; '' = not written yet
+    source TEXT NOT NULL DEFAULT 'manual',       -- manual | explorer | recorder
+    journey_sig TEXT NOT NULL DEFAULT '',
+    finding_id TEXT NOT NULL DEFAULT '',
+    needs_attention INTEGER NOT NULL DEFAULT 0,  -- a rejected repair: its cache was put back
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_qa_tests_target ON qa_tests(target_id);
+  CREATE TABLE IF NOT EXISTS qa_runs (
+    id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    kind TEXT NOT NULL,                          -- run | explore | generate
+    test_ids TEXT NOT NULL DEFAULT '[]',
+    goal TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'running',      -- running | waiting | passed | passed_with_repair | failed | completed | error
+    agent_id TEXT NOT NULL DEFAULT '',
+    ai_calls INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_qa_runs_target ON qa_runs(target_id);
+  CREATE TABLE IF NOT EXISTS qa_results (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',      -- pending | authoring | repairing | passed | passed_with_repair | failed
+    failed_step INTEGER,
+    error TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '{}',         -- JSON: the runner's last result (steps, console, network, trace, screenshots)
+    repairs INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_qa_results_run ON qa_results(run_id);
+  CREATE TABLE IF NOT EXISTS qa_findings (
+    id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    run_id TEXT NOT NULL DEFAULT '',
+    signature TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'medium',
+    kind TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    page TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '[]',
+    screenshot TEXT NOT NULL DEFAULT '',
+    repro_test_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open',         -- open | dismissed | fixed
+    seen_count INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    UNIQUE (target_id, signature)
+  );
+  CREATE TABLE IF NOT EXISTS qa_repairs (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    sentence_index INTEGER NOT NULL,
+    sentence TEXT NOT NULL DEFAULT '',
+    before TEXT NOT NULL DEFAULT '[]',           -- JSON QaAction[] for that sentence
+    after TEXT NOT NULL DEFAULT '[]',
+    prev_cache TEXT NOT NULL DEFAULT '',         -- the whole cache before the repair (reject restores it)
+    status TEXT NOT NULL DEFAULT 'pending',      -- pending | accepted | rejected
+    created_at TEXT NOT NULL,
+    decided_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS qa_requests (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    result_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,                          -- author | repair | explore
+    agent_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',      -- pending | ready | failed | superseded
+    queued INTEGER NOT NULL DEFAULT 0,
+    context TEXT NOT NULL DEFAULT '{}',          -- JSON: what the request was about (sentence index, failure…)
+    prompt TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    dispatched_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_qa_requests_run ON qa_requests(run_id);
+  CREATE TABLE IF NOT EXISTS qa_sessions (
+    id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '[]',           -- JSON: masked events, in order
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_qa_sessions_target ON qa_sessions(target_id);
+`);
+// A recorder key per target: the recorder runs in the app under test and cannot hold the fleet
+// token, so its intake is public and accepts only this key (lib/qa/recorder.ts).
+try { db.prepare('SELECT recorder_key FROM qa_targets LIMIT 1').get(); }
+catch { db.exec(`ALTER TABLE qa_targets ADD COLUMN recorder_key TEXT NOT NULL DEFAULT ''`); }
+
+// ── BUG TRIAGE (docs/plans/bug-triage.md, lib/triage/) ──────────────────────────────────────────
+// Works each new Jira bug: triage → code check → reproduce → fix → PR → follow-up. One state
+// machine per issue (triage_issues), every step in the audit log (triage_events), the cartridge
+// requests (triage_requests), one row of global switches (triage_settings).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS triage_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    jira_base_url TEXT NOT NULL DEFAULT '',
+    auth_env TEXT NOT NULL DEFAULT '{}',          -- JSON {email, token} — ENV NAMES, never values
+    projects TEXT NOT NULL DEFAULT '[]',          -- JSON string[] (project keys)
+    issue_types TEXT NOT NULL DEFAULT '["Bug"]',
+    repo_for TEXT NOT NULL DEFAULT '{}',          -- JSON {projectKey: repoPath}
+    reporters TEXT NOT NULL DEFAULT 'internal',   -- internal | external
+    transitions INTEGER NOT NULL DEFAULT 0,
+    transition_names TEXT NOT NULL DEFAULT '{}',  -- JSON {inProgress, inReview, done}: status names
+    protected_paths TEXT NOT NULL DEFAULT '[]',
+    limits TEXT NOT NULL DEFAULT '{}',            -- JSON {maxFiles, maxLines, minutesPerIssue, dispatchesPerIssue, reviewRounds}
+    test_command TEXT NOT NULL DEFAULT 'npm test',
+    poll_seconds INTEGER NOT NULL DEFAULT 60,
+    webhook_secret_env TEXT NOT NULL DEFAULT '',
+    triage_agent_id TEXT NOT NULL DEFAULT '',
+    code_agent_type TEXT NOT NULL DEFAULT 'claude',
+    create_issues INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_polled_at TEXT,
+    service_account_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS triage_issues (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    origin TEXT NOT NULL DEFAULT 'jira',          -- jira | qa
+    issue_key TEXT NOT NULL,
+    project_key TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    reporter_id TEXT NOT NULL DEFAULT '',
+    reporter_name TEXT NOT NULL DEFAULT '',
+    jira_created_at TEXT,
+    stage TEXT NOT NULL DEFAULT 'intake',
+    state TEXT NOT NULL DEFAULT 'queued',
+    outcome TEXT NOT NULL DEFAULT '',
+    repo_path TEXT NOT NULL DEFAULT '',
+    worktree_path TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL DEFAULT '',
+    base_branch TEXT NOT NULL DEFAULT '',
+    repro TEXT NOT NULL DEFAULT '{}',             -- JSON {testFile, command}
+    findings TEXT NOT NULL DEFAULT '{}',          -- JSON: what each stage learned (for the hand-over)
+    pr_url TEXT NOT NULL DEFAULT '',
+    pr_merge_commit TEXT NOT NULL DEFAULT '',
+    review_rounds INTEGER NOT NULL DEFAULT 0,
+    held_message TEXT NOT NULL DEFAULT '',        -- an external reporter's solution_found, until the PR is approved
+    questions_at TEXT,                            -- when the reporter was asked (needs_info)
+    reopened INTEGER NOT NULL DEFAULT 0,
+    first_comment_at TEXT,
+    fixed_at TEXT,
+    released_at TEXT,
+    started_at TEXT,
+    dispatches INTEGER NOT NULL DEFAULT 0,
+    agent_minutes REAL NOT NULL DEFAULT 0,
+    last_checked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (source_id, issue_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_triage_issues_state ON triage_issues(state);
+  CREATE TABLE IF NOT EXISTS triage_events (
+    id TEXT PRIMARY KEY,
+    issue_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,                           -- stage | decision | dispatch | submission | check | message | label | transition | pr | error | budget | human
+    stage TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '{}',
+    cost_minutes REAL NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_triage_events_issue ON triage_events(issue_id, at);
+  CREATE TABLE IF NOT EXISTS triage_requests (
+    id TEXT PRIMARY KEY,
+    issue_id TEXT NOT NULL,
+    stage TEXT NOT NULL,                          -- triage | code_check | reproduce | fix
+    agent_id TEXT NOT NULL DEFAULT '',
+    resolve_path TEXT NOT NULL DEFAULT '',        -- a worktree whose cartridge is not registered yet
+    resolve_type TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',       -- pending | ready | failed | superseded
+    queued INTEGER NOT NULL DEFAULT 0,
+    prompt TEXT NOT NULL DEFAULT '',
+    result TEXT,
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    dispatched_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_triage_requests_issue ON triage_requests(issue_id);
+  CREATE TABLE IF NOT EXISTS triage_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    paused INTEGER NOT NULL DEFAULT 0,
+    daily_dispatch_cap INTEGER NOT NULL DEFAULT 100,
+    updated_at TEXT NOT NULL DEFAULT ''
+  );
+  INSERT OR IGNORE INTO triage_settings (id, paused, daily_dispatch_cap, updated_at) VALUES (1, 0, 100, '');
+`);
+
+
 // project_imports.parts arrived after the table did (same probe-then-ALTER rule as above).
 try { db.prepare('SELECT parts FROM project_imports LIMIT 1').get(); } catch {
   db.exec("ALTER TABLE project_imports ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'");
+}
+// "Plan from a document": the uploaded document's name and its extracted text (lib/document-text.ts).
+try { db.prepare('SELECT document_name FROM project_imports LIMIT 1').get(); } catch {
+  db.exec("ALTER TABLE project_imports ADD COLUMN document_name TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE project_imports ADD COLUMN document_text TEXT NOT NULL DEFAULT ''");
 }
 
 // File old-style goals under their project, once. Under the old hierarchy a goal OWNED projects

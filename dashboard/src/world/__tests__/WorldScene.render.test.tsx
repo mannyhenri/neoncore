@@ -1085,4 +1085,35 @@ describe('the props on the map', () => {
     expect(window.location.hash).toBe('#project/p1/feature/b');
     window.location.hash = '';
   });
+
+  it('eight agents on two features of one project work in two pods, four each — a team to a pod — and the second pod carries the project\'s name', () => {
+    const repos = ['a', 'b', 'c', 'd'];
+    extras.projects = [project({ cartridges: repos.map((n) => `/code/${n}`), featureCount: 2 })] as never;
+    const team = (f: string) => repos.map((n) => agent({ id: `${n}-${f}`, repoPath: `/code/${n}-${f}`, repoName: `${n}-${f}` }));
+    const feature = (f: string) => ({ pilotId: `pi-${f}`, goalId: `g-${f}`, projectId: 'p1', name: `Feature ${f}`, phase: 'running', stage: null, needsYou: '', branch: f,
+      agentIds: repos.map((n) => `${n}-${f}`), worktrees: repos.map((n) => ({ worktreePath: `/code/${n}-${f}`, repoPath: `/code/${n}` })) });
+    Object.assign(extras, { features: [feature('one'), feature('two')] });
+    const { container } = render(scene([...team('one'), ...team('two')]));
+    const podOf = (id: string) => OUTPOST.sites.find((x) => x.id === fig(id).dataset.site)!.district;
+    const pods = { one: new Set(repos.map((n) => podOf(`${n}-one`))), two: new Set(repos.map((n) => podOf(`${n}-two`))) };
+    // Each team is together in one pod, and the two teams are in different pods.
+    expect(pods.one.size).toBe(1);
+    expect(pods.two.size).toBe(1);
+    expect([...pods.one][0]).not.toBe([...pods.two][0]);
+    expect([...pods.one][0]).toBe('nw');
+    // In the second pod nobody doubles up while it has a free spot: its three spots are all taken.
+    expect(new Set(repos.map((n) => fig(`${n}-two`).dataset.site)).size).toBe(OUTPOST.sites.filter((x) => x.district === [...pods.two][0]).length);
+    const annex = container.querySelector<HTMLElement>('[data-zone-annex]')!;
+    expect(annex.dataset.zoneAnnex).toBe([...pods.two][0]);
+    expect(annex.querySelector('[data-sign-name]')!.textContent).toBe('Atlas');
+    expect(container.querySelectorAll('[data-zone-label]')).toHaveLength(1);
+    Object.assign(extras, { features: [] });
+  });
+
+  it('four agents or fewer stay in the one pod, and no second signpost goes up', () => {
+    extras.projects = [project({ cartridges: ['a', 'b', 'c', 'd'].map((n) => `/code/${n}`) })] as never;
+    const { container } = render(scene(['a', 'b', 'c', 'd'].map((n) => agent({ id: n, repoPath: `/code/${n}` }))));
+    expect(new Set(['a', 'b', 'c', 'd'].map((n) => OUTPOST.sites.find((x) => x.id === fig(n).dataset.site)!.district))).toEqual(new Set(['nw']));
+    expect(container.querySelector('[data-zone-annex]')).toBeNull();
+  });
 });

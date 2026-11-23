@@ -72,13 +72,17 @@ test('the caller scan is non-vacuous', () => {
  * is the hole this whole file exists to close.
  */
 const EXEMPT: Record<string, string> = {
+  'server/src/lib/qa/recorder.ts':
+    'the QA recorder SCRIPT it serves runs in the app under test, which must never hold the fleet '
+    + 'token: it posts to /api/qa/sessions[/:id/events], public in lib/auth.ts and checked against '
+    + 'the target\'s own recorder key instead',
   'server/src/index.ts':
     'self health-check on /api/health, which lib/auth.ts isPublicPath() exempts by design — '
     + 'it is how a peer decides this server is reachable at all',
 };
 
 test('every exemption calls ONLY paths auth actually treats as public', () => {
-  const publicPaths = ['/api/health'];
+  const publicPaths = ['/api/health', '/api/qa/sessions'];
   const bad: string[] = [];
   for (const rel of Object.keys(EXEMPT)) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');

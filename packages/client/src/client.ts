@@ -781,6 +781,8 @@ export function createClient(config: ClientConfig = {}) {
   getActiveFeatures: () => request<import('./types').ActiveFeature[]>('/goal-pilots/active'),
   /** Push a feature's branches and open its PRs now (server lib/feature-workspace.ts). */
   openFeaturePrs: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace/prs`, { method: 'POST' }),
+  /** Merge every PR of the feature (all or none), then remove its worktrees, branch and cartridges. */
+  mergeFeaturePrs: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace/merge`, { method: 'POST' }),
   /** After merge: end the feature's worktree cartridges and remove the worktrees (`force` = even unmerged). */
   cleanupFeatureWorkspace: (id: string, force = false) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/workspace/cleanup`, { method: 'POST', body: JSON.stringify({ force }) }),
@@ -811,6 +813,10 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/accept-change`, { method: 'POST', body: JSON.stringify({ reason }) }),
   confirmAcceptanceChecklist: (id: string, confirmations: Record<string, { accepted: boolean; note?: string }>) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/checklist`, { method: 'POST', body: JSON.stringify({ confirmations }) }),
+  /** A delivered feature, checked again: the locked tests now, then a fresh checklist review. Nothing is built. */
+  retestAcceptance: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/retest`, { method: 'POST' }),
+  /** After a retest that still shows gaps: one workflow stage for exactly the criteria that do not pass. */
+  addAcceptanceFixStage: (id: string) => request<import('./types').GoalPilot>(`/goal-pilots/${id}/acceptance/fix`, { method: 'POST' }),
   verifyGoalPilotStageAgain: (id: string, stageId: string) =>
     request<import('./types').GoalPilot>(`/goal-pilots/${id}/stages/${stageId}/verify`, { method: 'POST' }),
   /** Build (or rebuild) the goal report now — e.g. for a pipeline cancelled part-way. */
@@ -829,13 +835,28 @@ export function createClient(config: ClientConfig = {}) {
   /** Add features to the end of a project's list — one or many (a pasted list). Nothing starts. */
   addProjectFeatures: (projectId: string, features: { name: string; description?: string }[]) =>
     request<{ ids: string[] }>(`/projects/${projectId}/features`, { method: 'POST', body: JSON.stringify({ features }) }),
+  // The project's design system, step 1: inspiration pictures, the designer's rounds, the direction chosen.
+  getDesignSystem: (projectId: string) => request<import('./types').DesignExploration>(`/design-system/${projectId}`),
+  saveDesignSystem: (projectId: string, data: Omit<import('./types').DesignExploration, 'updatedAt'>) =>
+    request<import('./types').DesignExploration>(`/design-system/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  // The designer is Claude's /design in the project's main repo: ask it for a round of four; stop waiting for one.
+  requestDesign: (projectId: string, data: { note?: string; basedOn?: { roundId: string; variationId: string } | null }) =>
+    request<import('./types').DesignExploration>(`/design-system/${projectId}/design`, { method: 'POST', body: JSON.stringify(data) }),
+  cancelDesign: (projectId: string) => request<import('./types').DesignExploration>(`/design-system/${projectId}/design/cancel`, { method: 'POST' }),
+  // Step 2: the selected direction → the whole system; then that system → every repo of the project (commit + push).
+  finalizeDesignSystem: (projectId: string) => request<import('./types').DesignExploration>(`/design-system/${projectId}/finalize`, { method: 'POST' }),
+  publishDesignSystem: (projectId: string) => request<import('./types').DesignExploration>(`/design-system/${projectId}/publish`, { method: 'POST' }),
+  // Rewards: what each project has earned, counted from its own records.
+  getRewards: () => request<{ projects: import('./types').ProjectRewards[] }>('/rewards'),
+  getWorldProgress: () => request<{ totals: Record<string, number>; maps: import('./types').MapProgress[] }>('/rewards/world'),
+  getProjectRewards: (projectId: string) => request<import('./types').ProjectRewards>(`/rewards/${projectId}`),
   // The roadmap: vision → epics → features on a timeline. Every write answers with the chart as it now is.
   getRoadmap: (projectId: string) => request<import('./types').RoadmapChart>(`/roadmap/${projectId}`),
   setRoadmapVision: (projectId: string, vision: string) =>
     request<import('./types').RoadmapChart>(`/roadmap/${projectId}/vision`, { method: 'PUT', body: JSON.stringify({ vision }) }),
-  createEpic: (projectId: string, data: { name: string; outcome?: string; icon?: string }) =>
+  createEpic: (projectId: string, data: { name: string; outcome?: string; icon?: string; targetDate?: string; dependsOn?: string[] }) =>
     request<import('./types').RoadmapChart>(`/roadmap/${projectId}/epics`, { method: 'POST', body: JSON.stringify(data) }),
-  updateEpic: (epicId: string, data: { name?: string; outcome?: string; icon?: string }) =>
+  updateEpic: (epicId: string, data: { name?: string; outcome?: string; icon?: string; targetDate?: string; dependsOn?: string[] }) =>
     request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'PUT', body: JSON.stringify(data) }),
   /** Its features stay in the project, in no epic. */
   deleteEpic: (epicId: string) => request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'DELETE' }),
@@ -865,12 +886,19 @@ export function createClient(config: ClientConfig = {}) {
   getProjectImports: (projectId: string) => request<import('./types').ProjectImport[]>(`/projects/${projectId}/imports`),
   /** Ask a cartridge to read the project's repos and propose its architecture, existing features and backlog. */
   /** Ask a cartridge to take stock of the project's repos — only the `parts` named (default: all four). */
-  startProjectImport: (projectId: string, agentId: string, parts?: import('./types').ImportPart[]) =>
-    request<{ import: import('./types').ProjectImport; queued: boolean }>(`/projects/${projectId}/imports`, { method: 'POST', body: JSON.stringify({ agentId, parts }) }),
+  /** With parts ['plan'] and a `document` ({ name, data: base64 }): "Plan from a document". */
+  startProjectImport: (projectId: string, agentId: string, parts?: import('./types').ImportPart[], document?: { name: string; data: string }) =>
+    request<{ import: import('./types').ProjectImport; queued: boolean }>(`/projects/${projectId}/imports`, { method: 'POST', body: JSON.stringify({ agentId, parts, document }) }),
   getProjectImport: (importId: string) => request<import('./types').ProjectImport>(`/project-imports/${importId}`),
   /** Keep what the person ticked: the architecture (as edited), existing features, backlog items. */
-  applyProjectImport: (importId: string, data: { architecture?: string; architectureHtml?: boolean; features: string[]; backlog: string[]; changelog: string[] }) =>
-    request<{ imp: import('./types').ProjectImport; created: { existing: string[]; planned: string[]; changelog: number } }>(`/project-imports/${importId}/apply`, { method: 'POST', body: JSON.stringify(data) }),
+  applyProjectImport: (importId: string, data: {
+    architecture?: string; architectureHtml?: boolean; features: string[]; backlog: string[]; changelog: string[];
+    /** The plan: the vision as edited ('' = keep the project's), new epics and features to keep, by name. */
+    vision?: string; epics?: string[]; plan?: string[];
+    /** Features already on the project whose blanks to fill; project fields to keep; answers to the plan's questions. */
+    updates?: string[]; project?: string[]; answers?: Record<string, { value: string; delegated: boolean }>;
+  }) =>
+    request<{ imp: import('./types').ProjectImport; created: { existing: string[]; planned: string[]; changelog: number; epics?: string[]; roadmap?: string[] } }>(`/project-imports/${importId}/apply`, { method: 'POST', body: JSON.stringify(data) }),
   /** The order the project's features are to be built in. */
   reorderProjectFeatures: (projectId: string, ids: string[]) =>
     request<{ ok: boolean }>(`/projects/${projectId}/features/order`, { method: 'PUT', body: JSON.stringify({ ids }) }),

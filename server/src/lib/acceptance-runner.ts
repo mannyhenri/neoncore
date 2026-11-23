@@ -26,7 +26,7 @@ import { normalizeRepoPath } from './resolve-agent.js';
 import { repoAccessFor, checkTimeoutMs, RepoAccessError, type RepoAccess } from './repo-access.js';
 import {
   type AcceptanceContract, type CheckResult, type CriterionTest, type Verification, type ChecklistVerdict, type Amendment,
-  getContract, updateContract, criteriaToWrite, checklistCriteria, testCriteria, normalizeTestsSubmission, testsHash,
+  getContract, updateContract, criteriaToWrite, checklistCriteria, testCriteria, commandTests, normalizeTestsSubmission, testsHash,
   lockedFiles, findTampering, verificationStatus, criteriaText, criteriaHash, criterionStates,
 } from './acceptance-contract.js';
 import {
@@ -35,6 +35,8 @@ import {
 import {
   emitPilotUpdate, announcePilot, advancePilot, stopPilot, liveCartridge, dispatchPlannerRequest, requestWentSilent,
 } from './goal-pilot-runner.js';
+
+import { generateGoalReport } from './goal-pilot-report.js';
 
 const nowIso = () => new Date().toISOString();
 const MAX_VERIFICATIONS = 40;
@@ -222,8 +224,9 @@ async function submitTests(pilot: GoalPilot, c: AcceptanceContract, requestId: s
     criterionId: t.criterionId, command: t.command,
     files: t.files.map((p) => { const r = byPath.get(p)!; return { path: p, sha256: r.sha256, bytes: r.bytes, content: r.content }; }),
   }));
-  // An amendment replaces only the unlocked criteria's tests; the rest stay as locked.
-  const draft = (c.amending ? [...c.tests.filter((t) => !wanted.some((w) => w.id === t.criterionId)), ...submitted] : submitted)
+  // An amendment replaces only the unlocked criteria's tests; the rest stay as locked. Command
+  // criteria were in `tests` from the start (createContract) and are kept the same way.
+  const draft = [...c.tests.filter((t) => !wanted.some((w) => w.id === t.criterionId)), ...submitted]
     .sort((x, y) => Number(x.criterionId.slice(3)) - Number(y.criterionId.slice(3)));
 
   // The files were read asynchronously: make sure nothing moved on meanwhile.
@@ -330,7 +333,10 @@ function evaluateApproval(pilotId: string): void {
   };
   if (c.baseline?.error) return block(`The tests could not be run: ${c.baseline.error}`);
   if (!baselineIsFresh(c)) return;
-  const green = c.baseline!.results.filter((r) => r.passed).map((r) => r.criterionId);
+  // A command criterion (e.g. "it builds") may well pass before the work: it is the person's own
+  // check, not a test written to fail. Only written tests must start red.
+  const written = new Set(testCriteria(c).map((x) => x.id));
+  const green = c.baseline!.results.filter((r) => r.passed && written.has(r.criterionId)).map((r) => r.criterionId);
   if (green.length && !c.approval.confirmPassing) {
     return block(`${green.join(', ')} already pass${green.length === 1 ? 'es' : ''} before any work — a test that passes now proves nothing about this work. Ask for changes, or approve anyway.`);
   }
@@ -399,7 +405,7 @@ export function unlockCriterion(pilotId: string, criterionId: string, input: { r
   if (c.status !== 'locked') throw new PilotError(`the contract is ${c.status} — finish the current review first`);
   const cr = c.criteria.find((x) => x.id === criterionId);
   if (!cr) throw new PilotError(`no criterion ${criterionId}`, 404);
-  if (cr.verify !== 'test') throw new PilotError(`${criterionId} is a checklist item — it has no test to unlock`, 400);
+  if (cr.verify !== 'test') throw new PilotError(`${criterionId} is a ${cr.verify} criterion — it has no written test to unlock`, 400);
   const reason = String(input.reason ?? '').trim();
   if (reason.length < 5) throw new PilotError('give the reason for unlocking — it is recorded as an amendment in the report', 400);
   const text = String(input.text ?? '').trim() || cr.text;
@@ -428,10 +434,14 @@ export function waiveTests(pilotId: string): void {
   if (req?.status === 'pending') {
     db.prepare(`UPDATE goal_pilot_requests SET status = 'superseded', completed_at = ? WHERE id = ?`).run(nowIso(), req.id);
   }
-  updateContract(c.id, {
-    status: 'waived', draftTests: [], approval: null, waitReason: '',
-    amendments: [...c.amendments, { at: nowIso(), kind: 'waive', criterionIds: testCriteria(c).map((x) => x.id), reason: 'The person skipped writing the acceptance tests.', version: c.version }],
-  });
+  const amendments = [...c.amendments, { at: nowIso(), kind: 'waive' as const, criterionIds: testCriteria(c).map((x) => x.id), reason: 'The person skipped writing the acceptance tests.', version: c.version }];
+  // Command criteria need nothing written: they stay in force, so the contract locks with them alone.
+  const commands = commandTests(c.criteria);
+  if (commands.length) {
+    updateContract(c.id, { status: 'locked', version: c.version + 1, tests: commands, draftTests: [], approval: null, waitReason: '', lockedAt: nowIso(), amending: null, amendments });
+    return;
+  }
+  updateContract(c.id, { status: 'waived', draftTests: [], approval: null, waitReason: '', amendments });
 }
 
 /** Stage 0 retried: clear the failed request so a fresh one goes out. */
@@ -768,6 +778,8 @@ export type ContractView = Omit<AcceptanceContract, 'draftTests' | 'tests'> & {
   passing: number;
   total: number;
   activity: ContractActivity | null;
+  /** A retest of the delivered feature is running its locked tests right now. */
+  retesting: boolean;
   baselineFresh: boolean;
   request: { status: string; error: string; agentId: string } | null;
 };
@@ -788,7 +800,149 @@ export function contractView(c: AcceptanceContract | null): ContractView | null 
     passing: states.filter((s) => s.outcome === 'pass' || s.outcome === 'met').length,
     total: states.length,
     activity: contractActivity(c.id),
+    retesting: isRetesting(c.pilotId),
     baselineFresh: c.status === 'review' ? baselineIsFresh(c) : false,
     request: req ? { status: req.status, error: req.error, agentId: req.agentId } : null,
   };
+}
+
+// ── retest: check a DELIVERED feature again ─────────────────────────────────────
+
+/** The title a retest's check carries in the evidence (it belongs to no stage). */
+export const RETEST_TITLE = 'Retest after delivery';
+const retesting = new Set<string>();
+export const isRetesting = (pilotId: string) => retesting.has(pilotId);
+
+/** The criteria that do not pass on NeonCore's own evidence: what a fix workflow would be about. */
+export function gapsOf(pilotId: string): ReturnType<typeof criterionStates> {
+  const c = getContract(pilotId);
+  return c ? criterionStates(c).filter((s) => s.outcome !== 'pass' && s.outcome !== 'met') : [];
+}
+
+/** Put the pipeline back to work at its review stage: a fresh reviewer, fresh verdicts, the person confirms. */
+function reopenForReview(pilotId: string): void {
+  const review = stagesOf(pilotId).find((s) => s.kind === 'review');
+  if (review) updateStage(review.id, { status: 'pending', wait_reason: '', completed_at: null, request_id: '', result_summary: '', started_at: null });
+  db.prepare(`UPDATE goal_pilots SET phase = 'running', completed_at = NULL, attention = '', updated_at = ? WHERE id = ?`).run(nowIso(), pilotId);
+  emitPilotUpdate(pilotId);
+  advancePilot(pilotId);
+}
+
+/**
+ * "Retest" on a delivered feature — for one that was finished with gaps (stopped early, stages
+ * skipped) whose work has since been done, or to see where it stands today.
+ *
+ *   1. The locked tests are run again, exactly as after a stage: every locked file's hash first,
+ *      then every criterion's command. The result is new evidence ("Retest after delivery").
+ *   2. The checklist criteria are reviewed again: the review stage is reopened, an independent
+ *      cartridge judges each one afresh, and the person confirms — the pipeline's own review.
+ *   3. The feature report is written again from the new evidence.
+ *
+ * Nothing is built and nothing in the repo is changed. A changed locked test stops the retest and
+ * is said; it is the person's to restore or accept, as always.
+ */
+export function retestAcceptance(pilotId: string): Promise<void> {
+  const pilot = pilotOrThrow(pilotId);
+  const c = contractOrThrow(pilotId);
+  if (pilot.phase !== 'completed') throw new PilotError(`this feature's pipeline is ${pilot.phase} — a retest is for a feature that was delivered`);
+  if (retesting.has(pilotId)) throw new PilotError('a retest is already running', 409);
+  const hasTests = c.status === 'locked' && c.tests.length > 0;
+  const hasChecklist = checklistCriteria(c).length > 0 && stagesOf(pilotId).some((s) => s.kind === 'review');
+  if (!hasTests && !hasChecklist) throw new PilotError('this feature has no acceptance criteria that can be checked again');
+  retesting.add(pilotId);
+  const job = (async () => {
+    try {
+      if (hasTests && !(await retestLockedTests(pilotId, c))) return;
+      if (hasChecklist) { retesting.delete(pilotId); reopenForReview(pilotId); }
+      else generateGoalReport(pilotId);
+    } finally {
+      retesting.delete(pilotId);
+      activity.delete(c.id);
+      baselines.delete(`retest:${pilotId}`);
+      emitPilotUpdate(pilotId);
+    }
+  })();
+  baselines.set(`retest:${pilotId}`, job);
+  emitPilotUpdate(pilotId);
+  return job;
+}
+
+/** Run the locked tests outside any stage. False when they could not be judged (a changed test, an unreachable repo). */
+async function retestLockedTests(pilotId: string, c: AcceptanceContract): Promise<boolean> {
+  const base = { id: randomUUID(), stageId: '', stagePosition: 0, stageTitle: RETEST_TITLE, version: c.version };
+  const record = (v: Verification) => {
+    const now = getContract(pilotId) ?? c;
+    updateContract(c.id, { verifications: [...now.verifications, v].slice(-MAX_VERIFICATIONS) });
+  };
+  activity.set(c.id, { kind: 'verify', done: 0, total: c.tests.length, stageId: '' });
+  emitPilotUpdate(pilotId);
+  try {
+    const a = repoAccessFor(c.repoPath);
+    const files = lockedFiles(c.tests);
+    const tampered = findTampering(c.tests, await a.readFiles(files.map((f) => f.path)));
+    if (tampered.length) {
+      record({ ...base, at: nowIso(), status: 'tampered', passing: 0, total: c.tests.length, filesChecked: files.length, results: [], tampered, error: '' });
+      const list = tampered.map((f) => `${f.path} (${f.criterionId}${f.actual ? '' : ', deleted'})`).join(', ');
+      db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?')
+        .run(`The retest did not run: locked acceptance tests were changed since they were approved — ${list}. Put the approved version back, then retest.`, nowIso(), pilotId);
+      return false;
+    }
+    const results: CheckResult[] = [];
+    for (const t of c.tests) {
+      results.push(await runCheck(a, t));
+      activity.set(c.id, { kind: 'verify', done: results.length, total: c.tests.length, stageId: '' });
+      emitPilotUpdate(pilotId);
+    }
+    record({ ...base, at: nowIso(), status: verificationStatus(results), passing: results.filter((r) => r.passed).length, total: results.length, filesChecked: files.length, results, tampered: [], error: '' });
+    db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?').run('', nowIso(), pilotId);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    record({ ...base, at: nowIso(), status: 'error', passing: 0, total: c.tests.length, filesChecked: 0, results: [], tampered: [], error: msg });
+    db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?').run(`The retest could not run: ${msg}`, nowIso(), pilotId);
+    return false;
+  }
+}
+
+/**
+ * "Create a fix workflow" — after a retest still shows gaps. One workflow stage is added to the
+ * feature's pipeline, in front of the review, whose whole job is the criteria that do not pass:
+ * each one with what it expects and the evidence against it. It is staffed like the last workflow
+ * stage that did the work (same workflow, same repos and engines). When it finishes, the locked
+ * tests are run and the checklist is reviewed again — the pipeline's ordinary ending.
+ */
+export function addFixStage(pilotId: string): PilotStage {
+  const pilot = pilotOrThrow(pilotId);
+  if (pilot.phase !== 'completed') throw new PilotError(`this feature's pipeline is ${pilot.phase} — a fix workflow is added to a delivered feature`);
+  if (retesting.has(pilotId)) throw new PilotError('a retest is running — wait for it', 409);
+  const gaps = gapsOf(pilotId);
+  if (gaps.length === 0) throw new PilotError('every acceptance criterion passes — there is nothing to fix');
+  const stages = stagesOf(pilotId);
+  const work = stages.filter((s) => s.kind === 'workflow');
+  const like = [...work].reverse().find((s) => s.status === 'completed') ?? work[work.length - 1];
+  if (!like) throw new PilotError('this pipeline has no workflow stage to model the fix on');
+  const src = db.prepare('SELECT * FROM goal_pilot_stages WHERE id = ?').get(like.id) as Record<string, unknown>;
+  const review = stages.find((s) => s.kind === 'review');
+  const position = review ? review.position : Math.max(...stages.map((s) => s.position)) + 1;
+  const evidence = (g: (typeof gaps)[number]): string => {
+    if (g.verify === 'test') return g.last ? `its test fails (${g.last.command}, exit ${g.last.exitCode ?? 'none'}${g.last.timedOut ? ', timed out' : ''}):\n${g.last.output.slice(-1200)}` : 'its test has not been run';
+    if (g.confirmation && !g.confirmation.accepted) return `judged not met${g.confirmation.note ? ` — ${g.confirmation.note}` : ''}${g.verdict ? `\nReviewer: ${g.verdict.evidence}` : ''}`;
+    return g.verdict ? `reviewer said ${g.verdict.verdict}: ${g.verdict.evidence}` : 'not checked yet';
+  };
+  const focus = `Close the gaps a retest found. These acceptance criteria do NOT pass yet — make each one true, and nothing else:\n\n${
+    gaps.map((g) => `### ${g.id} (${g.verify})\n${g.text}\nExpected: ${g.expect}\nNow: ${evidence(g)}`).join('\n\n')
+  }\n\nDo not change the locked acceptance tests. If a criterion is already true and only the evidence was missing, produce the evidence.`;
+  const id = randomUUID();
+  const n = work.filter((s) => s.key.startsWith('fix-gaps')).length + 1;
+  db.transaction(() => {
+    db.prepare('UPDATE goal_pilot_stages SET position = position + 1 WHERE pilot_id = ? AND position >= ?').run(pilotId, position);
+    db.prepare(`INSERT INTO goal_pilot_stages (id, pilot_id, position, kind, stage_key, template_id, template_name, title, why, focus,
+                  repo_path, agent_type, project_id, status, participants, skip_steps)
+                VALUES (?, ?, ?, 'workflow', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+      .run(id, pilotId, position, `fix-gaps-${n}`, src.template_id, src.template_name, `Close the gaps: ${gaps.map((g) => g.id).join(', ')}`,
+        `Added after a retest: ${gaps.length} of the feature's acceptance criteria did not pass.`, focus,
+        src.repo_path, src.agent_type, src.project_id, src.participants ?? '[]', src.skip_steps ?? '[]');
+  })();
+  reopenForReview(pilotId);
+  return getStage(id)!;
 }

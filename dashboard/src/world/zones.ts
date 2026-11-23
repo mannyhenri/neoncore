@@ -81,6 +81,48 @@ export function planZones(projects: readonly ZoneProject[], plate: Pick<WorldPla
   });
 }
 
+/**
+ * SECTORS: the world has room for a handful of projects (one district each). Past that, the
+ * projects are spread over SECTORS — the same world again, a full set of districts each — so every
+ * project has a district of its own, however many there are. Oldest project first, filled sector
+ * by sector: adding a project never moves one that is already there, it starts or fills the last
+ * sector. One sector is on the map at a time.
+ */
+export interface Sector { index: number; projects: ZoneProject[] }
+/** How many projects one sector holds: the districts that have a building. */
+export const sectorSize = (plate: Pick<WorldPlate, 'districts' | 'structures'>): number =>
+  Math.max(1, plate.districts.filter((d) => plate.structures.some((s) => s.building && s.district === d.id)).length);
+/**
+ * ROOM TO WORK. A pod holds four agents, and a project runs one agent per repo — two per repo
+ * while a feature is being built in a branch of each. So a project with more than two repos needs
+ * a SECOND district, or its team stands eight deep in one. A sector keeps that room: it is planned
+ * by the districts its projects need, not by counting projects, and the spare district is the one
+ * planAnnexes hands to the crowded project.
+ */
+export function districtsNeeded(p: ZoneProject, size: number): number {
+  return Math.min(size, Math.max(1, Math.ceil((reposOf(p).length * 2) / POD_CAPACITY)));
+}
+export function planSectors(projects: readonly ZoneProject[], plate: Pick<WorldPlate, 'districts' | 'structures'>): Sector[] {
+  const size = sectorSize(plate);
+  const ordered = [...projects].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '') || a.id.localeCompare(b.id));
+  const out: Sector[] = [];
+  let room = 0;
+  // In order, never reshuffled: a project that does not fit what is left starts the next sector.
+  for (const p of ordered) {
+    const need = districtsNeeded(p, size);
+    if (out.length === 0 || need > room) { out.push({ index: out.length, projects: [] }); room = size; }
+    out[out.length - 1].projects.push(p);
+    room -= need;
+  }
+  return out.length ? out : [{ index: 0, projects: [] }];
+}
+/** Normalised repo path → the sector its project is in. A repo two projects name belongs to the older one, as for buildings. */
+export function sectorByRepo(sectors: readonly Sector[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of sectors) for (const p of s.projects) for (const repo of reposOf(p)) if (!out.has(repo)) out.set(repo, s.index);
+  return out;
+}
+
 /** The zone and building an agent's repo belongs to; null when no project owns the repo. */
 export function zoneFor(zones: readonly Zone[], repoPath: string): { zone: Zone; building: string } | null {
   const repo = normRepo(repoPath);
@@ -89,6 +131,47 @@ export function zoneFor(zones: readonly Zone[], repoPath: string): { zone: Zone;
     if (building) return { zone, building };
   }
   return null;
+}
+
+/**
+ * A POD HOLDS FOUR. A project with more agents on the map than that takes a SECOND pod for the
+ * rest (and a third past eight…): the next district no project holds. Its agents fill pod by pod
+ * in the order of their places (sticky, so nobody changes pod because someone else arrived), and
+ * a feature's team arrives together — so two features of one project work in two pods.
+ *
+ * With no free district left, the extra agents share the pods the project has, evenly.
+ */
+export const POD_CAPACITY = 4;
+/** The pool of a whole district: `pod:<district>`. */
+export const POD_PREFIX = 'pod:';
+
+/** projectId → the extra districts it works in, for every project with more than POD_CAPACITY agents on the map. */
+export function planAnnexes(zones: readonly Zone[], plate: Pick<WorldPlate, 'districts' | 'structures'>, crowd: ReadonlyMap<string, number>): Map<string, string[]> {
+  const held = new Set(zones.flatMap((z) => z.districts));
+  const free = plate.districts.map((d) => d.id).filter((d) => !held.has(d) && plate.structures.some((s) => s.building && s.district === d));
+  const out = new Map<string, string[]>();
+  // Oldest project first, like the districts themselves: who gets the spare pod never depends on who is busiest.
+  for (const z of zones) {
+    const extra = Math.ceil((crowd.get(z.projectId) ?? 0) / POD_CAPACITY) - 1;
+    const mine: string[] = [];
+    while (mine.length < extra && free.length > 0) mine.push(free.shift()!);
+    if (mine.length > 0) out.set(z.projectId, mine);
+  }
+  return out;
+}
+
+/**
+ * The building an agent works at, given its place in its project (0 = first to arrive): its own
+ * repo's building in the home pod, or the building in the same position of the annex it falls in.
+ */
+export function buildingFor(plate: Pick<WorldPlate, 'structures'>, zone: Zone, homeBuilding: string, place: number, annexes: readonly string[]): { building: string; district: string } {
+  const pods = [zone.districts[0], ...annexes];
+  const district = pods[Math.floor(place / POD_CAPACITY) % pods.length];
+  if (district === zone.districts[0]) return { building: homeBuilding, district };
+  const inPod = (d: string) => plate.structures.filter((s) => s.building && s.district === d).map((s) => s.id);
+  const there = inPod(district);
+  const at = Math.max(0, inPod(zone.districts[0]).indexOf(homeBuilding));
+  return { building: there[at % there.length], district };
 }
 
 /** Sticky slots, per pool: `pool` is a building id, or OPEN_POOL. */
@@ -113,6 +196,11 @@ export function placeByZone(
       const n = Number(pool.slice(CAMP_PREFIX.length)) || 0;
       // ONE spot per camp: everyone of that project gathers round it.
       return campSites.length > 0 ? [campSites[n % campSites.length]] : plate.sites.slice(0, 1);
+    }
+    // A project's second pod: its four spread over every spot of that district, not one building's.
+    if (pool.startsWith(POD_PREFIX)) {
+      const there = plate.sites.filter((s) => s.district === pool.slice(POD_PREFIX.length));
+      if (there.length > 0) return there;
     }
     const at = pool === OPEN_POOL ? [] : plate.sites.filter((s) => s.at === pool);
     // A building with no spot of its own, or a map with no open land: fall back to everything.

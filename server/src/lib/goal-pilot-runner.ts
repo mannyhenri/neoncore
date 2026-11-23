@@ -37,7 +37,7 @@ import { guardBusy } from './queue-if-busy.js';
 import { isCartridgeBusy } from './queue-runner.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from './send-command.js';
 import { featureFilesBlock } from './feature-files.js';
-import { createFeatureWorkspace, launchWorkspaceCartridges, openFeaturePRs } from './feature-workspace.js';
+import { createFeatureWorkspace, launchWorkspaceCartridges, openFeaturePRs, mergeFeaturePRs, syncMergedWorkspaces } from './feature-workspace.js';
 import { cartridgeExists } from './cartridge-exists.js';
 import { agentIdForRepoAndType, normalizeRepoPath, setProjectCartridges, getProjectCartridges } from './resolve-agent.js';
 import { cloneTemplateAsRun } from './workflow-from-template.js';
@@ -238,17 +238,37 @@ export function deliverPlannerRequest(
  */
 export const PLANNER_SILENT_MS = 3 * 60_000;
 
+/** The engines whose turn's end is reported (routes/agents.ts turnEnded). */
+export const TURN_END_ENGINES: ReadonlySet<string> = new Set(['claude', 'codex']);
+
+/** Record that `agentId`'s turn ended at `at` — called from turnEnded. */
+export function noteTurnEndedForSilence(agentId: string, at = Date.now()): void {
+  db.prepare('UPDATE agents SET turn_ended_at = ? WHERE id = ?').run(new Date(at).toISOString(), agentId);
+}
+
 /**
- * Has this delivered request's cartridge gone quiet without submitting? Idle (not working, not
- * waiting on a person) and no activity for PLANNER_SILENT_MS since it was delivered.
+ * Has this delivered request's cartridge gone quiet without submitting? It went offline, or its
+ * turn ENDED after the request arrived — and either way nothing since for PLANNER_SILENT_MS.
+ *
+ * `idle` alone is not "finished": the 2-minute staleness sweep (index.ts) sets it mid-turn
+ * whenever one tool call runs longer than that, because no hook fires while a command runs. A
+ * 10-minute red test run while writing acceptance tests was failed at minute 3 and re-sent into
+ * the still-busy cartridge (test/request-silence.test.ts). So for the engines that report their
+ * turn's end (TURN_END_ENGINES), the recorded end is the evidence; an engine that never reports one
+ * keeps the old idle-and-quiet rule.
  */
 export function requestWentSilent(requestId: string, now = Date.now()): boolean {
   const row = db.prepare('SELECT status, agent_id, dispatched_at FROM goal_pilot_requests WHERE id = ?')
     .get(requestId) as { status?: string; agent_id?: string; dispatched_at?: string | null } | undefined;
   if (!row || row.status !== 'pending' || !row.dispatched_at) return false;
   if (now - Date.parse(row.dispatched_at) < PLANNER_SILENT_MS) return false;
-  const agent = db.prepare('SELECT status FROM agents WHERE id = ?').get(row.agent_id) as { status?: string } | undefined;
+  const agent = db.prepare('SELECT status, agent_type, turn_ended_at FROM agents WHERE id = ?').get(row.agent_id) as
+    { status?: string; agent_type?: string; turn_ended_at?: string } | undefined;
   if (agent?.status === 'working' || agent?.status === 'waiting') return false;   // still at it, or asking something
+  if (agent && agent.status !== 'offline' && TURN_END_ENGINES.has(agent.agent_type || 'claude')) {
+    const ended = Date.parse(agent.turn_ended_at || '');
+    if (!(ended >= Date.parse(row.dispatched_at))) return false;   // its turn has not ended since — mid-tool, not finished
+  }
   const last = (db.prepare('SELECT MAX(timestamp) AS t FROM activity WHERE agent_id = ?').get(row.agent_id) as { t?: string | null }).t;
   if (last && now - Date.parse(last) < PLANNER_SILENT_MS) return false;
   return true;
@@ -846,12 +866,50 @@ export async function openPrsAndTell(pilotId: string): Promise<void> {
     emitPilotUpdate(pilotId);
     const opened = ws.repos.filter((r) => r.pr);
     const failed = ws.repos.filter((r) => !r.pr && r.error && !r.removed);
-    announcePilot(pilotId, 'prs-opened', opened.length ? `${opened.length} PR${opened.length === 1 ? '' : 's'} ready to review` : 'no PR could be opened',
-      [opened.map((r) => `${path.basename(r.repoPath)}: ${r.pr!.url}`).join(' · '),
-        failed.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · ')].filter(Boolean).join(' — ') || 'Nothing to merge.',
-      'action');
+    const body = [opened.map((r) => `${path.basename(r.repoPath)}: ${r.pr!.url}`).join(' · '),
+      failed.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · '),
+      opened.length ? 'Review it, then press Merge on the feature: NeonCore merges every PR, then removes the worktrees, branches and their cartridges.' : '',
+    ].filter(Boolean).join(' — ') || 'Nothing to merge.';
+    announcePilot(pilotId, 'prs-opened', opened.length ? `${opened.length} PR${opened.length === 1 ? '' : 's'} ready — merge?` : 'no PR could be opened', body, 'action');
   } catch (err) {
     console.error('[goal-pilot] opening PRs failed:', err);
+  }
+}
+
+/** The person pressed Merge: merge every PR of the feature, clean up, and say what happened. */
+export async function mergeAndTell(pilotId: string): Promise<void> {
+  const ws = await mergeFeaturePRs(pilotId);
+  if (!ws) return;
+  emitPilotUpdate(pilotId);
+  tellMerged(pilotId);
+}
+
+function tellMerged(pilotId: string): void {
+  const ws = getPilot(pilotId)?.workspace;
+  if (!ws) return;
+  const stuck = ws.repos.filter((r) => r.error);
+  if (ws.cleanedAt) {
+    announcePilot(pilotId, 'merged', 'merged and cleaned up', `${ws.repos.length} PR${ws.repos.length === 1 ? '' : 's'} merged; the worktrees, the ${ws.branch} branch and their cartridges are gone.`, 'info');
+  } else if (stuck.length) {
+    announcePilot(pilotId, 'merge-blocked', 'not merged yet', stuck.map((r) => `${path.basename(r.repoPath)}: ${r.error}`).join(' · '), 'action');
+  }
+}
+
+let syncing = false;
+let lastSync = 0;
+const PR_SYNC_INTERVAL_MS = 120_000;
+
+/** PRs merged on GitHub rather than from NeonCore: noticed every couple of minutes and cleaned up. */
+async function syncMerges(): Promise<void> {
+  if (syncing || Date.now() - lastSync < PR_SYNC_INTERVAL_MS) return;
+  syncing = true;
+  lastSync = Date.now();
+  try {
+    for (const id of await syncMergedWorkspaces()) { emitPilotUpdate(id); tellMerged(id); }
+  } catch (err) {
+    console.warn('[goal-pilot] PR sync failed:', err);
+  } finally {
+    syncing = false;
   }
 }
 
@@ -879,6 +937,7 @@ export function sweepPilots(): void {
   for (const p of pilotsInPhase('scoping', 'planning')) {
     try { checkSilentPlanner(p.id); } catch (err) { console.error(`[goal-pilot] silence check ${p.id.slice(0, 8)} threw:`, err); }
   }
+  void syncMerges();
 }
 
 // ── person-driven controls ─────────────────────────────────────────────────────

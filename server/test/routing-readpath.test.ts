@@ -116,6 +116,9 @@ const INTERNAL_AGENT_COLUMNS: Record<string, string> = {
     'acts on: a pid tells a viewer nothing they can use, and it changes with every relaunch. ' +
     'Revisit at ADX-006, which surfaces WHICH TRANSPORT delivered a command — that is the ' +
     'client-meaningful form of this, and it is a name, not a pid.',
+  turn_ended_at:
+    'silence bookkeeping — lib/goal-pilot-runner.ts requestWentSilent reads it to tell a finished ' +
+    'turn from a long tool call; the client already sees the turn end as status idle.',
 };
 
 const CASES = [

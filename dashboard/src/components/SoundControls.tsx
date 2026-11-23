@@ -58,12 +58,11 @@ export function SoundSettingsPanel() {
   return (
     <div className="px-4 py-4 md:px-6 space-y-5" data-sound-settings>
       <p className="text-[13px] text-gray-400 leading-relaxed">
-        A quiet ambient loop, a few interface sounds, and one cue per kind of event. Kept in this browser.
+        A few interface sounds, and one cue per kind of event — no background music. Kept in this browser.
         A browser only allows sound after your first click on the page, so the app is silent until then.
       </p>
       <Switch name="muted" label="Sound" hint="The speaker button beside the bell does the same" on={!s.muted} onChange={(v) => setSound({ muted: !v })} />
       <Level name="volume" label="Volume" hint="Everything" value={s.volume} onChange={(volume) => setSound({ volume })} />
-      <Level name="ambient" label="Ambient" hint="0% turns the loop off" value={s.ambient} onChange={(ambient) => setSound({ ambient })} />
       <Switch name="ui" label="Interface sounds" hint="Buttons, tabs, opening an agent's card, sending a command" on={s.ui} onChange={(ui) => setSound({ ui })} />
       <Switch name="cues" label="Event cues" hint="One sound per kind of event, listed below" on={s.cues} onChange={(cues) => setSound({ cues })} />
       <div>

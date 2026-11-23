@@ -175,8 +175,15 @@ function presentedToken(req: Request): string | null {
  */
 function isExempt(path: string): boolean {
   if (!path.startsWith('/api')) return true;
-  return path === '/api/health';
+  return path === '/api/health' || QA_RECORDER_INTAKE.some((re) => re.test(path));
 }
+
+/**
+ * 3. The QA recorder's intake (lib/qa/recorder.ts). The recorder runs inside the app under test,
+ *    which must never be handed the fleet token; each call carries the target's own recorder key
+ *    instead, checked by the route. It can only append masked events to a session of that target.
+ */
+const QA_RECORDER_INTAKE = [/^\/api\/qa\/sessions$/, /^\/api\/qa\/sessions\/[^/]+\/events$/];
 
 // One warning per caller per 5 minutes. A polling dashboard hits this every few seconds;
 // unthrottled it would bury the very log line you are meant to be acting on.

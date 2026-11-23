@@ -10,7 +10,7 @@ import { MachineLauncher } from './components/MachineLauncher';
 import { NewRepoModal } from './components/NewRepoModal';
 import { WorkflowPanel } from './components/WorkflowPanel';
 import { NotificationCenter } from './components/NotificationCenter';
-import { ProjectsProvider, ProjectsRail, ProjectsWorkspace } from './components/ProjectsPage';
+import { ProjectsProvider, ProjectPicker, ProjectsWorkspace } from './components/ProjectsPage';
 import { BridgeCaptain, BridgeGauges } from './world/bridge/Bridge';
 import { EngineerPost, FlowGauges, CorePost, TokenGauges, QuartermasterPost, TaskGauges, deckProps, isDeckView } from './world/bridge/Decks';
 import { isProjectsHash } from './lib/projectSelection';
@@ -19,6 +19,8 @@ import { GuideModal } from './components/GuideModal';
 import { ServerPicker } from './components/ServerPicker';
 import { BurnRate } from './components/BurnRate';
 import { TokensPage } from './components/TokensPage';
+import { QaPage } from './components/qa/QaPage';
+import { TriagePage } from './components/triage/TriagePage';
 import { api } from './lib/api';
 import type { AgentType, Activity, VirtualCartridge } from './types';
 import { IS_DEMO } from './lib/api';
@@ -196,6 +198,14 @@ export default function App() {
         <NavItem active={activeView === 'tokens'} onClick={() => setActiveView('tokens')} label="Tokens">
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M22 19H2" /></svg>
         </NavItem>
+        <NavItem active={activeView === 'qa'} onClick={() => setActiveView('qa')} label="QA">
+          {/* A flask with a check: testing the app. */}
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v6.5L4.8 18.2A1.8 1.8 0 0 0 6.4 21h11.2a1.8 1.8 0 0 0 1.6-2.8L14 9.5V3" /><path d="M9.5 15l1.8 1.8 3.4-3.6" /></svg>
+        </NavItem>
+        <NavItem active={activeView === 'triage'} onClick={() => setActiveView('triage')} label="Triage">
+          {/* A bug: incoming reports, worked into fixes. */}
+          <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10a4 4 0 0 1 8 0v4a4 4 0 0 1-8 0z" /><path d="M12 10v8M4 12h4M16 12h4M5 7l3 2M19 7l-3 2M5 18l3-2M19 18l-3-2M10 6.5L9 4M14 6.5L15 4" /></svg>
+        </NavItem>
         <div className="hidden md:block flex-1" />
         <button
           onClick={() => setGuideOpen(true)}
@@ -252,29 +262,43 @@ export default function App() {
         />
       </header>
 
-      {/* Work area. Projects keeps its master–detail rail (the goals list beside the working
-          surface). Every other view is full width — and the Agents scene is full BLEED: no
+      {/* Work area. Every view is one column, the full width: Projects chooses its project from a
+          dropdown in the bar at its top (it used to keep a list down the left side, which took
+          the width the project itself needs). The Agents scene is full BLEED: no
           padding, edge to edge, from the top bar to the bottom of the window. */}
       <ProjectsProvider active={activeView === 'projects'} agents={agents}>
       <div
         id="work-area"
-        className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${activeView === 'projects' ? 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]' : ''} ${isDeckView(activeView) ? deckProps(activeView).className : ''}`}
+        className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${isDeckView(activeView) ? deckProps(activeView).className : ''}`}
         style={isDeckView(activeView) ? deckProps(activeView).style : undefined}
       >
-        <aside className={`${activeView === 'projects' ? '' : 'hidden'} lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto lg:pr-3 space-y-4`}>
-          {/* The Projects bridge: the captain over the project list (world/bridge). */}
-          {activeView === 'projects' && <><BridgeCaptain /><div className="bridge-panel"><ProjectsRail /></div></>}
-        </aside>
-
         <main className="space-y-5 min-w-0">
           {activeView === 'projects' ? (
-            <><div className="bridge-panel bridge-console"><ProjectsWorkspace /></div><BridgeGauges /></>
+            <>
+              {/* The Projects bridge: the captain stands at the left, full size, across the picker's
+                  bar and the head of the project's page — which both move over to make room for him
+                  (index.css .projects-stage). Everything under the head has the full width. */}
+              <div className="projects-stage" data-projects-stage>
+                <div className="stage-captain"><BridgeCaptain height={236} /></div>
+                <div className="bridge-panel projects-bar flex items-center gap-5 flex-wrap" data-projects-bar>
+                  <ProjectPicker />
+                </div>
+                <div className="bridge-panel bridge-console"><ProjectsWorkspace /></div>
+              </div>
+              <BridgeGauges />
+            </>
           ) : activeView === 'tokens' ? (
             /* The power core: the reactor and the quota tank beside the same tokens page. */
             <div className="bridge-split">
               <aside><CorePost /></aside>
               <div className="min-w-0"><div className="bridge-panel bridge-console"><TokensPage servers={servers} /></div><TokenGauges /></div>
             </div>
+          ) : activeView === 'qa' ? (
+            /* QA: tests a web app with no hand-written scripts (components/qa, docs/plans/qa-section.md). */
+            <QaPage agents={agents} />
+          ) : activeView === 'triage' ? (
+            /* Triage: every new Jira bug checked, reproduced, fixed as a PR for review (components/triage, docs/plans/bug-triage.md). */
+            <TriagePage agents={agents} />
           ) : activeView === 'tasks' ? (
             /* The cargo bay: the quartermaster beside the same task queue. */
             <div className="bridge-split">

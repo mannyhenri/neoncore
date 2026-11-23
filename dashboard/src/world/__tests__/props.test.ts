@@ -10,7 +10,7 @@ import { ANIMATION_NAMES } from '../anim';
 import { KIT } from '../kit';
 import { packFor } from '../theme';
 import { THEMES } from '../theme';
-import { planZones, planCamps, placeByZone, zoneFor, CAMP_PREFIX, OPEN_POOL, normRepo } from '../zones';
+import { planZones, planCamps, planAnnexes, buildingFor, placeByZone, zoneFor, CAMP_PREFIX, OPEN_POOL, POD_CAPACITY, normRepo } from '../zones';
 import { PLATES } from '../sites';
 
 const NOW = Date.parse('2026-11-20T12:00:00Z');
@@ -125,11 +125,13 @@ describe('the work cycles', () => {
 describe('a project past the map\'s districts', () => {
   const project = (i: number) => ({ id: `p${i}`, name: `P${i}`, color: '', primaryRepo: `/r/p${i}-a`, cartridges: [`/r/p${i}-a`, `/r/p${i}-b`], createdAt: `2026-01-0${i + 1}`, featureCount: 0, featuresDone: 0, featuresActive: 0 });
   it.each(PLATES.map((plate) => ({ name: plate.id, plate })))('$name: its agents stand together at one spot, each such project at its own, nobody in a pod that is not theirs', ({ plate }) => {
-    const projects = Array.from({ length: 7 }, (_, i) => project(i));
+    // Three projects more than the map has pods (four, or six on the isles): three camps.
+    const size = plate.districts.filter((d) => d.x !== undefined).length;
+    const projects = Array.from({ length: size + 3 }, (_, i) => project(i));
     const zones = planZones(projects, plate);
     const camps = planCamps(projects, zones);
     const pods = zones.length;
-    expect(pods).toBe(4);
+    expect(pods).toBe(size);
     // Every repo of every project is somewhere: in a pod, or in a camp — never both, never neither.
     for (const p of projects) for (const repo of p.cartridges) {
       const zoned = zoneFor(zones, repo) !== null;
@@ -201,5 +203,54 @@ describe('the marker under a signpost', () => {
     expect(pipelineSignal([all[0]], 'p')!.tone).toBe('green');
     expect(pipelineSignal(all, 'nobody')).toBeNull();
     expect(pipelineSignal([], 'p')).toBeNull();
+  });
+});
+
+describe('a pod holds four', () => {
+  const project = (i: number, repos = 4) => ({ id: `p${i}`, name: `P${i}`, color: '', primaryRepo: `/r/p${i}-0`, cartridges: Array.from({ length: repos }, (_, n) => `/r/p${i}-${n}`), createdAt: `2026-01-0${i + 1}`, featureCount: 0, featuresDone: 0, featuresActive: 0 });
+  it.each(PLATES.map((plate) => ({ name: plate.id, plate })))('$name: a project takes one more pod for every four agents past the first four — for every crowd from 0 to 20, while districts last', ({ plate }) => {
+    const zones = planZones([project(0), project(1)], plate);
+    const size = plate.districts.filter((d) => d.x !== undefined).length;
+    const spare = size - 2;
+    for (let n = 0; n <= 20; n++) {
+      const annexes = planAnnexes(zones, plate, new Map([['p0', n]]));
+      const want = Math.min(spare, Math.max(0, Math.ceil(n / POD_CAPACITY) - 1));       // every district but the two held
+      expect((annexes.get('p0') ?? []).length, `${n} agents`).toBe(want);
+      // Never a district another project holds, never the same one twice.
+      const taken = annexes.get('p0') ?? [];
+      expect(new Set(taken).size).toBe(taken.length);
+      for (const d of taken) expect(zones.some((z) => z.districts.includes(d)), d).toBe(false);
+    }
+    // The spare pods go to the oldest project first, whoever is busiest.
+    const both = planAnnexes(zones, plate, new Map([['p0', 5], ['p1', 20]]));
+    expect(both.get('p0')).toHaveLength(1);
+    // …and the next project takes what is left of what it needs (four more pods for twenty agents).
+    expect(both.get('p1')).toHaveLength(Math.min(4, spare - 1));
+    // No free district: nobody gets one.
+    const full = planZones(Array.from({ length: size }, (_, i) => project(i)), plate);
+    expect(planAnnexes(full, plate, new Map([['p0', 12]])).size).toBe(0);
+  });
+
+  it.each(PLATES.map((plate) => ({ name: plate.id, plate })))('$name: places 0–3 work in the home pod at their own repo, 4–7 in the second pod — no pod ever holds more than four while there is room', ({ plate }) => {
+    const zones = planZones([project(0)], plate);
+    const zone = zones[0];
+    const annexes = planAnnexes(zones, plate, new Map([['p0', 8]])).get('p0')!;
+    expect(annexes).toHaveLength(1);
+    const perPod = new Map<string, number>();
+    for (let place = 0; place < 8; place++) {
+      const repo = normRepo(`/r/p0-${place % 4}`);
+      const home = zone.buildings.get(repo)!;
+      const at = buildingFor(plate, zone, home, place, annexes);
+      expect(at.district, `place ${place}`).toBe(place < POD_CAPACITY ? zone.districts[0] : annexes[0]);
+      if (place < POD_CAPACITY) expect(at.building).toBe(home);
+      // The building is really in that pod.
+      expect(plate.structures.find((s) => s.id === at.building)!.district).toBe(at.district);
+      perPod.set(at.district, (perPod.get(at.district) ?? 0) + 1);
+    }
+    expect([...perPod.values()]).toEqual([4, 4]);
+    // No second pod to be had: everyone stays home, at their own building.
+    for (let place = 0; place < 8; place++) expect(buildingFor(plate, zone, 'x', place, []).district).toBe(zone.districts[0]);
+    // Twelve agents and one annex: the third four share the two pods rather than pile into one.
+    expect(buildingFor(plate, zone, zone.buildings.get(normRepo('/r/p0-0'))!, 8, annexes).district).toBe(zone.districts[0]);
   });
 });

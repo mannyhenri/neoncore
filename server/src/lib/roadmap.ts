@@ -8,7 +8,8 @@
  *
  *   vision        one statement on the project: where it is going
  *   epic          a body of work under the vision (a row of the `epics` table): a name, the
- *                 outcome it delivers, a glyph, an order
+ *                 outcome it delivers, a glyph, an order — and, like a feature, the date it is
+ *                 due and the epics it waits on (epics.target_date, depends_on)
  *   on a feature  which epic it is in, when it starts and when it is due, and which features it
  *                 waits on (goals.epic_id, start_date, target_date, depends_on)
  *
@@ -23,7 +24,10 @@
  *
  * A feature that waits on another is `blockedBy` it until that one is delivered; a dependency may
  * never loop (checked on write). An epic's `nextUp` is its earliest feature that can start now —
- * what "Start next" launches. Features imported as "what the product already does" are not plans
+ * what "Start next" launches. An EPIC that waits on another is `blockedBy` it the same way, and
+ * offers nothing to start until that one is delivered; it is `onTime` when every feature in it was
+ * delivered on or before the epic's date (a commendation — lib/project-rewards.ts), and `late`
+ * when the date has passed and it is not. Features imported as "what the product already does" are not plans
  * and are not on the chart.
  */
 import { v4 as uuid } from 'uuid';
@@ -55,6 +59,11 @@ for (const [table, column, type] of [
   ['goals', 'epic_id', "TEXT NOT NULL DEFAULT ''"],
   ['goals', 'start_date', "TEXT NOT NULL DEFAULT ''"],
   ['goals', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
+  // The gate that closes an epic (a phase's exit criterion) — written from a planning document (lib/plan-scope.ts).
+  ['epics', 'done_when', "TEXT NOT NULL DEFAULT ''"],
+  // An epic's own date, and the epics it waits on.
+  ['epics', 'target_date', "TEXT NOT NULL DEFAULT ''"],
+  ['epics', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
 ] as const) {
   const has = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
@@ -87,13 +96,27 @@ export interface ChartEpic {
   id: string;
   name: string;
   outcome: string;
+  /** The gate that closes it — '' when none was given. */
+  doneWhen: string;
   icon: string;
   position: number;
   /** Along the timeline: dated features by date, then the undated ones in list order. */
   features: ChartFeature[];
   progress: { done: number; total: number };
-  /** The earliest feature of this epic that can start now, or null. */
+  /** The earliest feature of this epic that can start now, or null — always null while the epic is blocked. */
   nextUp: string | null;
+  /** YYYY-MM-DD the epic is due, or '' when it has none. */
+  targetDate: string;
+  /** Epics of this project it waits on. */
+  dependsOn: string[];
+  /** Those of `dependsOn` that are not delivered yet — empty means its features can start. */
+  blockedBy: string[];
+  /** When its last feature was delivered — null until every feature of it is (an epic with none is not delivered). */
+  deliveredAt: string | null;
+  /** Delivered on or before its date: a commendation. Never true without a date. */
+  onTime: boolean;
+  /** Its date has passed and it is not delivered. */
+  late: boolean;
 }
 
 export interface RoadmapChart {
@@ -197,11 +220,26 @@ export function chartOf(projectId: string, now: number = Date.now()): RoadmapCha
   const strip = ({ position: _p, ...f }: (typeof features)[number]): ChartFeature => { void _p; return f; };
   const epicRows = db.prepare('SELECT * FROM epics WHERE project_id = ? ORDER BY position, created_at').all(projectId) as Record<string, unknown>[];
   const known = new Set(epicRows.map((e) => e.id as string));
+  const epicFeatures = new Map(epicRows.map((e) => [e.id as string, features.filter((f) => f.epicId === e.id).sort(alongTheTimeline)]));
+  // Delivered: it has features and every one of them is — on the day the last one was.
+  const epicDelivered = new Map<string, string>();
+  for (const [id, mine] of epicFeatures) {
+    if (mine.length > 0 && mine.every((f) => f.state === 'delivered')) epicDelivered.set(id, mine.map((f) => f.completedAt ?? '').sort().pop() ?? '');
+  }
   const epics: ChartEpic[] = epicRows.map((e) => {
-    const mine = features.filter((f) => f.epicId === e.id).sort(alongTheTimeline);
-    const next = mine.find((f) => (f.state === 'planned' || f.state === 'late') && f.blockedBy.length === 0 && !isUnderWay(f.id));
+    const mine = epicFeatures.get(e.id as string) ?? [];
+    const targetDate = String(e.target_date || '');
+    const dependsOn = parseIds(e.depends_on).filter((id) => known.has(id) && id !== e.id);
+    const blockedBy = dependsOn.filter((id) => !epicDelivered.has(id));
+    const deliveredAt = epicDelivered.has(e.id as string) ? epicDelivered.get(e.id as string) || null : null;
+    const isDelivered = epicDelivered.has(e.id as string);
+    // A blocked epic offers nothing: what it waits on comes first.
+    const next = blockedBy.length > 0 ? undefined : mine.find((f) => (f.state === 'planned' || f.state === 'late') && f.blockedBy.length === 0 && !isUnderWay(f.id));
     return {
-      id: e.id as string, name: e.name as string, outcome: (e.outcome as string) || '', icon: (e.icon as string) || '',
+      targetDate, dependsOn, blockedBy, deliveredAt,
+      onTime: isDelivered && !!targetDate && !!deliveredAt && deliveredAt.slice(0, 10) <= targetDate,
+      late: !isDelivered && !!targetDate && targetDate < today,
+      id: e.id as string, name: e.name as string, outcome: (e.outcome as string) || '', doneWhen: (e.done_when as string) || '', icon: (e.icon as string) || '',
       position: (e.position as number) || 0,
       features: mine.map(strip),
       progress: { done: mine.filter((f) => f.state === 'delivered').length, total: mine.length },
@@ -211,7 +249,7 @@ export function chartOf(projectId: string, now: number = Date.now()): RoadmapCha
   // A feature whose epic is gone is unassigned, never lost.
   const unassigned = features.filter((f) => !known.has(f.epicId)).sort(alongTheTimeline).map((f) => ({ ...strip(f), epicId: '' }));
 
-  const dates = features.flatMap((f) => [f.startDate, f.targetDate, f.completedAt?.slice(0, 10) ?? '']).filter(Boolean).concat(today).sort();
+  const dates = features.flatMap((f) => [f.startDate, f.targetDate, f.completedAt?.slice(0, 10) ?? '']).concat(epics.map((e) => e.targetDate)).filter(Boolean).concat(today).sort();
   const totals = Object.fromEntries(FEATURE_STATES.map((s) => [s, features.filter((f) => f.state === s).length])) as Record<FeatureState, number>;
   return {
     project: { id: projectId, name: spec.project.name },
@@ -236,34 +274,70 @@ export function setVision(projectId: string, vision: unknown): void {
   db.prepare('UPDATE projects SET vision = ?, updated_at = ? WHERE id = ?').run(String(vision ?? '').trim().slice(0, 2000), nowIso(), projectId);
 }
 
-export function createEpic(projectId: string, input: { name?: unknown; outcome?: unknown; icon?: unknown }): { id: string } {
+/**
+ * The epics an epic waits on: of the same project, never itself, and never in a circle — from each
+ * one it would wait on, you must not be able to get back to it. Checked on write, like a feature's.
+ */
+function epicDependsOrThrow(projectId: string, epicId: string | null, input: unknown): string[] {
+  const wanted = [...new Set(Array.isArray(input) ? input.map(String).filter(Boolean) : [])];
+  const all = new Map((db.prepare('SELECT id, depends_on FROM epics WHERE project_id = ?').all(projectId) as { id: string; depends_on: string }[])
+    .map((r) => [r.id, parseIds(r.depends_on)]));
+  for (const id of wanted) {
+    if (id === epicId) throw new RoadmapError('an epic cannot wait on itself');
+    if (!all.has(id)) throw new RoadmapError('an epic can only wait on another epic of the same project');
+  }
+  if (epicId) {
+    all.set(epicId, wanted);
+    const seen = new Set<string>();
+    const reaches = (from: string): boolean => {
+      if (from === epicId) return true;
+      if (seen.has(from)) return false;
+      seen.add(from);
+      return (all.get(from) ?? []).some(reaches);
+    };
+    if (wanted.some(reaches)) throw new RoadmapError('that would make the epics wait on each other in a circle');
+  }
+  return wanted;
+}
+
+export function createEpic(projectId: string, input: { name?: unknown; outcome?: unknown; icon?: unknown; targetDate?: unknown; dependsOn?: unknown }): { id: string } {
   requireProject(projectId);
   const name = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!name) throw new RoadmapError('an epic needs a name');
+  const targetDate = dateOrThrow(input.targetDate, "the epic's date");
+  const dependsOn = epicDependsOrThrow(projectId, null, input.dependsOn);
   const id = uuid();
   const position = ((db.prepare('SELECT MAX(position) AS p FROM epics WHERE project_id = ?').get(projectId) as { p: number | null }).p ?? -1) + 1;
-  db.prepare('INSERT INTO epics (id, project_id, name, outcome, icon, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(id, projectId, name, String(input.outcome ?? '').trim().slice(0, 600), String(input.icon ?? '').trim().slice(0, 40), position, nowIso(), nowIso());
+  db.prepare('INSERT INTO epics (id, project_id, name, outcome, icon, position, target_date, depends_on, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(id, projectId, name, String(input.outcome ?? '').trim().slice(0, 600), String(input.icon ?? '').trim().slice(0, 40), position, targetDate, JSON.stringify(dependsOn), nowIso(), nowIso());
   return { id };
 }
 
-export function updateEpic(epicId: string, input: { name?: unknown; outcome?: unknown; icon?: unknown }): void {
+/** Only the fields given change. A date of '' clears it; `dependsOn: []` waits on nothing. */
+export function updateEpic(epicId: string, input: { name?: unknown; outcome?: unknown; icon?: unknown; targetDate?: unknown; dependsOn?: unknown }): void {
   const e = epicRow(epicId);
   const name = input.name === undefined ? (e.name as string) : String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!name) throw new RoadmapError('an epic needs a name');
-  db.prepare('UPDATE epics SET name = ?, outcome = ?, icon = ?, updated_at = ? WHERE id = ?').run(
+  const targetDate = input.targetDate === undefined ? String(e.target_date || '') : dateOrThrow(input.targetDate, "the epic's date");
+  const dependsOn = input.dependsOn === undefined ? parseIds(e.depends_on) : epicDependsOrThrow(String(e.project_id), epicId, input.dependsOn);
+  db.prepare('UPDATE epics SET name = ?, outcome = ?, icon = ?, target_date = ?, depends_on = ?, updated_at = ? WHERE id = ?').run(
     name,
     input.outcome === undefined ? e.outcome : String(input.outcome ?? '').trim().slice(0, 600),
     input.icon === undefined ? e.icon : String(input.icon ?? '').trim().slice(0, 40),
+    targetDate, JSON.stringify(dependsOn),
     nowIso(), epicId,
   );
 }
 
-/** Its features stay in the project, in no epic. */
+/** Its features stay in the project, in no epic; an epic that waited on it no longer does. */
 export function removeEpic(epicId: string): void {
-  epicRow(epicId);
+  const e = epicRow(epicId);
   db.transaction(() => {
     db.prepare("UPDATE goals SET epic_id = '' WHERE epic_id = ?").run(epicId);
+    for (const other of db.prepare('SELECT id, depends_on FROM epics WHERE project_id = ? AND id != ?').all(e.project_id as string, epicId) as { id: string; depends_on: string }[]) {
+      const waits = parseIds(other.depends_on);
+      if (waits.includes(epicId)) db.prepare('UPDATE epics SET depends_on = ? WHERE id = ?').run(JSON.stringify(waits.filter((id) => id !== epicId)), other.id);
+    }
     db.prepare('DELETE FROM epics WHERE id = ?').run(epicId);
   })();
 }
@@ -326,13 +400,13 @@ export function roadmapContextFor(goalId: string): string {
   const g = db.prepare('SELECT project_id, epic_id, depends_on FROM goals WHERE id = ?').get(goalId) as Record<string, unknown> | undefined;
   if (!g) return '';
   const vision = String((db.prepare('SELECT vision FROM projects WHERE id = ?').get(g.project_id as string) as { vision?: string } | undefined)?.vision || '').trim();
-  const epic = g.epic_id ? db.prepare('SELECT name, outcome FROM epics WHERE id = ?').get(g.epic_id as string) as { name: string; outcome: string } | undefined : undefined;
+  const epic = g.epic_id ? db.prepare('SELECT name, outcome, done_when FROM epics WHERE id = ?').get(g.epic_id as string) as { name: string; outcome: string; done_when: string } | undefined : undefined;
   const builtOn = parseIds(g.depends_on)
     .map((id) => (db.prepare('SELECT name FROM goals WHERE id = ?').get(id) as { name?: string } | undefined)?.name)
     .filter((x): x is string => !!x);
   const lines: string[] = [];
   if (vision) lines.push(`Vision: ${vision}`);
-  if (epic) lines.push(`Epic: ${epic.name}${epic.outcome ? ` — ${epic.outcome}` : ''}`);
+  if (epic) lines.push(`Epic: ${epic.name}${epic.outcome ? ` — ${epic.outcome}` : ''}${epic.done_when ? ` (done when: ${epic.done_when})` : ''}`);
   if (builtOn.length) lines.push(`Builds on (already delivered, or planned before this): ${builtOn.join('; ')}`);
   return lines.join('\n');
 }

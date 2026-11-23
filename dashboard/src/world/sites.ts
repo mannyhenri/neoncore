@@ -241,8 +241,163 @@ export const VILLAGE: WorldPlate = {
   })),
 };
 
+/**
+ * THE NEW MAPS — two more per theme, opened by what the whole outfit delivers (theme.ts MAPS_BY_THEME,
+ * server lib/project-rewards.ts NEW_MAPS). Each is the SAME world — the same pods, buildings, gates and
+ * work spots, by id and by role — charted onto another painted terrain, exactly as the village is:
+ * a table of positions read off the 1344 × 752 art, and `charted` fails loudly for anything left out.
+ *
+ *   an INTERIOR  (the orbital station · the great hall)   four bays around a centre
+ *   the ISLES    (the sky isles · the lagoon isles)       SIX pods, an island each, joined by bridges
+ *
+ * A pod is small here (an island top, a bay floor), so its buildings are about half the outpost's size.
+ */
+type At = Record<string, readonly [number, number, number?]>;
+interface Chart { id: string; src: string; entry: readonly [number, number]; figureScale: number; at: At; labels: Record<string, string> }
+
+function charted(base: WorldPlate, c: Chart): WorldPlate {
+  const spot = (key: string) => {
+    const at = c.at[key];
+    if (!at) throw new Error(`the ${c.id} map has no position for "${key}" — add it to its table (sites.ts)`);
+    return at;
+  };
+  const move = <T extends { id: string; label?: string }>(thing: T, key = thing.id): T => {
+    const [x, y, w] = spot(key);
+    return { ...thing, ...px(x, y), ...(w !== undefined ? { w } : {}), ...(c.labels[thing.id] ? { label: c.labels[thing.id] } : {}) };
+  };
+  const door = px(c.entry[0], c.entry[1]);
+  return {
+    ...base,
+    id: c.id,
+    src: c.src,
+    entry: door,
+    figureScale: c.figureScale,
+    districts: base.districts.map((d) => (d.x === undefined ? { ...d, label: c.labels[d.id] ?? d.label } : move(d, `district:${d.id}`))),
+    structures: base.structures.map((st) => ({ ...move(st), ...(st.door ? { door } : {}) })),
+    sites: base.sites.map((s) => move(s)),
+    meet: base.meet.map((s) => move(s)),
+    rest: base.rest.map((s) => move(s)),
+    props: Object.fromEntries(Object.keys(base.props).map((d) => {
+      const at = (kind: string) => { const [x, y] = spot(`${kind}:${d}`); return px(x, y); };
+      return [d, { sign: at('sign'), statue: at('statue'), freight: at('freight') }];
+    })),
+  };
+}
+
+/**
+ * SIX PODS. The isles have an island for six projects, not four: two more districts (p5, p6), each
+ * with a building, a gate, two work spots and its three prop spots. Claimed after the first four
+ * (zones.ts takes districts in this order), so a sector of the isles holds six projects — or four
+ * with room for two crowded ones to spread onto a neighbouring island.
+ */
+function withSixPods(base: WorldPlate): WorldPlate {
+  const at = { x: 0, y: 0 };
+  const first = base.districts.findIndex((d) => d.x === undefined);
+  return {
+    ...base,
+    districts: [...base.districts.slice(0, first), { id: 'p5', label: 'Fifth pod', ...at }, { id: 'p6', label: 'Sixth pod', ...at }, ...base.districts.slice(first)],
+    structures: [...base.structures,
+      { id: 'hut', district: 'p5', sprite: 'hut', building: true, ...at, w: 0.05 },
+      { id: 'tunnel', district: 'p6', sprite: 'tunnel', building: true, ...at, w: 0.05 },
+      { id: 'gate-p5', district: 'p5', gate: true, sprite: 'gate-0', ...at, w: 0.04 },
+      { id: 'gate-p6', district: 'p6', gate: true, sprite: 'gate-0', ...at, w: 0.04 },
+    ],
+    sites: [...base.sites,
+      { id: 'p5-hut', at: 'hut', district: 'p5', label: 'Hut', ...at, work: 'stand', faces: -1 },
+      { id: 'p6-tunnel', at: 'tunnel', district: 'p6', label: 'Tunnel', ...at, work: 'stand', faces: -1 },
+      { id: 'p5-yard', at: 'hut', district: 'p5', label: 'Hut yard', ...at, work: 'kneel', faces: 1 },
+      { id: 'p6-yard', at: 'tunnel', district: 'p6', label: 'Tunnel yard', ...at, work: 'kneel', faces: 1 },
+    ],
+    props: { ...base.props, p5: { sign: at, statue: at, freight: at }, p6: { sign: at, statue: at, freight: at } },
+  };
+}
+
+const STATION_AT: At = {
+  'district:nw': [345, 312], greenhouse: [289, 250, 0.05], planter: [399, 248, 0.034], 'nw-yard': [253, 298], 'nw-greenhouse': [345, 260],
+  'nw-planter': [437, 298], 'statue:nw': [283, 338], 'freight:nw': [407, 338], 'sign:nw': [345, 344], 'district:sw': [268, 544],
+  generator: [212, 482, 0.042], workshop: [322, 480, 0.05], 'sw-yard': [176, 530], 'sw-generator': [268, 492], 'sw-workshop': [360, 530],
+  'statue:sw': [206, 570], 'freight:sw': [330, 570], 'sign:sw': [268, 576], 'district:se': [962, 550], module: [906, 488, 0.045],
+  tripod: [1016, 486, 0.03], 'se-module': [870, 536], 'se-survey': [962, 498], 'se-samples': [1054, 536], 'statue:se': [900, 576],
+  'freight:se': [1024, 576], 'sign:se': [962, 582], 'district:ne': [858, 314], habitat: [858, 262, 0.052], 'ne-yard': [796, 296],
+  'ne-habitat': [920, 296], 'statue:ne': [796, 336], 'freight:ne': [920, 336], 'sign:ne': [858, 342], dish: [902, 258, 0.022],
+  'gate-nw': [452, 334, 0.04], 'gate-ne': [752, 330, 0.04], 'gate-sw': [436, 444, 0.04], 'gate-se': [792, 442, 0.04],
+  'water-station': [505, 672, 0.032], 'holo-table': [612, 430, 0.046], heater: [700, 374, 0.022], banner: [525, 374, 0.022],
+  'pad-north': [1188, 290, 0.095], 'shuttle-north': [1188, 278, 0.085], fountain: [1218, 442, 0.048], bench: [612, 480, 0.05],
+  'bench-west': [596, 482], 'bench-east': [628, 482], pond: [452, 668], 'pond-east': [778, 668], road: [1122, 394], 'meet-west': [540, 404],
+  'meet-east': [684, 404], 'meet-south-west': [564, 436], 'meet-south-east': [660, 436],
+};
+const SKY_AT: At = {
+  'district:nw': [385, 210], greenhouse: [329, 148, 0.05], planter: [439, 146, 0.034], 'nw-yard': [293, 196], 'nw-greenhouse': [385, 158],
+  'nw-planter': [477, 196], 'statue:nw': [323, 236], 'freight:nw': [447, 236], 'sign:nw': [385, 242], 'district:sw': [272, 494],
+  generator: [216, 428, 0.042], workshop: [326, 426, 0.05], 'sw-yard': [184, 480], 'sw-generator': [272, 438], 'sw-workshop': [360, 480],
+  'statue:sw': [210, 520], 'freight:sw': [334, 520], 'sign:sw': [272, 526], 'district:se': [995, 504], module: [939, 442, 0.045],
+  tripod: [1049, 440, 0.03], 'se-module': [903, 490], 'se-survey': [995, 452], 'se-samples': [1087, 490], 'statue:se': [933, 530],
+  'freight:se': [1057, 530], 'sign:se': [995, 536], 'district:ne': [835, 214], habitat: [779, 152, 0.05], dish: [889, 150, 0.022],
+  'ne-yard': [743, 200], 'ne-habitat': [927, 200], 'statue:ne': [773, 240], 'freight:ne': [897, 240], 'sign:ne': [835, 246],
+  'district:p5': [165, 286], hut: [165, 246, 0.052], 'p5-yard': [105, 268], 'p5-hut': [222, 292], 'statue:p5': [275, 280], 'freight:p5': [54, 288],
+  'sign:p5': [165, 308], 'district:p6': [522, 580], tunnel: [522, 528, 0.052], 'p6-yard': [460, 562], 'p6-tunnel': [584, 562],
+  'statue:p6': [460, 602], 'freight:p6': [584, 602], 'sign:p6': [522, 608], 'gate-nw': [490, 238, 0.038], 'gate-ne': [728, 234, 0.038],
+  'gate-sw': [392, 430, 0.038], 'gate-se': [836, 434, 0.038], 'gate-p5': [332, 306, 0.038], 'gate-p6': [585, 494, 0.038],
+  'water-station': [758, 548, 0.028], 'holo-table': [620, 320, 0.058], heater: [702, 286, 0.022], banner: [540, 286, 0.022],
+  'pad-north': [1048, 296, 0.1], 'shuttle-north': [1048, 284, 0.085], fountain: [1255, 308, 0.044], bench: [545, 384, 0.045],
+  'bench-west': [531, 386], 'bench-east': [559, 386], pond: [702, 576], 'pond-east': [816, 576], road: [785, 414], 'meet-west': [552, 314],
+  'meet-east': [690, 314], 'meet-south-west': [576, 342], 'meet-south-east': [666, 342],
+};
+const HALL_AT: At = {
+  'district:nw': [268, 360], greenhouse: [212, 298, 0.05], planter: [322, 296, 0.034], 'nw-yard': [176, 346], 'nw-greenhouse': [268, 308],
+  'nw-planter': [360, 346], 'statue:nw': [206, 386], 'freight:nw': [330, 386], 'sign:nw': [268, 392], 'district:sw': [225, 574],
+  generator: [169, 506, 0.042], workshop: [279, 504, 0.05], 'sw-yard': [139, 560], 'sw-generator': [225, 516], 'sw-workshop': [311, 560],
+  'statue:sw': [163, 600], 'freight:sw': [287, 600], 'sign:sw': [225, 606], 'district:se': [858, 574], module: [802, 512, 0.045],
+  tripod: [912, 510, 0.03], 'se-module': [766, 560], 'se-survey': [858, 522], 'se-samples': [950, 560], 'statue:se': [796, 600],
+  'freight:se': [920, 600], 'sign:se': [858, 606], 'district:ne': [838, 374], habitat: [838, 322, 0.052], 'ne-yard': [776, 356],
+  'ne-habitat': [900, 356], 'statue:ne': [776, 396], 'freight:ne': [900, 396], 'sign:ne': [838, 402], dish: [882, 318, 0.022],
+  'gate-nw': [396, 370, 0.04], 'gate-ne': [722, 382, 0.04], 'gate-sw': [388, 530, 0.04], 'gate-se': [712, 522, 0.04],
+  'water-station': [500, 668, 0.03], 'holo-table': [555, 420, 0.058], heater: [640, 374, 0.022], banner: [470, 374, 0.022],
+  'pad-north': [1210, 388, 0.09], 'shuttle-north': [1210, 376, 0.085], fountain: [1158, 480, 0.048], bench: [555, 494, 0.05],
+  'bench-west': [539, 496], 'bench-east': [571, 496], pond: [440, 656], 'pond-east': [672, 656], road: [1075, 470], 'meet-west': [488, 410],
+  'meet-east': [622, 410], 'meet-south-west': [512, 438], 'meet-south-east': [600, 438],
+};
+const LAGOON_AT: At = {
+  'district:nw': [300, 214], greenhouse: [244, 146, 0.05], planter: [354, 144, 0.034], 'nw-yard': [214, 200], 'nw-greenhouse': [300, 156],
+  'nw-planter': [386, 200], 'statue:nw': [282, 238], 'freight:nw': [408, 242], 'sign:nw': [345, 246], 'district:sw': [240, 570],
+  generator: [184, 508, 0.042], workshop: [294, 506, 0.05], 'sw-yard': [148, 556], 'sw-generator': [240, 518], 'sw-workshop': [332, 556],
+  'statue:sw': [178, 596], 'freight:sw': [302, 596], 'sign:sw': [240, 602], 'district:se': [925, 502], module: [869, 432, 0.045],
+  tripod: [979, 430, 0.03], 'se-module': [843, 488], 'se-survey': [925, 442], 'se-samples': [1007, 488], 'statue:se': [863, 528],
+  'freight:se': [987, 528], 'sign:se': [925, 534], 'district:ne': [985, 250], habitat: [985, 198, 0.052], 'ne-yard': [923, 232],
+  'ne-habitat': [1047, 232], 'statue:ne': [900, 284], 'freight:ne': [1098, 236], 'sign:ne': [962, 292], dish: [1029, 194, 0.022],
+  'district:p5': [178, 324], hut: [178, 272, 0.052], 'p5-yard': [125, 290], 'p5-hut': [228, 325], 'statue:p5': [105, 348], 'freight:p5': [288, 300],
+  'sign:p5': [170, 354], 'district:p6': [712, 175], tunnel: [712, 123, 0.052], 'p6-yard': [654, 157], 'p6-tunnel': [770, 157],
+  'statue:p6': [650, 197], 'freight:p6': [774, 197], 'sign:p6': [712, 203], 'gate-nw': [455, 250, 0.038], 'gate-ne': [835, 294, 0.038],
+  'gate-sw': [368, 514, 0.038], 'gate-se': [832, 452, 0.038], 'gate-p5': [314, 352, 0.038], 'gate-p6': [640, 250, 0.038],
+  'water-station': [625, 592, 0.028], 'holo-table': [600, 360, 0.055], heater: [672, 320, 0.022], banner: [530, 320, 0.022],
+  'pad-north': [1215, 304, 0.085], 'shuttle-north': [1215, 292, 0.08], fountain: [1278, 458, 0.046], bench: [657, 414, 0.045],
+  'bench-west': [643, 416], 'bench-east': [671, 416], pond: [545, 626], 'pond-east': [706, 626], road: [1195, 400], 'meet-west': [535, 354],
+  'meet-east': [665, 354], 'meet-south-west': [560, 382], 'meet-south-east': [642, 382],
+};
+
+/** Sci-fi, interior: a biodome on an orbital station — four sunken bays round the reactor, a docking deck to the east. */
+export const STATION: WorldPlate = charted(OUTPOST, {
+  id: 'station', src: '/world/terrain-station.jpg', entry: [1122, 300], figureScale: 0.5, at: STATION_AT,
+  labels: { nw: 'Garden bay', sw: 'Forge bay', se: 'Crystal bay', ne: 'Server bay', commons: 'Reactor plaza', field: 'Docking deck', pond: 'Coolant pool', 'pond-east': 'Pool rail', road: 'Deck ramp' },
+});
+/** Sci-fi, the isles: six floating islands joined to a hub by light bridges, a landing mesa to the east. */
+export const SKY_ISLES: WorldPlate = charted(withSixPods(OUTPOST), {
+  id: 'sky', src: '/world/terrain-sky.jpg', entry: [978, 292], figureScale: 0.5, at: SKY_AT,
+  labels: { nw: 'Canopy isle', sw: 'Spore isle', se: 'Ruin isle', ne: 'Crystal isle', p5: 'Falls isle', p6: 'Moss isle', commons: 'Hub isle', field: 'Landing mesa', pond: 'Pond islet', 'pond-east': 'Islet rim', road: 'East bridge' },
+});
+/** Fantasy, interior: a great hall inside the mountain — four chambers round the rune dais, the gate court to the east. */
+export const GREAT_HALL: WorldPlate = charted(VILLAGE, {
+  id: 'hall', src: '/world/fantasy/terrain-hall.jpg', entry: [1140, 374], figureScale: 0.5, at: HALL_AT,
+  labels: { nw: 'Library', sw: 'Winter garden', se: 'Crystal grotto', ne: 'Forge hall', commons: 'Rune dais', field: 'Gate court', pond: 'Spring', 'pond-east': 'Spring steps', road: 'Court steps' },
+});
+/** Fantasy, the isles: six islands in a lagoon joined to the plaza by bridges, the harbour quay to the east. */
+export const LAGOON: WorldPlate = charted(withSixPods(VILLAGE), {
+  id: 'lagoon', src: '/world/fantasy/terrain-lagoon.jpg', entry: [1160, 302], figureScale: 0.5, at: LAGOON_AT,
+  labels: { nw: 'Blossom isle', sw: 'Stone-ring isle', se: 'Mushroom isle', ne: 'Palm isle', p5: 'Falls isle', p6: 'Pine isle', commons: 'Plaza isle', field: 'Harbour quay', pond: 'Lily pond', 'pond-east': 'Pond rim', road: 'Quay', 'p5-hut': 'Hut', 'p6-tunnel': 'Cellar', 'p5-yard': 'Hut yard', 'p6-yard': 'Cellar yard' },
+});
+
 /** Every plate the scene can show. Tests iterate this, so a new plate is checked automatically. */
-export const PLATES: readonly WorldPlate[] = [OUTPOST, VILLAGE];
+export const PLATES: readonly WorldPlate[] = [OUTPOST, VILLAGE, STATION, SKY_ISLES, GREAT_HALL, LAGOON];
 
 export interface Placement {
   x: number;

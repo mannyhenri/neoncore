@@ -8,6 +8,7 @@
  * unchanged apart from their wording.
  */
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { ConferModePicker, type ConferMode, type ConferIsolation } from './ConferModePicker';
 import { api } from '../lib/api';
 import { workflowAgentOptions, conferOptionLabel } from '../lib/workflow-agent-options';
@@ -1152,8 +1153,14 @@ export const TASK_STATUS_DOT: Record<string, string> = {
 // ── modal wrapper ─────────────────────────────────────────────────────────────
 
 export function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return (
+  // Rendered on document.body, not where it is opened from. The Projects page lives inside the
+  // bridge's console panel, with the captain and the bars on layers of their own beside it: a
+  // dialog left in place is only on top WITHIN that panel, and they paint over it. No z-index
+  // wins against a sibling layer — the dialog has to leave the panel.
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div
+      data-modal
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
     >
@@ -1174,7 +1181,8 @@ export function Modal({ title, children, onClose }: { title: string; children: R
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

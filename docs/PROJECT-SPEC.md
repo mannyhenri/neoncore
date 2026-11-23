@@ -116,6 +116,16 @@ VISION ──── one or two sentences: where the project is going   (projects
 Every write answers with the chart as it now is. Code: `server/src/lib/roadmap.ts`, `server/src/routes/roadmap.ts`,
 `dashboard/src/world/roadmap/` (`RoadmapChart.tsx`, `chartLayout.ts`), art from `scripts/world/build_roadmap_art.py`.
 
+**An epic's date and dependencies.** An epic has a due date (`epics.target_date`) and a list of
+epics it waits on (`epics.depends_on`), set with `POST /api/roadmap/:projectId/epics` and
+`PUT /api/roadmap/epics/:epicId` (`targetDate`, `dependsOn`; only the fields given change, `''`
+clears the date). A dependency is an epic of the same project, never the epic itself, and can never
+close a circle; removing an epic leaves nobody waiting on it. The chart derives, per epic:
+`blockedBy` (what it waits on that is not delivered — while non-empty its `nextUp` is null),
+`deliveredAt` (the day its last feature was delivered; an epic with no feature is not delivered),
+`onTime` (delivered on or before its date — a commendation, which promotes the project's captain:
+see DESIGN.md) and `late` (its date has passed and it is not delivered).
+
 ## Changelog
 
 When a feature is **marked done**, NeonCore writes its changelog entry from the feature's own records:
@@ -240,3 +250,21 @@ server's machine, through that machine's runner for a repo elsewhere.
 | `server/src/lib/project-import.ts` | Generate with AI: the request (per part), its validation, applying what was kept |
 | `dashboard/src/components/ProjectHub.tsx` | the Spec, Roadmap, Changelog and Architecture tabs, the docs bar, and the Generate-with-AI panel |
 | `sandbox/sim/importer.mjs` | the sandbox's simulated reader: reads the demo repos, their tests and their git history |
+
+## Retest a delivered feature, and fix what is still missing
+
+A feature whose pipeline completed can be checked again from its acceptance contract (`Retest`,
+`components/AcceptanceContractPanel.tsx`; server `retestAcceptance` / `addFixStage` in
+`lib/acceptance-runner.ts`; `POST /api/goal-pilots/:id/acceptance/retest|fix`). It is for a feature
+delivered with gaps — stopped early, stages skipped, or the missing part done since.
+
+- **Retest** runs the locked tests now (hashes first, then every command) and records the result as
+  evidence titled "Retest after delivery"; then it reopens the pipeline's review stage, so an
+  independent cartridge judges the checklist criteria afresh and the person confirms each verdict,
+  exactly as at the end of a pipeline. The feature report is rewritten from that evidence. Nothing
+  is built and no workflow stage runs again. A locked test changed since approval stops the retest
+  and is said; nothing is re-judged.
+- **Create a fix workflow** is offered while criteria still do not pass. It adds ONE workflow stage
+  in front of the review, staffed like the last stage that did the work (same workflow, repos and
+  engines), whose brief is exactly the failing criteria — each with what it expects and the evidence
+  against it. When it finishes, the locked tests run and the checklist is reviewed again.

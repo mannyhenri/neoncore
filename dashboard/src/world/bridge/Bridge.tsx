@@ -18,6 +18,7 @@ import { BRIEF_MS, CELEBRATE_MS, CAPTAIN_FPS, captainAnim, formatSpent, gaugesFo
 import { deadlineFor } from '../milestones';
 import type { DatedFeature } from '../milestones';
 import type { BridgeProject } from './captainState';
+import { RankPlate, captainSheet, useProjectRank } from './rank';
 
 /** The projects (polled like the rest of the dashboard) and which one the address names. */
 function useBridge(): { projects: BridgeProject[]; goals: DatedFeature[]; selectedId: string | null } {
@@ -43,7 +44,9 @@ function useBridge(): { projects: BridgeProject[]; goals: DatedFeature[]; select
 }
 
 /** The captain, above the project list. His cycle is his state (captainState.ts). */
-export function BridgeCaptain({ height = 190 }: { height?: number }) {
+export function BridgeCaptain({ height = 190, inline = false }: { height?: number;
+  /** Beside his readout rather than over it — for the bar at the top of the Projects page. */
+  inline?: boolean }) {
   const { projects, goals, selectedId } = useBridge();
   // "Just selected" starts on a CHANGE of selection, never on opening the screen.
   const [seen, setSeen] = useState(selectedId);
@@ -75,7 +78,9 @@ export function BridgeCaptain({ height = 190 }: { height?: number }) {
     needsYou: needsYou(projects, selectedId), justDelivered: celebrating, justSelected: briefing,
     deadline: deadline?.state ?? null, underWay: (selectedNow?.featuresActive ?? 0) > 0,
   });
-  const sheet = BRIDGE.captain;
+  // THE RANK of the project on screen: each commendation promotes its captain (rank.tsx).
+  const rank = useProjectRank(selectedId);
+  const sheet = captainSheet(BRIDGE.captain, rank?.id);
   const selected = projects.find((p) => p.id === selectedId);
   const name = selected?.name ?? 'A project';
   const line = {
@@ -88,7 +93,7 @@ export function BridgeCaptain({ height = 190 }: { height?: number }) {
   }[anim];
 
   return (
-    <div className="bridge-captain" data-captain-state={anim} data-alert={anim === 'worry' || undefined}>
+    <div className="bridge-captain" data-captain-state={anim} data-alert={anim === 'worry' || undefined} style={inline ? { flexDirection: 'row', gap: 12, flex: 'none' } : undefined}>
       {sheet && (() => {
         const { row, frames } = sheet.rows[anim];
         const width = (height * sheet.frameW) / sheet.frameH;
@@ -113,6 +118,7 @@ export function BridgeCaptain({ height = 190 }: { height?: number }) {
           </div>
         );
       })()}
+      {rank && <RankPlate rank={rank} name={name} compact={inline} />}
       <div className="bridge-readout" role="status">{line}</div>
     </div>
   );

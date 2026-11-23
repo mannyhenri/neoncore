@@ -85,12 +85,13 @@ const SUBTREE = railSubtree(RAIL_ROOT);
 const OVERLAYS = SUBTREE.flatMap(overlaysIn);
 
 describe('overlays rendered from the command rail', () => {
-  it('the rail is a stacking context — which is why this whole file exists', () => {
-    // If the rail ever stops being sticky the trap is gone, and this test is free to be
-    // deleted. Until then it is load-bearing, so the premise is asserted, not assumed.
+  it('the side rail is gone — the invariant stays, because the next sticky or transformed ancestor would seal overlays in the same way', () => {
+    // The rail that made this file necessary was removed when Projects moved its list into a
+    // dropdown (App.tsx has no <aside> outside <main> any more). The rule below is kept anyway:
+    // an overlay that portals out cannot be trapped by ANY ancestor, whatever the layout becomes.
     const app = readFileSync(resolve(HERE, '../App.tsx'), 'utf8');
-    const aside = app.slice(app.indexOf('<aside'), app.indexOf('>', app.indexOf('<aside')));
-    expect(aside).toMatch(/sticky/);
+    const aside = app.indexOf('<aside');
+    expect(aside < 0 || aside > app.indexOf('<main'), 'a side rail is back: check that it is not a stacking context').toBe(true);
   });
 
   it('the registry is non-empty and includes the canvas editor', () => {
