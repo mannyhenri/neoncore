@@ -24,7 +24,8 @@ import { createPortal } from 'react-dom';
 import { ProjectRewards } from './rewards/ProjectRewards';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
-import type { Goal, Project, Task, Agent } from '../types';
+import type { Goal, Project, Task, Agent, ServerEntry } from '../types';
+import { LaunchAllRepos } from './LaunchAllRepos';
 import { GoalDraftPanel } from './GoalDraftPanel';
 import { GoalPilotPanel } from './GoalPilotPanel';
 import {
@@ -58,6 +59,7 @@ type ModalState =
   | { type: 'learnings'; project: Project }
   | { type: 'heartbeats'; project: Project }
   | { type: 'run'; project: Project }
+  | { type: 'launch-all'; project: Project }
   | { type: 'edit-feature'; feature: Goal }
   | { type: 'draft'; feature: Goal }
   | { type: 'move-feature'; feature: Goal }
@@ -69,6 +71,8 @@ interface ProjectsContextValue {
   features: Goal[];
   tasks: Task[];
   agents: Agent[];
+  /** The fleet roster — a project's "Launch all repos" asks every server for its machines, as + Launch does. */
+  servers: ServerEntry[];
   loading: boolean;
   /** Changes on every refresh — a dependency for views that load their own data. */
   version: number;
@@ -99,7 +103,7 @@ function useProjects(): ProjectsContextValue {
   return ctx;
 }
 
-export function ProjectsProvider({ active, agents, children }: { active: boolean; agents: Agent[]; children: React.ReactNode }) {
+export function ProjectsProvider({ active, agents, servers = [], children }: { active: boolean; agents: Agent[]; servers?: ServerEntry[]; children: React.ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [features, setFeatures] = useState<Goal[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -224,7 +228,7 @@ export function ProjectsProvider({ active, agents, children }: { active: boolean
   }, [features, refresh]);
 
   const value: ProjectsContextValue = {
-    projects, features, tasks, agents, loading, version, selection, selectProject, openFeature, startRequested,
+    projects, features, tasks, agents, servers, loading, version, selection, selectProject, openFeature, startRequested,
     modal, setModal, refresh, createProject, updateProject, deleteProject, addFeatures, updateFeature, deleteFeature, moveFeature,
   };
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
@@ -644,6 +648,9 @@ function ProjectDetail({ project }: { project: Project }) {
           <div className="flex items-center gap-1.5 flex-wrap">
             <button onClick={() => setModal({ type: 'edit-project', project })} className={iconBtn}>Edit</button>
             <button onClick={() => setModal({ type: 'run', project })} className={iconBtn} title="Run one workflow in this project, outside a feature">Run a workflow</button>
+            {repos.length > 0 && (
+              <button onClick={() => setModal({ type: 'launch-all', project })} className={iconBtn} title="Launch a cartridge in every repo of this project — the same launch as + Launch, once per repo">Launch all repos</button>
+            )}
             <button onClick={() => setModal({ type: 'heartbeats', project })} className={iconBtn} title="Recurring runs">Schedule</button>
             <button onClick={() => setModal({ type: 'learnings', project })} className={iconBtn} title="What earlier runs learned">Learnings</button>
             <button data-archive-project onClick={() => void archive()} className={iconBtn} title="Off the map and the project list — nothing is deleted; restore it from Archived">Archive</button>
@@ -1028,7 +1035,7 @@ function MoveFeatureForm({ feature, onDone }: { feature: Goal; onDone: () => voi
 // ── the working surface (right 2/3) ───────────────────────────────────────────
 
 export function ProjectsWorkspace() {
-  const { projects, features, agents, loading, selection, modal, setModal, refresh, createProject, updateProject, updateFeature } = useProjects();
+  const { projects, features, agents, servers, loading, selection, modal, setModal, refresh, createProject, updateProject, updateFeature } = useProjects();
   const project = selection.projectId && selection.projectId !== UNFILED ? projects.find((p) => p.id === selection.projectId) : undefined;
   const feature = selection.featureId ? features.find((f) => f.id === selection.featureId) : undefined;
 
@@ -1081,6 +1088,11 @@ export function ProjectsWorkspace() {
       {modal?.type === 'run' && (
         <Modal title={`Run a workflow — ${modal.project.name}`} onClose={() => setModal(null)}>
           <LaunchFromProjectModal project={modal.project} onClose={(runId) => { setModal(null); if (runId) refresh(); }} />
+        </Modal>
+      )}
+      {modal?.type === 'launch-all' && (
+        <Modal title={`Launch all repos — ${modal.project.name}`} onClose={() => setModal(null)}>
+          <LaunchAllRepos repos={projectRepos(modal.project)} agents={agents} servers={servers} onClose={() => setModal(null)} />
         </Modal>
       )}
       {modal?.type === 'edit-feature' && (

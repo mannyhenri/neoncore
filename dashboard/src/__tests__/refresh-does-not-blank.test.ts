@@ -100,8 +100,9 @@ describe('a refresh keeps what is already rendered', () => {
  * assertion or fixing one would look like fixing both.
  */
 describe('a failed round keeps the last good answer', () => {
+  // The fleet fetch moved into useFleetMachines (shared by + Launch and a project's Launch all).
   it('MachineLauncher does not overwrite a populated list with an empty result', () => {
-    const src = read('components/MachineLauncher.tsx');
+    const src = read('hooks/useFleetMachines.ts');
     expect(
       /setMachines\(\(current\) =>\s*\(?\s*next\.length === 0 && current\.length > 0 \? current : next/.test(src),
       'a round where every server failed replaces the machines with [] — allSettled prevents ' +

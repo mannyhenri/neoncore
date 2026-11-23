@@ -279,7 +279,7 @@ export default function App() {
           dropdown in the bar at its top (it used to keep a list down the left side, which took
           the width the project itself needs). The Agents scene is full BLEED: no
           padding, edge to edge, from the top bar to the bottom of the window. */}
-      <ProjectsProvider active={activeView === 'projects'} agents={agents}>
+      <ProjectsProvider active={activeView === 'projects'} agents={agents} servers={servers}>
       <div
         id="work-area"
         className={`${sceneOpen ? '' : 'p-4 md:p-6'} grid grid-cols-1 gap-6 items-start ${isDeckView(activeView) ? deckProps(activeView).className : ''}`}

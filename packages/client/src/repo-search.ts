@@ -55,3 +55,52 @@ export function filterMachinesByRepo<T extends Machine>(machines: T[], query: st
 export function countRepos<T extends Machine>(machines: T[]): number {
   return machines.reduce((n, m) => n + m.repos.length, 0);
 }
+
+/**
+ * Path identity across machines: backslashes, a Windows drive letter, a trailing slash and case
+ * are spelling, not a different folder. Mirrors the server's normalizeRepoPath so a project repo
+ * recorded from a cartridge still finds the runner folder it came from.
+ */
+export function sameRepoPath(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/^([a-zA-Z]):\//, '/$1/').replace(/\/+$/, '').toLowerCase();
+  return !!a && !!b && norm(a) === norm(b);
+}
+
+/** One of a project's repos, and every online machine that could launch a cartridge in it. */
+export interface RepoLaunchPlan<T extends Machine> {
+  repoPath: string;
+  name: string;
+  /**
+   * The online machines exposing this folder, BEST FIRST, each with the path as THAT runner
+   * spells it — the launch route checks its allowlist by exact string, so the project's own
+   * spelling would be refused on a case or slash difference. [] = nowhere to launch it.
+   */
+  targets: { machine: T; path: string }[];
+}
+
+/**
+ * "Launch all" for a project: the same launch the + Launch menu makes, once per repo — so each
+ * repo needs a machine. Only online machines count; an offline runner cannot take a launch.
+ *
+ * When a repo is checked out on several machines, the default is the machine that holds the
+ * MOST of this project's repos (ties keep fleet order). That keeps a project's cartridges on one
+ * box instead of scattering them across whichever machine happened to be listed first.
+ */
+export function planProjectLaunch<T extends Machine>(repoPaths: string[], machines: T[]): RepoLaunchPlan<T>[] {
+  const online = machines.filter((m) => m.status === 'online');
+  const hits = repoPaths.map((repoPath) => ({
+    repoPath,
+    name: repoPath.split(/[\\/]/).filter(Boolean).pop() || repoPath,
+    targets: online.flatMap((machine) => {
+      const r = machine.repos.find((x) => sameRepoPath(x.path, repoPath));
+      return r ? [{ machine, path: r.path }] : [];
+    }),
+  }));
+  const coverage = new Map<T, number>();
+  for (const h of hits) for (const t of h.targets) coverage.set(t.machine, (coverage.get(t.machine) ?? 0) + 1);
+  return hits.map((h) => ({
+    ...h,
+    // Array.prototype.sort is stable, so equal coverage keeps fleet order.
+    targets: [...h.targets].sort((a, b) => (coverage.get(b.machine) ?? 0) - (coverage.get(a.machine) ?? 0)),
+  }));
+}
