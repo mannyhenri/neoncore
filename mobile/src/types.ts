@@ -77,7 +77,8 @@ export interface Agent {
   repoName: string;
   branch: string;
   currentTask: string;
-  status: 'working' | 'idle' | 'waiting' | 'offline';
+  /** `background`: its turn ended, but work it started is still running (a suite, a monitor). */
+  status: 'working' | 'background' | 'idle' | 'waiting' | 'offline';
   trustMode: boolean;
   plansIncluded: boolean;
   mode: AgentMode;

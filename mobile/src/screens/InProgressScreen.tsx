@@ -1,9 +1,9 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
-import { theme } from '../theme';
+import { theme, statusColor, statusLabel } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import { useFleetData } from '../useFleetData';
-import { work, stepsEarned, type ActiveFeature, type Project } from '../work';
+import { work, stepsEarned, messageableAgents, type ActiveFeature, type Project } from '../work';
 import { Card, CardTop, ScreenTitle, StatusPill, useAdaptiveContent } from '../components/ui';
 import { Badges } from '../components/Badges';
 import type { Agent } from '../types';
@@ -11,8 +11,9 @@ import type { FeatureRef } from './NeedsYouScreen';
 
 /**
  * IN PROGRESS — every feature being built, across every sector (project) and server: the
- * dashboard's banners with their badges, its stage, and whether it waits on you. Below, the
- * cartridges working right now and what each is doing.
+ * dashboard's banners with their badges, its stage, and whether it waits on you. Below, every
+ * agent you can message — waiting on you, working, in the background, idle; tap one to open it
+ * and send it a prompt.
  */
 export function InProgressScreen({ onOpenFeature, onOpenAgent }: { onOpenFeature: (f: FeatureRef) => void; onOpenAgent: (a: Agent) => void }) {
   const { agents, refresh: refreshFleet } = useNeonCore();
@@ -24,7 +25,7 @@ export function InProgressScreen({ onOpenFeature, onOpenAgent }: { onOpenFeature
 
   const rows = results.flatMap((r) => (r.data?.features ?? []).map((f) => ({ f, base: r.base, server: r.name, project: r.data?.projects.find((p) => p.id === f.projectId) })))
     .sort((a, b) => Number(!!b.f.needsYou) - Number(!!a.f.needsYou) || (a.project?.name ?? '').localeCompare(b.project?.name ?? '') || a.f.name.localeCompare(b.f.name));
-  const working = agents.filter((a) => a.status === 'working' && !a.dismissedAt);
+  const reachable = messageableAgents(agents);
 
   return (
     <ScrollView style={s.page} contentContainerStyle={[s.content, adaptive]}
@@ -38,16 +39,17 @@ export function InProgressScreen({ onOpenFeature, onOpenAgent }: { onOpenFeature
           onPress={() => onOpenFeature({ base, goalId: f.goalId, name: f.name, projectId: f.projectId })} />
       ))}
 
-      <Text style={s.kicker}>WORKING NOW · {working.length}</Text>
-      {working.length === 0 ? <Text style={s.empty}>No cartridge is working.</Text> : null}
-      {working.map((a) => (
+      <Text style={s.kicker}>AGENTS · {reachable.length}</Text>
+      {reachable.length === 0 ? <Text style={s.empty}>No agent is online.</Text> : null}
+      {reachable.map((a) => (
         <Card key={`${(a as { origin?: string }).origin ?? ''}:${a.id}`} onPress={() => onOpenAgent(a)}>
           <CardTop>
             <Text style={s.agent} numberOfLines={1}>{a.name}</Text>
-            <StatusPill label="working" color={theme.accent} />
+            <StatusPill label={statusLabel[a.status].toLowerCase()} color={statusColor[a.status]} />
           </CardTop>
           <Text style={s.faint} numberOfLines={1}>{a.repoName || a.repoPath} · {a.agentType}{a.machine ? ` · ${a.machine}` : ''}</Text>
           {a.currentTask ? <Text style={s.task} numberOfLines={2}>{a.currentTask}</Text> : null}
+          <Text style={s.message}>Message ›</Text>
         </Card>
       ))}
     </ScrollView>
@@ -89,4 +91,5 @@ const s = StyleSheet.create({
   kicker: { color: theme.textFaint, fontSize: 11, fontWeight: '800', letterSpacing: 1.6, marginHorizontal: 16, marginTop: 18, marginBottom: 8 },
   agent: { color: theme.text, fontSize: 15, fontWeight: '700', flexShrink: 1 },
   task: { color: theme.textDim, fontSize: 13, marginTop: 6 },
+  message: { color: theme.accentSoft, fontSize: 12, fontWeight: '700', marginTop: 8 },
 });

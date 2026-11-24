@@ -11,6 +11,7 @@ import type {
   RoadmapChart, RoadmapEpic, SpecFeature, PilotCandidateRepo,
 } from '@neoncore/client';
 import { req } from './api';
+import type { Agent } from './types';
 // The dashboard's own art registries (generated, import-free): the same badges and captain the web shows.
 import { FEATURE_BADGES } from '../../dashboard/src/world/milestones';
 import { KIT } from '../../dashboard/src/world/kit.generated';
@@ -133,4 +134,21 @@ export function defaultStaffing(candidates: readonly PilotCandidateRepo[], featu
     const pool = live.length ? live : c.engines;
     return { repoPath: c.repoPath, agentType: (pool.find((e) => e.agentType === 'claude') ?? pool[0])?.agentType ?? 'claude' };
   });
+}
+
+/** Every agent status, in the order the phone lists agents: what needs you first. */
+export const AGENT_STATUSES = ['waiting', 'working', 'background', 'idle', 'offline'] as const satisfies readonly Agent['status'][];
+type _EveryStatus = Exclude<Agent['status'], (typeof AGENT_STATUSES)[number]> extends never ? true : never;
+const _everyStatus: _EveryStatus = true; void _everyStatus;
+
+/**
+ * The agents you can message from the phone: every one that is not offline and not put away —
+ * waiting on you first, then working, in the background, idle; by name within each. Tapping one
+ * opens its screen, whose prompt box sends to it (CartridgeDetailScreen).
+ */
+export function messageableAgents<A extends Pick<Agent, 'status' | 'name'> & { dismissedAt?: string }>(agents: readonly A[]): A[] {
+  const rank = (a: A) => AGENT_STATUSES.indexOf(a.status);
+  return agents
+    .filter((a) => a.status !== 'offline' && !a.dismissedAt)
+    .sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
 }

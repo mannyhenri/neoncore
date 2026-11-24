@@ -60,10 +60,11 @@ export const glow = (color: string = theme.accent, radius = 6) => ({
   shadowColor: color, shadowOpacity: 0.9, shadowRadius: radius, shadowOffset: { width: 0, height: 0 },
 });
 
-export type AgentStatus = 'working' | 'idle' | 'waiting' | 'offline';
+export type AgentStatus = import('./types').Agent['status'];
 
 export const statusColor: Record<AgentStatus, string> = {
   working: theme.accent,
+  background: theme.accentSoft,
   waiting: theme.ember,
   idle: theme.textDim,
   offline: theme.textFaint,
@@ -71,6 +72,7 @@ export const statusColor: Record<AgentStatus, string> = {
 
 export const statusLabel: Record<AgentStatus, string> = {
   working: 'WORKING',
+  background: 'BACKGROUND',
   waiting: 'WAITING',
   idle: 'IDLE',
   offline: 'OFFLINE',
