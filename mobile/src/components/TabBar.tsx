@@ -4,21 +4,22 @@ import { theme } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import { useFleetData } from '../useFleetData';
 import { work } from '../work';
-import { ApprovalsIcon, GoalsIcon, PlayIcon, GearIcon } from './Icons';
+import { ApprovalsIcon, GoalsIcon, CartridgesIcon, PlayIcon, GearIcon } from './Icons';
 
 /**
- * The phone's four destinations. Its job is to keep the work moving on projects already under
+ * The phone's five destinations. Its job is to keep the work moving on projects already under
  * way, so the bar is built around that: what NEEDS YOU (the home), the PROJECTS (rank, Board,
- * Route, start next), what is IN PROGRESS (features being built, agents working), and SETTINGS.
- * Four tabs leave every label readable on the narrowest phone, and nothing hides behind "More".
+ * Route, start next), the AGENTS (message any of them), what is IN PROGRESS (features being
+ * built), and SETTINGS. Labels shrink to fit the narrowest phone; nothing hides behind "More".
  */
-export type TabName = 'needs' | 'projects' | 'progress' | 'settings';
+export type TabName = 'needs' | 'projects' | 'agents' | 'progress' | 'settings';
 
 type IconCmp = (p: { size?: number; color?: string; strokeWidth?: number }) => React.JSX.Element;
 
 export const TABS: { name: TabName; Icon: IconCmp; label: string }[] = [
   { name: 'needs', Icon: ApprovalsIcon, label: 'Needs you' },
   { name: 'projects', Icon: GoalsIcon, label: 'Projects' },
+  { name: 'agents', Icon: CartridgesIcon, label: 'Agents' },
   { name: 'progress', Icon: PlayIcon, label: 'In progress' },
   { name: 'settings', Icon: GearIcon, label: 'Settings' },
 ];

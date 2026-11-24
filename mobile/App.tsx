@@ -12,6 +12,7 @@ import { ProjectsScreen, type ProjectRef } from './src/screens/ProjectsScreen';
 import { ProjectScreen } from './src/screens/ProjectScreen';
 import { FeatureScreen } from './src/screens/FeatureScreen';
 import { InProgressScreen } from './src/screens/InProgressScreen';
+import { AgentsScreen } from './src/screens/AgentsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { CartridgeDetailScreen } from './src/screens/CartridgeDetailScreen';
 import { ProjectMemoryScreen } from './src/screens/ProjectMemoryScreen';
@@ -94,9 +95,8 @@ export default function App() {
             <View style={styles.body}>
               {route.name === 'needs' && <NeedsYouScreen onOpenFeature={openFeature} onOpenRun={openRunById} />}
               {route.name === 'projects' && <ProjectsScreen onOpen={(project) => push((from) => ({ name: 'project', project, from }))} />}
-              {route.name === 'progress' && (
-                <InProgressScreen onOpenFeature={openFeature} onOpenAgent={(agent) => push((from) => ({ name: 'agent', agent, from }))} />
-              )}
+              {route.name === 'agents' && <AgentsScreen onOpenAgent={(agent) => push((from) => ({ name: 'agent', agent, from }))} />}
+              {route.name === 'progress' && <InProgressScreen onOpenFeature={openFeature} />}
               {route.name === 'settings' && <SettingsScreen />}
               {route.name === 'project' && <ProjectScreen project={route.project} onBack={back} onOpenFeature={openFeature} />}
               {route.name === 'feature' && <FeatureScreen feature={route.feature} onBack={back} onOpenRun={openRunById} />}

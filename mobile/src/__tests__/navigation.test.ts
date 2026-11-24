@@ -22,8 +22,8 @@ const tabs = (() => {
 })();
 
 describe('the tab bar and the router agree', () => {
-  it('is the four destinations the phone is for, Needs you first', () => {
-    expect(tabs).toEqual(['needs', 'projects', 'progress', 'settings']);
+  it('is the five destinations the phone is for, Needs you first', () => {
+    expect(tabs).toEqual(['needs', 'projects', 'agents', 'progress', 'settings']);
   });
 
   it('opens on Needs you', () => {

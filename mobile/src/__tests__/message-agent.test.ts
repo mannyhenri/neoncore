@@ -40,11 +40,18 @@ describe('messageableAgents', () => {
 });
 
 describe('wiring', () => {
-  it('In progress lists messageableAgents and opens the agent', () => {
-    const src = read('src/screens/InProgressScreen.tsx');
+  // 2026-11-24: at the bottom of In progress, under every feature banner, the list was not found
+  // ("where are the changes I requested?"). It is a tab of its own.
+  it('the Agents tab lists messageableAgents and opens the agent', () => {
+    const src = read('src/screens/AgentsScreen.tsx');
     expect(src).toMatch(/messageableAgents\(agents\)/);
     expect(src).toMatch(/onOpenAgent\(a\)/);
-    expect(src).not.toMatch(/a\.status === 'working' && !a\.dismissedAt/);
+    const app = read('App.tsx');
+    expect(app).toMatch(/route\.name === 'agents' && <AgentsScreen[^>]*onOpenAgent=/);
+    expect(read('src/components/TabBar.tsx')).toMatch(/name: 'agents'[^}]*label: 'Agents'/);
+  });
+  it('In progress keeps to features: the agents moved to their tab', () => {
+    expect(read('src/screens/InProgressScreen.tsx')).not.toMatch(/messageableAgents|a\.status === 'working'/);
   });
   it('the agent screen sends what you type to the agent', () => {
     const src = read('src/screens/CartridgeDetailScreen.tsx');
