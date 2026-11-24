@@ -81,9 +81,10 @@ test('the two screens the user called out actually adopt the primitives', () => 
     assert.match(src, /from '\.\.\/components\/ui'/, `${screen} does not import the shared primitives`);
     assert.match(src, /<Card\b/, `${screen} does not use the shared Card`);
   }
-  // A status surface; the pill is how status reads on every other screen.
-  assert.match(read('screens/InProgressScreen.tsx'), /<StatusPill\b/,
-    'In progress renders status without the shared StatusPill');
+  // The agents' status surface — the pill is how status reads on every other screen. It moved from
+  // In progress to its own Agents tab on 2026-11-24 (message any agent); In progress keeps to features.
+  assert.match(read('screens/AgentsScreen.tsx'), /<StatusPill\b/,
+    'Agents renders status without the shared StatusPill');
 });
 
 test('no dead styles left behind', () => {

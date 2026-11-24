@@ -77,8 +77,21 @@ function contractOrThrow(pilotId: string): AcceptanceContract {
   return c;
 }
 
+/**
+ * Where the contract's files live NOW. A feature built on its own branch keeps its worktree path in
+ * the contract; once the feature ships that worktree is removed and the work is in the repo it was
+ * cut from (pilot.workspace.repos[]). A retest, a restore or an accepted change of a delivered
+ * feature acts there — the same place epic QA checks it.
+ */
+function workRepoOf(c: AcceptanceContract): string {
+  const ws = getPilot(c.pilotId)?.workspace;
+  const at = normalizeRepoPath(c.repoPath);
+  const hit = ws?.repos?.find((r) => r.removed && r.worktreePath && normalizeRepoPath(r.worktreePath) === at);
+  return hit?.repoPath || c.repoPath;
+}
+
 function access(c: AcceptanceContract): RepoAccess {
-  try { return repoAccessFor(c.repoPath); } catch (err) {
+  try { return repoAccessFor(workRepoOf(c)); } catch (err) {
     throw new PilotError(err instanceof Error ? err.message : String(err), 503);
   }
 }
@@ -591,7 +604,7 @@ export async function restoreTests(pilotId: string): Promise<AcceptanceContract>
     tamper: null,
     amendments: [...c.amendments, { at: nowIso(), kind: 'restore', criterionIds: [...new Set(c.tamper.files.map((f) => f.criterionId))], reason: 'Restored the approved version.', paths: c.tamper.files.map((f) => f.path), version: c.version }],
   });
-  recheck(pilotId, stageId);
+  settleTamper(pilotId, stageId);
   return getContract(pilotId)!;
 }
 
@@ -618,8 +631,19 @@ export async function acceptTestChange(pilotId: string, reasonRaw: unknown): Pro
     tests, version, tamper: null, lockedAt: nowIso(),
     amendments: [...c.amendments, { at: nowIso(), kind: 'accept-change', criterionIds: [...new Set(c.tamper.files.map((f) => f.criterionId))], reason: reason.slice(0, 2000), paths: c.tamper.files.map((f) => f.path), version }],
   });
-  recheck(pilotId, stageId);
+  settleTamper(pilotId, stageId);
   return getContract(pilotId)!;
+}
+
+/**
+ * After a restore or an accepted change. A stage's tamper: that stage is checked again. A RETEST's
+ * tamper (a delivered feature, no stage): the "retest did not run" notice is cleared — the next
+ * retest, or the epic's QA, runs the tests against the contract as it now stands.
+ */
+function settleTamper(pilotId: string, stageId: string): void {
+  if (stageId) { recheck(pilotId, stageId); return; }
+  db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?').run('', nowIso(), pilotId);
+  emitPilotUpdate(pilotId);
 }
 
 function recheck(pilotId: string, stageId: string): void {
@@ -907,16 +931,20 @@ async function retestLockedTests(pilotId: string, c: AcceptanceContract): Promis
   activity.set(c.id, { kind: 'verify', done: 0, total: c.tests.length, stageId: '' });
   emitPilotUpdate(pilotId);
   try {
-    const run = await runLockedChecks(c, repoAccessFor(c.repoPath), (done) => {
+    const run = await runLockedChecks(c, repoAccessFor(workRepoOf(c)), (done) => {
       activity.set(c.id, { kind: 'verify', done, total: c.tests.length, stageId: '' });
       emitPilotUpdate(pilotId);
     });
     if (run.kind === 'tampered') {
       const { tampered } = run;
-      record({ ...base, at: nowIso(), status: 'tampered', passing: 0, total: c.tests.length, filesChecked: run.filesChecked, results: [], tampered, error: '' });
+      const v: Verification = { ...base, at: nowIso(), status: 'tampered', passing: 0, total: c.tests.length, filesChecked: run.filesChecked, results: [], tampered, error: '' };
+      record(v);
+      // On record as the contract's tamper (no stage): the person restores the approved version or
+      // accepts the change with a reason — the same two decisions as a stage's tamper.
+      updateContract(c.id, { tamper: { stageId: '', verificationId: v.id, files: tampered } });
       const list = tampered.map((f) => `${f.path} (${f.criterionId}${f.actual ? '' : ', deleted'})`).join(', ');
       db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?')
-        .run(`The retest did not run: locked acceptance tests were changed since they were approved — ${list}. Put the approved version back, then retest.`, nowIso(), pilotId);
+        .run(`The retest did not run: locked acceptance tests were changed since they were approved — ${list}. Restore the approved version or accept the change, then retest.`, nowIso(), pilotId);
       return false;
     }
     const { results } = run;

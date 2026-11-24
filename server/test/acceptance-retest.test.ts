@@ -228,3 +228,59 @@ test('a retest is refused where it makes no sense, and a changed locked test sto
   assert.deepEqual(await outcomes(pilotId), [['AC-1', 'pass'], ['AC-2', 'fail'], ['AC-3', 'not-met']], 'a tampered run judges nothing');
   assert.equal(stage(pilotId, 'review').status, 'completed');
 });
+
+test('a changed locked test found by a retest is the person\'s to decide: restore puts the approved version back, and the retest runs', async () => {
+  const { pilotId, repo } = await deliveredWithGaps();
+  const file = path.join(repo, 'acceptance/ac-2.check.mjs');
+  const approved = fs.readFileSync(file, 'utf8');
+  fs.appendFileSync(file, '\nprocess.exit(0);\n');
+  assert.equal((await post(`/api/goal-pilots/${pilotId}/acceptance/retest`)).status, 202);
+  await settleAcceptanceForTests();
+  const c = getContract(pilotId)!;
+  assert.deepEqual([c.tamper?.stageId, c.tamper?.verificationId, c.tamper?.files.map((f) => f.path)], ['', c.verifications[c.verifications.length - 1].id, ['acceptance/ac-2.check.mjs']]);
+
+  const r = await post(`/api/goal-pilots/${pilotId}/acceptance/restore`);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(fs.readFileSync(file, 'utf8'), approved);
+  const after = getContract(pilotId)!;
+  assert.deepEqual([after.tamper, after.version, after.amendments.at(-1)?.kind], [null, c.version, 'restore']);
+  assert.equal(getPilot(pilotId)!.attention, '');
+  assert.equal(getPilot(pilotId)!.phase, 'completed', 'no stage is re-run: the feature stays delivered');
+
+  assert.equal((await post(`/api/goal-pilots/${pilotId}/acceptance/retest`)).status, 202);
+  await settleAcceptanceForTests();
+  const v = getContract(pilotId)!.verifications.at(-1)!;
+  assert.deepEqual([v.status, v.passing, v.total], ['partial', 1, 2], 'the approved test runs again — and still finds the gap');
+});
+
+test('a delivered feature built in a worktree that is gone: the retest checks the repo it was cut from, and an accepted change becomes the locked version', async () => {
+  const { pilotId, repo } = await deliveredWithGaps();
+  implement(repo, 'AC-2', WANT['AC-2']);
+  // The feature was built in a worktree that was removed after its PR merged; the work is in `repo`.
+  const gone = path.join(os.tmpdir(), `rt-gone-worktree-${n}`);
+  db.prepare('UPDATE acceptance_contracts SET repo_path = ? WHERE pilot_id = ?').run(gone, pilotId);
+  db.prepare('UPDATE goal_pilots SET workspace = ? WHERE id = ?')
+    .run(JSON.stringify({ branch: 'feature/x', repos: [{ repoPath: repo, worktreePath: gone, agentType: 'claude', base: 'main', pr: null, error: '', removed: true }] }), pilotId);
+  // A later feature legitimately changed what AC-1's test checks.
+  const file = path.join(repo, 'acceptance/ac-1.check.mjs');
+  fs.appendFileSync(file, '\n// widened by a later feature\n');
+
+  assert.equal((await post(`/api/goal-pilots/${pilotId}/acceptance/retest`)).status, 202);
+  await settleAcceptanceForTests();
+  const c = getContract(pilotId)!;
+  assert.equal(c.verifications.at(-1)!.status, 'tampered', JSON.stringify(c.verifications.at(-1)));
+  assert.deepEqual(c.tamper?.files.map((f) => f.path), ['acceptance/ac-1.check.mjs']);
+
+  assert.equal((await post(`/api/goal-pilots/${pilotId}/acceptance/accept-change`, { reason: '' })).status, 400, 'accepting needs a reason');
+  const ok = await post(`/api/goal-pilots/${pilotId}/acceptance/accept-change`, { reason: 'A later feature changed what this test checks; the change is right.' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  const after = getContract(pilotId)!;
+  assert.deepEqual([after.tamper, after.version, after.amendments.at(-1)?.kind], [null, c.version + 1, 'accept-change']);
+  const locked = after.tests.find((t) => t.criterionId === 'AC-1')!.files[0];
+  assert.equal(locked.content, fs.readFileSync(file, 'utf8'), 'the changed file is now the locked version');
+
+  assert.equal((await post(`/api/goal-pilots/${pilotId}/acceptance/retest`)).status, 202);
+  await settleAcceptanceForTests();
+  const v = getContract(pilotId)!.verifications.at(-1)!;
+  assert.deepEqual([v.status, v.passing, v.total], ['passed', 2, 2]);
+});
