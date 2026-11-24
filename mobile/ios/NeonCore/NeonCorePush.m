@@ -12,6 +12,7 @@ RCT_EXTERN_METHOD(getDeviceToken : (RCTPromiseResolveBlock)resolve rejecter : (R
 RCT_EXTERN_METHOD(otaConfigure : (NSString *)server token : (NSString *)token)
 RCT_EXTERN_METHOD(otaMarkHealthy)
 RCT_EXTERN_METHOD(otaCheckNow)
+RCT_EXTERN_METHOD(otaApplyNow)
 RCT_EXTERN_METHOD(otaStatus : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject)
 
 @end

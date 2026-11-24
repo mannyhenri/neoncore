@@ -2,10 +2,11 @@
  * OVER-THE-AIR UPDATES — the JavaScript side (native: ios/NeonCore/NeonCorePush.swift
  * NeonCoreUpdates; server: server/src/lib/mobile-updates.ts).
  *
- * The native app downloads newer versions of this JavaScript from the NeonCore server and switches
- * to one on its next launch. JS tells it which server (and token) to ask, asks it to look whenever
- * the app comes to the front, and reports that the running version started cleanly — a version
- * that never does is rolled back by the native side after a few launches.
+ * The native app downloads newer versions of this JavaScript from the NeonCore server. JS tells it
+ * which server (and token) to ask; whenever the app comes to the front it switches to a version
+ * already downloaded (a reload — iOS rarely relaunches an app, so "on the next launch" alone left
+ * updates waiting for days, 2026-11-24), else asks it to look. It reports that the running version
+ * started cleanly — a version that never does is rolled back by the native side after a few launches.
  *
  * Publish an update: `npm run ota:publish` in mobile/ (scripts/ota-publish.ts).
  */
@@ -38,6 +39,8 @@ export interface UpdatesNative {
   otaMarkHealthy: () => void;
   otaCheckNow: () => void;
   otaStatus: () => Promise<UpdateStatus>;
+  /** Reload into the downloaded version now. Absent on builds before 45. */
+  otaApplyNow?: () => void;
 }
 
 const native = (): UpdatesNative | null => {
@@ -49,7 +52,7 @@ const native = (): UpdatesNative | null => {
 export function describeUpdate(s: UpdateStatus | null): string {
   if (!s) return 'This build cannot update over the air.';
   const running = s.running ? `Version ${s.running}` : `As installed (build ${s.build || '?'})`;
-  if (s.next) return `${running} — version ${s.next} is ready: close and reopen the app to use it.`;
+  if (s.next) return `${running} — version ${s.next} is ready: it starts the next time you come back to the app.`;
   if (s.lastError) return `${running} — ${s.lastError}`;
   return `${running} — up to date${s.lastCheck ? ` (checked ${s.lastCheck.slice(11, 16)})` : ''}.`;
 }
@@ -69,7 +72,11 @@ export function useUpdates(server: string | null, token: string | null | undefin
   useEffect(() => {
     if (!impl) return undefined;
     const healthy = setTimeout(() => impl.otaMarkHealthy(), HEALTHY_AFTER_MS);
-    const sub = AppState.addEventListener('change', (state) => { if (state === 'active') impl.otaCheckNow(); });
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      // Coming back to the app: a version already downloaded starts now; otherwise look for one.
+      void impl.otaStatus().then((s) => (s.next && impl.otaApplyNow ? impl.otaApplyNow() : impl.otaCheckNow()), () => impl.otaCheckNow());
+    });
     return () => { clearTimeout(healthy); sub.remove(); };
   }, [impl]);
 }

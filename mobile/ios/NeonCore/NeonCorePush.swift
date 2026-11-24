@@ -85,6 +85,13 @@ class NeonCorePush: RCTEventEmitter {
     NeonCoreUpdates.checkInBackground()
   }
 
+  /// Switch to the downloaded version now: React Native reloads, and the reload asks AppDelegate
+  /// for its bundle again, where launchBundle() promotes `ota.next`. Nothing waiting: nothing happens.
+  @objc func otaApplyNow() {
+    guard let next = NeonCoreUpdates.status()["next"] as? String, !next.isEmpty else { return }
+    DispatchQueue.main.async { RCTTriggerReloadCommandListeners("Over-the-air update") }
+  }
+
   /// What is running, what is waiting for the next launch, and the last check.
   @objc(otaStatus:rejecter:)
   func otaStatus(_ resolve: RCTPromiseResolveBlock, rejecter _: RCTPromiseRejectBlock) {

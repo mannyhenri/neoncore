@@ -33,7 +33,7 @@ describe('updates: the native side and the JavaScript agree', () => {
   });
   it('every native method the JavaScript calls is exported to React Native and implemented in Swift', () => {
     const called = [...new Set([...OTA.matchAll(/impl\??\.(ota[A-Za-z]+)\(/g)].map((m) => m[1]))].sort();
-    expect(called).toEqual(['otaCheckNow', 'otaConfigure', 'otaMarkHealthy', 'otaStatus']);
+    expect(called).toEqual(['otaApplyNow', 'otaCheckNow', 'otaConfigure', 'otaMarkHealthy', 'otaStatus']);
     for (const name of called) {
       expect(BRIDGE, `${name} in NeonCorePush.m`).toMatch(new RegExp(`RCT_EXTERN_METHOD\\(${name}\\b`));
       expect(SWIFT, `${name} in NeonCorePush.swift`).toMatch(new RegExp(`@objc(\\(${name}[:a-zA-Z]*\\))?\\s*func ${name}\\(`));
@@ -54,13 +54,13 @@ describe('updates: the native side and the JavaScript agree', () => {
 });
 
 describe('updates: the app reports and checks', () => {
-  const fake = (): UpdatesNative & { calls: string[] } => {
+  const fake = (next = ''): UpdatesNative & { calls: string[] } => {
     const calls: string[] = [];
-    return { calls, otaConfigure: (s, t) => calls.push(`configure ${s} ${t}`), otaMarkHealthy: () => calls.push('healthy'), otaCheckNow: () => calls.push('check'), otaStatus: async () => ({ running: '', next: '', lastCheck: '', lastError: '', runtime: '1', build: '45' }) };
+    return { calls, otaConfigure: (s, t) => calls.push(`configure ${s} ${t}`), otaMarkHealthy: () => calls.push('healthy'), otaCheckNow: () => calls.push('check'), otaApplyNow: () => calls.push('apply'), otaStatus: async () => ({ running: '', next, lastCheck: '', lastError: '', runtime: '1', build: '45' }) };
   };
   // A fresh install has no server saved, so the native launch check has nothing to ask: the first
   // check must come with the server (2026-11-24 — the phone never asked for 0.7.0-20261124.0039).
-  it('tells the native side its server and checks right away, says healthy after a few seconds, and checks whenever the app comes to the front', () => {
+  it('tells the native side its server and checks right away, says healthy after a few seconds, and checks whenever the app comes to the front', async () => {
     vi.useFakeTimers();
     const n = fake();
     useUpdates('http://mac.local:4040', 'tok', n);
@@ -72,16 +72,31 @@ describe('updates: the app reports and checks', () => {
     expect(n.calls).toContain('healthy');
     listeners.forEach((l) => l('background'));
     listeners.forEach((l) => l('active'));
-    expect(n.calls.filter((c) => c === 'check')).toHaveLength(2);
+    await vi.waitFor(() => expect(n.calls.filter((c) => c === 'check')).toHaveLength(2));
+    expect(n.calls).not.toContain('apply');
     cleanups.forEach((c) => typeof c === 'function' && c());
     vi.useRealTimers();
+  });
+  // 2026-11-24: version 1106 sat downloaded for hours — iOS resumed the app, it never relaunched.
+  it('coming back to the app with a version already downloaded starts it now, instead of waiting for a relaunch', async () => {
+    const n = fake('0.7.0-2');
+    useUpdates('http://mac.local:4040', 'tok', n);
+    hooks.effects.forEach((fx) => fx());
+    listeners.forEach((l) => l('background'));
+    expect(n.calls).not.toContain('apply');
+    listeners.forEach((l) => l('active'));
+    await vi.waitFor(() => expect(n.calls).toContain('apply'));
+    expect(n.calls.filter((c) => c === 'check')).toHaveLength(1); // only the launch check
+  });
+  it('the native side reloads into the downloaded version only when one is waiting', () => {
+    expect(SWIFT).toMatch(/func otaApplyNow\(\) \{\s*guard let next = NeonCoreUpdates\.status\(\)\["next"\] as\? String, !next\.isEmpty else \{ return \}\s*DispatchQueue\.main\.async \{ RCTTriggerReloadCommandListeners/);
   });
   it('says, in words, what is running and what waits', () => {
     const base = { running: '', next: '', lastCheck: '2026-11-23T23:15:00Z', lastError: '', runtime: '1', build: '45' };
     expect(describeUpdate(null)).toBe('This build cannot update over the air.');
     expect(describeUpdate(base)).toBe('As installed (build 45) — up to date (checked 23:15).');
     expect(describeUpdate({ ...base, running: '0.8.0-1' })).toBe('Version 0.8.0-1 — up to date (checked 23:15).');
-    expect(describeUpdate({ ...base, running: '0.8.0-1', next: '0.8.0-2' })).toBe('Version 0.8.0-1 — version 0.8.0-2 is ready: close and reopen the app to use it.');
+    expect(describeUpdate({ ...base, running: '0.8.0-1', next: '0.8.0-2' })).toBe('Version 0.8.0-1 — version 0.8.0-2 is ready: it starts the next time you come back to the app.');
     expect(describeUpdate({ ...base, lastError: 'Could not check for updates: offline' })).toBe('As installed (build 45) — Could not check for updates: offline');
   });
 });
