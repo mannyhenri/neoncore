@@ -24,9 +24,10 @@ installStubIO();
 
 let n = 0;
 const nowIso = () => new Date().toISOString();
-function project(): string {
+/** A project; the epic-order gate is OPT-IN (projects.epic_qa_gate) — on unless `gate` is false. */
+function project(gate = true): string {
   const id = `eo-p-${++n}`;
-  db.prepare(`INSERT INTO projects (id, name, description, primary_repo, color, created_at, updated_at) VALUES (?,?,'','/repo/none','#fff',?,?)`).run(id, `P${n}`, '2026-01-01', '2026-01-01');
+  db.prepare(`INSERT INTO projects (id, name, description, primary_repo, color, created_at, updated_at, epic_qa_gate) VALUES (?,?,'','/repo/none','#fff',?,?,?)`).run(id, `P${n}`, '2026-01-01', '2026-01-01', gate ? 1 : 0);
   return id;
 }
 function goal(projectId: string, epicId: string, done: boolean): string {
@@ -113,4 +114,29 @@ test('passing the earlier epic frees the waiting stage', async () => {
   const s = getStage(stageId)!;
   assert.doesNotMatch(s.waitReason, EPIC_WAIT, 'no longer held by the epic');
   assert.match(s.waitReason, /No .* cartridge is running/, 'it went on to launch (and found no cartridge in the test repo)');
+});
+
+/**
+ * OFF BY DEFAULT (2026-11-24: "why are these blocked on this stupid thing?"). Turned on for every
+ * project, the gate froze FacetDB's and Beam's Phase 1 behind Phase 0 QA runs that could not pass
+ * yet (a locked test edited after approval, an unmerged PR). It is now a per-project choice;
+ * a project that never chose it never waits — whatever its earlier epic's QA state.
+ */
+test('the gate is opt-in: a project without it never waits, whatever the earlier epic\'s QA state', () => {
+  const p = project(false);
+  const first = createEpic(p, { name: 'Phase 0' }).id;
+  const second = createEpic(p, { name: 'Phase 1' }).id;
+  goal(p, first, false);                                          // earlier epic still being built
+  assert.equal(epicOrderWait(goal(p, second, false)), null);
+  const p2 = project(false);
+  const a = createEpic(p2, { name: 'Phase 0' }).id;
+  const b = createEpic(p2, { name: 'Phase 1' }).id;
+  goal(p2, a, true);                                              // finished, QA not passed
+  assert.equal(epicOrderWait(goal(p2, b, false)), null);
+  const fresh = `eo-p-default-${++n}`;                            // a project inserted with no choice at all
+  db.prepare(`INSERT INTO projects (id, name, description, primary_repo, color, created_at, updated_at) VALUES (?,?,'','/repo/none','#fff',?,?)`).run(fresh, 'D', '2026-01-01', '2026-01-01');
+  const c = createEpic(fresh, { name: 'Phase 0' }).id;
+  const d = createEpic(fresh, { name: 'Phase 1' }).id;
+  goal(fresh, c, true);
+  assert.equal(epicOrderWait(goal(fresh, d, false)), null);
 });

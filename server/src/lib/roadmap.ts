@@ -71,6 +71,8 @@ for (const [table, column, type] of [
   // (a phase gate) — the project's default, and an epic's own override.
   ['projects', 'qa_command', "TEXT NOT NULL DEFAULT ''"],
   ['epics', 'qa_command', "TEXT NOT NULL DEFAULT ''"],
+  // Opt-in (2026-11-24): the next epic's build stages wait until earlier epics pass QA (epicOrderWait).
+  ['projects', 'epic_qa_gate', 'INTEGER NOT NULL DEFAULT 0'],
 ] as const) {
   const has = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);

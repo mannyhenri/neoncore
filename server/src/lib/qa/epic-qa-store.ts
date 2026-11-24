@@ -238,6 +238,10 @@ export function epicQaRunSummary(epicId: string): EpicQaRunSummary | null {
 export function epicOrderWait(goalId: string): string | null {
   const g = db.prepare('SELECT epic_id, project_id FROM goals WHERE id = ?').get(goalId) as { epic_id: string; project_id: string } | undefined;
   if (!g?.epic_id) return null;
+  // OPT-IN per project (projects.epic_qa_gate): on for every project, it froze FacetDB's and Beam's
+  // Phase 1 behind Phase 0 QA runs that could not pass yet.
+  const gate = db.prepare('SELECT epic_qa_gate FROM projects WHERE id = ?').get(g.project_id) as { epic_qa_gate?: number } | undefined;
+  if (!gate?.epic_qa_gate) return null;
   const mine = db.prepare('SELECT position FROM epics WHERE id = ?').get(g.epic_id) as { position: number } | undefined;
   if (!mine) return null;
   const earlier = db.prepare('SELECT id, name FROM epics WHERE project_id = ? AND position < ? ORDER BY position, rowid')
