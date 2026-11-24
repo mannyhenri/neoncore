@@ -11,6 +11,7 @@
  * panel drawn over them is Night Glass.
  */
 import { FinalAnswerModal } from '../components/FinalAnswerModal';
+import { backgroundLines } from '../lib/agentStatus';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SendOutcome } from '../lib/deliveryNotice';
@@ -31,8 +32,9 @@ import { pipelineSignal, benchSeats, featuresToDo, freightFor, freightTitle, nex
 import type { PoolSlots } from './zones';
 import { padsFor, padOf } from './fleet';
 import { meetingKeys } from './meeting';
-import { deadlineFor, pennantFrame, badgesFor, FEATURE_BADGES } from './milestones';
-import { FeaturePlates, worktreeRepos } from './FeaturePlates';
+import { deadlineFor, pennantFrame } from './milestones';
+import { worktreeRepos } from './FeaturePlates';
+import { FeatureHud } from './FeatureHud';
 import type { Deadline } from './milestones';
 import type { Placement, WorldPlate, WorldSite, WorldStructure } from './sites';
 import type { KitName } from './kit';
@@ -117,7 +119,6 @@ const SIGN_ROW = {
   hang: { mast: -0.03, marker: -0.006, gauge: 0.016, pennant: 0.032 },
   center: { mast: 0, marker: -0.026, gauge: 0.024, pennant: 0.04 },
 } as const;
-const PLAQUE_CLASS = 'absolute top-full mt-0.5 px-1.5 py-px rounded-md border border-white/[0.14] bg-[rgba(10,16,32,0.82)] font-mono text-[10px] leading-4 text-gray-300 whitespace-nowrap';
 /** Above this many figures the panels shrink to a name; the rest shows on hover, selection or alert. */
 const COMPACT_ABOVE = 8;
 /**
@@ -276,12 +277,9 @@ function WorldSceneOn({
   const repoSector = useMemo(() => sectorByRepo(sectors), [sectors]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const zones = useMemo(() => planZones(sectorProjects, plate), [projectsSig, plate, sector]);
-  // FEATURES (FeaturePlates.tsx): an agent in a feature's worktree works at its REAL repo's
+  // FEATURES (FeaturePlates.tsx; listed in the HUD, FeatureHud.tsx): an agent in a feature's worktree works at its REAL repo's
   // building — the worktree folder belongs to no project, and would otherwise land on open ground.
   const features = extras.features ?? [];
-  // This sector's running features, and the projects that carry them in a stack under their sign (FeaturePlates.tsx).
-  const sectorFeatures = features.filter((f) => sectorProjects.some((sp) => sp.id === f.projectId));
-  const stackedProjects = new Set(sectorFeatures.map((f) => f.projectId));
   const worktreeSig = JSON.stringify(features.map((f) => f.worktrees));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const worktreeOf = useMemo(() => worktreeRepos(features, normRepo), [worktreeSig]);
@@ -644,46 +642,26 @@ function WorldSceneOn({
           })}
           {/* What each place IS, in the records' words: project on its SIGNPOST, repo on its
               building, machine on its pad. The project's name is on the drawn board, which is as
-              wide as the name (signpost.generated.ts); a plaque under the post keeps the counts
-              and the badges. Above the figures, like every banner — and it takes no clicks. */}
+              wide as the name (signpost.generated.ts). Its features — their banners and badges — are
+              in the HUD along the bottom (FeatureHud.tsx), not on the map. Above the figures, like
+              every banner — and it takes no clicks. */}
           {zones.map((z) => {
             const d = z.districts[0];
             const at = plate.props[d]?.sign;
             if (!at) return null;
-            const running = features.some((f) => f.projectId === z.projectId);
-            const feats = (extras.goals ?? []).filter((g) => g.projectId === z.projectId && g.origin !== 'imported' && g.pilot);
-            const earned = feats.length > 0 ? badgesFor(extras.goals ?? [], z.projectId) : null;
             return (
-              <Signpost key={`${z.projectId}-${d}`} district={d} name={z.name} colour={z.color || ENGINE_COLOURS.claude.suit} at={at} height={avatarHeight * SIGN_HEIGHT} caption={running}>
-                {/* A project with features running keeps the name only: its features' plates say the rest. */}
-                {!running && (z.features.total > 0 || earned !== null) && (
-                  <div data-zone-plaque={d} className={`${PLAQUE_CLASS} ${SIGN_ART.mode === 'hang' ? 'left-0' : 'left-1/2 -translate-x-1/2'}`}>
-                    {z.features.total > 0 && <span>{z.features.done}/{z.features.total} features</span>}
-                    {z.features.active > 0 && <span className="text-emerald-300"> · {z.features.active} under way</span>}
-                    {/* BADGES: one per step of the feature under way; lit once earned (milestones.ts). */}
-                    {earned !== null && (
-                      <span className="inline-flex items-center gap-0.5 ml-2 align-[-4px]" aria-label={`${earned} of ${FEATURE_BADGES.length} steps earned`}>
-                        {FEATURE_BADGES.map((b, i) => (
-                          <img key={b.step} data-badge={b.step} data-earned={i < earned} src={KIT[b.sprite as KitName].src} alt={i < earned ? b.label : ''}
-                            className="h-[16px] w-[16px] object-contain" style={{ opacity: i < earned ? 1 : 0.18, filter: i < earned ? undefined : 'grayscale(1)' }} />
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </Signpost>
+              <Signpost key={`${z.projectId}-${d}`} district={d} name={z.name} colour={z.color || ENGINE_COLOURS.claude.suit} at={at} height={avatarHeight * SIGN_HEIGHT} caption />
             );
           })}
           {/* REWARDS: the highest medal the project has earned in each family, under its signpost.
               Each medal says the project's name and what it is for (hover). */}
-          {/* (A project with features running carries them in its feature stack, under the plates.) */}
           {zones.map((z) => {
             const at = plate.props[z.districts[0]]?.sign;
             const tops = (rewards.get(z.projectId)?.families ?? []).map((f) => ({ f, i: topTier(f) })).filter((x) => x.i >= 0);
-            if (!at || tops.length === 0 || stackedProjects.has(z.projectId)) return null;
+            if (!at || tops.length === 0) return null;
             return (
               <div key={`rewards-${z.projectId}`} data-zone-rewards={z.projectId} className="absolute -translate-x-1/2 flex items-center gap-[3px]"
-                style={{ left: `${at.x * 100}%`, top: `${(at.y + 0.046) * 100}%`, zIndex: BANNER_Z }}>
+                style={{ left: `${at.x * 100}%`, top: `${(at.y + 0.008) * 100}%`, zIndex: BANNER_Z }}>
                 {tops.map(({ f, i }) => <RewardMedal key={f.id} family={f.id} tier={i} threshold={f.tiers[i].threshold} earned label={f.tiers[i].label} size={20} />)}
               </div>
             );
@@ -693,17 +671,6 @@ function WorldSceneOn({
             const at = plate.props[d]?.sign;
             return at ? <Signpost key={`${z.projectId}-annex-${d}`} annex district={d} name={z.name} colour={z.color || ENGINE_COLOURS.claude.suit} at={at} height={avatarHeight * SIGN_HEIGHT} caption /> : null;
           }))}
-          <FeaturePlates features={sectorFeatures} zones={zones} goals={extras.goals ?? []} z={BANNER_Z} align={SIGN_ART.mode === 'hang' ? 'start' : 'center'}
-            // Under the post, as the sign's own plaque is: a hanging sign's post is its mast.
-            districts={Object.entries(plate.props).map(([id, p]) => ({ id, x: p.sign.x + (SIGN_ART.mode === 'hang' ? SIGN_ROW.hang.mast : 0), y: p.sign.y }))}
-            extra={(projectId) => {
-              const tops = (rewards.get(projectId)?.families ?? []).map((f) => ({ f, i: topTier(f) })).filter((x) => x.i >= 0);
-              return tops.length === 0 ? null : (
-                <div data-zone-rewards={projectId} className="flex items-center gap-[3px] pointer-events-auto">
-                  {tops.map(({ f, i }) => <RewardMedal key={f.id} family={f.id} tier={i} threshold={f.tiers[i].threshold} earned label={f.tiers[i].label} size={20} />)}
-                </div>
-              );
-            }} />
           {zones.flatMap((z) => [...z.buildings].map(([repo, id]) => {
             const st = plate.structures.find((x) => x.id === id);
             // Two repos can share a building when a project has more repos than buildings.
@@ -847,6 +814,9 @@ function WorldSceneOn({
         </button>
       )}
 
+      {/* FEATURES IN PROGRESS, in every sector — along the bottom, not on the map. */}
+      <FeatureHud features={features} projects={extras.projects ?? []} goals={extras.goals ?? []} />
+
       <div role="group" aria-label="Zoom" className="absolute bottom-3 right-3 flex items-center gap-1 p-1 rounded-xl border border-white/[0.1] bg-[rgba(10,16,32,0.92)]">
         <button
           onClick={() => zoomBy(1 / ZOOM_STEP)}
@@ -888,7 +858,7 @@ function WorldSceneOn({
           sector. Each says which projects it holds, how many agents are there, and whether one
           of them needs you — so nothing waits unseen on a map you are not looking at. */}
       {(sectors.length > 1 || newMaps.length > 0 || travel) && (
-        <nav data-world-nav data-sectors={(sectors.length > 1 || newMaps.length > 0) || undefined} aria-label={`Maps and ${word('sector').toLowerCase()}s`} className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-stretch gap-1.5 p-1.5 rounded-[14px] border border-white/[0.14] bg-[rgba(10,16,32,0.92)] max-w-[calc(100%-420px)] flex-wrap justify-center">
+        <nav data-world-nav data-sectors={(sectors.length > 1 || newMaps.length > 0) || undefined} aria-label={`Maps and ${word('sector').toLowerCase()}s`} className="absolute top-3 left-1/2 -translate-x-1/2 z-hud flex items-stretch gap-1.5 p-1.5 rounded-[14px] border border-white/[0.14] bg-[rgba(10,16,32,0.92)] max-w-[calc(100%-420px)] flex-wrap justify-center">
           {/* MAPS: the home map and the ones the outfit has unlocked — the rest are not shown until earned. */}
           {travel && <MapSwitch maps={travel.maps} current={travel.current} unlocked={travel.unlocked} onGo={travel.go} />}
           {sectors.length > 1 && sectors.map((sec) => {
@@ -940,13 +910,14 @@ function WorldSceneOn({
       )}
 
       {/* The cartridge card for the selected crew member, floating over that figure so you stay
-          on the map (it follows the figure when the map is zoomed or moved). No z-index and no
-          backdrop filter on purpose: either would trap the card's own dialogs under the top bar. */}
+          on the map (it follows the figure when the map is zoomed or moved). `z-float` puts it over
+          the sector bar and the feature HUD; its own dialogs are portaled to <body> (components/
+          Overlay.tsx), so the stacking context this makes cannot trap them under the top bar. */}
       {selected && (
         <aside
           aria-label={`Cartridge ${selected.name}`}
           data-crew-card={selected.key}
-          className="absolute overflow-y-auto rounded-[16px] border border-white/[0.14] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]"
+          className="absolute z-float overflow-y-auto rounded-[16px] border border-white/[0.14] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]"
           // 90% so the map shows through. A background alpha, NOT `opacity`: opacity would make
           // a stacking context and trap the card's own dialogs under the top bar.
           style={{ ...cardPlace(standsAt.get(selected.key), stage, size, avatarHeight), background: 'rgba(10, 16, 32, 0.9)' }}
@@ -1582,7 +1553,9 @@ function CrewPanel({ member, selected, compact, progress, queue, burn, onDecide,
       : live
         ? 'border-neon-500/70 shadow-[0_0_14px_rgba(90,174,255,0.4)]'
         : 'border-white/[0.16]';
-  const line = member.task || (progress ? progress.label : '');
+  // A cartridge whose turn ended while its suite still runs says so, rather than looking idle.
+  const bg = backgroundLines(member.agent, Date.now())[0];
+  const line = member.task || (bg ? `In background: ${bg}` : '') || (progress ? progress.label : '');
   const cells = progress ? Math.min(progress.total, 12) : 0;
   const lit = progress && progress.total > 0 ? Math.round((cells * progress.done) / progress.total) : 0;
   // In a crowd the detail lines fold away unless this one is selected, calling for you, or hovered.

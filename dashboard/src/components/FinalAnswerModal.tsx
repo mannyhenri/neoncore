@@ -27,8 +27,7 @@ export function FinalAnswerModal({ agentId, name, onClose }: { agentId: string; 
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 bg-black/40 flex items-center justify-center p-4"
-      style={{ zIndex: 10000 }}
+      className="fixed inset-0 z-overlay bg-black/40 flex items-center justify-center p-4"
       role="dialog" aria-modal="true" aria-label={`${name} — final answer`}
     >
       {/* Capped to the window and clipped; the BODY below is what scrolls. 90% see-through, the

@@ -280,7 +280,9 @@ export function RoadmapChart({ project, version, onOpenFeature, onChanged, toolb
                 onAddFeature={(epicId, name, date) => { void addFeature(epicId, name, date); }}
                 onReorder={(ids) => void change(() => api.reorderEpics(project.id, ids))}
                 onDeleteEpic={(e) => { if (confirm(`Remove the epic "${e.name}"? Its ${e.features.length} feature(s) stay in the project, in no epic.`)) void change(() => api.deleteEpic(e.id)); }}
-                onMoveFeature={(featureId, epicId) => void change(() => api.planFeature(featureId, { epicId }))} />
+                onMoveFeature={(featureId, epicId) => void change(() => api.planFeature(featureId, { epicId }))}
+                onPassQa={(e) => void change(() => api.setEpicQa(e.id, true))}
+                onQaChanged={() => void change(() => api.getRoadmap(project.id))} />
           </div>
         </div>
       </div>
@@ -298,15 +300,16 @@ function EpicEditor({ epic, others, busy, onSave, onDelete, onClose }: {
   epic: RoadmapEpic;
   /** Every other epic of the project: what this one can wait on. */
   others: { id: string; label: string }[];
-  busy: boolean; onSave: (d: { name: string; outcome: string; icon: string; targetDate: string; dependsOn: string[] }) => void; onDelete: () => void; onClose: () => void;
+  busy: boolean; onSave: (d: { name: string; outcome: string; icon: string; targetDate: string; dependsOn: string[]; qaCommand: string }) => void; onDelete: () => void; onClose: () => void;
 }) {
   const [name, setName] = useState(epic.name);
   const [outcome, setOutcome] = useState(epic.outcome);
   const [icon, setIcon] = useState(epic.icon);
   const [targetDate, setTargetDate] = useState(epic.targetDate ?? '');
   const [dependsOn, setDependsOn] = useState<string[]>(epic.dependsOn ?? []);
+  const [qaCommand, setQaCommand] = useState(epic.qaCommand ?? '');
   return (
-    <form data-epic-editor className="absolute left-0 top-0 z-40 w-[300px] p-3 space-y-2 rounded-[10px] border border-[rgba(96,160,255,0.4)] bg-[#0A1224] shadow-[0_10px_30px_rgba(0,0,0,0.6)]" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave({ name, outcome, icon, targetDate, dependsOn }); }}>
+    <form data-epic-editor className="absolute left-0 top-0 z-40 w-[300px] p-3 space-y-2 rounded-[10px] border border-[rgba(96,160,255,0.4)] bg-[#0A1224] shadow-[0_10px_30px_rgba(0,0,0,0.6)]" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave({ name, outcome, icon, targetDate, dependsOn, qaCommand }); }}>
       <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Epic name" className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px]" />
       <input value={outcome} onChange={(e) => setOutcome(e.target.value)} aria-label="What this epic delivers" placeholder="What it delivers" className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px]" />
       <div className="flex gap-1 flex-wrap">
@@ -321,6 +324,12 @@ function EpicEditor({ epic, others, busy, onSave, onDelete, onClose }: {
       <label className="block">
         <span className="block text-[11px] font-semibold text-gray-300 mb-1">Due — deliver it by this day for a commendation</span>
         <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} aria-label="Epic due date" className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px] text-gray-100" />
+      </label>
+      {/* EPIC QA: run when its last feature is done, with every feature's locked tests. Empty = the project's. */}
+      <label className="block">
+        <span className="block text-[11px] font-semibold text-gray-300 mb-1">QA command — overrides the project's for this epic</span>
+        <input value={qaCommand} onChange={(e) => setQaCommand(e.target.value)} aria-label="Epic QA command" placeholder="e.g. bash scripts/run_gates.sh 1"
+          className="glass-input w-full h-8 px-2 rounded-[7px] text-[13px] font-mono text-gray-100" />
       </label>
       {/* WHAT IT WAITS ON: its features are not offered to start until these epics are delivered. */}
       {others.length > 0 && (

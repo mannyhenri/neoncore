@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { isDemoEnabled, setDemoEnabled, resetDemoData } from '../lib/demoMode';
 import { NotificationSettings } from './NotificationSettings';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Overlay } from './Overlay';
 
 interface Props {
   onClose: () => void;
@@ -180,10 +181,11 @@ export function SettingsModal({ onClose }: Props) {
   const isAlreadyAdded = savedDirs.includes(currentPath);
 
   return (
+    <Overlay>
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      className="fixed inset-0 z-overlay bg-black/70 flex items-center justify-center p-4"
     >
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-[1040px] mx-2 md:mx-0 flex flex-col md:flex-row overflow-hidden h-[85vh] md:h-[760px] max-h-[90vh]">
         {/* Left tab column (Night Glass): the sections read as a list, not a strip of chips. */}
@@ -389,5 +391,6 @@ export function SettingsModal({ onClose }: Props) {
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

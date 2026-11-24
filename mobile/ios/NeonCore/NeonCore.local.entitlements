@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  The LOCAL build's entitlements (scripts/build-ios.sh): none. A personal Apple team cannot sign
+	  Push Notifications, so the locally shared app has no push entitlement. NeonCore.entitlements keeps
+	  it for a build signed by a paid team.
+	-->
+</dict>
+</plist>

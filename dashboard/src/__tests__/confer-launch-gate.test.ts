@@ -127,9 +127,10 @@ const SURFACES = conferLaunchSurfaces();
 describe('a fully-specified confer is launchable everywhere it is offered', () => {
   it('the scan is non-vacuous', () => {
     expect(SURFACES.map((s) => s.file).join('\n')).toMatch(/WorkflowPanel\.tsx/);
-    // Desk: WorkflowPanel, GoalsPage, WorkflowCanvasEditor. Phone: WorkflowsScreen.
+    // Desk: WorkflowPanel, GoalsPage, WorkflowCanvasEditor. The phone's WorkflowsScreen was
+    // retired with its redesign (launching stays on the desk); mobile/src is still scanned.
     expect(SURFACES.length, 'confer launch surfaces disappeared from the scan')
-      .toBeGreaterThanOrEqual(4);
+      .toBeGreaterThanOrEqual(3);
   });
 
   it.each(SURFACES)('$file gates its BUTTON on confer, not on one cartridge', ({ file, src }) => {

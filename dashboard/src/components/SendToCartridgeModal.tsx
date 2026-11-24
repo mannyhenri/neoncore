@@ -113,7 +113,7 @@ export default function SendToCartridgeModal({
   return createPortal(
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70"
+      className="fixed inset-0 z-overlay flex items-center justify-center bg-black/70"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[560px] max-h-[80vh] flex flex-col">

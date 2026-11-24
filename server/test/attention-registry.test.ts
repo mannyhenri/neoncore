@@ -165,6 +165,15 @@ const FIXTURES: Record<AttentionReason, () => { workflowId: string; stepName: st
     step(w, { name: 'Notify', status: 'pending' });
     return { workflowId: w, stepName: 'Verify Coverage' };
   },
+  'blocked-on-person': () => {
+    const w = wf();
+    // A step whose agent reported `blocked` (holdStepBlocked): the detail is what the person must do.
+    step(w, { name: 'Load Plan + Worktree', status: 'completed', config: JSON.stringify({
+      _blockedHold: { ask: 'Run `bash scripts/run_gates.sh 0` in ~/code/beam (needs sudo).', by: 'a1', at: iso() },
+    }) });
+    step(w, { name: 'Write Failing Tests', status: 'pending' });
+    return { workflowId: w, stepName: 'Load Plan + Worktree' };
+  },
 };
 
 /**
@@ -194,6 +203,8 @@ const GOLDEN_DETAIL: Record<AttentionReason, string> = {
   // is holdDetail()'s, asserted verbatim in coverage-loop.test.ts too.
   'tasks-outstanding': '5 of 23 task(s) are still open after "Verify Coverage" — the last pass finished nothing more '
     + '(18 → 18 of 23), so another identical pass would not help. Keep working, or accept the run as it is.',
+  // Added with the reason (step-blocked.test.ts): the agent's own words for what the person must do.
+  'blocked-on-person': 'Blocked — Run `bash scripts/run_gates.sh 0` in ~/code/beam (needs sudo).',
 };
 
 test('EVERY reason in the registry has a fixture — no reason ships unexercised', () => {

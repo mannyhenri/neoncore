@@ -22,6 +22,7 @@ import { RepairsTab } from './RepairsTab';
 import { JourneysTab } from './JourneysTab';
 import { TargetSettings, blankTarget } from './TargetSettings';
 import { FeatureQa } from './FeatureQa';
+import { EpicQaSection } from './EpicQaSection';
 import { BTN_GHOST, CARD, ErrorNote, INPUT, Loading } from './ui';
 
 /** The tab registry, in order. Tests iterate it. */
@@ -105,6 +106,8 @@ export function QaPage({ agents = [], api = defaultApi, origin }: { agents?: Age
     <div className="space-y-4">
       <QaArt name="hero" className="w-full max-h-[260px]" />
       {/* QA follows the feature: what is being built, tested by itself — before any hand-made test. */}
+      {/* Epic QA: every feature's locked tests + the project's QA command, when an epic finishes — no web UI needed. */}
+      {!editing && <EpicQaSection />}
       {!editing && <FeatureQa api={api} tick={featureTick} onAddTarget={() => setEditing('new')} />}
       <div className="flex items-center gap-3 flex-wrap">
         {targets && targets.length > 0 && (

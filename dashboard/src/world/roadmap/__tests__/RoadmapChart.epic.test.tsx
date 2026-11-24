@@ -89,7 +89,7 @@ describe('an epic\'s date and dependencies on the chart', () => {
     const waits = first.checked ? [...deps, first.value] : deps.filter((id) => id !== first.value);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.updateEpic).toHaveBeenCalledTimes(1));
-    expect(calls.updateEpic).toHaveBeenCalledWith(e.id, { name: e.name, outcome: '', icon: '', targetDate: '2027-01-15', dependsOn: waits });
+    expect(calls.updateEpic).toHaveBeenCalledWith(e.id, { name: e.name, outcome: '', icon: '', targetDate: '2027-01-15', dependsOn: waits, qaCommand: '' });
   });
 
   it('clearing the date saves an empty date', async () => {
@@ -97,7 +97,7 @@ describe('an epic\'s date and dependencies on the chart', () => {
     fireEvent.click(screen.getByLabelText('Edit the epic Due'));
     fireEvent.change(screen.getByLabelText('Epic due date'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(calls.updateEpic).toHaveBeenCalledWith('e5', { name: 'Due', outcome: '', icon: '', targetDate: '', dependsOn: ['e4', 'e1'] }));
+    await waitFor(() => expect(calls.updateEpic).toHaveBeenCalledWith('e5', { name: 'Due', outcome: '', icon: '', targetDate: '', dependsOn: ['e4', 'e1'], qaCommand: '' }));
   });
 
   it('the officer of the deck wears the project\'s rank', async () => {

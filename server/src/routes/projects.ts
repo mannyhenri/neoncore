@@ -18,6 +18,8 @@ import { guardBusy } from '../lib/queue-if-busy.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles } from '../lib/send-command.js';
 import { cartridgeExists } from '../lib/cartridge-exists.js';
 import { deleteProjectCascade } from '../lib/project-delete.js';
+import { cleanQaCommand } from '../lib/qa/epic-qa-store.js';
+import '../lib/roadmap.js';   // its migrations add projects.qa_command
 import { documentText, DocumentError } from '../lib/document-text.js';
 
 const router = Router();
@@ -36,6 +38,8 @@ function normalizeProject(row: Record<string, unknown>, extra?: Partial<Project>
     primaryRepo: (row.primary_repo as string) || '',
     color: (row.color as string) || '#a855f7',
     architecture: (row.architecture as string) || '',
+    // The command that proves each epic as a whole (lib/qa/epic-acceptance.ts) — an epic may override it.
+    qaCommand: (row.qa_command as string) || '',
     // The page itself is served by GET /:id/docs/architecture?format=html — too big for every list row.
     hasArchitecturePage: !!String(row.architecture_html || '').trim(),
     docsAutoPublish: !!row.docs_auto_publish,
@@ -170,7 +174,11 @@ router.put('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Project not found' });
 
-  const { name, description, goalId, primaryRepo, color, cartridges, architecture, docsAutoPublish, archived } = req.body;
+  const { name, description, goalId, primaryRepo, color, cartridges, architecture, docsAutoPublish, archived, qaCommand } = req.body;
+  let qaCmd = String(row.qa_command || '');
+  if (qaCommand !== undefined) {
+    try { qaCmd = cleanQaCommand(qaCommand); } catch (err) { return res.status(400).json({ error: (err as Error).message }); }
+  }
   const now = new Date().toISOString();
 
   // ARCHIVE / RESTORE. Not while a feature is under way: its work would vanish from sight mid-run.
@@ -185,7 +193,7 @@ router.put('/:id', (req, res) => {
 
   db.prepare(`
     UPDATE projects SET name = ?, description = ?, goal_id = ?, primary_repo = ?, color = ?, updated_at = ?,
-                        architecture = ?, docs_auto_publish = ?
+                        architecture = ?, docs_auto_publish = ?, qa_command = ?
     WHERE id = ?
   `).run(
     name?.trim() || row.name,
@@ -196,6 +204,7 @@ router.put('/:id', (req, res) => {
     now,
     typeof architecture === 'string' ? architecture.trim().slice(0, MAX_ARCHITECTURE_CHARS) : row.architecture,
     docsAutoPublish !== undefined ? (docsAutoPublish ? 1 : 0) : row.docs_auto_publish,
+    qaCmd,
     req.params.id,
   );
 

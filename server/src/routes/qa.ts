@@ -16,6 +16,8 @@ import { addEvents, coverageOf, recorderKeyMatches, recorderKeyOf, recorderScrip
 import { evidenceFile, evidenceUrl, runReportHtml } from '../lib/qa/report.js';
 
 import { featureQaReport, runFeatureQa, runEpicQa, startFeatureQa } from '../lib/qa/feature-link.js';
+import { startEpicQa } from '../lib/qa/epic-acceptance.js';
+import { latestEpicRun, epicQaRunSummary } from '../lib/qa/epic-qa-store.js';
 
 startFeatureQa();
 const router = Router();
@@ -102,6 +104,10 @@ router.get('/features', handle(() => featureQaReport()));
 router.post('/features/:goalId/run', handle((req) => runFeatureQa(id(req, 'goalId'))));
 // The whole epic of this feature, now — whenever the person decides (it also runs by itself when the epic is finished).
 router.post('/features/:goalId/run-epic', handle((req) => runEpicQa(id(req, 'goalId'))));
+
+// EPIC QA FOR ANY PROJECT (lib/qa/epic-acceptance.ts): the locked tests of every feature + the QA command.
+router.get('/epics/:epicId', handle((req) => ({ run: latestEpicRun(id(req, 'epicId')), current: epicQaRunSummary(id(req, 'epicId')) })));
+router.post('/epics/:epicId/run', handle((req) => startEpicQa(id(req, 'epicId'))));
 
 // evidence
 router.get('/evidence/:runId/*', handle((req, res) => {

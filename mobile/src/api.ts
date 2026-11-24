@@ -60,7 +60,7 @@ export class ApiError extends Error {
 export const requestConfig = { timeoutMs: 12_000 };
 
 /** Thin REST client over the NeonCore server. All methods take the base URL. */
-async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+export async function req<T>(base: string, path: string, init?: RequestInit): Promise<T> {
   const token = tokens.get(base);
   let res: Response;
 

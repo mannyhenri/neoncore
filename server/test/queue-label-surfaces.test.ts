@@ -78,12 +78,12 @@ test('the scan finds the surfaces it is meant to police', () => {
   // A walker that silently returned [] would make every assertion below vacuous — and this test
   // exists BECAUSE an exhaustive-looking search quietly missed four files.
   const sites = labelSites().map((s) => s.file);
-  assert.ok(sites.length >= 4, `only ${sites.length} queue-label sites found: ${sites.join(', ')}`);
+  assert.ok(sites.length >= 3, `only ${sites.length} queue-label sites found: ${sites.join(', ')}`);
   for (const expect of [
     'dashboard/src/components/QueuePanel.tsx',
     'dashboard/src/components/TasksPage.tsx',
     'dashboard/src/components/WorkflowPanel.tsx',
-    'mobile/src/screens/QueueScreen.tsx',
+    // The phone's Queue screen was retired with its redesign; mobile/src stays scanned above.
   ]) {
     assert.ok(sites.includes(expect), `the scan does not reach ${expect}`);
   }

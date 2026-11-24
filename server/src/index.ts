@@ -1,5 +1,6 @@
 import themesRouter from './routes/themes.js';
 import { themeMiddleware, setPublicDir } from './lib/custom-themes.js';
+import mobileRouter from './routes/mobile.js';
 import logsRouter from './routes/logs.js';
 import { installConsoleCapture } from './lib/log-stream.js';
 // THE LOGS: NeonCore's own console goes into the Logs section too (lib/log-stream.ts). Not under test.
@@ -42,6 +43,7 @@ import qaRouter, { recorderRouter as qaRecorderRouter } from './routes/qa.js';
 import { startQaEngine } from './lib/qa/engine.js';
 import triageRouter, { triageWebhook } from './routes/triage.js';
 import { startTriageEngine } from './lib/triage/engine.js';
+import { openBackgroundTasks, sweepBackgroundDeadlines, sweepQuietWorking } from './lib/background-tasks.js';
 import designSystemRouter from './routes/design-system.js';
 import rewardsRouter from './routes/rewards.js';
 import projectImportsRouter from './routes/project-imports.js';
@@ -131,6 +133,8 @@ app.use('/api/triage', triageRouter);
 app.use('/api/design-system', designSystemRouter);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/logs', logsRouter);
+// The phone app's over-the-air updates (lib/mobile-updates.ts).
+app.use('/api/mobile', mobileRouter);
 app.use('/api/project-imports', projectImportsRouter);
 app.use('/api/heartbeats', heartbeatsRouter);
 app.use('/api/tasks', tasksRouter);
@@ -180,7 +184,6 @@ import { getIO as getSocketIO, hasActiveSocket } from './ws.js';
 // the status at once (routes/agents.ts `turnEnded`, from the Stop hooks); this catches an engine
 // or a crash that never says so. A *display* state, not a death sentence — an idle agent stays
 // visible in the grid.
-const IDLE_THRESHOLD_MS = 2 * 60 * 1000;
 
 // Zombie reaping policy lives in lib/zombie-reaper.ts — the threshold now depends on
 // whether the agent type can report its own death at all.
@@ -209,25 +212,28 @@ function emitAgentUpdate(row: Record<string, unknown>) {
     interruptedAt: (row.interrupted_at as string) ?? '',
     activeObjective: (row.active_objective as string) ?? '',
     standardState: ((row.standard_state as string) ?? '') as '' | 'needs_review',
+    background: openBackgroundTasks(row.id as string),
   });
 }
 
 setInterval(() => {
-  // working → idle after 2 minutes of no activity.
-  // NB: do NOT touch last_seen here. It means "when did this agent last actually do
-  // something", and the old code overwrote it with now() on this transition — which
-  // destroyed the real timestamp (the UI's "last seen" was really "when we noticed it
-  // went quiet") and restarted every staleness clock that reads it.
-  const idleCutoff = new Date(Date.now() - IDLE_THRESHOLD_MS).toISOString();
-  const staleWorking = db.prepare(
-    "SELECT id FROM agents WHERE status = 'working' AND last_seen < ?"
-  ).all(idleCutoff) as { id: string }[];
-
-  for (const { id } of staleWorking) {
-    db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(id);
+  // working → idle (or → background, with background work open) after IDLE_THRESHOLD_MS of no
+  // activity — lib/background-tasks.ts sweepQuietWorking. It never touches last_seen.
+  for (const id of sweepQuietWorking()) {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
     if (row) emitAgentUpdate(row);
   }
+
+  // Background work past its time limit: closed as overran, the cartridge back to idle (where the
+  // reaper and recovery rules apply again), an alert raised. Until then a `background` cartridge
+  // is left alone by every sweep here — it is quiet because its work is running, not because it
+  // died (lib/background-tasks.ts).
+  try {
+    for (const id of sweepBackgroundDeadlines()) {
+      const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
+      if (row) emitAgentUpdate(row);
+    }
+  } catch (err) { console.error('[background] deadline sweep failed:', err); }
 
   // Zombie reaper. Sessions that died without firing any of the real death signals would
   // otherwise sit in the grid until the threshold expires — for hooks-only agents that

@@ -40,6 +40,32 @@ function mount(over: Partial<Parameters<typeof EpicCards>[0]> = {}) {
 const card = (id: string) => document.querySelector<HTMLElement>(`[data-epic-card="${id}"]`)!;
 
 describe('the epic cards', () => {
+  // EPIC QA: "Passed QA" only once every feature is done — and only when its QA run passed (a failed
+  // or missing run blocks it, server setEpicQa). The run's states are covered in EpicQaControls.test.
+  const PASSED_RUN = { id: 'r', status: 'passed', passing: 3, total: 3, at: '', finishedAt: '', failing: [], blockedReason: null };
+  it.each([
+    ['none', undefined, false, false, ''],
+    ['open', undefined, false, false, ''],
+    ['waiting', null, true, false, 'QA not run yet'],
+    ['waiting', PASSED_RUN, true, true, 'QA passed 3/3'],
+    ['passed', undefined, false, false, 'QA passed'],
+  ] as const)(
+    'EPIC QA %s (run %#): its pill, and "Passed QA" only once every feature is done and QA passed', (qa, qaRun, button, enabled, pill) => {
+      const chart = { ...CHART, epics: [{ ...EPICS[0], qa, qaRun }, ...EPICS.slice(1)] } as unknown as RoadmapChart;
+      const props = mount({ chart, onPassQa: vi.fn() });
+      const c = card('e1');
+      expect(c.querySelector('[data-epic-pill="qa"]')?.textContent ?? '').toContain(pill);
+      if (!pill) expect(c.querySelector('[data-epic-pill="qa"]')).toBeNull();
+      const pass = c.querySelector<HTMLButtonElement>('[data-epic-pass-qa]');
+      expect(pass !== null).toBe(button);
+      if (pass) {
+        expect(pass.disabled).toBe(!enabled);
+        fireEvent.click(pass);
+        if (enabled) expect(props.onPassQa).toHaveBeenCalledWith(chart.epics[0]);
+        else expect(props.onPassQa).not.toHaveBeenCalled();
+      }
+    });
+
   it('every epic, in plan order, under a summary line and the New epic button', () => {
     const p = mount();
     expect([...document.querySelectorAll('[data-epic-card]')].map((c) => c.getAttribute('data-epic-card'))).toEqual(EPICS.map((e) => e.id));

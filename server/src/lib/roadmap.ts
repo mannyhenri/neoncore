@@ -32,7 +32,8 @@
  */
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
-import { buildProjectSpec, type SpecFeature } from './project-spec.js';
+import { buildProjectSpec, epicQaOf, type EpicQa, type SpecFeature } from './project-spec.js';
+import { epicQaBlock, epicQaRunSummary, cleanQaCommand, type EpicQaRunSummary } from './qa/epic-qa-store.js';
 
 export class RoadmapError extends Error {
   status: number;
@@ -61,9 +62,15 @@ for (const [table, column, type] of [
   ['goals', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
   // The gate that closes an epic (a phase's exit criterion) — written from a planning document (lib/plan-scope.ts).
   ['epics', 'done_when', "TEXT NOT NULL DEFAULT ''"],
+  // EPIC QA: when the epic's work passed QA as a whole ('' = not yet). Its done features sit in the Board's QA column until then.
+  ['epics', 'qa_passed_at', "TEXT NOT NULL DEFAULT ''"],
   // An epic's own date, and the epics it waits on.
   ['epics', 'target_date', "TEXT NOT NULL DEFAULT ''"],
   ['epics', 'depends_on', "TEXT NOT NULL DEFAULT '[]'"],
+  // EPIC QA FOR ANY PROJECT (lib/qa/epic-acceptance.ts): the command that proves an epic as a whole
+  // (a phase gate) — the project's default, and an epic's own override.
+  ['projects', 'qa_command', "TEXT NOT NULL DEFAULT ''"],
+  ['epics', 'qa_command', "TEXT NOT NULL DEFAULT ''"],
 ] as const) {
   const has = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
@@ -100,6 +107,14 @@ export interface ChartEpic {
   outcome: string;
   /** The gate that closes it — '' when none was given. */
   doneWhen: string;
+  /** Its QA as a whole (project-spec.ts epicQaOf): none · open · waiting · passed. */
+  qa: EpicQa;
+  /** When it passed QA ('' = not yet). */
+  qaPassedAt: string;
+  /** Its QA run for the current finish (lib/qa/epic-acceptance.ts) — null when it has not run since it finished. */
+  qaRun: EpicQaRunSummary | null;
+  /** The epic's own QA command ('' = the project's default applies). */
+  qaCommand: string;
   icon: string;
   position: number;
   /** Along the timeline: dated features by date, then the undated ones in list order. */
@@ -261,6 +276,8 @@ export function chartOf(projectId: string, now: number = Date.now()): RoadmapCha
       onTime: isDelivered && !!targetDate && !!deliveredAt && deliveredAt.slice(0, 10) <= targetDate,
       late: !isDelivered && !!targetDate && targetDate < today,
       id: e.id as string, name: e.name as string, outcome: (e.outcome as string) || '', doneWhen: (e.done_when as string) || '', icon: (e.icon as string) || '',
+      qa: epicQaOf(e.id as string), qaPassedAt: String(e.qa_passed_at || ''),
+      qaRun: epicQaRunSummary(e.id as string), qaCommand: String(e.qa_command || ''),
       position: (e.position as number) || 0,
       features: mine.map(strip),
       progress: { done: mine.filter((f) => f.state === 'delivered').length, total: mine.length },
@@ -335,19 +352,51 @@ export function createEpic(projectId: string, input: { name?: unknown; outcome?:
 }
 
 /** Only the fields given change. A date of '' clears it; `dependsOn: []` waits on nothing. */
-export function updateEpic(epicId: string, input: { name?: unknown; outcome?: unknown; icon?: unknown; targetDate?: unknown; dependsOn?: unknown }): void {
+export function updateEpic(epicId: string, input: { name?: unknown; outcome?: unknown; icon?: unknown; targetDate?: unknown; dependsOn?: unknown; qaCommand?: unknown }): void {
   const e = epicRow(epicId);
   const name = input.name === undefined ? (e.name as string) : String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!name) throw new RoadmapError('an epic needs a name');
   const targetDate = input.targetDate === undefined ? String(e.target_date || '') : dateOrThrow(input.targetDate, "the epic's date");
   const dependsOn = input.dependsOn === undefined ? parseIds(e.depends_on) : epicDependsOrThrow(String(e.project_id), epicId, input.dependsOn);
-  db.prepare('UPDATE epics SET name = ?, outcome = ?, icon = ?, target_date = ?, depends_on = ?, updated_at = ? WHERE id = ?').run(
+  let qaCommand = String(e.qa_command || '');
+  if (input.qaCommand !== undefined) {
+    try { qaCommand = cleanQaCommand(input.qaCommand); } catch (err) { throw new RoadmapError((err as Error).message); }
+  }
+  db.prepare('UPDATE epics SET name = ?, outcome = ?, icon = ?, target_date = ?, depends_on = ?, qa_command = ?, updated_at = ? WHERE id = ?').run(
     name,
     input.outcome === undefined ? e.outcome : String(input.outcome ?? '').trim().slice(0, 600),
     input.icon === undefined ? e.icon : String(input.icon ?? '').trim().slice(0, 40),
-    targetDate, JSON.stringify(dependsOn),
+    targetDate, JSON.stringify(dependsOn), qaCommand,
     nowIso(), epicId,
   );
+}
+
+/**
+ * PASSED QA: the epic's work, QA'd as a whole — its done features move from the Board's QA column to
+ * Done. Only when every feature of it is done AND its QA run passed (or had nothing to run) —
+ * lib/qa/epic-qa-store.ts epicQaBlock. False takes it back, always. Passing frees the next epic's
+ * features that were waiting on it (goal-pilot-runner, epicOrderWait).
+ */
+export function setEpicQa(epicId: string, passed: unknown): void {
+  const e = epicRow(epicId);
+  if (typeof passed !== 'boolean') throw new RoadmapError('qaPassed must be true or false');
+  if (passed) {
+    const qa = epicQaOf(epicId);
+    if (qa === 'none') throw new RoadmapError('an epic with no feature has nothing to QA');
+    if (qa === 'open') {
+      const left = (db.prepare("SELECT COUNT(*) AS c FROM goals WHERE epic_id = ? AND status != 'achieved'").get(epicId) as { c: number }).c;
+      throw new RoadmapError(`Not yet: ${left} feature${left === 1 ? '' : 's'} of "${e.name as string}" ${left === 1 ? 'is' : 'are'} not done.`, 409);
+    }
+    const blocked = epicQaBlock(epicId);
+    if (blocked) throw new RoadmapError(`Not yet: ${blocked}`, 409);
+  }
+  db.prepare('UPDATE epics SET qa_passed_at = ?, updated_at = ? WHERE id = ?').run(passed ? nowIso() : '', nowIso(), epicId);
+  // Dynamic: goal-pilot-runner imports this module. Its 10 s sweep is the backstop.
+  if (passed) {
+    const waiting = (db.prepare("SELECT p.id FROM goal_pilots p JOIN goals g ON g.id = p.goal_id WHERE g.project_id = ? AND p.phase = 'running'")
+      .all(e.project_id as string) as { id: string }[]).map((r) => r.id);
+    if (waiting.length) void import('./goal-pilot-runner.js').then((m) => { for (const id of waiting) m.advancePilot(id); }).catch(() => {});
+  }
 }
 
 /** Its features stay in the project, in no epic; an epic that waited on it no longer does. */

@@ -63,6 +63,86 @@ export function CoverageChoice({ workflowId, stepId, detail, onDone, compact }: 
   );
 }
 
+/** The ask out of an attention detail ("Blocked — run the gate") or a step's `_blockedHold`. */
+export function blockedAsk(detail: string | undefined): string {
+  return (detail ?? '').replace(/^Blocked\s*[—-]\s*/, '').trim();
+}
+
+/**
+ * A step blocked on a person (server holdStepBlocked): what they must do, then "Done — continue"
+ * (the step runs again, the note goes with it) or "Stop the run". Nothing after the step starts
+ * and no retry is spent while it waits. Stopping asks once more — it cancels the whole run.
+ */
+export function BlockedChoice({ workflowId, stepId, ask, onDone, compact }: {
+  workflowId: string;
+  stepId: string;
+  ask: string;
+  onDone?: () => void;
+  compact?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [note, setNote] = useState('');
+  const [confirmStop, setConfirmStop] = useState(false);
+  const act = async (action: 'continue' | 'stop') => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.resolveBlockedStep(workflowId, stepId, action, action === 'continue' ? (note.trim() || undefined) : undefined);
+      onDone?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That did not work.');
+    } finally { setBusy(false); }
+  };
+  return (
+    <div data-blocked-choice className={`space-y-2 rounded-xl border border-ember-500/40 bg-ember-500/[0.08] ${compact ? 'px-2.5 py-2' : 'px-3.5 py-3'}`}>
+      <p className="text-[13px] text-ember-300 font-semibold">Needs you: {ask || 'the agent is waiting on you'}</p>
+      <label className="block">
+        <span className="sr-only">Note for the agent (optional)</span>
+        <input
+          aria-label="Note for the agent (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note for the agent (optional)"
+          className="w-full h-9 px-3 rounded-lg glass-input text-[13px] text-gray-100 placeholder:text-gray-500"
+        />
+      </label>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          disabled={busy}
+          onClick={() => act('continue')}
+          title="You did what it asked: run this step again, with your note"
+          className="h-9 px-3 rounded-lg text-[12px] font-semibold border border-neon-500/50 bg-neon-500/15 text-neon-100 hover:bg-neon-500/25 disabled:opacity-40"
+        >
+          Done — continue
+        </button>
+        {confirmStop ? (
+          <>
+            <button
+              disabled={busy}
+              onClick={() => act('stop')}
+              className="h-9 px-3 rounded-lg text-[12px] font-semibold border border-red-400/60 bg-red-500/15 text-red-200 hover:bg-red-500/25 disabled:opacity-40"
+            >
+              Yes, stop it
+            </button>
+            <button onClick={() => setConfirmStop(false)} className="h-9 px-2 text-[12px] text-gray-400 hover:text-gray-200">Keep it</button>
+          </>
+        ) : (
+          <button
+            disabled={busy}
+            onClick={() => setConfirmStop(true)}
+            title="Cancel the whole run"
+            className="h-9 px-3 rounded-lg text-[12px] font-semibold border border-white/[0.2] text-gray-200 hover:bg-white/[0.06] disabled:opacity-40"
+          >
+            Stop the run
+          </button>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-red-300">{error}</p>}
+    </div>
+  );
+}
+
 /** The window: the progress document, the engine's record, and the choice when the run holds. */
 export function RunProgressModal({ workflowId, title, onClose }: { workflowId: string; title: string; onClose: () => void }) {
   const [data, setData] = useState<WorkflowProgress | null>(null);
@@ -77,9 +157,10 @@ export function RunProgressModal({ workflowId, title, onClose }: { workflowId: s
   useEffect(() => { load(); }, [load]);
 
   const hold = run?.needsAttention?.reason === 'tasks-outstanding' ? run.needsAttention : null;
+  const blocked = run?.needsAttention?.reason === 'blocked-on-person' ? run.needsAttention : null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
         className="glass-dark rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[760px] max-w-[95vw] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -100,6 +181,9 @@ export function RunProgressModal({ workflowId, title, onClose }: { workflowId: s
           {error && <p className="text-[12px] text-red-300">{error}</p>}
           {hold && (
             <CoverageChoice workflowId={workflowId} stepId={hold.stepId} detail={hold.detail} onDone={load} />
+          )}
+          {blocked && (
+            <BlockedChoice workflowId={workflowId} stepId={blocked.stepId} ask={blockedAsk(blocked.detail)} onDone={load} />
           )}
 
           <section className="space-y-1.5 p-3 rounded-xl bg-gl-code border border-white/[0.08] min-w-0">
@@ -158,7 +242,8 @@ export function RunProgressModal({ workflowId, title, onClose }: { workflowId: s
 export function RunProgressStrip({ wf, onAction }: { wf: Workflow; onAction?: () => void }) {
   const [open, setOpen] = useState(false);
   const hold = wf.needsAttention?.reason === 'tasks-outstanding' ? wf.needsAttention : null;
-  if (!wf.progress && !hold) return null;
+  const blocked = wf.needsAttention?.reason === 'blocked-on-person' ? wf.needsAttention : null;
+  if (!wf.progress && !hold && !blocked) return null;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-[12px]">
@@ -168,6 +253,7 @@ export function RunProgressStrip({ wf, onAction }: { wf: Workflow; onAction?: ()
         </button>
       </div>
       {hold && <CoverageChoice workflowId={wf.id} stepId={hold.stepId} detail={hold.detail} onDone={onAction} />}
+      {blocked && <BlockedChoice workflowId={wf.id} stepId={blocked.stepId} ask={blockedAsk(blocked.detail)} onDone={onAction} />}
       {open && <RunProgressModal workflowId={wf.id} title={wf.name} onClose={() => { setOpen(false); onAction?.(); }} />}
     </div>
   );

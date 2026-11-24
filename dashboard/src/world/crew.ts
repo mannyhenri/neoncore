@@ -6,7 +6,7 @@
  * can be tested as a set (see __tests__/crew.test.ts).
  */
 import type { Agent, Activity, AgentType, PermissionRequest, StuckAlert } from '../types';
-import { effectiveAgentStatus } from '../lib/agentStatus';
+import { effectiveAgentStatus, statusBucket, STATUS_PRIORITY } from '../lib/agentStatus';
 
 /** The statuses a crew member on site can have. Offline agents are not on site. */
 export const CREW_STATUSES = ['working', 'waiting', 'idle'] as const;
@@ -50,7 +50,6 @@ export interface CrewMember {
   sessionId: string;
 }
 
-const STATUS_PRIORITY: Record<string, number> = { working: 0, waiting: 1, idle: 2, offline: 3 };
 
 export interface CrewInput {
   agents: Agent[];
@@ -109,7 +108,8 @@ export function buildCrew({ agents, activitiesByAgent, pendingPermissions, stuck
       agentIds: ids,
       name: primary.repoName || primary.name,
       engine: primary.agentType || 'claude',
-      status: (status.get(primary.id) as CrewStatus) ?? 'idle',
+      // `background` is on site as working: its turn ended, its work did not (lib/agentStatus.ts).
+      status: (statusBucket(status.get(primary.id) ?? 'idle') as CrewStatus),
       attention,
       attentionText,
       approvals,

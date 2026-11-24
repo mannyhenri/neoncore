@@ -62,3 +62,6 @@ server/neoncore-server.log
 
 # Goal reports written next to the default database (server/src/lib/goal-pilot-report.ts)
 server/reports/
+
+# The phone app's published over-the-air updates (server lib/mobile-updates.ts)
+mobile/updates/

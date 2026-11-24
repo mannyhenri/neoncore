@@ -97,6 +97,10 @@ export interface SpecFeature {
   targetDate: string;
   /** Where the person placed it on the roadmap ('' = automatic). */
   lane: BoardLane;
+  /** Its epic ('' / '' in none), and that epic's QA ('none' in no epic): a done feature is Done on the Board only once its epic passed QA. */
+  epicId: string;
+  epicName: string;
+  epicQa: EpicQa;
   /** The roadmap column it is in (placeColumns) — null for an existing feature, which is not on the roadmap. */
   column: RoadmapColumn | null;
   /** When it was marked done (done), or when its pipeline finished (delivered). */
@@ -248,6 +252,9 @@ function specFeature(goal: Record<string, unknown>): SpecFeature {
     delivery,
     targetDate: nonEmpty(goal.target_date),
     lane: laneOf(goal.roadmap_lane),
+    epicId: String(goal.epic_id || ''),
+    epicName: goal.epic_id ? epicNameOf(String(goal.epic_id)) : '',
+    epicQa: goal.epic_id ? epicQaOf(String(goal.epic_id)) : 'none',
     column: null,
     completedAt: status === 'done' || status === 'existing' ? (nonEmpty(goal.done_at) || (goal.updated_at as string))
       : status === 'delivered' ? (pilot?.completedAt ?? null) : null,
@@ -349,6 +356,28 @@ export function laneOf(stored: unknown): BoardLane {
   return (BOARD_LANES as readonly unknown[]).includes(stored) ? stored as BoardLane : '';
 }
 
+/**
+ * AN EPIC'S QA — its work QA'd as a whole at the end of the epic (roadmap.ts setEpicQa):
+ *   none     it has no feature
+ *   open     a feature of it is not done
+ *   waiting  every feature is done, and it has not passed QA since the last one was
+ *   passed
+ */
+export type EpicQa = 'none' | 'open' | 'waiting' | 'passed';
+function epicNameOf(epicId: string): string {
+  try { return ((db.prepare('SELECT name FROM epics WHERE id = ?').get(epicId) as { name: string } | undefined)?.name) ?? ''; } catch { return ''; }
+}
+export function epicQaOf(epicId: string): EpicQa {
+  let row: { qa_passed_at: string } | undefined;
+  try { row = db.prepare('SELECT qa_passed_at FROM epics WHERE id = ?').get(epicId) as { qa_passed_at: string } | undefined; } catch { return 'none'; }
+  if (!row) return 'none';
+  const fs = db.prepare('SELECT status, done_at, updated_at FROM goals WHERE epic_id = ?').all(epicId) as { status: string; done_at: string; updated_at: string }[];
+  if (fs.length === 0) return 'none';
+  if (fs.some((f) => f.status !== 'achieved')) return 'open';
+  const last = fs.map((f) => f.done_at || f.updated_at || '').sort().pop() ?? '';
+  return row.qa_passed_at && row.qa_passed_at >= last ? 'passed' : 'waiting';
+}
+
 export interface Roadmap {
   todo: SpecFeature[];
   progress: SpecFeature[];
@@ -358,7 +387,8 @@ export interface Roadmap {
 
 /**
  * Which column each feature is in — decided here once, so the page, the exports and the published
- * docs agree. Done follows its status (mark done / reopen). Otherwise the person's placement wins;
+ * docs agree. Done follows its status (mark done / reopen) — but a done feature whose epic has not
+ * passed QA yet sits in QA (epicQaOf): done as a feature, not yet Done on the Board. Otherwise the person's placement wins;
  * unplaced features go where their state puts them: To do when nothing has started, In Progress
  * while the pipeline runs or waits on a decision, QA once it is delivered and waits for sign-off.
  * Features that already existed (imported) are not on the board.
@@ -366,7 +396,7 @@ export interface Roadmap {
 export function placeColumns(features: SpecFeature[]): SpecFeature[] {
   for (const f of features) {
     f.column = f.status === 'existing' ? null
-      : f.status === 'done' ? 'done'
+      : f.status === 'done' ? (f.epicQa === 'open' || f.epicQa === 'waiting' ? 'qa' : 'done')
       : f.lane ? f.lane
       : f.status === 'planned' ? 'todo'
       : f.status === 'delivered' ? 'qa'

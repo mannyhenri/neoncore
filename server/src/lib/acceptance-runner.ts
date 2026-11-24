@@ -25,7 +25,7 @@ import { isCartridgeBusy } from './queue-runner.js';
 import { normalizeRepoPath } from './resolve-agent.js';
 import { repoAccessFor, checkTimeoutMs, RepoAccessError, type RepoAccess } from './repo-access.js';
 import {
-  type AcceptanceContract, type CheckResult, type CriterionTest, type Verification, type ChecklistVerdict, type Amendment,
+  type AcceptanceContract, type CheckResult, type CriterionTest, type Verification, type ChecklistVerdict, type Amendment, type TamperedFile,
   getContract, updateContract, criteriaToWrite, checklistCriteria, testCriteria, commandTests, normalizeTestsSubmission, testsHash,
   lockedFiles, findTampering, verificationStatus, criteriaText, criteriaHash, criterionStates,
 } from './acceptance-contract.js';
@@ -81,6 +81,27 @@ function access(c: AcceptanceContract): RepoAccess {
   try { return repoAccessFor(c.repoPath); } catch (err) {
     throw new PilotError(err instanceof Error ? err.message : String(err), 503);
   }
+}
+
+/**
+ * Every locked test of a contract, outside any stage: every locked file's hash first, then every
+ * criterion's command, in order. The one place that does this — a feature's retest and an epic's
+ * QA run (lib/qa/epic-acceptance.ts) both call it. Throws when the repo cannot be reached.
+ */
+export type LockedChecks =
+  | { kind: 'tampered'; tampered: TamperedFile[]; filesChecked: number }
+  | { kind: 'ran'; results: CheckResult[]; filesChecked: number };
+
+export async function runLockedChecks(c: AcceptanceContract, a: RepoAccess, onProgress?: (done: number) => void): Promise<LockedChecks> {
+  const files = lockedFiles(c.tests);
+  const tampered = findTampering(c.tests, await a.readFiles(files.map((f) => f.path)));
+  if (tampered.length) return { kind: 'tampered', tampered, filesChecked: files.length };
+  const results: CheckResult[] = [];
+  for (const t of c.tests) {
+    results.push(await runCheck(a, t));
+    onProgress?.(results.length);
+  }
+  return { kind: 'ran', results, filesChecked: files.length };
 }
 
 async function runCheck(a: RepoAccess, t: CriterionTest): Promise<CheckResult> {
@@ -886,23 +907,20 @@ async function retestLockedTests(pilotId: string, c: AcceptanceContract): Promis
   activity.set(c.id, { kind: 'verify', done: 0, total: c.tests.length, stageId: '' });
   emitPilotUpdate(pilotId);
   try {
-    const a = repoAccessFor(c.repoPath);
-    const files = lockedFiles(c.tests);
-    const tampered = findTampering(c.tests, await a.readFiles(files.map((f) => f.path)));
-    if (tampered.length) {
-      record({ ...base, at: nowIso(), status: 'tampered', passing: 0, total: c.tests.length, filesChecked: files.length, results: [], tampered, error: '' });
+    const run = await runLockedChecks(c, repoAccessFor(c.repoPath), (done) => {
+      activity.set(c.id, { kind: 'verify', done, total: c.tests.length, stageId: '' });
+      emitPilotUpdate(pilotId);
+    });
+    if (run.kind === 'tampered') {
+      const { tampered } = run;
+      record({ ...base, at: nowIso(), status: 'tampered', passing: 0, total: c.tests.length, filesChecked: run.filesChecked, results: [], tampered, error: '' });
       const list = tampered.map((f) => `${f.path} (${f.criterionId}${f.actual ? '' : ', deleted'})`).join(', ');
       db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?')
         .run(`The retest did not run: locked acceptance tests were changed since they were approved — ${list}. Put the approved version back, then retest.`, nowIso(), pilotId);
       return false;
     }
-    const results: CheckResult[] = [];
-    for (const t of c.tests) {
-      results.push(await runCheck(a, t));
-      activity.set(c.id, { kind: 'verify', done: results.length, total: c.tests.length, stageId: '' });
-      emitPilotUpdate(pilotId);
-    }
-    record({ ...base, at: nowIso(), status: verificationStatus(results), passing: results.filter((r) => r.passed).length, total: results.length, filesChecked: files.length, results, tampered: [], error: '' });
+    const { results } = run;
+    record({ ...base, at: nowIso(), status: verificationStatus(results), passing: results.filter((r) => r.passed).length, total: results.length, filesChecked: run.filesChecked, results, tampered: [], error: '' });
     db.prepare('UPDATE goal_pilots SET attention = ?, updated_at = ? WHERE id = ?').run('', nowIso(), pilotId);
     return true;
   } catch (err) {

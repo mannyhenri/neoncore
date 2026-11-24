@@ -77,6 +77,36 @@ describe('the captain\'s rank', () => {
     render(<Probe id={null} />);
     expect(calls.getProjectRewards).not.toHaveBeenCalled();
   });
+
+  it('coming back to a project shows its rank on the FIRST frame — no flash of the plain captain', async () => {
+    // Reported: back in a project, the old costume showed for a second, then the General's.
+    const seen: (string | null)[] = [];
+    function Probe({ id }: { id: string }) { const r = useProjectRank(id); seen.push(r ? r.id : null); return null; }
+    calls.getProjectRewards.mockResolvedValue({ families: [], rank: { ...rank(1), id: 'general', title: 'General' } });
+    render(<Probe id="p-gen" />);
+    await waitFor(() => expect(seen.at(-1)).toBe('general'));
+    cleanup();
+    // The server is slow this time: until it answers, the remembered rank must already be there.
+    calls.getProjectRewards.mockReturnValue(new Promise(() => {}));
+    seen.length = 0;
+    render(<Probe id="p-gen" />);
+    expect(seen[0]).toBe('general');
+    expect(seen.every((r) => r === 'general')).toBe(true);
+    // And it survives a reload: it is kept in localStorage.
+    expect(JSON.parse(localStorage.getItem('neoncore.projectRanks') ?? '{}')['p-gen']?.id).toBe('general');
+  });
+
+  it('switching to a project never shows the previous project\'s rank', async () => {
+    const seen: (string | null)[] = [];
+    function Probe({ id }: { id: string }) { const r = useProjectRank(id); seen.push(r ? r.id : null); return null; }
+    calls.getProjectRewards.mockResolvedValue({ families: [], rank: { ...rank(3), id: 'admiral', title: 'Admiral' } });
+    const view = render(<Probe id="p-adm" />);
+    await waitFor(() => expect(seen.at(-1)).toBe('admiral'));
+    calls.getProjectRewards.mockReturnValue(new Promise(() => {}));
+    seen.length = 0;
+    view.rerender(<Probe id="p-never-seen" />);
+    expect(seen.every((r) => r === null)).toBe(true);
+  });
 });
 
 describe('the sci-fi captain\'s costumes', () => {

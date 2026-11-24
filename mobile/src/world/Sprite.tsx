@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Image } from 'react-native';
+import { View, Image, type ImageSourcePropType } from 'react-native';
 import type { SheetArt } from './art.generated';
 
 /**
@@ -13,7 +13,8 @@ import type { SheetArt } from './art.generated';
 export function Sprite({
   art, anim, height, fps = 4, facing = 1, paused = false,
 }: {
-  art: SheetArt;
+  /** A sheet bundled with the app, or one on the server (`{ uri }`). */
+  art: Omit<SheetArt, 'source'> & { source: ImageSourcePropType };
   anim: string;
   /** Height on screen; the width follows the cell's proportions. */
   height: number;

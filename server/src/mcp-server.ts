@@ -176,8 +176,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           // report rides along with the call that completes the step rather than needing a
           // second one the agent may not make.
           report:    { type: 'object', description: 'ONLY for the Workflow Completion Report step: the workflow-report.json object you wrote, so it is stored in the project journal.' },
+          blocked:   { type: 'string', description: 'ONLY when a person must act before this step can go on (a command that needs sudo, a credential, amending a locked test, a human-only gate): exactly what they must do. The step then waits for them instead of completing — nothing after it runs, and it comes back to you when they are done. scope/verify are not needed with it. Never use it to skip work you can do yourself.' },
         },
-        required: ['stepId', 'result', 'scope', 'verify'],
+        // scope + verify are required for a DONE report — the server rejects one without them.
+        // A `blocked` report claims nothing done, so it needs neither (routes/workflows.ts).
+        required: ['stepId', 'result'],
       },
     },
     {
@@ -646,7 +649,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === 'neoncore_report_step_done') {
-    const { stepId, result, scope, verify, deferred, next } = args as Record<string, string>;
+    const { stepId, result, scope, verify, deferred, next, blocked } = args as Record<string, string>;
     const report = (args as Record<string, unknown>).report;
     if (!stepId) return text('ERROR: stepId is required to report step completion.');
     try {
@@ -657,7 +660,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const route = panelAgentId
         ? `/api/workflows/webhook/${stepId}/panel/${panelAgentId}/complete`
         : `/api/workflows/webhook/${stepId}/complete`;
-      await post(route, { result: result || 'Completed.', next, scope, verify, deferred, ...(report ? { report } : {}) });
+      await post(route, { result: result || 'Completed.', next, scope, verify, deferred, ...(blocked !== undefined ? { blocked } : {}), ...(report ? { report } : {}) });
+      if (blocked) {
+        log(`Step ${stepId} reported blocked`);
+        return text(`Step ${stepId} is held in NeonCore, blocked on the person: they have been asked to "${blocked}". Nothing after this step will run. Stop here and wait — when they are done, this step comes back to you with their note.`);
+      }
       log(`Step ${stepId} reported complete`);
       return text(`Step ${stepId} marked complete in NeonCore. The workflow will now advance.`);
     } catch (err) {

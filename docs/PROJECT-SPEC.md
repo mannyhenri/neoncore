@@ -75,8 +75,18 @@ to right, where the work is (server `lib/project-spec.ts` `placeColumns`, so the
 |---|---|
 | **To do** | nothing has started |
 | **In Progress** | its pipeline is running, or waits on a decision (*needs a decision*) |
-| **QA** | it is delivered and waits for your sign-off |
-| **Done** | it is marked done (newest first) |
+| **QA** | it is delivered and waits for your sign-off — or it is done, and its epic has not passed QA yet |
+| **Done** | it is marked done, and its epic passed QA (a feature in no epic: marked done) — newest first |
+
+**Epic QA.** At the end of an epic its work is QA'd as a whole. A feature marked done is done in every
+way — badges, changelog entry, fireworks, the epic's delivery and commendation — but on the Board it waits
+in **QA**, under its epic ("waiting for epic QA"), until the epic passes QA. **Passed QA ✓** (on the epic's
+group in the QA column, or on its card on the route) is offered once every feature of the epic is done,
+and moves them all to **Done**. A feature reopened, or done after the epic passed, puts the epic back in
+QA. Dragging such a feature to Done on its own is refused with what to do. Server: `epicQaOf` in
+`lib/project-spec.ts` (none · open · waiting · passed), `setEpicQa` in `lib/roadmap.ts`,
+`PUT /api/roadmap/epics/:id { qaPassed: true | false }` (`epics.qa_passed_at`). The automated QA run that
+starts when an epic is finished (`lib/qa/feature-link.ts`) is separate: pressing Passed QA is yours.
 
 **You can put a feature somewhere else**: drag its card to another column, or use **Move…** on the card (or
 the *Board* picker on the feature's own page). A placed feature shows *placed* and stays where you put it;

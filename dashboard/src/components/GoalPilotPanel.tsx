@@ -19,7 +19,8 @@
  */
 import { celebrateFeature } from '../lib/celebrate';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CoverageChoice, RunProgressModal } from './RunProgress';
+import { CoverageChoice, BlockedChoice, blockedAsk, RunProgressModal } from './RunProgress';
+import { BackgroundWork } from './BackgroundWork';
 import { api } from '../lib/api';
 import { useSocket } from '../hooks/useSocket';
 import { WorkflowCanvasEditor } from './WorkflowCanvasEditor';
@@ -80,7 +81,7 @@ function PlannerPicker({ agents, value, onChange, preferRepos }: { agents: Agent
     <select className={input} value={value} onChange={(e) => onChange(e.target.value)}>
       {options.map((a) => (
         <option key={a.id} value={a.id}>
-          {ENGINE_LABEL[a.agentType] ?? a.agentType} · {a.repoName || a.name}{a.status === 'working' ? ' (busy — will queue)' : ''}
+          {ENGINE_LABEL[a.agentType] ?? a.agentType} · {a.repoName || a.name}{a.status === 'working' || a.status === 'background' ? ' (busy — will queue)' : ''}
         </option>
       ))}
     </select>
@@ -906,8 +907,11 @@ function StaffStep({ pilot, meta, onChanged }: { pilot: GoalPilot; meta: GoalPil
 
 // ── 5. the running pipeline ────────────────────────────────────────────────────
 
-function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
-  pilot: GoalPilot; stage: PilotStage; index: number; onOpenRun: (id: string) => void; onChanged: () => void;
+function StageRow({ pilot, stage, index, agent, onOpenRun, onChanged }: {
+  pilot: GoalPilot; stage: PilotStage; index: number;
+  /** The cartridge running this stage — to say when its turn ended but its work (a suite) still runs. */
+  agent?: Agent;
+  onOpenRun: (id: string) => void; onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -957,6 +961,7 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
               {stage.attention.detail}
             </div>
           )}
+          {stage.status === 'running' && <BackgroundWork agent={agent} className="mt-1.5" />}
           {stage.status === 'waiting' && stage.waitReason && (
             <p className="mt-1.5 text-[13px] text-amber-300/90">{stage.waitReason}</p>
           )}
@@ -996,6 +1001,9 @@ function StageRow({ pilot, stage, index, onOpenRun, onChanged }: {
               for you (server lib/coverage-loop.ts). */}
           {stage.attention?.reason === 'tasks-outstanding' && stage.attention.stepId && stage.runId && (
             <CoverageChoice compact workflowId={stage.runId} stepId={stage.attention.stepId} onDone={onChanged} />
+          )}
+          {stage.attention?.reason === 'blocked-on-person' && stage.attention.stepId && stage.runId && (
+            <BlockedChoice compact workflowId={stage.runId} stepId={stage.attention.stepId} ask={blockedAsk(stage.attention.detail)} onDone={onChanged} />
           )}
           {stage.runId && (
             <button onClick={() => setProgressOpen(true)} title="The run's progress document and what the engine has seen"
@@ -1272,7 +1280,7 @@ function PipelineStep({ pilot, goal, agents, onChanged, onGoalChanged }: {
       {pilot.phase === 'completed' && <DoneStep pilot={pilot} goal={goal} busy={busy} act={act} onGoalChanged={onGoalChanged} />}
 
       <div className="space-y-2">
-        {pilot.stages.map((s, i) => <StageRow key={s.id} pilot={pilot} stage={s} index={i} onOpenRun={setOpenRun} onChanged={onChanged} />)}
+        {pilot.stages.map((s, i) => <StageRow key={s.id} pilot={pilot} stage={s} index={i} agent={agents.find((a) => a.id === s.agentId)} onOpenRun={setOpenRun} onChanged={onChanged} />)}
       </div>
       {error && <p className="text-[13px] text-amber-300">{error}</p>}
 

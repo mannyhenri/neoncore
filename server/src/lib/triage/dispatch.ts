@@ -133,7 +133,8 @@ export function triageRequestWentSilent(req: TriageRequest, now = Date.now()): b
   if (now - Date.parse(req.dispatchedAt) < PLANNER_SILENT_MS) return false;
   const agent = db.prepare('SELECT status, agent_type, turn_ended_at FROM agents WHERE id = ?').get(req.agentId) as
     { status?: string; agent_type?: string; turn_ended_at?: string } | undefined;
-  if (agent?.status === 'working' || agent?.status === 'waiting') return false;
+  // background: its turn paused on its own running work — not silent (lib/background-tasks.ts).
+  if (agent?.status === 'working' || agent?.status === 'waiting' || agent?.status === 'background') return false;
   if (agent && agent.status !== 'offline' && TURN_END_ENGINES.has(agent.agent_type || 'claude')) {
     const ended = Date.parse(agent.turn_ended_at || '');
     if (!(ended >= Date.parse(req.dispatchedAt))) return false;

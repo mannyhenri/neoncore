@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { CELEBRATE_EVENT, type Celebration } from '../lib/celebrate';
 import { playCue } from '../lib/sound/engine';
+import { Overlay } from './Overlay';
 
 export const FIREWORKS_MS = 5600;
 const COLOURS = ['#3FB4FF', '#34D36B', '#F5C542', '#FF8A3D', '#8FE3D9', '#FF7A6A', '#9CCBFF'];
@@ -39,7 +40,8 @@ export function Fireworks() {
   if (!shown) return null;
   const still = reduced();
   return (
-    <div key={shown.key} data-fireworks aria-live="polite" className={`fixed inset-0 z-[70] pointer-events-none overflow-hidden ${still ? '' : 'fw-night'}`}>
+    <Overlay>
+    <div key={shown.key} data-fireworks aria-live="polite" className={`fixed inset-0 z-overlay pointer-events-none overflow-hidden ${still ? '' : 'fw-night'}`}>
       {!still && ROCKETS.map((r, i) => {
         const c = COLOURS[i % COLOURS.length];
         const c2 = COLOURS[(i + 3) % COLOURS.length];
@@ -63,5 +65,6 @@ export function Fireworks() {
         {shown.name && <p className="font-display text-[24px] font-semibold text-white mt-1 max-w-[70vw] truncate">{shown.name}</p>}
       </div>
     </div>
+    </Overlay>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Overlay } from './Overlay';
 
 interface ContextSession {
   id: string;
@@ -80,9 +81,10 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
   };
 
   return (
+    <Overlay>
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      className="fixed inset-0 z-overlay flex items-center justify-center bg-black/70"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[500px] max-h-[70vh] flex flex-col">
@@ -161,5 +163,6 @@ export default function SendContextModal({ agentId, project, onClose }: Props) {
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

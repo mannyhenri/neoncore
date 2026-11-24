@@ -25,7 +25,7 @@ test('every status × every stored placement lands in exactly one expected colum
   const wrong: string[] = [];
   for (const status of STATUSES) for (const stored of STORED) {
     const lane = laneOf(stored);
-    const [f] = placeColumns([{ status, lane, column: null } as unknown as SpecFeature]);
+    const [f] = placeColumns([{ status, lane, column: null, epicQa: 'none' } as unknown as SpecFeature]);
     const expected = status === 'existing' ? null : status === 'done' ? 'done' : ['todo', 'progress', 'qa'].includes(stored) ? stored : AUTO[status];
     if (f.column !== expected) wrong.push(`${status} + "${stored}" → ${f.column}, expected ${expected}`);
   }

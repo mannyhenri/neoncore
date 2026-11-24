@@ -289,7 +289,8 @@ export function disarmOnReport(db: DatabaseType, agentId: string | undefined | n
 }
 
 export type StopDecision =
-  | { decision: 'allow'; cleared: boolean }
+  /** `background`: allowed because the agent paused on its own running work — the turn is not over. */
+  | { decision: 'allow'; cleared: boolean; background?: boolean }
   | { decision: 'block'; reason: string };
 
 interface StopGateRow {
@@ -323,6 +324,11 @@ export function evaluateStop(
     finalText: string;
     stopHookActive?: boolean;
     maxBlocks?: number;
+    /**
+     * The agent still has background work running (lib/background-tasks.ts). With no report,
+     * that is a pause, not a finish: allowed, never counted as a refusal, objective kept open.
+     */
+    backgroundOpen?: boolean;
   },
 ): StopDecision {
   const maxBlocks = opts.maxBlocks ?? MAX_STOP_BLOCKS;
@@ -349,6 +355,11 @@ export function evaluateStop(
     ).run(row.id);
     return { decision: 'allow', cleared: true };
   }
+
+  // Paused on its own background work (a suite under Monitor, a background subagent): it will be
+  // re-invoked when that work reports back, and that turn ends with the report. Blocking here made
+  // the agent busy-wait or burned the block cap into `needs_review` for a task still in progress.
+  if (opts.backgroundOpen) return { decision: 'allow', cleared: false, background: true };
 
   if (opts.stopHookActive || row.standard_blocks >= maxBlocks) {
     db.prepare(

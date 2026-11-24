@@ -26,6 +26,7 @@ import { api } from '../lib/api';
 import type { Agent, Project, ProjectSpec, SpecFeature, SpecGroup, SpecAlignment, SpecStatus, ChangelogEntry, ChangeKind, ProjectImport, ImportPart, PlanProposal } from '../types';
 import { plannerCandidates } from '../lib/goalPilot';
 import { AiWorkingBar } from './SectionTitle';
+import { EpicQaControls } from './EpicQaControls';
 
 const primaryBtn = 'inline-flex items-center justify-center whitespace-nowrap h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const quietBtn = 'inline-flex items-center justify-center whitespace-nowrap h-10 px-4 btn-ghost rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40';
@@ -332,6 +333,8 @@ export function SpecTab({ project, agents, version, onOpenFeature, onChanged }: 
 // ── Roadmap ────────────────────────────────────────────────────────────────────
 
 type Lane = 'todo' | 'progress' | 'qa' | 'done';
+/** Done as a feature, waiting for its epic's QA: on the Board it sits in QA, under its epic. */
+const waitsOnEpic = (f: SpecFeature) => f.status === 'done' && (f.epicQa === 'open' || f.epicQa === 'waiting');
 /** The Board, left to right — where the work is. Placed by the server (lib/project-spec.ts placeColumns). */
 export const BOARD_COLUMNS: { key: Lane; title: string; empty: string; hint: string }[] = [
   { key: 'todo', title: 'To do', empty: 'Nothing waiting.', hint: 'Not started' },
@@ -377,10 +380,15 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
    * written), moving out of it reopens it. The other columns are a placement the person chooses;
    * "automatic" hands it back to the rule.
    */
+  const passQa = async (epicId: string) => {
+    setErr('');
+    try { await api.setEpicQa(epicId, true); onChanged(); } catch (e) { setErr(errText(e)); }
+  };
   const move = async (f: SpecFeature, to: Lane | 'auto') => {
     setErr('');
     try {
       if (to === 'done') {
+        if (waitsOnEpic(f)) { setErr(`"${f.name}" is done; it moves to Done when its epic passes QA — press "Passed QA" on ${f.epicName} in the QA column.`); return; }
         if (f.status === 'done') return;
         if (!confirm(`Mark "${f.name}" done? Its changelog entry is written from its records.`)) return;
         await api.updateGoal(f.id, { status: 'achieved', roadmapLane: '' });
@@ -392,6 +400,74 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
       }
       onChanged();
     } catch (e) { setErr(errText(e)); }
+  };
+
+  const card = (f: SpecFeature, laneKey: Lane) => {
+    const lane = { key: laneKey };
+    return (
+                  <div
+                    key={f.id}
+                    data-board-card={f.id}
+                    draggable
+                    onDragStart={(e) => { e.dataTransfer.setData('text/plain', f.id); e.dataTransfer.effectAllowed = 'move'; setDragging(f.id); }}
+                    onDragEnd={() => { setDragging(null); setOver(null); }}
+                    className={`rounded-[14px] border border-white/[0.1] bg-gl-surface/60 hover:border-white/[0.2] px-3.5 py-3 cursor-grab active:cursor-grabbing ${dragging === f.id ? 'opacity-40' : ''}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <button onClick={() => onOpenFeature(f.id)} className="flex-1 min-w-0 text-left text-[14px] font-semibold text-gray-100 hover:text-white">{f.name}</button>
+                      <select
+                        aria-label={`Move ${f.name}`}
+                        value=""
+                        onChange={(e) => { const v = e.target.value as Lane | 'auto'; if (v) move(f, v); }}
+                        className="glass-input text-[11px] text-gray-300 rounded-[8px] px-1.5 py-1 cursor-pointer"
+                      >
+                        <option value="">Move…</option>
+                        {LANES.filter((l) => l.key !== lane.key).map((l) => <option key={l.key} value={l.key}>to {l.title}</option>)}
+                        {f.lane && f.status !== 'done' && <option value="auto">back to automatic</option>}
+                      </select>
+                    </div>
+                    {f.intent.summary && <div className="text-[12px] text-gray-500 mt-0.5 line-clamp-2">{f.intent.summary}</div>}
+                    <div className="flex gap-1.5 flex-wrap mt-1.5 text-[11px]">
+                      {f.lane && f.status !== 'done' && <span className="px-1.5 py-0.5 rounded-full bg-white/[0.06] text-gray-400" title="You placed it here — the automatic rule no longer moves it">placed</span>}
+                      {f.lane && f.lane !== 'progress' && ['in-progress', 'paused'].includes(f.status) && <span className="px-1.5 py-0.5 rounded-full bg-neon-500/[0.16] text-neon-200">pipeline running</span>}
+                      {f.status === 'paused' && <span className="px-1.5 py-0.5 rounded-full bg-red-500/[0.14] text-red-200">needs a decision</span>}
+                      {f.status === 'delivered' && <span className="px-1.5 py-0.5 rounded-full bg-ember-500/[0.14] text-ember-300">awaiting sign-off</span>}
+                      {f.criteria.length > 0 && f.status !== 'planned' && (
+                        <span className={`px-1.5 py-0.5 rounded-full ${f.criteriaMet === f.criteria.length ? 'bg-emerald-400/[0.12] text-emerald-300' : 'bg-white/[0.06] text-gray-400'}`}>
+                          {f.criteriaMet}/{f.criteria.length} criteria
+                        </span>
+                      )}
+                      {f.targetDate && <span className="px-1.5 py-0.5 rounded-full bg-white/[0.06] text-gray-400">target {f.targetDate}</span>}
+                      {f.status === 'done' && f.completedAt && <span className="px-1.5 py-0.5 rounded-full bg-emerald-400/[0.12] text-emerald-300">done {day(f.completedAt)}</span>}
+                      {waitsOnEpic(f) && <span data-qa-waiting className="px-1.5 py-0.5 rounded-full bg-violet-500/[0.16] text-violet-200" title="Done as a feature; it moves to Done when its epic passes QA">waiting for epic QA</span>}
+                    </div>
+                  </div>
+    );
+  };
+  /** QA: features delivered and waiting for sign-off, then — per epic — its done features waiting for the epic's QA. */
+  const qaColumn = (items: SpecFeature[], laneKey: Lane) => {
+    const epics = [...new Map(items.filter(waitsOnEpic).map((f) => [f.epicId ?? '', f.epicName ?? ''])).entries()];
+    return (
+      <>
+        {items.filter((f) => !waitsOnEpic(f)).map((f) => card(f, laneKey))}
+        {epics.map(([epicId, epicName]) => {
+          const mine = items.filter((f) => waitsOnEpic(f) && f.epicId === epicId);
+          const left = spec.features.filter((x) => x.epicId === epicId && x.status !== 'done' && x.status !== 'existing').length;
+          const ready = mine[0]?.epicQa === 'waiting';
+          return (
+            <div key={epicId} data-epic-qa={epicId} className="rounded-[14px] border border-dashed border-violet-400/40 bg-violet-500/[0.04] p-2 space-y-2">
+              <div className="px-1 space-y-1.5">
+                <span className="block text-[12px] font-semibold text-violet-200 truncate" title={`${epicName}: its done features wait for the epic's QA`}>🧪 {epicName}</span>
+                {/* Its QA run, why Passed QA is refused, Run QA — the same controls as the route's epic card. */}
+                {ready && <EpicQaControls compact epicId={epicId} epicName={epicName} qa="waiting" onPassQa={() => void passQa(epicId)} onChanged={onChanged} />}
+              </div>
+              {!ready && <p className="text-[11px] text-gray-500 px-1">{left} feature{left === 1 ? '' : 's'} still to finish</p>}
+              {mine.map((f) => card(f, laneKey))}
+            </div>
+          );
+        })}
+      </>
+    );
   };
 
   return (
@@ -460,44 +536,7 @@ export function RoadmapTab({ project, agents = [], version, onOpenFeature, onCha
             >
               <h4 className="text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-3" title={lane.hint}>{lane.title} <span className="text-gray-500">{items.length}</span></h4>
               <div className="space-y-2 min-h-[48px]">
-                {items.length === 0 ? <p className="text-[13px] text-gray-500 italic">{dragging ? 'Drop here' : lane.empty}</p> : items.map((f) => (
-                  <div
-                    key={f.id}
-                    data-board-card={f.id}
-                    draggable
-                    onDragStart={(e) => { e.dataTransfer.setData('text/plain', f.id); e.dataTransfer.effectAllowed = 'move'; setDragging(f.id); }}
-                    onDragEnd={() => { setDragging(null); setOver(null); }}
-                    className={`rounded-[14px] border border-white/[0.1] bg-gl-surface/60 hover:border-white/[0.2] px-3.5 py-3 cursor-grab active:cursor-grabbing ${dragging === f.id ? 'opacity-40' : ''}`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <button onClick={() => onOpenFeature(f.id)} className="flex-1 min-w-0 text-left text-[14px] font-semibold text-gray-100 hover:text-white">{f.name}</button>
-                      <select
-                        aria-label={`Move ${f.name}`}
-                        value=""
-                        onChange={(e) => { const v = e.target.value as Lane | 'auto'; if (v) move(f, v); }}
-                        className="glass-input text-[11px] text-gray-300 rounded-[8px] px-1.5 py-1 cursor-pointer"
-                      >
-                        <option value="">Move…</option>
-                        {LANES.filter((l) => l.key !== lane.key).map((l) => <option key={l.key} value={l.key}>to {l.title}</option>)}
-                        {f.lane && f.status !== 'done' && <option value="auto">back to automatic</option>}
-                      </select>
-                    </div>
-                    {f.intent.summary && <div className="text-[12px] text-gray-500 mt-0.5 line-clamp-2">{f.intent.summary}</div>}
-                    <div className="flex gap-1.5 flex-wrap mt-1.5 text-[11px]">
-                      {f.lane && f.status !== 'done' && <span className="px-1.5 py-0.5 rounded-full bg-white/[0.06] text-gray-400" title="You placed it here — the automatic rule no longer moves it">placed</span>}
-                      {f.lane && f.lane !== 'progress' && ['in-progress', 'paused'].includes(f.status) && <span className="px-1.5 py-0.5 rounded-full bg-neon-500/[0.16] text-neon-200">pipeline running</span>}
-                      {f.status === 'paused' && <span className="px-1.5 py-0.5 rounded-full bg-red-500/[0.14] text-red-200">needs a decision</span>}
-                      {f.status === 'delivered' && <span className="px-1.5 py-0.5 rounded-full bg-ember-500/[0.14] text-ember-300">awaiting sign-off</span>}
-                      {f.criteria.length > 0 && f.status !== 'planned' && (
-                        <span className={`px-1.5 py-0.5 rounded-full ${f.criteriaMet === f.criteria.length ? 'bg-emerald-400/[0.12] text-emerald-300' : 'bg-white/[0.06] text-gray-400'}`}>
-                          {f.criteriaMet}/{f.criteria.length} criteria
-                        </span>
-                      )}
-                      {f.targetDate && <span className="px-1.5 py-0.5 rounded-full bg-white/[0.06] text-gray-400">target {f.targetDate}</span>}
-                      {f.status === 'done' && f.completedAt && <span className="px-1.5 py-0.5 rounded-full bg-emerald-400/[0.12] text-emerald-300">done {day(f.completedAt)}</span>}
-                    </div>
-                  </div>
-                ))}
+                {items.length === 0 ? <p className="text-[13px] text-gray-500 italic">{dragging ? 'Drop here' : lane.empty}</p> : (lane.key === 'qa' ? qaColumn(items, lane.key) : items.map((f) => card(f, lane.key)))}
               </div>
             </div>
           );
@@ -1373,5 +1412,5 @@ function RoadmapDeck({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener('resize', place); document.body.style.overflow = overflow; };
   }, []);
   if (typeof document === 'undefined' || !box) return null;
-  return createPortal(<div data-roadmap-deck className="fixed right-0 bottom-0 z-40" style={{ left: box.left, top: box.top }}>{children}</div>, document.body);
+  return createPortal(<div data-roadmap-deck className="fixed right-0 bottom-0 z-hud" style={{ left: box.left, top: box.top }}>{children}</div>, document.body);
 }

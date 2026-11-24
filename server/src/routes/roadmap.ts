@@ -5,7 +5,7 @@
  *   PUT    /api/roadmap/:projectId/vision         { vision }
  *   POST   /api/roadmap/:projectId/epics          { name, outcome?, icon?, targetDate?, dependsOn? }
  *   PUT    /api/roadmap/:projectId/epics/order    { ids }
- *   PUT    /api/roadmap/epics/:epicId             { name?, outcome?, icon?, targetDate?, dependsOn? }
+ *   PUT    /api/roadmap/epics/:epicId             { name?, outcome?, icon?, targetDate?, dependsOn?, qaPassed? }
  *   DELETE /api/roadmap/epics/:epicId             its features stay, in no epic
  *   PUT    /api/roadmap/features/:featureId       { epicId?, startDate?, targetDate?, dependsOn? }
  *   GET    /api/roadmap/features/:featureId/needs  what it needs first: chosen, still missing, and what can be chosen
@@ -15,7 +15,7 @@
 import { Router, type Response } from 'express';
 import db from '../db.js';
 import {
-  chartOf, setVision, createEpic, updateEpic, removeEpic, reorderEpics, planFeature, RoadmapError,
+  chartOf, setVision, createEpic, updateEpic, removeEpic, reorderEpics, planFeature, RoadmapError, setEpicQa,
   unmetNeeds, notYetMessage, needsCandidates,
 } from '../lib/roadmap.js';
 
@@ -37,7 +37,13 @@ const projectOfFeature = (goalId: string) =>
   (db.prepare('SELECT project_id FROM goals WHERE id = ?').get(goalId) as { project_id?: string } | undefined)?.project_id ?? '';
 
 router.put('/epics/:epicId', (req, res) => {
-  try { const p = projectOfEpic(req.params.epicId); updateEpic(req.params.epicId, req.body ?? {}); chart(res, p); } catch (err) { fail(res, err); }
+  try {
+    const p = projectOfEpic(req.params.epicId);
+    const { qaPassed, ...rest } = (req.body ?? {}) as Record<string, unknown>;
+    if (qaPassed !== undefined) setEpicQa(req.params.epicId, qaPassed);
+    if (Object.keys(rest).length > 0) updateEpic(req.params.epicId, rest);
+    chart(res, p);
+  } catch (err) { fail(res, err); }
 });
 router.delete('/epics/:epicId', (req, res) => {
   try { const p = projectOfEpic(req.params.epicId); removeEpic(req.params.epicId); chart(res, p); } catch (err) { fail(res, err); }

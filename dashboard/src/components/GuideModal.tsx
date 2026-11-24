@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
+import { Overlay } from './Overlay';
 
 const SECTIONS = [
   { id: 'overview', label: 'Overview' },
@@ -89,7 +90,8 @@ export function GuideModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-12">
+    <Overlay>
+    <div className="fixed inset-0 z-overlay flex items-start justify-center p-4 pt-12">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/70"
@@ -476,5 +478,6 @@ curl -X PUT http://<server-name>.local:4040/api/settings \\
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

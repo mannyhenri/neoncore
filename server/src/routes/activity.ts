@@ -12,7 +12,8 @@ import { autoCompleteDispatchedTask } from '../lib/task-autocomplete.js';
 import { resolveAgentId } from '../lib/resolve-agent.js';
 import { armOnWork } from '../lib/work-standard.js';
 import { clearInterruptOnLife } from '../lib/recovery.js';
-import { statusFromActivity } from '../lib/activity-status.js';
+import { statusFromActivity, IDLE_PROMPT_PATTERNS } from '../lib/activity-status.js';
+import { recordBackgroundStart, syncBackgroundTasks, hasOpenBackground } from '../lib/background-tasks.js';
 import { closeQuestionsAnsweredElsewhere } from './permissions.js';
 import { detectLimitSignal, recordLimitEvent } from '../lib/limit-events.js';
 import { computeBurnRate, type UsageSample } from '../lib/burn-rate.js';
@@ -165,7 +166,7 @@ router.post('/token-limit-calibrations', (req, res) => {
 
 // Log an activity event (called by hooks)
 router.post('/', (req, res) => {
-  const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult, agentType } = req.body;
+  const { agentId, sessionId, machine, repoPath, eventType, toolName, toolInput, toolResult, agentType, backgroundTasks } = req.body;
 
   // Resolution lives in lib/resolve-agent.ts — this route used to carry its own copy,
   // which drifted: the shared helper gained an untyped-payload default while this one
@@ -202,7 +203,33 @@ router.post('/', (req, res) => {
   // cartridge is blocked on a human ("Claude is waiting for your input"), so a waiting agent
   // was indistinguishable from an idle one. null means "this event says nothing about
   // availability" — leave whatever is there rather than guessing.
-  const implied = statusFromActivity(String(eventType || ''), toolInputStr);
+  let implied: string | null = statusFromActivity(String(eventType || ''), toolInputStr);
+
+  // BACKGROUND WORK (lib/background-tasks.ts). A PostToolUse may start some; a Stop / SubagentStop
+  // carries the documented list of what is still in flight. A turn that ends with work running is
+  // `background`, not idle and not waiting — and Claude Code's "waiting for your input" a minute
+  // later does not change that (a permission prompt still does). Never break ingestion over it.
+  try {
+    const ev = String(eventType || '');
+    if (ev === 'PostToolUse') recordBackgroundStart(resolvedAgentId, String(toolName || ''), toolInput, toolResult, now);
+    if (ev === 'Stop' || ev === 'SubagentStop') {
+      const open = syncBackgroundTasks(resolvedAgentId, backgroundTasks, now) > 0 || hasOpenBackground(resolvedAgentId);
+      const current = (db.prepare('SELECT status FROM agents WHERE id = ?').get(resolvedAgentId) as { status?: string } | undefined)?.status;
+      if (ev === 'Stop' && open) implied = 'background';
+      // A background subagent finishing after the turn: still something open → background;
+      // the last one done → idle (the turn itself ended earlier).
+      if (ev === 'SubagentStop' && current !== 'working') {
+        if (open && current !== 'waiting') implied = 'background';
+        else if (!open && current === 'background') implied = 'idle';
+      }
+    }
+    if (ev === 'notification' && implied === 'waiting'
+      && IDLE_PROMPT_PATTERNS.some((p) => p.test(toolInputStr)) && hasOpenBackground(resolvedAgentId)) {
+      implied = 'background';
+    }
+  } catch (err) {
+    console.warn(`[activity] background tracking failed: ${err instanceof Error ? err.message : err}`);
+  }
 
   // GAS-012 — where the usage wall was, and what had been spent when we hit it. Gated on the
   // event TYPE before any text is read: an agent writing "we hit the usage limit yesterday"

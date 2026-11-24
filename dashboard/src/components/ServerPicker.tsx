@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ServerStatus } from '../types';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
@@ -18,12 +18,21 @@ interface Props {
 export function ServerPicker({ statuses, onSetToken }: Props) {
   const [open, setOpen] = useState(false);
   useEscapeKey(() => setOpen(false), open);
+  // Close on a click outside — not a full-window catcher, which would sit inside the top bar's
+  // layer and miss clicks on anything painted above it.
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
   const status = statuses[0];
   const authFailed = !!status?.authFailed;
   const live = !!status?.reachable && !authFailed;
 
   return (
-    <div className="relative">
+    <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
         className={`btn-ghost flex items-center gap-2 h-10 px-3 rounded-[10px] text-[13px] whitespace-nowrap transition-colors ${
@@ -41,7 +50,6 @@ export function ServerPicker({ statuses, onSetToken }: Props) {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div className="absolute right-0 mt-2 w-[320px] z-40 glass-dark rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.55)] p-5">
             <div className="font-display text-lg font-semibold text-gray-100 mb-1">This machine</div>
             <p className="text-[13px] text-gray-400">

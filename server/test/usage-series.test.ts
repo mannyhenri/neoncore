@@ -205,7 +205,7 @@ const SURFACES: { name: string; file: string; omits?: Record<string, string> }[]
       byCartridge: 'deliberately not rendered — see the ONE BREAKDOWN note in TokensPage.tsx',
     },
   },
-  { name: 'mobile', file: '../mobile/src/screens/TokensScreen.tsx' },
+  // The phone's Tokens screen was retired with its redesign: token reporting lives on the desk.
   { name: 'shared client type', file: '../packages/client/src/client.ts' },
 ];
 

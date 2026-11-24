@@ -189,7 +189,7 @@ export default function App() {
           Guide and Settings are chrome, so they sit at the bar's foot. */}
       <nav
         aria-label="Views"
-        className="order-last md:order-first fixed md:sticky bottom-0 md:top-0 inset-x-0 md:inset-x-auto z-30 md:h-screen md:w-[76px] flex-shrink-0 flex md:flex-col items-center justify-around md:justify-start gap-2 px-2 py-2 md:py-[18px] border-t md:border-t-0 md:border-r border-white/[0.08] bg-gray-950"
+        className="order-last md:order-first fixed md:sticky bottom-0 md:top-0 inset-x-0 md:inset-x-auto z-hud md:h-screen md:w-[76px] flex-shrink-0 flex md:flex-col items-center justify-around md:justify-start gap-2 px-2 py-2 md:py-[18px] border-t md:border-t-0 md:border-r border-white/[0.08] bg-gray-950"
       >
         <NavItem active={activeView === 'projects'} onClick={() => setActiveView('projects')} label="Projects">
           <svg className={ICON} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
@@ -248,7 +248,7 @@ export default function App() {
       {demoBanner}
       {/* THE TOP BAR: what you are looking at, the one number you read (burn), then the things
           you START a session with, then fleet status and the bell pinned to the far right. */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 px-4 md:px-6 py-3.5 border-b border-white/[0.08] bg-gray-950/85 backdrop-blur">
+      <header className="sticky top-0 z-topbar flex flex-wrap items-center gap-3 px-4 md:px-6 py-3.5 border-b border-white/[0.08] bg-gray-950/85 backdrop-blur">
         <h1 className="font-display text-2xl font-semibold mr-1">{VIEW_TITLE[activeView]}</h1>
         <BurnRate servers={servers} onOpen={() => setActiveView('tokens')} />
         <div className="flex-1" />

@@ -43,6 +43,7 @@ import { agentIdForRepoAndType, normalizeRepoPath, setProjectCartridges, getProj
 import { cloneTemplateAsRun } from './workflow-from-template.js';
 import { automaticSkips, laterStageReviews } from './stage-steps.js';
 import { roadmapContextFor } from './roadmap.js';
+import { epicOrderWait } from './qa/epic-qa-store.js';
 import { templateNeedsParticipants } from './workflow-launch.js';
 import { isReportStep } from './workflow-report.js';
 import { workflowNeedsAttention, type Attention } from './workflow-attention.js';
@@ -843,6 +844,13 @@ export function advancePilot(pilotId: string): void {
       // Nothing is built against tests that are still being written or reviewed.
       if (gate === 'blocked' && contractBlocksWork(getContract(pilot.id))) {
         setWaiting(stage, 'Waiting for the acceptance tests to be written and approved.');
+        return;
+      }
+
+      // The next epic waits: nothing is built on a phase that has not passed QA (lib/qa/epic-qa-store.ts).
+      const epicWait = epicOrderWait(pilot.goalId);
+      if (epicWait) {
+        setWaiting(stage, epicWait);
         return;
       }
 

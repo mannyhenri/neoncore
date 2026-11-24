@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import type { SendOutcome } from '../lib/deliveryNotice';
 import type { Agent, AgentMode, Activity, PermissionRequest, StuckAlert, VirtualCartridge, CommandAttachmentInput } from '../types';
-import { effectiveAgentStatus } from '../lib/agentStatus';
+import { effectiveAgentStatus, statusBucket, STATUS_PRIORITY } from '../lib/agentStatus';
 import { useLiveWork } from '../hooks/useLiveWork';
 import { cartridgeProgress } from '../lib/cartridgeProgress';
 import { CartridgeCard } from './CartridgeCard';
@@ -41,7 +41,6 @@ interface CartridgeGridProps {
 // Filter / sort types
 // ---------------------------------------------------------------------------
 
-const STATUS_PRIORITY: Record<string, number> = { working: 0, waiting: 1, idle: 2, offline: 3 };
 
 // ---------------------------------------------------------------------------
 // CartridgeGrid
@@ -95,7 +94,7 @@ export function CartridgeGrid({
 
   // Apply status filter
   if (statusFilter !== 'all') {
-    visible = visible.filter((a) => agentStatuses.get(a.id) === statusFilter);
+    visible = visible.filter((a) => statusBucket(agentStatuses.get(a.id) ?? 'offline') === statusFilter);
   }
 
   // Sort alphabetically by repo name / agent name
@@ -144,9 +143,9 @@ export function CartridgeGrid({
   // Count deduplicated cartridges (groups) per status for filter badges
   const counts = {
     all: dedupedSorted.length,
-    working: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'working').length,
-    waiting: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'waiting').length,
-    idle: dedupedSorted.filter((a) => agentStatuses.get(a.id) === 'idle').length,
+    working: dedupedSorted.filter((a) => statusBucket(agentStatuses.get(a.id) ?? 'offline') === 'working').length,
+    waiting: dedupedSorted.filter((a) => statusBucket(agentStatuses.get(a.id) ?? 'offline') === 'waiting').length,
+    idle: dedupedSorted.filter((a) => statusBucket(agentStatuses.get(a.id) ?? 'offline') === 'idle').length,
   };
   const onlineAgents = agents.filter(
     (a) => agentStatuses.get(a.id) !== 'offline' && !a.dismissedAt,
@@ -362,6 +361,7 @@ export function CartridgeGrid({
 
 const STATUS_CONFIG_DOT: Record<string, string> = {
   working: 'bg-neon-500 shadow-[0_0_8px_#5AAEFF]',
+  background: 'bg-neon-400/80 shadow-[0_0_6px_#5AAEFF]',
   waiting: 'bg-[#FF8A3D] shadow-[0_0_8px_#FF8A3D]',
   idle: 'bg-gray-500',
   offline: 'bg-red-400/70',

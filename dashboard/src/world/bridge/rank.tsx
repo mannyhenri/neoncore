@@ -47,24 +47,66 @@ export function captainSheet(base: DeckSheet | null, rank: string | null | undef
 }
 
 const POLL_MS = 60_000;
+
+/**
+ * The last rank seen for each project, kept for the session and across reloads.
+ *
+ * Without it every visit to a project started with no rank — the captain in his own coat — and
+ * swapped to his rank's costume a moment later when the rewards came back: a visible flash of the
+ * wrong uniform each time you came back to a project. The remembered rank is shown at once and
+ * replaced by the server's as soon as it answers (a promotion shows on that answer).
+ */
+const RANK_CACHE_KEY = 'neoncore.projectRanks';
+const known = new Map<string, ProjectRank>();
+function readCache(): void {
+  try {
+    const raw = globalThis.localStorage?.getItem(RANK_CACHE_KEY);
+    if (!raw) return;
+    for (const [id, r] of Object.entries(JSON.parse(raw) as Record<string, ProjectRank>)) {
+      if (r && typeof r.index === 'number' && typeof r.id === 'string') known.set(id, r);
+    }
+  } catch { /* nothing remembered */ }
+}
+readCache();
+function remember(projectId: string, rank: ProjectRank | null): void {
+  if (rank) known.set(projectId, rank); else known.delete(projectId);
+  try { globalThis.localStorage?.setItem(RANK_CACHE_KEY, JSON.stringify(Object.fromEntries(known))); } catch { /* storage full or off */ }
+}
+/** The remembered rank of a project, if any (for tests and first paint). */
+export function rememberedRank(projectId: string): ProjectRank | null { return known.get(projectId) ?? null; }
+
 /** A project's rank, read with its rewards. null while unknown (an older server, no project): no plate is shown. */
 export function useProjectRank(projectId: string | null | undefined): ProjectRank | null {
-  const [rank, setRank] = useState<{ id: string; rank: ProjectRank } | null>(null);
+  const [rank, setRank] = useState<{ id: string; rank: ProjectRank } | null>(() => {
+    const r = projectId ? known.get(projectId) : undefined;
+    return projectId && r ? { id: projectId, rank: r } : null;
+  });
   useEffect(() => {
     if (!projectId) return;
     let alive = true;
+    // Switching projects: show the one we are going to at once, from memory.
+    const cached = known.get(projectId);
+    setRank(cached ? { id: projectId, rank: cached } : null);
     const load = () => {
       try {
         void Promise.resolve(api.getProjectRewards?.(projectId))
-          .then((r) => { if (alive) setRank(r && r.rank && typeof r.rank.index === 'number' ? { id: projectId, rank: r.rank } : null); })
-          .catch(() => { if (alive) setRank(null); });
+          .then((r) => {
+            if (!alive) return;
+            const next = r && r.rank && typeof r.rank.index === 'number' ? r.rank : null;
+            remember(projectId, next);
+            setRank(next ? { id: projectId, rank: next } : null);
+          })
+          // A failed read keeps what we knew rather than undressing the captain.
+          .catch(() => { /* keep the remembered rank */ });
       } catch { /* no rank shown */ }
     };
     load();
     const t = setInterval(load, POLL_MS);
     return () => { alive = false; clearInterval(t); };
   }, [projectId]);
-  return rank && rank.id === projectId ? rank.rank : null;
+  if (rank && rank.id === projectId) return rank.rank;
+  // First render after a switch, before the effect: the remembered rank, never the last project's.
+  return projectId ? known.get(projectId) ?? null : null;
 }
 
 /** What a rank's plate says when you point at it. */

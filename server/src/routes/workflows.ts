@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import { buildStepSummary } from '../lib/step-summary.js';
 import { getIO } from '../ws.js';
 import type { Workflow, WorkflowPlayer, WorkflowPhaseState, WorkflowStatus, WorkflowStep } from '../types.js';
 import { sendCommandToAgent } from '../lib/send-command.js';
@@ -18,7 +19,7 @@ import { countsOwed } from '../lib/coverage-loop.js';
 import { libelleContexte } from '../lib/context-label.js';
 import { agentIdForRepoAndType } from '../lib/resolve-agent.js';
 import { recoverStep } from '../lib/recovery.js';
-import { completeStepFromSignal, recordPanelResult, advanceWorkflowsSoon, stepInstructionsText, continueCoverageWork, acceptCoverage } from '../lib/workflow-executor-v2.js';
+import { completeStepFromSignal, recordPanelResult, advanceWorkflowsSoon, stepInstructionsText, continueCoverageWork, acceptCoverage, holdStepBlocked, continueBlocked, blockedRunOf } from '../lib/workflow-executor-v2.js';
 import { emitRunFinished } from '../lib/run-events.js';
 import { recordJournal } from '../lib/workflow-journal.js';
 import { materializeForRepos, parseAttachmentsInput } from '../lib/attachments.js';
@@ -89,34 +90,6 @@ function emitWorkflowUpdate(id: string) {
   if (row) getIO().emit('workflow_updated', normalizeWorkflow(row));
 }
 
-function buildStepSummary(workflowId: string): Record<string, unknown> | null {
-  const stepRows = db.prepare(
-    'SELECT name, status, executor_id FROM workflow_steps WHERE workflow_id = ? ORDER BY created_at'
-  ).all(workflowId) as { name: string; status: string; executor_id: string }[];
-  if (stepRows.length === 0) return null;
-
-  const executorIds = [...new Set(
-    stepRows.map((s) => s.executor_id).filter((id) => id && id !== '__deferred__')
-  )];
-  let projects: string[] = [];
-  if (executorIds.length > 0) {
-    const placeholders = executorIds.map(() => '?').join(',');
-    const agentRows = db.prepare(
-      `SELECT repo_name, name FROM agents WHERE id IN (${placeholders})`
-    ).all(...executorIds) as { repo_name: string; name: string }[];
-    projects = [...new Set(agentRows.map((r) => r.repo_name || r.name).filter(Boolean))];
-  }
-
-  return {
-    total: stepRows.length,
-    completed: stepRows.filter((s) => s.status === 'completed').length,
-    running: stepRows.filter((s) => s.status === 'running').length,
-    failed: stepRows.filter((s) => s.status === 'failed').length,
-    pending: stepRows.filter((s) => s.status === 'pending').length,
-    stepNames: stepRows.map((s) => s.name),
-    projects,
-  };
-}
 
 // --- Routes ---
 
@@ -1217,6 +1190,29 @@ router.post('/v2/:id/steps/:stepId/coverage', (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * A step blocked on a person (holdStepBlocked): `continue` runs exactly that step again with your
+ * note; `stop` cancels the run. Like tasks-outstanding, no autonomy level makes this choice.
+ */
+router.post('/v2/:id/steps/:stepId/blocked', (req, res) => {
+  const row = db.prepare('SELECT id FROM workflow_steps WHERE id = ? AND workflow_id = ?').get(req.params.stepId, req.params.id);
+  if (!row) return res.status(404).json({ error: 'Step not found' });
+  const action = req.body?.action;
+  if (action !== 'continue' && action !== 'stop') {
+    return res.status(400).json({ error: 'action must be "continue" (I did it — run the step again) or "stop" (cancel the run)' });
+  }
+  if (action === 'stop') {
+    const held = blockedRunOf(req.params.stepId);
+    if ('error' in held) return res.status(409).json({ error: held.error });
+    cancelRun(held.runId);
+    return res.json({ ok: true });
+  }
+  const r = continueBlocked(req.params.stepId, typeof req.body?.note === 'string' ? req.body.note : '');
+  if (!r.ok) return res.status(409).json({ error: r.error });
+  emitWorkflowUpdate(req.params.id);
+  res.json({ ok: true });
+});
+
 router.post('/v2/:id/steps/:stepId/advance', (req, res) => {
   const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ? AND workflow_id = ?')
     .get(req.params.stepId, req.params.id) as Record<string, unknown> | undefined;
@@ -1600,7 +1596,7 @@ function withHandoff(stored: string, next: unknown): string {
 }
 
 router.post('/webhook/:stepId/complete', (req, res) => {
-  const { result, scope, verify, deferred, next } = req.body || {};
+  const { result, scope, verify, deferred, next, blocked } = req.body || {};
 
   // A completion may CARRY the run's report. Stored best-effort and never allowed to fail the
   // completion — see storeStepReport. This is the path neoncore_report_step_done uses, which is
@@ -1619,6 +1615,19 @@ router.post('/webhook/:stepId/complete', (req, res) => {
   const step = normalizeStep(row);
   if (step.status !== 'running') {
     return res.status(400).json({ error: `Step is not running (current status: ${step.status})` });
+  }
+
+  // BLOCKED ON A PERSON (holdStepBlocked). Not a completion: nothing is claimed done, so there is
+  // no scope/verify to check, no verdict for a gate to parse and no count owed. It needs only
+  // what the person must do.
+  if (blocked !== undefined) {
+    const ask = typeof blocked === 'string' ? blocked.trim() : '';
+    if (!ask) return res.status(400).json({ error: '`blocked` must say what the person must do (or omit it to report done)' });
+    if (!holdStepBlocked(step.id, ask, typeof result === 'string' ? result : '', (row.dispatch_agent_id as string) || step.executorId)) {
+      return res.status(409).json({ error: 'Step could not be held (no longer running)' });
+    }
+    disarmOnReport(db, (row.dispatch_agent_id as string) || step.executorId);
+    return res.json(normalizeStep(db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(step.id) as Record<string, unknown>));
   }
 
   // Work-standard check — WORK steps only.
@@ -1699,9 +1708,24 @@ router.post('/webhook/:stepId/complete', (req, res) => {
 // answer would complete the step on everyone else's behalf.
 // Usage: curl -X POST http://localhost:4040/api/workflows/webhook/<stepId>/panel/<agentId>/complete -d '{"result": "..."}'
 router.post('/webhook/:stepId/panel/:agentId/complete', (req, res) => {
-  const { result } = req.body || {};
+  const { result, blocked } = req.body || {};
   const invalid = validateResult(result);
   if (invalid) return res.status(400).json({ error: invalid });
+
+  // One panel member blocked on a person holds the whole deliberation: its answer would be
+  // missing from the synthesis, and "continue" runs the panel again.
+  if (blocked !== undefined) {
+    const ask = typeof blocked === 'string' ? blocked.trim() : '';
+    if (!ask) return res.status(400).json({ error: '`blocked` must say what the person must do (or omit it to report done)' });
+    const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown> | undefined;
+    const panel = row ? ((normalizeStep(row).executorConfig.panelAgentIds as string[]) || []) : [];
+    if (!row || row.executor_type !== 'deliberation' || !panel.includes(req.params.agentId)
+      || !holdStepBlocked(req.params.stepId, ask, typeof result === 'string' ? result : '', req.params.agentId)) {
+      return res.status(400).json({ error: 'Not an active deliberation step awaiting this panel member' });
+    }
+    disarmOnReport(db, req.params.agentId);
+    return res.json(normalizeStep(db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(req.params.stepId) as Record<string, unknown>));
+  }
 
   const accepted = recordPanelResult(
     req.params.stepId,

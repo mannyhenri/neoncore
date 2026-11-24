@@ -20,8 +20,8 @@ const PICKERS = [
   'dashboard/src/components/MachineLauncher.tsx',      // launch a cartridge on a machine
   'dashboard/src/components/NewRepoModal.tsx',         // New Repo → which tool to start
   'dashboard/src/components/WorkflowCanvasEditor.tsx', // a workflow step's engine
-  'mobile/src/components/NewRepoModal.tsx',            // New Repo, on the phone
-  'mobile/src/components/RemoteLaunchModal.tsx',       // remote launch, on the phone
+  // The phone has no engine picker since its redesign (it keeps work moving; launching stays on
+  // the desk): its pipeline staffing takes each repo's live engine (mobile/src/work.ts).
 ];
 
 describe('the engine set is exactly claude + codex', () => {

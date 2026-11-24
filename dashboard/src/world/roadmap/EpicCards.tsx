@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { RoadmapChart, RoadmapEpic, RoadmapFeature } from '../../types';
 import { STAGE_COLOUR, type EpicStage } from './routeLayout';
+import { EpicQaControls } from '../../components/EpicQaControls';
 
 export const CARD_STATE: Record<EpicStage, string> = { commended: 'Done', delivered: 'Done', 'under-way': 'Under way', late: 'Late', blocked: 'Waiting', planned: 'Planned' };
 const FEATURE_WORD: Record<RoadmapFeature['state'], string> = { delivered: 'done', 'under-way': 'under way', planned: 'planned', late: 'late' };
@@ -29,7 +30,7 @@ export function datePill(e: RoadmapEpic): DatePill {
   return { kind: 'due', text: `Due ${longDay(due)}` };
 }
 
-export function EpicCards({ chart, stages, selected, onSelect, selectedFeature, onPickFeature, iconOf, editor, busy, onStart, onAddEpic, onAddFeature, onReorder, onDelete, onMoveFeature }: {
+export function EpicCards({ chart, stages, selected, onSelect, selectedFeature, onPickFeature, iconOf, editor, busy, onStart, onAddEpic, onAddFeature, onReorder, onDelete, onMoveFeature, onPassQa, onQaChanged }: {
   chart: RoadmapChart; stages: EpicStage[];
   /** The epic picked on the route (its card is lit and brought into view). */
   selected: string | null; onSelect: (epicId: string) => void;
@@ -43,6 +44,10 @@ export function EpicCards({ chart, stages, selected, onSelect, selectedFeature, 
   onReorder: (ids: string[]) => void;
   onDelete: (epic: RoadmapEpic) => void;
   onMoveFeature: (featureId: string, epicId: string) => void;
+  /** Passed QA: every feature of the epic done and QA'd as a whole — they move to Done on the Board. */
+  onPassQa?: (epic: RoadmapEpic) => void;
+  /** A QA run was started: refresh the chart so the epic's run shows. */
+  onQaChanged?: () => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
@@ -97,11 +102,17 @@ export function EpicCards({ chart, stages, selected, onSelect, selectedFeature, 
                     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                       <span data-epic-pill="state" className="px-2.5 h-7 inline-flex items-center rounded-full text-[13px] font-semibold" style={{ color: c, background: `${c}22` }}>{CARD_STATE[stage]}</span>
                       {pill && <span data-epic-pill="date" data-kind={pill.kind} className={`px-2.5 h-7 inline-flex items-center rounded-full text-[13px] ${pill.kind === 'commend' ? 'border border-[#F5C542]/70 bg-[rgba(245,197,66,0.12)] text-[#FFE39A]' : pill.kind === 'late' ? 'bg-[rgba(255,138,61,0.16)] text-[#FFB27A]' : 'bg-white/[0.06] text-gray-200'}`}>{pill.text}</span>}
+                      {/* EPIC QA: done features wait for the epic's QA, at its end, before they are Done on the Board. */}
+                      {e.qa === 'passed' && <span data-epic-pill="qa" className="px-2.5 h-7 inline-flex items-center rounded-full text-[13px] bg-emerald-500/10 text-emerald-300">✓ QA passed</span>}
                       {(e.dependsOn ?? []).map((id) => {
                         const met = deliveredEpics.has(id);
                         return <span key={id} data-epic-pill="needs" data-met={met} className={`px-2.5 h-7 inline-flex items-center rounded-full text-[13px] ${met ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-400/10 text-amber-200'}`}>⛓ Needs {epicName.get(id) ?? 'another epic'}{met ? ' ✓' : ''}</span>;
                       })}
                     </div>
+                    {/* EPIC QA: its run for this finish, why Passed QA is refused, Run QA (EpicQaControls). */}
+                    {e.qa === 'waiting' && onPassQa && (
+                      <div className="mt-2"><EpicQaControls epicId={e.id} epicName={e.name} qa={e.qa} run={e.qaRun ?? null} busy={busy} onPassQa={() => onPassQa(e)} onChanged={onQaChanged} /></div>
+                    )}
                     {e.outcome && <p className="mt-2 text-[14px] text-gray-300">{e.outcome}</p>}
                     <div className="mt-2.5 flex items-center gap-3">
                       <div role="progressbar" aria-label={`${e.name}: features done`} aria-valuemin={0} aria-valuemax={e.progress.total} aria-valuenow={e.progress.done} className="flex-1 h-1.5 rounded-full bg-white/[0.08] overflow-hidden">

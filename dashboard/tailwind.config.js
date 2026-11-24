@@ -41,6 +41,12 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      // THE LAYER SCALE — the only z-indexes chrome and overlays use (src/__tests__/overlayLayers.test.ts).
+      // hud: in-page bars over the content (world sector bar, feature HUD, view bar, roadmap deck).
+      // float: a card anchored over the world (the selected agent's card), above that HUD.
+      // topbar: the top bar — so every menu that drops from it clears the HUD.
+      // overlay: everything you click open (modals, backdrops, floating menus), portaled to <body>.
+      zIndex: { hud: '30', float: '35', topbar: '40', overlay: '1000' },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         display: ['"Space Grotesk"', 'Inter', 'sans-serif'],

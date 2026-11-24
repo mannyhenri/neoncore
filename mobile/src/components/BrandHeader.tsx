@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { theme, glow } from '../theme';
 import { useNeonCore } from '../NeonCoreProvider';
 import { FleetSheet } from './FleetSheet';
 
+/** The app's mark: the captain in his neon ring — the same picture as the app icon and launch screen. */
+const MARK = require('../../assets/brand/captain-mark.png');
+
 /**
- * App brand bar — Night Glass, like the dashboard: no logo, no image, no gradient. The name in
- * one colour, and the fleet pill, which glows neon when every server is up.
+ * App brand bar — Night Glass, like the dashboard: the captain's mark, the name in one colour,
+ * and the fleet pill, which glows neon when every server is up. No gradient.
  *
  * A heavy system font rather than a bundled typeface: loading a custom font at startup pulled in
  * a font loader on the launch path, which was implicated in a launch crash on a fresh build.
@@ -24,6 +27,7 @@ export function BrandHeader() {
 
   return (
     <View style={styles.bar}>
+      <Image source={MARK} style={styles.mark} accessibilityIgnoresInvertColors />
       <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>NeonCore</Text>
       {/* Fleet status doubles as the way in to managing servers — with more than one
           machine the interesting failure is partial (three up, one asleep), which a single
@@ -50,6 +54,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
   },
+  mark: { width: 28, height: 28 },
   name: { color: theme.text, fontSize: 17, fontWeight: '800', letterSpacing: 0.5, flexShrink: 1 },
   pill: {
     marginLeft: 'auto',

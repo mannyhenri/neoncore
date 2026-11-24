@@ -38,7 +38,7 @@ export function cuesFor(prev: SoundWatch, next: SoundWatch): Cue[] {
     const before = was.get(a.id);
     if (before === undefined) { if (a.status !== 'offline') out.add('launched'); continue; }
     if (before === 'offline' && a.status !== 'offline') out.add('launched');
-    if (before === 'working' && a.status === 'idle') out.add('turn-finished');
+    if ((before === 'working' || before === 'background') && a.status === 'idle') out.add('turn-finished');
   }
 
   const taskWas = new Map(prev.tasks.map((t) => [t.id, t.status]));

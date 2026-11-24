@@ -2,6 +2,7 @@ import { SELECTABLE_ENGINES, ENGINE_NAME } from '@neoncore/client';
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Overlay } from './Overlay';
 
 // The tool to launch in the new folder. Values map to open-directory.ts relay-terminal
 // launchers, which self-register a cartridge so it shows up in the grid immediately.
@@ -80,7 +81,8 @@ export function NewRepoModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <Overlay>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div
         className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -280,5 +282,6 @@ export function NewRepoModal({ onClose }: Props) {
         )}
       </div>
     </div>
+    </Overlay>
   );
 }

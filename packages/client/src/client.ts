@@ -523,6 +523,15 @@ export function createClient(config: ClientConfig = {}) {
       method: 'POST',
       body: JSON.stringify({ action }),
     }),
+  /**
+   * A step blocked on a person (server holdStepBlocked; the hold is `executorConfig._blockedHold`,
+   * see BlockedHold): `continue` runs exactly that step again with your note, `stop` cancels the run.
+   */
+  resolveBlockedStep: (workflowId: string, stepId: string, action: 'continue' | 'stop', note?: string) =>
+    request<{ ok: boolean }>(`/workflows/v2/${workflowId}/steps/${stepId}/blocked`, {
+      method: 'POST',
+      body: JSON.stringify({ action, ...(note ? { note } : {}) }),
+    }),
   /** Where a task-list run has got to: summary, the engine's record, and the progress document. */
   getWorkflowProgress: (workflowId: string) =>
     request<import('./types').WorkflowProgress>(`/workflows/${workflowId}/progress`),
@@ -836,7 +845,7 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').Project[]>(`/projects${goalId ? `?goalId=${goalId}` : ''}`),
   createProject: (data: { name: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[] }) =>
     request<import('./types').Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[]; architecture?: string; docsAutoPublish?: boolean }) =>
+  updateProject: (id: string, data: { name?: string; description?: string; goalId?: string | null; primaryRepo?: string; color?: string; cartridges?: string[]; architecture?: string; docsAutoPublish?: boolean; qaCommand?: string }) =>
     request<import('./types').Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   /** Deleting a project deletes its features too, unless `keepFeatures` (they are left unfiled). */
   deleteProject: (id: string, keepFeatures = false) => request<void>(`/projects/${id}${keepFeatures ? '?keepFeatures=1' : ''}`, { method: 'DELETE' }),
@@ -882,8 +891,14 @@ export function createClient(config: ClientConfig = {}) {
     request<import('./types').RoadmapChart>(`/roadmap/${projectId}/vision`, { method: 'PUT', body: JSON.stringify({ vision }) }),
   createEpic: (projectId: string, data: { name: string; outcome?: string; icon?: string; targetDate?: string; dependsOn?: string[] }) =>
     request<import('./types').RoadmapChart>(`/roadmap/${projectId}/epics`, { method: 'POST', body: JSON.stringify(data) }),
-  updateEpic: (epicId: string, data: { name?: string; outcome?: string; icon?: string; targetDate?: string; dependsOn?: string[] }) =>
+  /** Passed QA (true) or not (false) — its done features move to Done on the Board. */
+  setEpicQa: (epicId: string, passed: boolean) => request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'PUT', body: JSON.stringify({ qaPassed: passed }) }),
+  updateEpic: (epicId: string, data: { name?: string; outcome?: string; icon?: string; targetDate?: string; dependsOn?: string[]; qaCommand?: string }) =>
     request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  /** The epic's QA run: the newest one, and the one for its current finish (null = not run since it finished). */
+  getEpicQa: (epicId: string) => request<{ run: import('./types').EpicQaRun | null; current: import('./types').EpicQaRunSummary | null }>(`/qa/epics/${epicId}`),
+  /** Run the epic's QA now: every feature's locked tests + its QA command. 409 while it is not finished, already running, or its repo is busy. */
+  runEpicQa: (epicId: string) => request<import('./types').EpicQaRun>(`/qa/epics/${epicId}/run`, { method: 'POST', body: '{}' }),
   /** Its features stay in the project, in no epic. */
   deleteEpic: (epicId: string) => request<import('./types').RoadmapChart>(`/roadmap/epics/${epicId}`, { method: 'DELETE' }),
   reorderEpics: (projectId: string, ids: string[]) =>

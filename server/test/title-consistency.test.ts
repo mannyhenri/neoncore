@@ -33,10 +33,10 @@ const WEB_SCREENS = [
 
 /** Mobile screens that render their own title. */
 const MOBILE_SCREENS = [
-  'mobile/src/screens/CartridgeListScreen.tsx',
+  'mobile/src/screens/ProjectsScreen.tsx',
+  'mobile/src/screens/InProgressScreen.tsx',
+  'mobile/src/screens/SettingsScreen.tsx',
   'mobile/src/screens/CartridgeDetailScreen.tsx',
-  'mobile/src/screens/WorkflowsScreen.tsx',
-  'mobile/src/screens/QueueScreen.tsx',
 ];
 
 test('the screen lists are real — a bad path would pass every assertion on nothing', () => {
@@ -79,17 +79,20 @@ test('EVERY mobile screen titles itself through the shared style', () => {
   );
 });
 
-test('the QUEUE screen has a title at all', () => {
-  // It shipped without one, so the phone showed a list with no indication of what it was.
+test('EVERY mobile list screen has a title at all', () => {
+  // The Queue screen once shipped without one, so the phone showed a list with no indication of
+  // what it was. Needs you opens on the bridge panel's headline instead, and is not listed.
   //
   // Asserts the PROPERTY — the screen titles itself through a sanctioned mechanism — not one
   // particular spelling of it. The original matched /screenTitle/, which broke the moment the
   // screen switched from a local `title` style to the shared <ScreenTitle> primitive: a stricter
   // adherence to the rule, failed by the test meant to enforce the rule. A test coupled to how
   // a thing is done blocks the improvement it was written to encourage.
-  const src = read('mobile/src/screens/QueueScreen.tsx');
-  assert.ok(
-    /<ScreenTitle\b/.test(src) || /screenTitle/.test(src),
-    'the mobile queue screen renders no title — use <ScreenTitle> from components/ui',
-  );
+  for (const f of ['mobile/src/screens/ProjectsScreen.tsx', 'mobile/src/screens/InProgressScreen.tsx', 'mobile/src/screens/SettingsScreen.tsx']) {
+    const src = read(f);
+    assert.ok(
+      /<ScreenTitle\b/.test(src) || /screenTitle/.test(src),
+      `${f} renders no title — use <ScreenTitle> from components/ui`,
+    );
+  }
 });

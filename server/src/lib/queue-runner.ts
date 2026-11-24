@@ -19,6 +19,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { getIO } from '../ws.js';
 import { getKind, type QueueItem, type QueueKind, type QueueStatus } from './queue-kinds.js';
+import { BUSY_STATUSES } from './activity-status.js';
 
 /** A wedged item — an agent blocked on a permission prompt nobody will answer overnight —
  *  emits no signal ever, and signal-only advancement cannot see it. The honest cost of
@@ -212,6 +213,7 @@ function blockerIsWedged(agentId: string): boolean {
   if (!a) return true;                       // vanished entirely
   if (a.status === 'offline') return true;
   if (a.status === 'waiting') return false;  // blocked on a person, not dead
+  if (a.status === 'background') return false;  // quiet because its background work runs; the deadline sweep owns it
   const silent = a.last_seen ? Date.now() - Date.parse(a.last_seen) : Infinity;
   return Number.isFinite(silent) ? silent > BLOCKER_WEDGED_MS : true;
 }
@@ -369,7 +371,7 @@ function participantBusyTargets(item: QueueItem): string[] {
     .filter((r) => {
       if (r.active_queue_item_id === item.id) return false; // ours — already working for us
       if (r.active_queue_item_id) return true;              // held by another item
-      if (r.status === 'working') return true;
+      if (BUSY_STATUSES.has(r.status)) return true;        // working, or its background work runs
       // Same rule as isCartridgeBusy: `waiting` blocks only when a person actually owes this
       // cartridge an answer. THIS COPY IS WHY THE FIRST FIX DID NOT WORK — isCartridgeBusy
       // guards ENQUEUE, this guards DISPATCH, and correcting only the first left every queued
@@ -414,7 +416,7 @@ export function isCartridgeBusyExcept(agentId: string, ownItemIds: readonly stri
   if (!row) return false;
   // Already carrying queued work, whatever its status claims.
   if (row.active_queue_item_id && !ownItemIds.includes(row.active_queue_item_id)) return true;
-  if (row.status === 'working') return true;
+  if (row.status && BUSY_STATUSES.has(row.status)) return true;   // working, or background work running
 
   /**
    * `waiting` counts ONLY when there is a real question outstanding.
@@ -480,7 +482,7 @@ export function busyRepoSiblings(participantIds: readonly string[], ownItemIds: 
       if (r.status === 'offline') continue;
       const held = r.active_queue_item_id && !ownItemIds.includes(r.active_queue_item_id);
       const asking = r.status === 'waiting' && (r.pending_question || '').trim().length > 0;
-      if (held || r.status === 'working' || asking) busy.add(r.id);
+      if (held || BUSY_STATUSES.has(r.status) || asking) busy.add(r.id);
     }
   }
   return [...busy];
@@ -777,7 +779,7 @@ export function reconcileQueue(): void {
     }
     const stillWorking = item.targets.filter((t) => {
       const a = db.prepare('SELECT status FROM agents WHERE id = ?').get(t) as { status?: string } | undefined;
-      return a?.status === 'working';
+      return !!a?.status && BUSY_STATUSES.has(a.status);   // mid-prompt, or its background work still runs
     });
     finish(item, 'failed', 'server restarted while this prompt was running — its completion could not be observed');
     if (stillWorking.length) {

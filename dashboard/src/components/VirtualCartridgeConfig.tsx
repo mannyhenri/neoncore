@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { VirtualCartridge } from '../types';
 import { api } from '../lib/api';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Overlay } from './Overlay';
 
 interface Props {
   cartridge: VirtualCartridge;
@@ -27,7 +28,8 @@ export function VirtualCartridgeConfig({ cartridge, onClose, onSave }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
+    <Overlay>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/70" onClick={onClose}>
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
           <h3 className="font-display text-xl font-semibold text-gray-100">Configure Virtual Cartridge</h3>
@@ -56,5 +58,6 @@ export function VirtualCartridgeConfig({ cartridge, onClose, onSave }: Props) {
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

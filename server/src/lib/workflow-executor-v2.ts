@@ -13,6 +13,7 @@ import { coverageConfigOf, decideCoverage, holdDetail, loopBackFeedback, MAX_COV
 import { resolveBuildRounds, leftoverOwners, LEFTOVER_MAX_TASKS } from './confer-sizing.js';
 import { noteTurnEnded, turnIsOver } from './turn-state.js';
 import db from '../db.js';
+import { buildStepSummary } from './step-summary.js';
 import { getIO } from '../ws.js';
 import { sendCommandToAgent, noChannel, inboxPending, whenInboxSettles, clearAgentSession } from './send-command.js';
 import type { WorkflowStep, StepLogType, WorkflowStatus } from '../types.js';
@@ -79,7 +80,7 @@ function buildCompletionSuffix(stepId: string, structured = true, ledger: Sessio
   if (alreadySent(ledger, kind, normalized)) {
     return structured
       ? `\n\n[Completion] As before: call \`neoncore_report_step_done\` with stepId: "${stepId}" and every field `
-        + `(result, next, scope, verify, deferred) — scope and verify are checked. No MCP? POST the same JSON to `
+        + `(result, next, scope, verify, deferred) — scope and verify are checked. ${BLOCKED_LINE} No MCP? POST the same JSON to `
         + `/api/workflows/webhook/${stepId}/complete.`
       : `\n\n[Completion] As before: \`neoncore_report_step_done\`(stepId: "${stepId}", result: "<verdict>"). `
         + `No MCP? POST {"result":"…"} to /api/workflows/webhook/${stepId}/complete.`;
@@ -103,8 +104,16 @@ function fullCompletionSuffix(stepId: string, structured: boolean): string {
   // engine loads once per session — test/step-completion-instruction.test.ts holds both halves.
   return `\n\n[Completion] When done, call MCP tool \`neoncore_report_step_done\` with stepId: "${stepId}" and fill `
     + `every field its schema describes (result, next, scope, verify, deferred). scope and verify are checked: `
-    + `an unverified completion is rejected and the step stays running.\n${fallback}`;
+    + `an unverified completion is rejected and the step stays running. ${BLOCKED_LINE}\n${fallback}`;
 }
+
+/**
+ * The pointer to `blocked` (holdStepBlocked) on a WORK step. A pointer only: the field's schema in
+ * mcp-server.ts carries the rule (sudo, credentials, a locked-test change; never to skip work), and
+ * this text rides on every dispatch (test/step-completion-instruction.test.ts budgets it). Gates
+ * don't carry it — a verdict on someone else's work is not blocked on a person.
+ */
+const BLOCKED_LINE = 'Only a person can unblock you? Use `blocked`.';
 
 /**
  * The curl that works when the agent has no MCP server. Authenticated: once the fleet runs with
@@ -293,23 +302,9 @@ export const ROLE_PROMPTS: Record<string, string> = {
 function emitWorkflowUpdate(workflowId: string) {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId) as Record<string, unknown> | undefined;
   if (!row) return;
-  // Compute step summary for the dashboard
-  const stepRows = db.prepare('SELECT status, name, executor_id FROM workflow_steps WHERE workflow_id = ?').all(workflowId) as { status: string; name: string; executor_id: string }[];
-  const executorIds = [...new Set(stepRows.map((s) => s.executor_id).filter((id) => id && id !== '__deferred__'))];
-  let projects: string[] = [];
-  if (executorIds.length > 0) {
-    const placeholders = executorIds.map(() => '?').join(',');
-    const agentRows = db.prepare(`SELECT repo_name, name FROM agents WHERE id IN (${placeholders})`).all(...executorIds) as { repo_name: string; name: string }[];
-    projects = [...new Set(agentRows.map((r) => r.repo_name || r.name).filter(Boolean))];
-  }
-  const stepSummary = {
-    total: stepRows.length,
-    completed: stepRows.filter((s) => s.status === 'completed').length,
-    running: stepRows.filter((s) => s.status === 'running').length,
-    failed: stepRows.filter((s) => s.status === 'failed').length,
-    pending: stepRows.filter((s) => s.status === 'pending').length,
-    stepNames: stepRows.map((s) => s.name),
-    projects,
+  // The run's step summary — the same one the HTTP routes serve (lib/step-summary.ts).
+  const stepSummary = buildStepSummary(workflowId) ?? {
+    total: 0, completed: 0, running: 0, failed: 0, pending: 0, stepNames: [], projects: [], runningAgentIds: [],
   };
   getIO().emit('workflow_updated', {
     id: row.id as string,
@@ -1907,6 +1902,90 @@ export function acceptCoverage(stepId: string): CoverageActionResult {
   return { ok: true };
 }
 
+// ─── Blocked on a person ─────────────────────────────────────────────────────
+//
+// A step whose agent cannot go on without a person — run a gate that needs sudo, supply a
+// credential, amend a locked test — used to be able to say only "done". So it did, with
+// "NEXT: Person: …" in its text: every step after it was dispatched and finished having done
+// nothing, the gate failed and retried twice with nothing changed, and the run was marked failed
+// (runs #14, #17). The report now says `blocked`, and the step HOLDS, like a coverage hold:
+//
+//   running ──report {blocked}──▶ completed + _blockedHold ──continue──▶ pending (note in
+//                                   │  nothing after it starts,           _routingFeedback;
+//                                   │  no gate, no retry, run not failed  currentRetry kept)
+//                                   └──stop──▶ run cancelled
+//
+// test/step-blocked.test.ts covers every executor type that reports through a webhook.
+
+export interface BlockedHold { ask: string; by: string; at: string }
+
+export const MAX_BLOCKED_ASK_CHARS = 600;
+
+export function holdStepBlocked(stepId: string, ask: string, result: string, by = ''): boolean {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+  if (!row) return false;
+  const step = normalizeStep(row);
+  if (step.status !== 'running') return false;
+  const now = new Date().toISOString();
+  const hold: BlockedHold = { ask: ask.trim().slice(0, MAX_BLOCKED_ASK_CHARS), by: by || step.executorId || '', at: now };
+  const stored = `BLOCKED: ${hold.ask}${result.trim() ? `\n\n${result.trim()}` : ''}`;
+  db.prepare("UPDATE workflow_steps SET status = 'completed', completed_at = ?, result = ?, error = '', executor_config = ? WHERE id = ? AND status = 'running'")
+    .run(now, stored, JSON.stringify({ ...step.executorConfig, _blockedHold: hold }), stepId);
+  emitStepUpdate(stepId);
+  emitStepLog(step.workflowId, stepId, step.name, `Blocked — waiting for you: ${hold.ask}`, 'warn');
+  notifyNeedsAttention(step, 'Blocked — needs you', hold.ask, 'workflow_blocked');
+  emitRunHeld(step.workflowId);
+  emitWorkflowUpdate(step.workflowId);
+  advanceWorkflowsSoon();
+  return true;
+}
+
+export const blockedHoldOf = (cfg: Record<string, unknown>): BlockedHold | null =>
+  (cfg._blockedHold && typeof cfg._blockedHold === 'object' ? cfg._blockedHold as BlockedHold : null);
+
+function heldBlockedStep(stepId: string): { step: WorkflowStep; hold: BlockedHold } | { error: string } {
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(stepId) as Record<string, unknown> | undefined;
+  if (!row) return { error: 'Step not found' };
+  const step = normalizeStep(row);
+  const hold = blockedHoldOf(step.executorConfig);
+  if (!hold) return { error: 'This step is not blocked on you' };
+  const wf = db.prepare('SELECT status FROM workflows WHERE id = ?').get(step.workflowId) as { status?: string } | undefined;
+  if (wf?.status !== 'running') return { error: `The run is ${wf?.status ?? 'gone'}` };
+  return { step, hold };
+}
+
+/** "Done — continue": the blocked step runs again, told what it was blocked on and what you did. */
+export function continueBlocked(stepId: string, note = ''): CoverageActionResult {
+  const got = heldBlockedStep(stepId);
+  if ('error' in got) return { ok: false, error: got.error };
+  const wasDeferred = got.step.executorConfig._wasDeferred;
+  // The same reset a coverage loop-back gives a step it re-runs — minus the retry count, which a
+  // person unblocking it did not spend.
+  const next = freshRunConfig({ ...got.step.executorConfig });
+  for (const key of Object.keys(next)) if (key.startsWith('_')) delete next[key];
+  if (wasDeferred) next._wasDeferred = wasDeferred;
+  if (got.step.executorType === 'deliberation') {
+    delete next.panelResults;
+    next.deliberationPhase = 'collecting';
+  }
+  next._routingFeedback = `[UNBLOCKED BY THE PERSON] You stopped this step as blocked on: ${got.hold.ask}\n`
+    + `${note.trim() ? `They say: ${note.trim()}` : 'They have marked it done.'}\n`
+    + 'Check that it holds, then do the step. If you are still blocked, report blocked again with what is missing.';
+  db.prepare("UPDATE workflow_steps SET status = 'pending', result = '', error = '', started_at = NULL, completed_at = NULL, executor_config = ? WHERE id = ?")
+    .run(JSON.stringify(next), stepId);
+  emitStepUpdate(stepId);
+  emitStepLog(got.step.workflowId, stepId, got.step.name, `Unblocked by you — running "${got.step.name}" again.`, 'info');
+  emitWorkflowUpdate(got.step.workflowId);
+  advanceWorkflowsSoon();
+  return { ok: true };
+}
+
+/** The run's id when this step is blocked on you and its run can still be stopped. */
+export function blockedRunOf(stepId: string): { runId: string } | { error: string } {
+  const got = heldBlockedStep(stepId);
+  return 'error' in got ? got : { runId: got.step.workflowId };
+}
+
 // ─── External Connector Step ─────────────────────────────────────────────────
 
 /** Substitute {{variable}} placeholders in a template string */
@@ -3037,6 +3116,8 @@ function processWorkflow(workflowId: string) {
   const routingFiredFor = new Set<string>(); // source step IDs where a routing rule fired
   for (const step of currentSteps) {
     if (step.status !== 'completed' || !step.completedAt) continue;
+    // A step blocked on a person has no verdict to route on — it waits for "continue" or "stop".
+    if (blockedHoldOf(step.executorConfig)) continue;
     // Skip if routing was already applied for this exact completion
     if ((step.executorConfig._routingAppliedAt as string) === step.completedAt) continue;
 
@@ -3065,6 +3146,7 @@ function processWorkflow(workflowId: string) {
   for (const step of currentSteps) {
     if (step.status !== 'completed' || !step.completedAt) continue;
     if (!coverageConfigOf(step.executorConfig)) continue;
+    if (blockedHoldOf(step.executorConfig)) continue;
     if ((step.executorConfig._coverageAppliedAt as string) === step.completedAt) continue;
     evaluateCoverage(step, currentSteps);
     coverageActed = true;
@@ -3095,6 +3177,9 @@ function processWorkflow(workflowId: string) {
       // If routing just fired on this dependency, block normal activation
       // (wait for the routing cycle to complete first)
       if (routingFiredFor.has(depId)) return false;
+
+      // A step blocked on a person lets nothing after it start (see holdStepBlocked).
+      if (blockedHoldOf(dep.executorConfig)) return false;
 
       // A coverage step that has not been read yet, or that is holding for a person, lets
       // nothing after it start — see lib/coverage-loop.ts.
@@ -3171,7 +3256,9 @@ function processWorkflow(workflowId: string) {
 
   // Check if all steps are done (completed, failed, or skipped)
   const terminalStatuses = ['completed', 'failed', 'skipped'];
-  const allDone = currentSteps.every((s) => terminalStatuses.includes(s.status));
+  // …and a step blocked on a person is not done, even as the run's last step.
+  const allDone = currentSteps.every((s) => terminalStatuses.includes(s.status))
+    && !currentSteps.some((s) => blockedHoldOf(s.executorConfig));
   if (allDone) {
     const hasFailed = currentSteps.some((s) => s.status === 'failed');
     const finalStatus = hasFailed ? 'failed' : 'completed';

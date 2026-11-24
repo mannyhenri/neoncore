@@ -51,6 +51,7 @@ export const HEALTH_LABEL: Record<AttentionReason, string> = {
   'tasks-outstanding': 'Tasks still open — keep working or accept?',
   'agent-waiting': 'A cartridge is asking you something',
   'manual-advance': 'Waiting for you to advance',
+  'blocked-on-person': 'A step needs you to do something',
 };
 
 /**
@@ -65,6 +66,7 @@ const TONE: Record<AttentionReason, 'bad' | 'ask'> = {
   'tasks-outstanding': 'ask',
   'agent-waiting': 'ask',
   'manual-advance': 'ask',
+  'blocked-on-person': 'ask',
 };
 
 export interface HealthView {

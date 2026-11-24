@@ -136,7 +136,7 @@ export function AssetBrowser({ card, active, onClose, onChanged, prepareImage = 
   const shown = groups.find((g) => g.group === group) ?? groups[0];
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <div data-asset-browser role="dialog" aria-label={`${card.name} — pictures and sounds`} className="fixed inset-0 z-50 flex flex-col bg-[#070B16]/97 backdrop-blur-sm" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <div data-asset-browser role="dialog" aria-label={`${card.name} — pictures and sounds`} className="fixed inset-0 z-overlay flex flex-col bg-[#070B16]/97 backdrop-blur-sm" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <header className="flex items-start justify-between gap-4 px-6 py-4 border-b border-white/[0.1]">
         <div>
           <h3 className="font-display text-[22px] font-semibold text-white">{card.name} <span className="text-gray-400 font-normal">— pictures and sounds</span></h3>

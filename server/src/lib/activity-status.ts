@@ -25,6 +25,15 @@
 export type ActivityStatus = 'working' | 'waiting';
 
 /**
+ * Agent statuses under which the cartridge is doing work and must not be handed more.
+ * `background`: its turn ended, but work it started is still running (lib/background-tasks.ts).
+ */
+export const BUSY_STATUSES: ReadonlySet<string> = new Set(['working', 'background']);
+
+/** The "waiting for your input" texts — Claude Code's idle_prompt — as opposed to a permission prompt. */
+export const IDLE_PROMPT_PATTERNS = [/\bwaiting\s+for\s+your\s+input\b/i];
+
+/**
  * Events that are unambiguous evidence the cartridge is executing.
  *
  * EXPORTED because it is a registry, not an implementation detail. `closeQuestionsAnsweredElsewhere`

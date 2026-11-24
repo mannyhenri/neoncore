@@ -118,9 +118,9 @@ export function AutonomyControl({ workflowId }: { workflowId: string }) {
       {open && at && createPortal(
         <>
           {/* Click-away. Inside the portal so it covers the page rather than the rail. */}
-          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-overlay" onClick={() => setOpen(false)} />
           <div
-            className="fixed z-[91] w-[360px] glass-dark rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.5)] p-5 space-y-3"
+            className="fixed z-overlay w-[360px] glass-dark rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.5)] p-5 space-y-3"
             style={{ top: at.top, left: at.left }}
           >
           <h3 className="font-display text-lg font-semibold text-gray-100">⚡ Autonomy</h3>

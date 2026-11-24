@@ -16,6 +16,7 @@ import { workflowAgentOptions, isOfflineOption, offlineOptionCount, conferOption
 import { launchBlockers } from '../lib/launchReadiness';
 import { conferLaunchContext } from '../lib/conferLaunch';
 import { RunProgressStrip } from './RunProgress';
+import { RunBackgroundWork } from './BackgroundWork';
 import { progressLine } from '../lib/runProgress';
 import { searchTemplates } from '../lib/templateSearch';
 import { LaunchSchedule, emptySchedule, isScheduledLaunch, scheduleRequest, launchButtonLabel, type LaunchScheduleValue } from './LaunchSchedule';
@@ -1073,7 +1074,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
 
   // Deferred popup — rendered via portal to escape any parent stacking context
   const deferredPopupEl = deferredPopup && createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[640px] max-w-[calc(100vw-32px)] max-h-[85vh] flex flex-col">
         <div className="flex items-start justify-between px-[26px] pt-[26px] pb-2">
           <div>
@@ -1440,6 +1441,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
             </button>
           )}
         </div>
+        <RunBackgroundWork runningAgentIds={wf.stepSummary?.runningAgentIds} agents={agents} className="px-3.5 pt-1" />
         {scheduling && isTemplate && (
           <ScheduleControl
             templateId={wf.id}
@@ -1588,6 +1590,7 @@ function WorkflowRunCard({ workflow: wf, onAction, onOpen, compact, agents, temp
           {/* A task-list run: how many tasks are done, its progress document, and — when it
               stopped with tasks open — the choice only you can make. */}
           <RunProgressStrip wf={wf} onAction={onAction} />
+          <RunBackgroundWork runningAgentIds={wf.stepSummary?.runningAgentIds} agents={agents} />
         </>
       ) : wf.phases.length > 0 ? (
         <>

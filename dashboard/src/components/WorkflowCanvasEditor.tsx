@@ -7,7 +7,8 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { CoverageChoice } from './RunProgress';
+import { CoverageChoice, BlockedChoice } from './RunProgress';
+import { BackgroundWork } from './BackgroundWork';
 import { createPortal } from 'react-dom';
 import {
   ReactFlow,
@@ -1482,7 +1483,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col"
+      className="fixed inset-0 z-overlay bg-black/75 backdrop-blur-sm flex flex-col"
     >
       {/* Main container — stop propagation so clicks inside don't trigger backdrop close */}
       <div
@@ -1743,6 +1744,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
                 step={selectedStep}
                 steps={steps}
                 agentOptions={agentOptions}
+                runningAgent={agents.find((a) => a.id === selectedStep.executorId)}
                 isExecuting={isExecuting}
                 workflowId={savedWorkflowId}
                 onUpdate={(patch) => updateStep(selectedStep.id, patch)}
@@ -1793,7 +1795,7 @@ function CanvasInner({ workflowId, agents, onClose, onSaved }: Props) {
 
       {/* Deferred assignment popup (cartridges + prompts) */}
       {deferredPopup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[640px] max-w-[calc(100vw-32px)] max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.1]">
               <div>
@@ -3411,6 +3413,7 @@ function SidePanel({
   step,
   steps,
   agentOptions,
+  runningAgent,
   isExecuting,
   workflowId,
   onUpdate,
@@ -3423,6 +3426,8 @@ function SidePanel({
   step: LocalStep;
   steps: LocalStep[];
   agentOptions: { id: string; label: string }[];
+  /** The cartridge this step runs on — when its turn ended but its work still runs, say so. */
+  runningAgent?: Agent;
   isExecuting: boolean;
   workflowId?: string;
   onUpdate: (patch: Partial<LocalStep>) => void;
@@ -3844,6 +3849,7 @@ function SidePanel({
               <span className={`w-2 h-2 rounded-full ${STATUS_STYLES[step.status].dot}`} />
               <span className="text-xs text-gray-300 capitalize">{step.status}</span>
             </div>
+            {step.status === 'running' && <BackgroundWork agent={runningAgent} className="mt-1.5" />}
             {/* Tasks still open and no further progress (server lib/coverage-loop.ts). */}
             {step.status === 'completed' && workflowId && (step.executorConfig as Record<string, unknown>)?._coverageHold ? (
               <div className="mt-2">
@@ -3851,6 +3857,16 @@ function SidePanel({
                   workflowId={workflowId}
                   stepId={step.id}
                   detail={String(((step.executorConfig as Record<string, unknown>)._coverageHold as { detail?: string }).detail ?? '')}
+                />
+              </div>
+            ) : null}
+            {/* Blocked on a person (server holdStepBlocked): the ask, then continue or stop. */}
+            {step.status === 'completed' && workflowId && (step.executorConfig as Record<string, unknown>)?._blockedHold ? (
+              <div className="mt-2">
+                <BlockedChoice
+                  workflowId={workflowId}
+                  stepId={step.id}
+                  ask={String(((step.executorConfig as Record<string, unknown>)._blockedHold as { ask?: string }).ask ?? '')}
                 />
               </div>
             ) : null}

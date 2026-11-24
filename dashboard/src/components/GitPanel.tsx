@@ -108,8 +108,7 @@ export function GitPanel({ agent, onClose }: Props) {
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 bg-black/70 flex items-center justify-center p-4"
-      style={{ zIndex: 10000 }}
+      className="fixed inset-0 z-overlay bg-black/70 flex items-center justify-center p-4"
     >
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-3xl mx-2 md:mx-0 max-h-[95vh] md:max-h-[85vh] flex flex-col shadow-2xl">
         {/* Header */}

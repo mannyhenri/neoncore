@@ -432,6 +432,8 @@ export interface ProjectFormData {
   primaryRepo: string;
   color: string;
   cartridges: string[];
+  /** Run when an epic finishes, with every feature's locked tests (epic QA). Epics can override it. */
+  qaCommand?: string;
 }
 
 interface ProjectFormProps {
@@ -455,6 +457,7 @@ export function ProjectForm({ initial, onSave, onCancel }: ProjectFormProps) {
   );
   // The main repo: where documents and saved files land. Defaults to the first repo picked.
   const [primaryRepo, setPrimaryRepo] = useState(initial?.primaryRepo || '');
+  const [qaCommand, setQaCommand] = useState(initial?.qaCommand || '');
   const [adding, setAdding] = useState('');
   // Every repo a cartridge has registered in, with whether one is running there now.
   const [known, setKnown] = useState<{ repo: string; online: boolean }[]>([]);
@@ -549,6 +552,18 @@ export function ProjectForm({ initial, onSave, onCancel }: ProjectFormProps) {
           </div>
         )}
       </div>
+      {/* EPIC QA for any project, web UI or not: this runs with every feature's locked tests when an epic finishes. */}
+      <div>
+        <label htmlFor="project-qa-command" className="block text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-1">QA command <span className="normal-case tracking-normal text-gray-500">(optional)</span></label>
+        <input
+          id="project-qa-command"
+          value={qaCommand}
+          onChange={(e) => setQaCommand(e.target.value)}
+          placeholder="e.g. npm test"
+          className="w-full h-10 px-3 rounded-[10px] glass-input text-[13px] font-mono text-gray-100 placeholder:text-gray-500"
+        />
+        <p className="mt-1 text-[12px] text-gray-500">Runs when an epic finishes, from the repo root, with every feature's acceptance tests; it passes on exit 0. {'{n}'} is the epic's phase number — e.g. bash scripts/run_gates.sh {'{n}'}. An epic can override it.</p>
+      </div>
       <div>
         <label className="block text-[12px] text-gray-500 uppercase tracking-[0.12em] mb-1">Color</label>
         <div className="flex gap-2 flex-wrap">
@@ -566,7 +581,7 @@ export function ProjectForm({ initial, onSave, onCancel }: ProjectFormProps) {
       </div>
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave({ name: name.trim(), description: description.trim(), primaryRepo: main, color, cartridges })}
+          onClick={() => onSave({ name: name.trim(), description: description.trim(), primaryRepo: main, color, cartridges, qaCommand: qaCommand.trim() })}
           disabled={!name.trim()}
           className="h-10 px-4 btn-primary rounded-[10px] text-[13px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
@@ -1161,7 +1176,7 @@ export function Modal({ title, children, onClose }: { title: string; children: R
   return createPortal(
     <div
       data-modal
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-overlay flex items-center justify-center p-4"
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
     >
       <div className="absolute inset-0 bg-ink/75 backdrop-blur-sm" onClick={onClose} />

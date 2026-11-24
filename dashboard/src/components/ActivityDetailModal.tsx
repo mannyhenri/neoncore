@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Activity, Agent } from '../types';
 import SendToCartridgeModal from './SendToCartridgeModal';
+import { Overlay } from './Overlay';
 
 const proseClass = `prose prose-invert prose-sm max-w-none
   prose-p:my-1 prose-p:text-gray-300 prose-p:leading-relaxed
@@ -339,10 +340,11 @@ export function ActivityDetailModal({ activity, agent, agents, onClose }: Activi
   const toolColor = TOOL_COLORS[activity.toolName] || DEFAULT_TOOL_COLOR;
 
   return (
+    <Overlay>
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
-      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      className="fixed inset-0 z-overlay bg-black/70 flex items-center justify-center p-4"
     >
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-full max-w-2xl mx-2 md:mx-0 max-h-[90vh] flex flex-col shadow-2xl">
         {/* ── Header ── */}
@@ -459,6 +461,7 @@ export function ActivityDetailModal({ activity, agent, agents, onClose }: Activi
         />
       )}
     </div>
+    </Overlay>
   );
 }
 

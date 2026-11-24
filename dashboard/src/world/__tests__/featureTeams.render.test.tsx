@@ -24,8 +24,7 @@ vi.mock('../useCrewExtras', () => ({ useCrewExtras: () => extras }));
 
 import { WorldScene } from '../WorldScene';
 import { OUTPOST } from '../sites';
-import { FEATURE_BADGES } from '../milestones';
-import { MAX_PLATES, plateOrder } from '../FeaturePlates';
+import { plateOrder } from '../FeaturePlates';
 
 const iso = () => new Date().toISOString();
 const agent = (over: Partial<Agent> & { id: string }): Agent => ({
@@ -67,83 +66,57 @@ describe('features on the map', () => {
     expect(siteOf('gl-dev-feature-invoice-import').at).toBeTruthy();
   });
 
-  it('every running feature has a plate: its name, its stage, whether it needs you, and its own badges', () => {
-    extras.projects = [atlas];
-    extras.features = [invoice, exportCsv];
-    extras.goals = goalsFor;
-    render(scene([
-      agent({ id: 'wt-gl', repoPath: '/code/gl-dev-feature-invoice-import', repoName: 'gl-dev-feature-invoice-import' }),
-      agent({ id: 'lic', repoPath: '/code/license-server', repoName: 'license-server' }),
-    ]));
-    for (const f of [invoice, exportCsv]) {
-      const plate = document.querySelector<HTMLElement>(`[data-feature-plate="${f.pilotId}"]`);
-      expect(plate, `no plate for ${f.name}`).toBeTruthy();
-      expect(plate!.textContent).toContain(f.name);
-      expect(plate!.textContent).toContain(`${f.stage.position}/${f.stage.total}`);
-      expect(plate!.querySelectorAll('[data-badge]')).toHaveLength(FEATURE_BADGES.length);
-    }
-    expect(document.querySelector('[data-feature-plate="pi2"]')!.textContent).toMatch(/needs you/i);
-    expect(document.querySelector('[data-feature-plate="pi1"]')!.textContent).not.toMatch(/needs you/i);
-  });
-
-  it('a project with features running keeps a small caption; with none, its full plate', () => {
-    extras.projects = [atlas];
-    extras.features = [invoice];
-    const view = render(scene([agent({ id: 'wt-gl', repoPath: '/code/gl-dev-feature-invoice-import', repoName: 'gl-dev-feature-invoice-import' })]));
-    let plate = document.querySelector<HTMLElement>('[data-zone-label]')!;
-    expect(plate.textContent).toContain('Atlas');
-    expect(plate.textContent).not.toContain('1/3');
-    expect(plate.dataset.caption).toBe('true');
-    view.unmount();
-    extras.features = [];
-    render(scene([agent({ id: 'gl', repoPath: '/code/gl-dev', repoName: 'gl-dev' })]));
-    plate = document.querySelector<HTMLElement>('[data-zone-label]')!;
-    expect(plate.textContent).toContain('1/3');
-    expect(plate.dataset.caption).toBeUndefined();
-  });
-
-  it('a feature with no agent on the map yet still shows its plate, on its project\'s district', () => {
-    extras.projects = [atlas];
-    extras.features = [{ ...invoice, agentIds: [] }];
-    render(scene([]));
-    expect(document.querySelector('[data-feature-plate="pi1"]')).toBeTruthy();
-  });
-});
-
-describe('feature plates sit right under their project\'s sign', () => {
-  const feat = (n: number, over: Record<string, unknown> = {}) => ({ ...invoice, pilotId: `px${n}`, goalId: `gx${n}`, name: `Feature ${n}`, stage: { position: n, total: 9, title: 'x' }, agentIds: [], ...over });
-  const stackOf = (projectId: string) => document.querySelector<HTMLElement>(`[data-feature-stack="${projectId}"]`)!;
-
-  it('every plate of a project is in one stack, anchored where its signpost stands — not over its agents', () => {
+  it('features are not drawn on the map: every running feature is in the HUD at the bottom, with its stage and whether it needs you', () => {
     extras.projects = [atlas];
     extras.features = [invoice, exportCsv];
     extras.goals = goalsFor;
     render(scene([agent({ id: 'wt-gl', repoPath: '/code/gl-dev-feature-invoice-import', repoName: 'gl-dev-feature-invoice-import' }), agent({ id: 'lic', repoPath: '/code/license-server' })]));
-    const stack = stackOf('p1');
-    const sign = document.querySelector<HTMLElement>('[data-zone-label]')!;
-    expect(stack.style.left).toBe(sign.style.left);
-    expect(stack.style.top).toBe(sign.style.top);
-    expect([...stack.querySelectorAll('[data-feature-plate]')].map((n) => n.getAttribute('data-feature-plate')).sort()).toEqual(['pi1', 'pi2']);
-    expect(document.querySelectorAll('[data-feature-plate]')).toHaveLength(2);
+    expect(document.querySelector('[data-feature-plate], [data-feature-stack]')).toBeNull();
+    for (const f of [invoice, exportCsv]) {
+      const row = document.querySelector<HTMLElement>(`[data-feature-hud] [data-hud-feature="${f.goalId}"]`);
+      expect(row, `no HUD row for ${f.name}`).toBeTruthy();
+      expect(row!.textContent).toContain(f.name);
+      expect(row!.textContent).toContain(`${f.stage.position}/${f.stage.total}`);
+    }
+    expect(document.querySelector('[data-hud-feature="g2"]')!.textContent).toMatch(/needs you/i);
+    expect(document.querySelector('[data-hud-feature="g1"]')!.hasAttribute('data-needs-you')).toBe(false);
   });
 
-  it(`at most ${MAX_PLATES} plates under a sign, those that need you first — the rest counted`, () => {
-    extras.projects = [atlas];
-    for (const count of [1, MAX_PLATES, MAX_PLATES + 1, 7]) {
-      const list = Array.from({ length: count }, (_, i) => feat(i + 1, i === count - 1 ? { needsYou: 'stopped' } : {}));
-      extras.features = list;
+  it('a project\'s sign carries its name only: no banner of counts and badges on the map, whether or not features are running', () => {
+    for (const features of [[invoice], []]) {
+      extras.projects = [atlas];
+      extras.features = features;
+      extras.goals = goalsFor;
       render(scene([]));
-      const shown = [...stackOf('p1').querySelectorAll('[data-feature-plate]')].map((n) => n.getAttribute('data-feature-plate'));
-      expect(shown).toEqual(plateOrder(list as unknown as (Parameters<typeof plateOrder>[0][number] & { pilotId: string })[]).slice(0, MAX_PLATES).map((f) => f.pilotId));
-      expect(shown[0], 'the one that needs you leads').toBe(`px${count}`);
-      const more = stackOf('p1').querySelector('[data-feature-more]');
-      if (count > MAX_PLATES) expect(more!.textContent).toBe(`+${count - MAX_PLATES} more under way`);
-      else expect(more).toBeNull();
+      const plate = document.querySelector<HTMLElement>('[data-zone-label]')!;
+      expect(plate.textContent).toBe('Atlas');
+      expect(document.querySelector('[data-zone-plaque]')).toBeNull();
+      expect(document.querySelectorAll('.world-scene [data-badge], [data-zone-label] [data-badge]')).toHaveLength(0);
       cleanup();
     }
   });
 
-  it('plate order: needs you first, then furthest along, then by name — for every pair', () => {
+  it('a feature with no agent on the map yet is in the HUD all the same', () => {
+    extras.projects = [atlas];
+    extras.features = [{ ...invoice, agentIds: [] }];
+    render(scene([]));
+    expect(document.querySelector('[data-hud-feature="g1"]')).toBeTruthy();
+  });
+
+  it('the HUD holds the features of EVERY sector, not just the one on screen', () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({ ...atlas, id: `s${i}`, name: `Proj ${i}`, primaryRepo: `/code/r${i}`, cartridges: [`/code/r${i}`], featuresActive: 1 }));
+    extras.projects = five;
+    extras.features = five.map((p, i) => ({ ...invoice, pilotId: `pp${i}`, goalId: `gg${i}`, projectId: p.id, name: `Feature of ${p.name}`, agentIds: [], worktrees: [] }));
+    render(scene([]));
+    const signs = document.querySelectorAll('[data-zone-label]').length;
+    expect(signs, 'more projects than this sector holds').toBeLessThan(5);
+    expect([...document.querySelectorAll('[data-hud-feature]')].map((r) => r.getAttribute('data-hud-feature')).sort()).toEqual(['gg0', 'gg1', 'gg2', 'gg3', 'gg4']);
+  });
+});
+
+describe('the order of features', () => {
+  const feat = (n: number, over: Record<string, unknown> = {}) => ({ ...invoice, pilotId: `px${n}`, goalId: `gx${n}`, name: `Feature ${n}`, stage: { position: n, total: 9, title: 'x' }, agentIds: [], ...over });
+  it('needs you first, then furthest along, then by name — for every pair', () => {
     const a = feat(2), b = feat(5), c = feat(5, { name: 'Alpha' }), d = feat(1, { needsYou: 'x' });
     expect(plateOrder([a, b, c, d] as unknown as (Parameters<typeof plateOrder>[0][number] & { pilotId: string })[]).map((f) => f.pilotId)).toEqual([d.pilotId, c.pilotId, b.pilotId, a.pilotId]);
   });

@@ -40,6 +40,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       NeonCorePush.shared.setLaunchNotification(remote)
     }
 
+    // Look for a newer version of the app's JavaScript on the NeonCore server, for the next
+    // launch (NeonCoreUpdates in NeonCorePush.swift). A few seconds in, off the main thread.
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+      NeonCoreUpdates.checkInBackground()
+    }
+
     return true
   }
 
@@ -105,7 +111,8 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 #if DEBUG
     RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
 #else
-    Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+    // A version downloaded from the NeonCore server for this build, else the one in the app.
+    NeonCoreUpdates.launchBundle() ?? Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif
   }
 }

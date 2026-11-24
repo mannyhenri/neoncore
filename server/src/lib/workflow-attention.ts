@@ -171,6 +171,7 @@ export const ATTENTION_REASONS = [
   'failed',         // the run cannot continue at all
   'interrupted',    // a step's executor died mid-work; needs recovery
   'decision',       // a decision gate is waiting for a choice
+  'blocked-on-person', // a step reported that only a person can unblock it (holdStepBlocked)
   'tasks-outstanding', // a task-list run stopped making progress with tasks still open (lib/coverage-loop.ts)
   'agent-waiting',  // the executing cartridge stopped to ask a question
   'manual-advance', // a step finished but is held for a human to advance
@@ -312,6 +313,25 @@ export const REASONS: readonly ReasonDef[] = [
     },
   },
   {
+    // A step's agent reported BLOCKED: only a person can do what comes next (a gate that needs
+    // sudo, a credential, a locked-test amendment). Like a decision, nothing moves until someone
+    // acts — and NEVER auto-resolved: "continue" means "I did it", which no posture can claim.
+    name: 'blocked-on-person',
+    order: 3.4,
+    autoAt: [],
+    person: true,
+    detect: ({ steps }) => {
+      for (const s of steps) {
+        if (s.status !== 'completed') continue;
+        try {
+          const hold = (JSON.parse(s.executor_config || '{}') as { _blockedHold?: { ask?: string } })._blockedHold;
+          if (hold) return { step: s, detail: hold.ask ? `Blocked — ${hold.ask}` : `"${s.name}" is blocked on you.` };
+        } catch { /* unreadable config holds nothing */ }
+      }
+      return null;
+    },
+  },
+  {
     // A task-list run's coverage check found tasks still open and no further progress to be had
     // by another pass (lib/coverage-loop.ts). Straight after `decision`: like a decision it waits
     // on a choice only a person may make — keep working, or accept the run with work undone.
@@ -431,7 +451,7 @@ export const REASONS: readonly ReasonDef[] = [
         if ((x.result || '').trim()) return false;
         const a = db.prepare('SELECT status, last_seen FROM agents WHERE id = ?').get(x.executor_id) as
           { status?: string; last_seen?: string } | undefined;
-        if (!a || a.status === 'working') return false;
+        if (!a || a.status === 'working' || a.status === 'background') return false;   // background: its own work is running
         // `waiting` is only a genuine block when something is actually outstanding — see
         // `agent-waiting`. Otherwise it is the same abandonment as `idle`, wearing a different
         // label.

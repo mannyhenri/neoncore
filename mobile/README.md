@@ -1,12 +1,12 @@
 # NeonCore Mobile
 
-A **native React Native** companion app for the NeonCore orchestrator. Read what your agents are
-doing, answer their approvals, launch workflows and unblock work — from your phone, over your LAN.
+A **native React Native** companion app for the NeonCore orchestrator. Its job is to **keep the
+ball rolling on projects already under way**: see what needs you and clear it, see where each
+project stands, and start what comes next — from your phone, over your LAN.
 
-> **This app is not an Expo app.** It was ejected, and `expo-updates`, EAS and Expo Go are all
-> gone. If you find instructions here or elsewhere that say `npx expo start`, `expo prebuild` or
-> "OTA update", they are wrong — see [RELEASE.md](RELEASE.md) for why the eject was necessary and
-> what replaced each piece.
+> **This app is not an Expo app.** It was ejected; `expo-updates`, EAS and Expo Go are gone.
+> Updates now come **over the air from your own NeonCore server** (`npm run ota:publish`) — see
+> [RELEASE.md](RELEASE.md) for that and for native builds (`npm run ios:release`).
 
 **Scope:** LAN-only · iOS · no cloud relay, by design.
 
@@ -16,21 +16,21 @@ doing, answer their approvals, launch workflows and unblock work — from your p
 
 The app follows the dashboard's design, **Night Glass** (`docs/DESIGN.md`): near-black page, dark
 panels with thin blue-grey borders, neon blue for what is live or selected, ember orange for what
-needs you, segmented meters. Every colour comes from `src/theme.ts`; there is no logo — the header
-is the name, and the app icon and launch screen are a neon "N" on the page colour.
+needs you, segmented meters. Every colour comes from `src/theme.ts`; the mark is the **captain's
+head in a neon ring** (from the dashboard's captain art) — on the app icon, the launch screen and
+beside the name in the header. Regenerate every size from the art with
+`python3 scripts/world/make_app_icon.py`.
 `src/__tests__/night-glass.test.ts` fails if the retired violet/pink look or the old logo mark
 comes back.
 
-The drawn art is the dashboard's, not a second set:
+The drawn art is the dashboard's, not a second set: the **captain** on the Needs-you bridge panel
+(calling when something waits on you) and on each project in its rank's costume, the seven
+**feature badges** on every banner, and the **rank plate** (stars and title). Badges and captains
+load from the server, so a custom theme shows on the phone too.
 
-- **Agents** opens on the pixel-art **map** (`src/world/WorldMap.tsx`): every live agent as an
-  animated character at its project's pod, in the one look its state has. Tap an agent to open
-  it; **List** is one tap away and the phone remembers which you left it on.
-- **Goals, Workflows, Tasks and Tokens** each open with their ship deck (`src/world/DeckPost.tsx`):
-  the captain, the engineer, the quartermaster and the power core, with three readouts.
-
-The rules that decide what a figure does and where it stands are **imported from the dashboard**
-(`dashboard/src/world/`), so the two screens cannot drift. The images are copied and halved by
+The badge list, the scenery sprite registry and the captain sheets are **imported from the
+dashboard** (`dashboard/src/world/milestones.ts`, `kit.generated.ts`, `bridge/bridge.generated.ts`),
+so the two cannot drift. The images are copied and halved by
 `python3 scripts/world/sync_mobile_art.py` — run it after rebuilding the dashboard's art.
 
 `npm run bundle:check` bundles the app with Metro without Xcode. Run it before an iOS build: it is
@@ -74,23 +74,21 @@ curl http://<SERVER>:4040/api/health     # → {"status":"ok"}
 
 ## What's on the phone, and what isn't
 
-Six tabs: **Cartridges · Goals · Workflows · Queue · Tasks · Approvals**.
+Four tabs: **Needs you · Projects · In progress · Settings**.
 
-The app is deliberately not a second dashboard. It covers checking and unblocking; authoring stays
-on the desk.
-
-| On the phone | Left on the desktop |
+| Tab | What it does |
 |---|---|
-| Read transcripts (long-press a message to copy) | — |
-| Answer approvals and agent questions | — |
-| Watch goals; pause, resume, mark achieved | Drafting and decomposing goals |
-| Dispatch or cancel a task | Creating and editing tasks |
-| Watch the queue; hold, start, retry an item | Pausing a whole lane |
-| Launch a workflow or a Confer | Authoring workflows on the canvas |
+| **Needs you** (home) | Everything waiting on you across every server, oldest first — agent permission requests, planner questions, plans to accept, tests to approve, stopped pipelines, merges, features to sign off — each with its one action right on the card. |
+| **Projects** | Every project with its captain's rank and progress. Open one for its **Board** (To do · In Progress · QA · Done, with *Passed QA* per epic and *Mark done*) and its **Route** (epics with due dates, late/on-time, *Start next*). |
+| **In progress** | The feature banners with their badges across every sector, and the cartridges working right now (tap one for its transcript). |
+| **Settings** | Servers, the app version, and *Check for an update*. |
 
-The rule behind the split: a goal's intent reaches every working cartridge at dispatch, so
-accepting an AI-drafted field is consequential writing rather than a glance. Long prose and
-multi-field forms want a keyboard.
+A **feature** opens on top: start it (intake prefilled, planner picked), answer the planner's
+questions or leave them to the agents, accept or revise the plan, start the pipeline, resume it,
+approve its tests, merge, mark it done (fireworks included).
+
+The app is deliberately not a second dashboard: authoring (workflows, the queue, tasks, token
+reports, goal drafting) stays on the desk.
 
 ---
 

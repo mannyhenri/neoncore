@@ -399,7 +399,7 @@ export function ProjectPicker() {
 
       {open && at && createPortal(
         <div ref={list} role="listbox" aria-label="Projects" style={{ left: at.left, top: at.top, width: Math.max(360, at.width) }}
-          className="fixed z-50 max-h-[70vh] overflow-y-auto rounded-[14px] border border-white/[0.14] bg-[#0A1020] shadow-[0_18px_50px_rgba(0,0,0,0.65)] p-2 flex flex-col gap-1.5">
+          className="fixed z-overlay max-h-[70vh] overflow-y-auto rounded-[14px] border border-white/[0.14] bg-[#0A1020] shadow-[0_18px_50px_rgba(0,0,0,0.65)] p-2 flex flex-col gap-1.5">
           {projects.length === 0 && unfiled.length === 0 && (
             <p className="text-[13px] text-gray-500 leading-snug px-3 py-3">No projects yet. A project names the work and the repos involved; its features are built one at a time.</p>
           )}

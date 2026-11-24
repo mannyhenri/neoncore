@@ -62,17 +62,7 @@ const SURFACES: Surface[] = [
       { pattern: /cancelTask/, what: 'cancel a task' },
     ],
   },
-  {
-    file: 'mobile/src/screens/QueueScreen.tsx',
-    label: 'mobile queue screen',
-    forbidden: [
-      { pattern: />\s*Queue it\s*</, what: 'an enqueue button' },
-      { pattern: /placeholder="prompt to queue/, what: 'a free-text prompt input' },
-    ],
-    required: [
-      { pattern: /cancelQueueItem/, what: 'cancel an item' },
-    ],
-  },
+  // The phone's Queue screen was retired with its redesign (it no longer shows the queue at all).
 ];
 
 test('the surface list is real — every file exists', () => {

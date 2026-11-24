@@ -35,7 +35,7 @@ import {
   unadvanceStep, undecideStep, executorConfigOf,
 } from './workflow-resolve.js';
 import { recoverStep } from './recovery.js';
-import { continueCoverageWork, acceptCoverage } from './workflow-executor-v2.js';
+import { continueCoverageWork, acceptCoverage, continueBlocked } from './workflow-executor-v2.js';
 import { sendCommandToAgent } from './send-command.js';
 // The single decision path, reused rather than reimplemented. It lives under routes/ because
 // that is where a decision has always been recorded; a second copy is how the dashboard and a
@@ -63,6 +63,8 @@ export const ACTION_PREFIX = {
   undo: 'wfundo',
   /** Tasks still open: `wfcover:<stepId>:continue` (keep working) or `:accept` (accept as is). */
   coverage: 'wfcover',
+  /** Blocked on a person: `wfunblock:<stepId>` — "I did it, run the step again". */
+  unblock: 'wfunblock',
 } as const;
 
 /** The action-id cap. Asserted in the test rather than discovered in production. */
@@ -113,6 +115,9 @@ export function actionsFor(attention: Attention): Notice['actions'] {
         { id: `${ACTION_PREFIX.coverage}:${attention.stepId}:continue`, label: 'Keep working', style: 'primary' },
         { id: `${ACTION_PREFIX.coverage}:${attention.stepId}:accept`, label: 'Accept as is', style: 'danger' },
       ];
+    case 'blocked-on-person':
+      // Stopping the run stays on the dashboard: cancelling is not a one-tap from a phone.
+      return [{ id: `${ACTION_PREFIX.unblock}:${attention.stepId}`, label: 'Done — continue', style: 'primary' }];
     case 'interrupted':
       return [{ id: `${ACTION_PREFIX.recover}:${attention.stepId}`, label: 'Recover', style: 'primary' }];
     // Breakage, an answer in free text, and the watchdog reasons (a quiet or silent cartridge,
@@ -571,6 +576,13 @@ export function registerAttentionActions(): void {
     await reply(r.ok
       ? (choice === 'continue' ? 'Back to work on the open tasks.' : 'Accepted — the run goes on with those tasks open.')
       : `Could not do that: ${r.error}`);
+  });
+
+  registerAction(ACTION_PREFIX.unblock, async ({ payload, reply }) => {
+    const stepId = payload.split(':')[0];
+    if (!stepId) return reply('Malformed unblock action.');
+    const r = continueBlocked(stepId);
+    await reply(r.ok ? 'Unblocked — the step runs again.' : `Could not do that: ${r.error}`);
   });
 
   registerAction(ACTION_PREFIX.recover, async ({ payload, reply }) => {

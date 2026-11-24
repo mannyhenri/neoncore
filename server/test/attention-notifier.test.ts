@@ -76,6 +76,9 @@ const RESOLVABLE: Record<string, 'buttons' | 'told-how'> = {
   // Tasks still open and no further progress: "Keep working" or "Accept as is". Two buttons, and
   // never auto-resolved — no posture may trade "every task" for "some tasks".
   'tasks-outstanding': 'buttons',
+  // A step only a person can unblock: "Done — continue" re-runs it. Stopping the run is left to
+  // the dashboard, not a one-tap from a phone.
+  'blocked-on-person': 'buttons',
   // Nothing a button can fix — the cartridge has to be asked to finish. `advance` and `full`
   // nudge it automatically; a person is told what happened and where.
   'agent-idle': 'told-how',

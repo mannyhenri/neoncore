@@ -147,7 +147,7 @@ function analyzeAgentMemory(agentId: string) {
 export function startMemoryAnalyzer() {
   setInterval(() => {
     const agents = db.prepare(
-      "SELECT id FROM agents WHERE status IN ('working', 'idle') AND last_seen > ?"
+      "SELECT id FROM agents WHERE status IN ('working', 'idle', 'background') AND last_seen > ?"
     ).all(new Date(Date.now() - 10 * 60 * 1000).toISOString()) as { id: string }[];
 
     for (const { id } of agents) {

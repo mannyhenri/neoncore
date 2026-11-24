@@ -1,7 +1,15 @@
 # Releasing the NeonCore iOS app
 
-**This is the process. Build locally with Xcode, upload via Organizer.** No Expo, no EAS, no
-cloud build service. Everything below is on your Mac.
+**Two paths.** A change to JavaScript only (screens, logic, styles, images) ships **over the
+air** from your NeonCore server: `cd mobile && npm run ota:publish`. A change to native code or a
+native dependency needs a **native build**: `npm run ios:release` builds Release and installs it
+on your connected iPhone, signed with your **personal** Apple team (W7QXFS7XBU) — no App Store
+account, no TestFlight. A personal team cannot sign Push Notifications, so this build leaves the
+push entitlement out (`NeonCore.local.entitlements`), and the install expires after **7 days**:
+run it again to renew. No Expo, no EAS, no cloud build service.
+
+> The App Store / TestFlight path below needs a paid team. It was dropped on 2026-11-23 — the
+> Gridlight team's archive was blocked on its Program License Agreement.
 
 ---
 
@@ -19,7 +27,8 @@ no pinning, no patching, and no waiting on upstream.
 
 Two consequences that are permanent:
 
-- **No OTA updates.** `expo-updates` is gone. Every JS change needs a full build + TestFlight.
+- **OTA is our own.** `expo-updates` is gone; NeonCore serves updates itself (see *Over-the-air
+  updates* below), so a JS change no longer needs a build + TestFlight.
 - **Push is APNs-direct.** `server/src/lib/apns-push.ts` talks to Apple over HTTP/2 with an
   ES256 JWT — zero dependencies, no Expo push service. Needs `APNS_KEY_PATH`, `APNS_KEY_ID`,
   `APNS_TEAM_ID` set on the server, using an **APNs Auth Key** (Apple Developer ▸ Keys ▸ Apple
@@ -28,7 +37,34 @@ Two consequences that are permanent:
 
 ---
 
+## Over-the-air updates
+
+The installed app downloads newer JavaScript from **its NeonCore server** (the first server it
+was set up with) and switches to it the next time it opens. Pieces:
+
+| Piece | Where |
+|---|---|
+| Publish | `npm run ota:publish` → `scripts/ota-publish.ts`: bundles for iOS, compiles to Hermes bytecode with the app's own Hermes, writes `mobile/updates/<version>/` (git-ignored) |
+| Serve | `GET /api/mobile/update?runtime=…&current=…&since=…` and `/api/mobile/update/<version>/files/<path>` — `server/src/lib/mobile-updates.ts`, behind the fleet token. **Restart the server** after pulling this the first time. |
+| Install | `NeonCoreUpdates` in `ios/NeonCore/NeonCorePush.swift`: checks 5 s after launch and whenever the app comes to the front, verifies every file's sha256, stages it, and switches on the next launch |
+| Safety | A version that has not reported healthy (`src/ota.ts`, 4 s after start) after 3 launches is rolled back and never offered again. A new native build (new build number) drops every download and starts from the code built into it; an update published before that build is never offered to it. |
+
+**The runtime number.** `OTA_RUNTIME` in `src/ota.ts` must equal `NeonCoreUpdates.runtime` in
+the Swift (a test checks). Bump **both** whenever native code or a native dependency changes —
+then do a native build: JavaScript built for one runtime is never offered to another.
+
+Settings in the app shows the running version and has **Check for an update**.
+
+Updates apply to **Release** builds only (TestFlight, or an Xcode Release run). A Debug build
+loads from Metro as always.
+
+---
+
 ## Release steps
+
+**One command:** `cd mobile && npm run ios:release` (`scripts/build-ios.sh`) does steps 1–4 —
+bumps the build in both configurations, runs `pod install` when needed, archives, and uploads to
+App Store Connect (falls back to opening Organizer if the upload is refused). The manual steps:
 
 ### 1. Bump the version
 
@@ -110,9 +146,9 @@ Export compliance won't prompt — `ITSAppUsesNonExemptEncryption = false` is in
 
 ---
 
-## Automation (not set up)
+## Automation
 
-There is deliberately no fastlane lane. An earlier one existed but was written for the Expo
-workflow (it called `expo prebuild`) and would fail on the ejected app, so it was removed
-rather than left as a trap. If we automate later, it needs an App Store Connect API key
-(`.p8`) and a lane that skips prebuild entirely.
+`scripts/build-ios.sh` (`npm run ios:release`) is the automation: plain `xcodebuild` archive +
+`-exportArchive` upload, signed with the Xcode account you are logged into. There is still no
+fastlane lane — the old one was written for Expo (it called `expo prebuild`) and was removed
+rather than left as a trap.

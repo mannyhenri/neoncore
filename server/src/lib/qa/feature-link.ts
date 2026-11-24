@@ -29,6 +29,7 @@ import { createTest, updateTest, getTest, getRun, resultsOf, listTargets, type Q
 import { startRun } from './engine.js';
 import { evidenceUrl } from './report.js';
 import { QaError } from './types.js';
+import { sweepEpicQa } from './epic-acceptance.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS qa_feature_links (
@@ -298,6 +299,10 @@ let timer: NodeJS.Timeout | null = null;
 /** The sweep runs while the server does (never under test, where a test calls it itself). */
 export function startFeatureQa(intervalMs = 15_000): void {
   if (timer || process.env.NODE_ENV === 'test') return;
-  timer = setInterval(() => { try { sweepFeatureQa(); } catch (err) { console.error('[qa] feature sweep failed:', err); } }, intervalMs);
+  timer = setInterval(() => {
+    try { sweepFeatureQa(); } catch (err) { console.error('[qa] feature sweep failed:', err); }
+    // Epic QA for any project — the locked tests and the QA command, with or without a web UI.
+    try { sweepEpicQa(); } catch (err) { console.error('[qa] epic sweep failed:', err); }
+  }, intervalMs);
   timer.unref?.();
 }

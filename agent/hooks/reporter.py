@@ -115,6 +115,16 @@ def main():
         "toolResult": tool_result,
     }
 
+    # Background work still in flight when the turn ends (Claude Code's documented Stop/SubagentStop
+    # `background_tasks`: id, type, status, description, …). NeonCore shows the cartridge as
+    # `background` instead of idle/waiting while it runs (server/src/lib/background-tasks.ts).
+    # Sent only when Claude Code sent it: an absent field is "unknown", not "nothing running".
+    if hook_event in ("Stop", "SubagentStop") and isinstance(d.get("background_tasks"), list):
+        activity["backgroundTasks"] = [
+            {k: (t[k][:500] if isinstance(t[k], str) else t[k]) for k in ("id", "type", "status", "description", "command", "agent_type", "name") if t.get(k) is not None}
+            for t in d["background_tasks"] if isinstance(t, dict)
+        ][:50]
+
     # For UserPromptSubmit, override eventType so dashboard shows it as user prompt
     if hook_event == "UserPromptSubmit":
         user_text = d.get("prompt", "")

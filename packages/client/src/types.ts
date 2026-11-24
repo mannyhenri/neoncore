@@ -41,7 +41,7 @@ export interface Agent {
   repoName: string;
   branch: string;
   currentTask: string;
-  status: 'working' | 'idle' | 'waiting' | 'offline';
+  status: 'working' | 'idle' | 'waiting' | 'offline' | 'background';
   trustMode: boolean;
   plansIncluded: boolean;
   mode: AgentMode;
@@ -65,6 +65,12 @@ export interface Agent {
    * field at all, and a missing field must read as "fine", not as a type error.
    */
   standardState?: '' | 'needs_review';
+  /**
+   * Work this cartridge started that is still running after its turn ended (status 'background'):
+   * a background shell, Monitor, subagent or workflow, from the Stop hook's background_tasks.
+   * Optional: older servers do not send it.
+   */
+  background?: { taskId: string; kind: string; description: string; startedAt: string; deadlineAt: string }[];
   /**
    * Which model this cartridge runs, as the capability router keys on it. Reported by
    * the engine in its trouble-signal payload, NOT at registration — the relay registers
@@ -271,6 +277,8 @@ export interface StepSummary {
   stepNames?: string[];
   /** Deduplicated list of project/repo names for assigned executor agents */
   projects?: string[];
+  /** The agent running each running step right now — the run card shows its background work. */
+  runningAgentIds?: string[];
 }
 
 export interface Workflow {
@@ -342,7 +350,7 @@ export interface CommandTemplate {
  * Named once here so the run badge and the goal rollup cannot describe the same state
  * with two different vocabularies.
  */
-export type AttentionReason = 'failed' | 'interrupted' | 'decision' | 'tasks-outstanding' | 'agent-waiting' | 'manual-advance';
+export type AttentionReason = 'failed' | 'interrupted' | 'decision' | 'tasks-outstanding' | 'agent-waiting' | 'manual-advance' | 'blocked-on-person';
 
 /** Derived completion for a goal. See server/src/lib/goal-progress.ts. */
 export interface GoalProgress {
@@ -910,6 +918,8 @@ export interface PortfolioSummary {
 export interface Project {
   /** When it was archived ('' = in use): off the map and the lists until restored. */
   archivedAt?: string;
+  /** The command that proves each epic as a whole (the phase gate); an epic may override it. */
+  qaCommand?: string;
   id: string;
   goalId: string | null;
   goalName?: string;
@@ -1343,6 +1353,10 @@ export interface SpecFeature {
   targetDate: string;
   /** Where the person placed it on the roadmap ('' = automatic). */
   lane: '' | 'todo' | 'progress' | 'qa';
+  /** Its epic, and that epic's QA (server project-spec.ts epicQaOf): a done feature is Done on the Board once its epic passed QA. */
+  epicId?: string;
+  epicName?: string;
+  epicQa?: 'none' | 'open' | 'waiting' | 'passed';
   /** The roadmap column it is in, decided by the server — null for an existing feature (not on the roadmap). */
   column: 'todo' | 'progress' | 'qa' | 'done' | null;
   completedAt: string | null;
@@ -1498,6 +1512,13 @@ export interface FeatureNeeds {
 }
 
 export interface RoadmapEpic {
+  /** Its QA as a whole: none · open (a feature not done) · waiting (all done, not QA'd) · passed. */
+  qa?: 'none' | 'open' | 'waiting' | 'passed';
+  qaPassedAt?: string;
+  /** Its epic QA run for the current finish — null when it has not run since the epic finished. */
+  qaRun?: EpicQaRunSummary | null;
+  /** The epic's own QA command ('' = the project's default applies). */
+  qaCommand?: string;
   id: string;
   name: string;
   outcome: string;
@@ -1642,4 +1663,65 @@ export interface NeedsYouItem {
   goalId: string;
   pilotId: string;
   workflowId: string;
+}
+
+// ── Epic QA for any project (server lib/qa/epic-acceptance.ts, epic-qa-store.ts) ──
+
+export type EpicQaRunStatus = 'running' | 'passed' | 'failed' | 'error' | 'no-tests';
+export type EpicQaCheckKind = 'test' | 'command' | 'qa-command' | 'tamper' | 'checklist';
+
+/** What a roadmap epic carries: its QA run for the current finish, short. */
+export interface EpicQaRunSummary {
+  id: string;
+  status: EpicQaRunStatus;
+  passing: number;
+  total: number;
+  /** When it started. */
+  at: string;
+  finishedAt: string;
+  failing: { feature: string; criterionId: string; kind: EpicQaCheckKind; text: string }[];
+  /** Why Passed QA is not allowed — null when it is. */
+  blockedReason: string | null;
+}
+
+export interface EpicQaCheck {
+  kind: EpicQaCheckKind;
+  goalId: string;
+  feature: string;
+  criterionId: string;
+  text: string;
+  command: string;
+  passed: boolean;
+  exitCode: number | null;
+  timedOut: boolean;
+  output: string;
+  durationMs: number;
+}
+
+export interface EpicQaRun {
+  id: string;
+  epicId: string;
+  projectId: string;
+  forFinishedAt: string;
+  status: EpicQaRunStatus;
+  checks: EpicQaCheck[];
+  passing: number;
+  total: number;
+  summary: string;
+  error: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+/**
+ * A workflow step blocked on a person — `step.executorConfig._blockedHold`, set when the agent
+ * reported `blocked` (server holdStepBlocked). The step shows as completed with a result starting
+ * "BLOCKED: "; nothing after it runs until `resolveBlockedStep(…, 'continue' | 'stop')`.
+ */
+export interface BlockedHold {
+  /** What the person must do, in the agent's words. */
+  ask: string;
+  /** The agent that reported it. */
+  by: string;
+  at: string;
 }

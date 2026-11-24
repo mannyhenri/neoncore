@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor, cleanup, screen } from '@testing-library/react';
 import type { SpecFeature } from '../../types';
 
-const calls = vi.hoisted(() => ({ getProjectSpec: vi.fn(), getProjectImports: vi.fn(), updateGoal: vi.fn() }));
+const calls = vi.hoisted(() => ({ getProjectSpec: vi.fn(), getProjectImports: vi.fn(), updateGoal: vi.fn(), setEpicQa: vi.fn(), getEpicQa: vi.fn(), runEpicQa: vi.fn() }));
 vi.mock('../../lib/api', () => ({ api: calls }));
 const party = vi.hoisted(() => ({ celebrateFeature: vi.fn() }));
 vi.mock('../../lib/celebrate', () => party);
@@ -37,7 +37,7 @@ const col = (k: string) => document.querySelector<HTMLElement>(`[data-board-colu
 beforeEach(() => {
   window.localStorage.setItem(ROADMAP_TAB_KEY, 'board');
   party.celebrateFeature.mockClear();
-  calls.getProjectSpec.mockResolvedValue(SPEC); calls.getProjectImports.mockResolvedValue([]); calls.updateGoal.mockResolvedValue({});
+  calls.getProjectSpec.mockResolvedValue(SPEC); calls.getProjectImports.mockResolvedValue([]); calls.updateGoal.mockResolvedValue({}); calls.setEpicQa.mockReset().mockResolvedValue({});
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.localStorage.clear(); });
 
@@ -88,6 +88,42 @@ describe('the Board', () => {
     await mount();
     const ids = (k: string) => [...col(k).querySelectorAll('[data-board-card]')].map((n) => n.getAttribute('data-board-card'));
     expect([ids('todo'), ids('progress'), ids('qa'), ids('done')]).toEqual([['x1', 'l'], ['n'], [], ['h']]);
+  });
+
+  it('EPIC QA: a done feature whose epic has not passed QA waits in QA, under its epic — "Passed QA" when every feature is done; never dragged to Done on its own', async () => {
+    const q = (id: string, epicId: string, epicName: string, epicQa: string, status: SpecFeature['status'] = 'done') => ({ ...f(id, status, status === 'done' ? 'qa' : 'todo'), epicId, epicName, epicQa });
+    calls.getProjectSpec.mockResolvedValue({ ...SPEC, features: [
+      q('w1', 'e0', 'Phase 0', 'waiting'), q('w2', 'e0', 'Phase 0', 'waiting'),
+      q('o1', 'e1', 'Phase 1', 'open'), q('o2', 'e1', 'Phase 1', 'open', 'planned'),
+      f('g', 'delivered', 'qa'), { ...f('h', 'done', 'done'), epicQa: 'passed', epicId: 'e9', epicName: 'Old' },
+    ] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // Phase 0's QA run passed, so Passed QA is allowed (a failed or missing run blocks it).
+    calls.getEpicQa.mockResolvedValue({ run: null, current: { id: 'r', status: 'passed', passing: 2, total: 2, at: '', finishedAt: '', failing: [], blockedReason: null } });
+    const { onChanged } = await mount();
+    const qa = col('qa');
+    expect([...qa.querySelectorAll('[data-epic-qa]')].map((n) => n.getAttribute('data-epic-qa'))).toEqual(['e0', 'e1']);
+    const ready = qa.querySelector<HTMLElement>('[data-epic-qa="e0"]')!;
+    expect(ready.textContent).toContain('Phase 0');
+    expect([...ready.querySelectorAll('[data-board-card]')].map((n) => n.getAttribute('data-board-card'))).toEqual(['w1', 'w2']);
+    const notYet = qa.querySelector<HTMLElement>('[data-epic-qa="e1"]')!;
+    expect(notYet.querySelector('[data-epic-pass-qa]'), 'not every feature done: nothing to sign off yet').toBeNull();
+    expect(notYet.textContent).toContain('1 feature still to finish');
+    for (const id of ['w1', 'w2', 'o1']) expect(document.querySelector(`[data-board-card="${id}"] [data-qa-waiting]`), id).not.toBeNull();
+    expect(document.querySelector('[data-board-card="g"] [data-qa-waiting]'), 'delivered, not yet marked done: no epic wait').toBeNull();
+    expect([...col('done').querySelectorAll('[data-board-card]')].map((n) => n.getAttribute('data-board-card'))).toEqual(['h']);
+    // Dragged to Done on its own: refused, with what to do.
+    const data = new Map<string, string>();
+    const dt = { setData: (k: string, v: string) => data.set(k, v), getData: (k: string) => data.get(k) ?? '', effectAllowed: '' };
+    fireEvent.dragStart(document.querySelector('[data-board-card="w1"]')!, { dataTransfer: dt });
+    fireEvent.drop(col('done'), { dataTransfer: dt });
+    await waitFor(() => expect(screen.getByText(/moves to Done when its epic passes QA/)).toBeTruthy());
+    expect(calls.updateGoal).not.toHaveBeenCalled();
+    // Passed QA: one call for the epic.
+    await waitFor(() => expect(ready.querySelector<HTMLButtonElement>('[data-epic-pass-qa]')!.disabled).toBe(false));
+    fireEvent.click(ready.querySelector('[data-epic-pass-qa]')!);
+    await waitFor(() => expect(calls.setEpicQa).toHaveBeenCalledWith('e0', true));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 
   it('Chart or Board: the last one used is where the tab opens', async () => {

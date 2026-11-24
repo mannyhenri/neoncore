@@ -59,13 +59,8 @@ const ARTEFACTS = [
         dir: 'dashboard/src', entry: 'dashboard/src/components/TasksPage.tsx', mounts: '<QueuePanel',
         calls: ['getQueue', 'startQueueItem', 'moveQueueItem', 'pauseQueueItem', 'resumeQueueItem', 'cancelQueueItem', 'retryQueueItem', 'removeQueueItem', 'pauseQueueLane', 'resumeQueueLane', 'tickQueue'],
       },
-      {
-        // Pause/resume/tick are desk work and deliberately absent from a phone. `startQueueItem`
-        // is NOT desk work: seeing a queue stalled behind a busy cartridge and saying "go anyway"
-        // is the most phone-shaped action the queue has, so it ships on both surfaces.
-        dir: 'mobile/src', entry: 'mobile/App.tsx', mounts: '<QueueScreen',
-        calls: ['getQueue', 'startQueueItem', 'moveQueueItem', 'pauseQueueItem', 'resumeQueueItem', 'cancelQueueItem', 'retryQueueItem'],
-      },
+      // The phone's Queue screen was retired with its redesign (it keeps project work moving;
+      // the queue is desk work), so mobile is no longer a queue surface.
     ],
     /**
      * Client functions with NO UI caller, by design rather than by omission.

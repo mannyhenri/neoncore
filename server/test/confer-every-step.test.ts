@@ -114,7 +114,7 @@ const LAUNCH_SURFACES = [
   { file: 'dashboard/src/components/WorkflowCanvasEditor.tsx',  picks: 'deferredAssignments' },
   // V6: the project's "run a workflow" launcher moved from GoalsPage to ProjectParts.
   { file: 'dashboard/src/components/ProjectParts.tsx',          picks: 'agentId' },
-  { file: 'mobile/src/screens/WorkflowsScreen.tsx',             picks: 'agentId + per-step' },
+  // The phone's Workflows launcher was retired with its redesign: launching stays on the desk.
 ] as const;
 
 test('the launch-surface set is real — each one does let a human pick cartridges', () => {
@@ -125,7 +125,7 @@ test('the launch-surface set is real — each one does let a human pick cartridg
     .map((s) => s.file);
   assert.deepEqual(notPickers, [],
     `listed as cartridge pickers but assign none: ${notPickers.join(', ')}`);
-  assert.equal(LAUNCH_SURFACES.length, 4, 'the launcher set changed — update it deliberately');
+  assert.equal(LAUNCH_SURFACES.length, 3, 'the launcher set changed — update it deliberately');
 });
 
 test('EVERY launch surface can start a run-level confer', () => {

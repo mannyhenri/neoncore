@@ -27,6 +27,7 @@ import type { TranscriptEvent, TranscriptEngine, TranscriptRole, TurnUsage } fro
 import { clearInterruptOnLife } from '../lib/recovery.js';
 import { relaunchSessionNatively } from '../lib/native-relaunch.js';
 import { KNOWLEDGE_FILES } from '../lib/knowledge-files.js';
+import { openBackgroundTasks, hasOpenBackground } from '../lib/background-tasks.js';
 
 const router = Router();
 
@@ -107,7 +108,10 @@ router.post('/:id/restore', (req, res) => {
 function turnEnded(agentId: string): void {
   onTurnEnded(agentId);   // records the turn end; types any /clear a fresh-session step is owed
   noteTurnEndedForSilence(agentId);   // stored: a Goal Pilot request is judged by it (requestWentSilent)
-  const changed = db.prepare("UPDATE agents SET status = 'idle' WHERE id = ? AND status = 'working'").run(agentId).changes;
+  // A turn that ended with background work running is `background`, not idle (lib/background-tasks.ts).
+  const changed = db.prepare(
+    "UPDATE agents SET status = CASE WHEN ? THEN 'background' ELSE 'idle' END WHERE id = ? AND status = 'working'",
+  ).run(hasOpenBackground(agentId) ? 1 : 0, agentId).changes;
   if (changed) {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Record<string, unknown> | undefined;
     if (row) getIO().emit('agent_updated', normalizeAgent(row));
@@ -750,11 +754,20 @@ router.post('/plan-executed', (req, res) => {
 router.post('/completion-check', (req, res) => {
   const { sessionId, agentType, finalText, stopHookActive } = req.body || {};
   try {
+    // Background work still running (the Stop activity, posted just before this, reconciled the
+    // list — lib/background-tasks.ts): the turn paused, it did not end.
+    const stopping = sessionId
+      ? (agentType
+          ? db.prepare('SELECT id FROM agents WHERE session_id = ? AND agent_type = ? LIMIT 1').get(sessionId, agentType)
+          : db.prepare('SELECT id FROM agents WHERE session_id = ? LIMIT 1').get(sessionId)) as { id: string } | undefined
+      : undefined;
+    const backgroundOpen = stopping ? hasOpenBackground(stopping.id) : false;
     const decision = evaluateStop(db, {
       sessionId: sessionId || '',
       agentType: agentType || undefined,
       finalText: finalText || '',
       stopHookActive: Boolean(stopHookActive),
+      backgroundOpen,
     });
 
     if (decision.decision === 'block') {
@@ -776,7 +789,13 @@ router.post('/completion-check', (req, res) => {
       if (who) recordQueueCompletion(who.id, true, 'work-standard completion report filed');
     }
 
-    if (decision.decision === 'allow') {
+    if (decision.decision === 'allow' && backgroundOpen && !decision.cleared) {
+      // Paused on its own work: `background`, and NOT the end of the turn — no /clear typed for a
+      // fresh-session step, no silence clock started, no queue advance. The next turn (when the
+      // work reports back) ends the usual way. A trailing question is not surfaced either: the
+      // agent is not waiting on you.
+      if (stopping) db.prepare("UPDATE agents SET status = 'background' WHERE id = ? AND status IN ('working', 'idle')").run(stopping.id);
+    } else if (decision.decision === 'allow') {
       const question = detectTrailingQuestion(finalText || '');
       if (question) {
         db.prepare(
@@ -1039,6 +1058,8 @@ function normalizeAgent(row: Record<string, unknown>): Agent {
     // Which model this cartridge runs. The capability router looks a profile up by
     // this id, so an agent whose model is unknown routes every function to frontier.
     model: (row.model ?? '') as string,
+    // Work still running after the turn ended (status 'background') — lib/background-tasks.ts.
+    background: row.id ? openBackgroundTasks(String(row.id)) : [],
   };
 }
 

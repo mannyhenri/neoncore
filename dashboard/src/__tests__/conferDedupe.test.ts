@@ -107,9 +107,11 @@ describe('every surface that lists confers beside runs applies the rule', () => 
       + 'is listed beside the run that already represents it').toEqual([]);
   });
 
-  it('the phone keys its own copy on workflowId', () => {
+  it('the phone keys its own copy on workflowId, wherever it lists confers', () => {
+    // Since its redesign the phone lists no confers at all (its Workflows feed was retired), so
+    // the set may be empty. The scan itself is proven on the desk above; any phone surface that
+    // lists confers again must apply the rule.
     const found = surfaces(path.join(root, 'mobile/src'));
-    expect(found.length, 'no phone surface lists confers — the scan is not scanning').toBeGreaterThan(0);
     const offenders = found.filter((f) => !/workflowId/.test(code(f)));
     expect(offenders.map((f) => path.relative(root, f)),
       'these phone surfaces list confers without checking workflowId, so a workflow confer '

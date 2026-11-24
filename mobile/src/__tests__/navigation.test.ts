@@ -3,69 +3,31 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Every destination in the tab bar must actually render something.
+ * Every destination in the tab bar must actually render something, and every pushed screen
+ * must hide the chrome and have a way back.
  *
- * This is the gap class that started all of this: the phone had no Goals or Tasks surface
- * at all while the web did, and nothing failed — a missing screen is silence, not an
- * error. A tab wired to no route is the same silence one step later, and it is the exact
- * mistake that adding six tabs by hand invites.
- *
- * The TabBar's own comment records the earlier version of this bug: destinations that
- * existed but could not be seen went unused.
+ * The phone's role is to keep the ball rolling on projects under way, so its bar is four
+ * destinations — Needs you (the home), Projects, In progress, Settings — and the rest opens on
+ * top of them: a project (Board · Route), a feature, a run, a cartridge. A missing screen is
+ * silence, not an error, which is why this is pinned here.
  */
 
 const ROOT = path.join(import.meta.dirname, '..', '..');
 const APP = fs.readFileSync(path.join(ROOT, 'App.tsx'), 'utf8');
 const TABBAR = fs.readFileSync(path.join(ROOT, 'src/components/TabBar.tsx'), 'utf8');
-const SHEET = fs.readFileSync(path.join(ROOT, 'src/components/MoreSheet.tsx'), 'utf8');
 
-/** Names from one declaration block, as the source declares them — not as this test remembers. */
-function namesIn(marker: string): string[] {
-  const start = TABBAR.indexOf(marker);
-  if (start < 0) return [];
-  const block = TABBAR.slice(start, TABBAR.indexOf('];', start));
-  return [...block.matchAll(/name:\s*'([^']+)'/g)].map((m) => m[1]);
-}
-
-/**
- * The bar is TWO TIERS now: five primary tabs, the fifth of which opens a sheet holding the
- * rest. `more` is the one entry that is NOT a destination — it opens the sheet — so every
- * check below reasons about the union of real destinations rather than about one array.
- *
- * The original gap this file guards is unchanged: a destination that renders nothing is
- * silence, not an error. The regroup adds a second way to be silent — a destination that is
- * in neither tier, reachable from nowhere — so that is now asserted too.
- */
-const primary = namesIn('const TABS');
-const more = namesIn('export const MORE_TABS');
-const destinations = [...primary.filter((t) => t !== 'more'), ...more];
+const tabs = (() => {
+  const start = TABBAR.indexOf('export const TABS');
+  return [...TABBAR.slice(start, TABBAR.indexOf('];', start)).matchAll(/name:\s*'([^']+)'/g)].map((m) => m[1]);
+})();
 
 describe('the tab bar and the router agree', () => {
-  const tabs = destinations;
-
-  it('finds both tiers (a parse failure here would assert nothing)', () => {
-    expect(primary.length, 'no primary tabs parsed').toBeGreaterThanOrEqual(4);
-    expect(more.length, 'no More entries parsed').toBeGreaterThanOrEqual(2);
-    expect(tabs).toContain('goals');
-    expect(tabs).toContain('tasks');
-    expect(tabs).toContain('tokens');
+  it('is the four destinations the phone is for, Needs you first', () => {
+    expect(tabs).toEqual(['needs', 'projects', 'progress', 'settings']);
   });
 
-  it('keeps the bar to five — the reason the More pile exists at all', () => {
-    // Each tab is flex:1. Six was already shrinking "Cartridges" to fit on a 320pt phone;
-    // seven would make every label illegible to save one tap on a reference surface.
-    expect(primary.length, `the bar declares ${primary.length} tabs: ${primary.join(', ')}`).toBeLessThanOrEqual(5);
-    expect(primary, 'the bar must offer a way to reach the rest').toContain('more');
-  });
-
-  it('routes nothing to `more` — it opens a sheet, it is not a destination', () => {
-    expect(APP.includes("route.name === 'more'"), '`more` must not be a route').toBe(false);
-  });
-
-  it('renders every More entry in the sheet, so none is reachable from nowhere', () => {
-    // MORE_TABS is passed to MoreSheet as `items` and mapped; the sheet must actually map them.
-    expect(APP, 'App.tsx must hand MORE_TABS to the sheet').toContain('MORE_TABS');
-    expect(SHEET, 'the sheet must render its items').toMatch(/items\.map\(/);
+  it('opens on Needs you', () => {
+    expect(APP).toMatch(/useState<Route>\(\{ name: 'needs' \}\)/);
   });
 
   it('renders a screen for every tab', () => {
@@ -73,32 +35,50 @@ describe('the tab bar and the router agree', () => {
     expect(missing, `tabs with no route in App.tsx: ${missing.join(', ')}`).toEqual([]);
   });
 
-  it('declares every tab in the Route union, so a typo cannot compile', () => {
-    const missing = tabs.filter((t) => !APP.includes(`{ name: '${t}'`));
-    expect(missing, `tabs missing from the Route union: ${missing.join(', ')}`).toEqual([]);
+  it('keeps every tab name in TabName', () => {
+    const at = TABBAR.indexOf('export type TabName');
+    const union = TABBAR.slice(at, TABBAR.indexOf(';', at));
+    expect(tabs.filter((t) => !union.includes(`'${t}'`))).toEqual([]);
   });
 
-  it('keeps every tab name in TabName', () => {
-    const union = TABBAR.slice(TABBAR.indexOf('export type TabName'), TABBAR.indexOf(';', TABBAR.indexOf('export type TabName')));
-    const missing = tabs.filter((t) => !union.includes(`'${t}'`));
-    expect(missing, `tabs missing from TabName: ${missing.join(', ')}`).toEqual([]);
+  it('has no More pile: nothing hides behind a fifth tab', () => {
+    expect(TABBAR).not.toMatch(/MORE_TABS|'more'/);
+    expect(APP).not.toMatch(/MoreSheet/);
+  });
+
+  it('does not offer the retired destinations', () => {
+    for (const gone of ['QueueScreen', 'WorkflowsScreen', 'TasksScreen', 'TokensScreen', 'GoalsScreen', 'CartridgeListScreen', 'ApprovalsScreen']) {
+      expect(APP, `${gone} is retired`).not.toContain(gone);
+    }
   });
 });
 
 describe('pushed screens', () => {
-  /**
-   * A pushed screen draws its own back control and must not also get a tab bar — two ways
-   * back, one of which silently drops the thing you were looking at.
-   */
-  it('hide the chrome, and every screen with a back button is listed as pushed', () => {
-    const pushed = APP.slice(APP.indexOf('const PUSHED'), APP.indexOf('];', APP.indexOf('const PUSHED')));
-    for (const name of ['detail', 'workflowRun', 'goalDetail']) {
+  const pushed = APP.slice(APP.indexOf('const PUSHED'), APP.indexOf('];', APP.indexOf('const PUSHED')));
+
+  it('lists every screen with its own back control as pushed, and renders each', () => {
+    for (const name of ['project', 'feature', 'workflowRun', 'agent', 'memory']) {
       expect(pushed, `${name} should be a pushed screen`).toContain(`'${name}'`);
+      expect(APP, `${name} has no route`).toContain(`route.name === '${name}'`);
     }
   });
 
-  it('gate both the header and the tab bar on the same list', () => {
-    // Two call sites that must agree; they previously did so by repeating a comparison.
-    expect(APP.match(/!PUSHED\.includes\(route\.name\)/g) ?? []).toHaveLength(2);
+  it('remembers where it came from, so Back returns there', () => {
+    const union = APP.slice(APP.indexOf('type Route ='), APP.indexOf('const PUSHED'));
+    expect(union.match(/; from: Route \}/g)?.length, 'every pushed route carries `from`').toBe(5);
+    expect(APP).toMatch(/const back = /);
+    expect(APP.match(/onBack=\{back\}/g)?.length).toBe(5);
+  });
+
+  it('gates both the header and the tab bar on the same rule', () => {
+    expect(APP.match(/\{isTab\(route\) && </g) ?? []).toHaveLength(2);
+  });
+
+  it('sends an approval push to Needs you, where permission requests now live', () => {
+    expect(APP).toMatch(/onOpenApprovals: \(\) => setRoute\(\{ name: 'needs' \}\)/);
+  });
+
+  it('wires over-the-air updates to the primary server', () => {
+    expect(APP).toMatch(/useUpdates\(serverUrl, serverToken\)/);
   });
 });

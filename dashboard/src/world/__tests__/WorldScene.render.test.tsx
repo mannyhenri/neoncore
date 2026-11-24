@@ -44,7 +44,7 @@ const handlers = {
   onDismiss: noop, onRestore: noop, onDismissStuck: noop,
 };
 
-afterEach(() => { cleanup(); extras.queue = { items: [], lanes: [] }; extras.burn = new Map(); extras.machines = []; extras.projects = []; extras.goals = []; extras.ready = true; live.confers = []; });
+afterEach(() => { cleanup(); extras.queue = { items: [], lanes: [] }; extras.burn = new Map(); extras.machines = []; extras.projects = []; extras.goals = []; extras.ready = true; live.confers = []; Object.assign(extras, { features: [] }); });
 
 describe('WorldScene', () => {
   const agents = [
@@ -567,10 +567,10 @@ describe('WorldScene', () => {
     expect(siteOf('gl-dev').at).not.toBe(siteOf('license-server').at);
     // A repo whose character is on the map needs no name plate: the character says it.
     expect(document.querySelectorAll('[data-building-label]')).toHaveLength(0);
-    // The project's name is on its district, with how far its features are.
+    // The project's name is on its district — the name only: its features are in the HUD along the bottom.
     const plate = document.querySelector<HTMLElement>('[data-zone-label]')!;
-    expect(plate.textContent).toContain('Atlas');
-    expect(plate.textContent).toContain('1/3');
+    expect(plate.textContent).toBe('Atlas');
+    expect(plate.querySelector('[data-zone-plaque]')).toBeNull();
     expect(plate.dataset.zoneLabel).toBe('nw');
     for (const other of ['neoncore', 'scratch']) expect(siteOf(other).district, other).not.toBe('nw');
   });
@@ -813,28 +813,31 @@ describe('WorldScene', () => {
   });
 
   it.each([['scoping', 0], ['clarifying', 1], ['planning', 2], ['proposed', 3], ['staffing', 4], ['running', 5], ['completed', 6]] as const)(
-    'a feature in %s has earned %i badges on its project\'s banner', (phase, n) => {
+    'a feature in %s has earned %i badges on its banner in the HUD — none on the map', (phase, n) => {
       extras.projects = [atlas];
       extras.goals = [{ id: 'g', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T10:00:00Z', pilot: { phase } }];
+      Object.assign(extras, { features: [{ pilotId: 'pi', goalId: 'g', projectId: 'p1', name: 'G', phase, stage: null, needsYou: '', agentIds: [], worktrees: [], branch: '' }] });
       render(scene([]));
-      const row = [...document.querySelectorAll<HTMLElement>('[data-zone-label="nw"] [data-badge]')];
+      expect(document.querySelectorAll('[data-zone-label] [data-badge]')).toHaveLength(0);
+      const row = [...document.querySelectorAll<HTMLElement>('[data-hud-feature="g"] [data-badge]')];
       // Seven places, in the order of the process; the earned ones are lit, the rest are faint.
       expect(row.map((e) => e.dataset.badge)).toEqual(FEATURE_BADGES.map((b) => b.step));
       expect(row.filter((e) => e.dataset.earned === 'true').map((e) => e.dataset.badge)).toEqual(FEATURE_BADGES.slice(0, n).map((b) => b.step));
     });
 
-  it('the banner has no badge row until a feature has been started, shows all seven once one is delivered, and resets when the next starts', () => {
+  it('no badges anywhere until a feature is in progress; then they are on its banner in the HUD, never on the map', () => {
     extras.projects = [atlas];
-    const earned = () => document.querySelectorAll('[data-zone-label="nw"] [data-badge][data-earned="true"]').length;
     const view = render(scene([]));
     expect(document.querySelectorAll('[data-badge]')).toHaveLength(0);
     const done = { id: 'd', projectId: 'p1', status: 'achieved', origin: '', updatedAt: '2026-11-19T09:00:00Z', doneAt: '2026-11-19T09:00:00Z', pilot: { phase: 'completed' } };
     extras.goals = [done];
     view.rerender(scene([]));
-    expect(earned()).toBe(7);
+    expect(document.querySelectorAll('[data-badge]'), 'a delivered feature has no banner').toHaveLength(0);
     extras.goals = [done, { id: 'n', projectId: 'p1', status: 'active', origin: '', updatedAt: '2026-11-19T12:00:00Z', pilot: { phase: 'clarifying' } }];
+    Object.assign(extras, { features: [{ pilotId: 'pn', goalId: 'n', projectId: 'p1', name: 'Next', phase: 'clarifying', stage: null, needsYou: '', agentIds: [], worktrees: [], branch: '' }] });
     view.rerender(scene([]));
-    expect(earned()).toBe(1);
+    expect(document.querySelectorAll('[data-hud-feature="n"] [data-badge][data-earned="true"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-zone-label] [data-badge]')).toHaveLength(0);
     // The earlier design is gone: nothing is placed in the commons, and there is no separate medal.
     expect(document.querySelectorAll('[data-reward], [data-medal]')).toHaveLength(0);
   });
@@ -1044,11 +1047,11 @@ describe('the props on the map', () => {
       expect(imgs).toEqual(['post', 'left', 'right'].map((n) => SIGNPOST.scifi[n as 'post'].src));
       expect(el.querySelector<HTMLElement>('[data-sign-name]')!.style.backgroundImage).toContain(SIGNPOST.scifi.mid.src);
       for (const src of [...imgs, SIGNPOST.scifi.mid.src]) expect(existsSync(resolve(PUBLIC, `.${src}`)), src!).toBe(true);
-      // At its own spot in the pod, taking no clicks; the counts are on the plaque under it.
+      // At its own spot in the pod, taking no clicks; no plaque under it (features are in the HUD).
       const spot = OUTPOST.props[el.dataset.zoneLabel!].sign;
       expect(el.style.top).toBe(`${spot.y * 100}%`);
       expect(el.className).toContain('pointer-events-none');
-      expect(el.querySelector('[data-zone-plaque]')!.textContent).toContain('1/3 features');
+      expect(el.querySelector('[data-zone-plaque]')).toBeNull();
     }
     // The old name plate is gone: a project's name appears once per pod.
     expect(container.querySelectorAll('[data-zone-label]').length).toBe(4);

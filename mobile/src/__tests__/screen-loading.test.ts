@@ -106,7 +106,7 @@ describe('a real socket that accepts the connection and goes silent', () => {
 });
 
 describe('every surface that shows a spinner', () => {
-  // Components too, not just screens: RemoteLaunchModal owns loading state exactly like a
+  // Components too, not just screens: a component can own loading state exactly like a
   // screen does, and a guard that stops at the screens/ directory would have called this
   // set complete while leaving a whole directory of the same pattern unchecked.
   const dirs = ['screens', 'components'].map((d) => path.join(import.meta.dirname, '..', d));
@@ -116,8 +116,9 @@ describe('every surface that shows a spinner', () => {
 
   it('finds the files to check, across both directories', () => {
     expect(screens.length).toBeGreaterThan(15);
-    expect(screens.some((f) => f.endsWith('RemoteLaunchModal.tsx'))).toBe(true);
-    expect(screens.some((f) => f.endsWith('QueueScreen.tsx'))).toBe(true);
+    // The screens that load with a `load` callback and a loading flag — the pattern checked below.
+    expect(screens.some((f) => f.endsWith('ProjectScreen.tsx'))).toBe(true);
+    expect(screens.some((f) => f.endsWith('FeatureScreen.tsx'))).toBe(true);
   });
 
   /**

@@ -67,7 +67,7 @@ export interface Agent {
   repoName: string;
   branch: string;
   currentTask: string;
-  status: 'working' | 'idle' | 'waiting' | 'offline';
+  status: 'working' | 'idle' | 'waiting' | 'offline' | 'background';
   trustMode: boolean;
   plansIncluded: boolean;
   mode: AgentMode;
@@ -89,6 +89,12 @@ export interface Agent {
    * probably half-done and a human should look. '' is the normal state.
    */
   standardState: '' | 'needs_review';
+  /**
+   * Work this cartridge started that is still running after its turn ended (status 'background'):
+   * a background shell, Monitor, subagent or workflow, from the Stop hook's background_tasks.
+   * Optional: older servers do not send it.
+   */
+  background?: { taskId: string; kind: string; description: string; startedAt: string; deadlineAt: string }[];
   /**
    * Which model this cartridge runs, as the capability router keys on it. Reported by
    * the engine in its trouble-signal payload, NOT at registration — the relay registers
@@ -342,6 +348,8 @@ export interface Workflow {
     pending: number;
     stepNames: string[];
     projects: string[];
+    /** The agent running each running step right now (lib/step-summary.ts). */
+    runningAgentIds: string[];
   };
 }
 
@@ -460,6 +468,8 @@ export interface Goal {
 export interface Project {
   /** When it was archived ('' = in use): off the map and the lists until restored. */
   archivedAt?: string;
+  /** The command that proves each epic as a whole (lib/qa/epic-acceptance.ts); an epic may override it. */
+  qaCommand?: string;
   id: string;
   goalId: string | null;
   goalName?: string;

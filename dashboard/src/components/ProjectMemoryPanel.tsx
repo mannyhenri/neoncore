@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import type { Agent, Session, WorkflowReport } from '../types';
 import SendToCartridgeModal from './SendToCartridgeModal';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Overlay } from './Overlay';
 
 interface Props {
   project: string;
@@ -99,7 +100,8 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+    <Overlay>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/70">
       <div className="glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] w-[700px] max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/[0.08]">
@@ -248,6 +250,7 @@ export default function ProjectMemoryPanel({ project, agents, onClose }: Props) 
         />
       )}
     </div>
+    </Overlay>
   );
 }
 

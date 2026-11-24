@@ -108,7 +108,7 @@ describe('the roadmap\'s route view', () => {
     expect(q('[data-epic-editor]')).not.toBeNull();
     fireEvent.change(screen.getByLabelText('Epic due date'), { target: { value: '2027-01-15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(calls.updateEpic).toHaveBeenCalledWith('e3', { name: 'Identity', outcome: 'Identity outcome', icon: '', targetDate: '2027-01-15', dependsOn: [] }));
+    await waitFor(() => expect(calls.updateEpic).toHaveBeenCalledWith('e3', { name: 'Identity', outcome: 'Identity outcome', icon: '', targetDate: '2027-01-15', dependsOn: [], qaCommand: '' }));
     await waitFor(() => expect(q('[data-epic-editor]')).toBeNull());
     fireEvent.click(q('[data-epic-card="e3"] [data-epic-right]')!);
     await waitFor(() => expect(calls.reorderEpics).toHaveBeenCalledWith('p1', ['e1', 'e2', 'e4', 'e3', 'e5', 'e6']));

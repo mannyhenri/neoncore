@@ -139,6 +139,14 @@ with the standard *silent* (`standard: 'silent'`): the gate is offered and arms 
 edit, but the short form below is not appended — the step's completion instruction and the
 tool's schema already carry the contract.
 
+**Blocked on a person is not done.** When only a person can do what comes next — a command that
+needs sudo, a credential, amending a locked test, a human-only gate — the step reports with
+`blocked: "<exactly what they must do>"` instead. It claims nothing done, so it carries no
+`scope`/`verify`. The step holds (`holdStepBlocked`): nothing after it runs, no gate retry is
+spent, the run is not failed, and the person is asked. "Done — continue" runs exactly that step
+again with their note; "stop" cancels the run. Reporting such a step *done* with "NEXT: Person…"
+in the text is what made CE runs fail once every time a person was needed.
+
 ---
 
 ## The short form

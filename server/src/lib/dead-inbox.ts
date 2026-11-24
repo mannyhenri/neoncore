@@ -30,7 +30,7 @@ export function findDeadInboxes(
   const alive = opts.pidAlive ?? pidIsOurs;
   const rows = database.prepare(
     `SELECT id, machine, inbox_pid FROM agents
-      WHERE status IN ('idle', 'waiting', 'working') AND inbox_pid > 0`,
+      WHERE status IN ('idle', 'waiting', 'working', 'background') AND inbox_pid > 0`,
   ).all() as { id: string; machine: string; inbox_pid: number }[];
   return rows
     .filter((r) => isLocalMachine(r.machine) && !alive(r.inbox_pid) && !opts.hasActiveSocket(r.id))

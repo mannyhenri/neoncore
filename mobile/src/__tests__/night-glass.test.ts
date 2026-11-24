@@ -58,11 +58,20 @@ describe('Night Glass on the phone', () => {
     expect(hits).toEqual([]);
   });
 
-  it('the header is a wordmark: no image, one colour', () => {
+  it("the header is the captain's mark and the name — the mark, not the retired logo", () => {
     const header = fs.readFileSync(path.join(ROOT, 'src/components/BrandHeader.tsx'), 'utf8');
-    expect(header).not.toMatch(/<Image\b/);
-    expect(header).not.toMatch(/require\(/);
+    const images = [...header.matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]);
+    expect(images).toEqual(['../../assets/brand/captain-mark.png']);
+    for (const s of ['', '@2x', '@3x']) expect(fs.existsSync(path.join(ROOT, `assets/brand/captain-mark${s}.png`)), `captain-mark${s}.png`).toBe(true);
     expect(header).toMatch(/NeonCore/);
+  });
+
+  it('the launch screen shows the same mark', () => {
+    const board = fs.readFileSync(path.join(ROOT, 'ios/NeonCore/LaunchScreen.storyboard'), 'utf8');
+    expect(board).toMatch(/image="LaunchMark"/);
+    const set = path.join(ROOT, 'ios/NeonCore/Images.xcassets/LaunchMark.imageset');
+    const named = (JSON.parse(fs.readFileSync(path.join(set, 'Contents.json'), 'utf8')) as { images: { filename?: string }[] }).images.map((i) => i.filename);
+    expect(named.filter((f) => !f || !fs.existsSync(path.join(set, f)))).toEqual([]);
   });
 
   /** Decode a PNG far enough to read its pixels (8-bit RGB / RGBA, non-interlaced). */
@@ -110,7 +119,9 @@ describe('Night Glass on the phone', () => {
       if (b > 200 && g > 130 && r < 150) neon++;
       if (r < 24 && g < 24 && b < 32) dark++;
     }
-    expect(pinkish / (w * h), 'pink/violet pixels').toBeLessThan(0.001);
+    // The retired gradient covered most of the icon; the captain's skin and ear shading are a
+    // fraction of a percent, which is why this is not zero.
+    expect(pinkish / (w * h), 'pink/violet pixels').toBeLessThan(0.005);
     expect(neon / (w * h), 'neon pixels').toBeGreaterThan(0.01);
     expect(dark / (w * h), 'near-black background').toBeGreaterThan(0.5);
   });

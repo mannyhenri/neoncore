@@ -71,7 +71,8 @@ describe('the route\'s layout', () => {
       else if (cur === 'under-way' || cur === 'late') expect(r.ship, tag).toEqual({ x: r.stops[at].x, y: r.stops[at].y });
       else { expect(r.ship.x, tag).toBeLessThan(r.stops[at].x); expect(r.ship.x, tag).toBeGreaterThan(at === 0 ? r.launch.x : r.stops[at - 1].x); }
     }
-  });
+  // 2583 layouts: ~3.5 s alone, ~9 s under the full suite's load — past vitest's 5 s default.
+  }, 30_000);
 
   it('a plan too long for the box makes the route wider, never tighter', () => {
     expect(routeLayout(Array(3).fill('planned'), 1300, 380).width).toBe(1300);

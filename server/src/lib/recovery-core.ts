@@ -272,6 +272,9 @@ export function detectInterruptedSteps(
     // on the agent's NEXT activity, and a waiting agent emits nothing until a human acts —
     // the false interrupt would stand for exactly as long as you took to answer.
     if (agent?.status === 'waiting') continue;
+    // Nor is an agent whose turn paused on its own background work (a 10-minute suite under
+    // Monitor makes no tool call either). Past its deadline it goes back to idle, and this applies.
+    if (agent?.status === 'background') continue;
 
     if (!dead) continue;                       // agent still alive/working
     if (opts.isAlive(r.executor_id)) continue; // live socket → not actually dead

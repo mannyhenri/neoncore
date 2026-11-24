@@ -9,6 +9,7 @@ import ProjectMemoryPanel from './ProjectMemoryPanel';
 import SendContextModal from './SendContextModal';
 import { FinalAnswerModal } from './FinalAnswerModal';
 import { api } from '../lib/api';
+import { BackgroundWork } from './BackgroundWork';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -39,6 +40,8 @@ interface CartridgeCardProps {
 // Night Glass status colours: blue = working, ember = needs you, grey = idle, red = offline.
 const STATUS_CONFIG = {
   working: { dot: '#5AAEFF', pill: 'bg-neon-500/[0.18] text-neon-200', label: 'Working' },
+  // Its turn ended but work it started is still running: active, in a calmer blue than working.
+  background: { dot: '#7FB8E8', pill: 'bg-neon-500/[0.10] text-neon-200', label: 'Running in background' },
   idle: { dot: '#8A97B8', pill: 'bg-white/[0.07] text-gray-300', label: 'Idle' },
   waiting: { dot: '#FF8A3D', pill: 'bg-[#FF8A3D]/[0.14] text-ember-300', label: 'Waiting' },
   offline: { dot: '#FF6B6B', pill: 'bg-red-500/[0.12] text-red-300', label: 'Offline' },
@@ -47,6 +50,7 @@ const STATUS_CONFIG = {
 // The card's frame per state: working glows blue, waiting glows ember, everything else is quiet.
 const CARD_FRAME = {
   working: 'border-[#5AAEFF]/[0.34] shadow-[0_0_26px_rgba(90,174,255,0.13)]',
+  background: 'border-[#5AAEFF]/[0.22] shadow-[0_0_20px_rgba(90,174,255,0.08)]',
   waiting: 'border-[#FF8A3D]/[0.55] shadow-[0_0_26px_rgba(255,138,61,0.16)]',
   idle: 'border-[rgba(120,150,255,0.14)]',
   offline: 'border-[rgba(120,150,255,0.10)]',
@@ -618,7 +622,7 @@ export function CartridgeCard({
   const litCells = progress && progress.total > 0
     ? Math.round((SEG_CELLS * Math.min(progress.done, progress.total)) / progress.total)
     : 0;
-  const segColor = effectiveStatus === 'waiting' || stuckAlert ? '#FF8A3D' : effectiveStatus === 'working' ? '#5AAEFF' : '#8A97B8';
+  const segColor = effectiveStatus === 'waiting' || stuckAlert ? '#FF8A3D' : effectiveStatus === 'working' || effectiveStatus === 'background' ? '#5AAEFF' : '#8A97B8';
 
   const iconBtn = 'w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] transition-colors';
   const costLabel = costUsd !== null && costUsd > 0 ? (costUsd >= 1 ? `$${costUsd.toFixed(2)}` : `$${costUsd.toFixed(3)}`) : '';
@@ -719,7 +723,7 @@ export function CartridgeCard({
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full ${status.pill}`}>
             <span
-              className={`w-[7px] h-[7px] rounded-full ${effectiveStatus === 'working' || effectiveStatus === 'waiting' ? 'animate-pulse' : ''}`}
+              className={`w-[7px] h-[7px] rounded-full ${effectiveStatus === 'working' || effectiveStatus === 'waiting' || effectiveStatus === 'background' ? 'animate-pulse' : ''}`}
               style={{ background: status.dot, boxShadow: `0 0 8px ${status.dot}` }}
             />
             {status.label}
@@ -931,6 +935,8 @@ export function CartridgeCard({
             })}
           </div>
         )}
+
+        <BackgroundWork agent={{ status: effectiveStatus, background: agent.background }} now={tick} />
 
         {/* ── Live log ── */}
         <div className="cartridge-terminal overflow-hidden">

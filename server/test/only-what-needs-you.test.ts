@@ -35,7 +35,7 @@ registerChannel({ name: 'collector', isConfigured: () => true, async send(n) { s
 test('every attention reason says whether only a person can clear it', () => {
   assert.deepEqual(REASONS.map((r) => r.name).sort(), [...ATTENTION_REASONS].sort());
   for (const r of REASONS) assert.equal(typeof r.person, 'boolean', `${r.name} does not say whether it needs a person`);
-  for (const must of ['failed', 'interrupted', 'decision', 'tasks-outstanding', 'agent-waiting', 'manual-advance', 'channel-lost']) {
+  for (const must of ['failed', 'interrupted', 'decision', 'tasks-outstanding', 'blocked-on-person', 'agent-waiting', 'manual-advance', 'channel-lost']) {
     assert.ok(PERSON_REASONS.includes(must as Attention['reason']), `${must} needs a person`);
   }
   for (const not of ['agent-idle', 'agent-silent', 'budget-exhaustion', 'autonomy-expiring']) {

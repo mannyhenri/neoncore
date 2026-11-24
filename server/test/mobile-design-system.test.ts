@@ -74,14 +74,16 @@ test('EVERY screen styles with StyleSheet, not inline objects', () => {
 test('the two screens the user called out actually adopt the primitives', () => {
   // The specific ask. Named explicitly so this cannot pass by the primitives merely existing
   // while the screens that needed them keep their hand-rolled versions.
-  for (const screen of ['screens/QueueScreen.tsx', 'screens/ProjectMemoryScreen.tsx']) {
+  // The Queue screen was one of the two; it was retired with the phone's redesign, and In progress
+  // is now the phone's status surface.
+  for (const screen of ['screens/InProgressScreen.tsx', 'screens/ProjectMemoryScreen.tsx']) {
     const src = read(screen);
     assert.match(src, /from '\.\.\/components\/ui'/, `${screen} does not import the shared primitives`);
     assert.match(src, /<Card\b/, `${screen} does not use the shared Card`);
   }
-  // The queue is a status surface; the pill is how status reads on every other screen.
-  assert.match(read('screens/QueueScreen.tsx'), /<StatusPill\b/,
-    'the queue renders status without the shared StatusPill');
+  // A status surface; the pill is how status reads on every other screen.
+  assert.match(read('screens/InProgressScreen.tsx'), /<StatusPill\b/,
+    'In progress renders status without the shared StatusPill');
 });
 
 test('no dead styles left behind', () => {

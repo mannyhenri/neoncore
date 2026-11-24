@@ -4,6 +4,7 @@ import { QueuePanel } from './QueuePanel';
 import { api } from '../lib/api';
 import type { Task, TaskStatus, Agent, Project, QueueItem } from '../types';
 import { orderQueueRows, lanePosition } from '../lib/queueOrder';
+import { Overlay } from './Overlay';
 
 interface TasksPageProps {
   tasks: Task[];
@@ -86,7 +87,8 @@ function CreateTaskModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <Overlay>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div className="relative glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] p-5 w-full max-w-lg shadow-2xl">
         <div className="flex items-center justify-between mb-4">
@@ -161,6 +163,7 @@ function CreateTaskModal({
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }
 
@@ -257,7 +260,8 @@ function TaskDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <Overlay>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center p-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div className="relative glass-dark rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.6)] p-5 w-full max-w-2xl max-h-[88vh] overflow-y-auto shadow-2xl">
         <div className="flex items-center justify-between mb-4">
@@ -434,6 +438,7 @@ function TaskDetailModal({
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }
 

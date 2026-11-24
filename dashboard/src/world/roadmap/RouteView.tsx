@@ -23,7 +23,7 @@ const CANVAS_H = 380;
 const short = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const FEATURE_WORD: Record<RoadmapFeatureState, string> = { delivered: 'Delivered', 'under-way': 'Under way', planned: 'Planned', late: 'Late' };
 
-export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node, destination, ship, editor, onPickFeature, onStart, onAddEpic, onAddFeature, onReorder, onDeleteEpic, onMoveFeature, padBottom }: {
+export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node, destination, ship, editor, onPickFeature, onStart, onAddEpic, onAddFeature, onReorder, onDeleteEpic, onMoveFeature, onPassQa, onQaChanged, padBottom }: {
   chart: Chart; busy: boolean;
   /** The feature whose card is open, if any. */
   selectedFeature: string | null;
@@ -43,6 +43,8 @@ export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node,
   onReorder: (ids: string[]) => void;
   onDeleteEpic: (epic: RoadmapEpic) => void;
   onMoveFeature: (featureId: string, epicId: string) => void;
+  onPassQa?: (epic: RoadmapEpic) => void;
+  onQaChanged?: () => void;
   padBottom?: number;
 }) {
   const stages = useMemo(() => chart.epics.map(epicStage), [chart.epics]);
@@ -181,7 +183,7 @@ export function RouteView({ chart, busy, selectedFeature, iconOf, notesOf, node,
       {chart.epics.length > 0 && (
         <EpicCards chart={chart} stages={stages} selected={shown?.id ?? null} onSelect={pick} selectedFeature={selectedFeature} onPickFeature={onPickFeature}
           iconOf={iconOf} editor={editor} busy={busy} onStart={onStart} onAddEpic={onAddEpic} onAddFeature={onAddFeature}
-          onReorder={onReorder} onDelete={onDeleteEpic} onMoveFeature={onMoveFeature} />
+          onReorder={onReorder} onDelete={onDeleteEpic} onMoveFeature={onMoveFeature} onPassQa={onPassQa} onQaChanged={onQaChanged} />
       )}
 
       {/* features in no epic: not on the route until they are given one */}
