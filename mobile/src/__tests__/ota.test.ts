@@ -58,19 +58,21 @@ describe('updates: the app reports and checks', () => {
     const calls: string[] = [];
     return { calls, otaConfigure: (s, t) => calls.push(`configure ${s} ${t}`), otaMarkHealthy: () => calls.push('healthy'), otaCheckNow: () => calls.push('check'), otaStatus: async () => ({ running: '', next: '', lastCheck: '', lastError: '', runtime: '1', build: '45' }) };
   };
-  it('tells the native side its server, says healthy after a few seconds, and checks whenever the app comes to the front', () => {
+  // A fresh install has no server saved, so the native launch check has nothing to ask: the first
+  // check must come with the server (2026-11-24 — the phone never asked for 0.7.0-20261124.0039).
+  it('tells the native side its server and checks right away, says healthy after a few seconds, and checks whenever the app comes to the front', () => {
     vi.useFakeTimers();
     const n = fake();
     useUpdates('http://mac.local:4040', 'tok', n);
     const cleanups = hooks.effects.map((fx) => fx());
-    expect(n.calls).toEqual(['configure http://mac.local:4040 tok']);
+    expect(n.calls).toEqual(['configure http://mac.local:4040 tok', 'check']);
     vi.advanceTimersByTime(HEALTHY_AFTER_MS - 1);
     expect(n.calls).not.toContain('healthy');
     vi.advanceTimersByTime(1);
     expect(n.calls).toContain('healthy');
     listeners.forEach((l) => l('background'));
     listeners.forEach((l) => l('active'));
-    expect(n.calls.filter((c) => c === 'check')).toHaveLength(1);
+    expect(n.calls.filter((c) => c === 'check')).toHaveLength(2);
     cleanups.forEach((c) => typeof c === 'function' && c());
     vi.useRealTimers();
   });

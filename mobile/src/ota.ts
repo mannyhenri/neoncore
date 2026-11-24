@@ -62,6 +62,9 @@ export function useUpdates(server: string | null, token: string | null | undefin
   useEffect(() => {
     if (!impl || !server) return;
     impl.otaConfigure(server, token ?? '');
+    // Check now: on a fresh install the native launch check had no server yet, and the next one
+    // would wait for the app to go to the background and come back.
+    impl.otaCheckNow();
   }, [impl, server, token]);
   useEffect(() => {
     if (!impl) return undefined;
